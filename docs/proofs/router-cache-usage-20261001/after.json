@@ -1,0 +1,2058 @@
+[
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "160488dae2d48e7e76f7e834efc20dcb02ceee88cfb7b0d031a521cf596a2c68",
+    "line": 1,
+    "responseBodySha256": "5ffb4797c67c682e6750e5b08f05cea1df4256037df6f3e9d8afe98297d9f422",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "160488dae2d48e7e76f7e834efc20dcb02ceee88cfb7b0d031a521cf596a2c68",
+    "line": 2,
+    "responseBodySha256": "e395284d6e3071fdbfbb930bc3e5cbef51d97068cd04fbce06a02adc8e0fa836",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3441,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "160488dae2d48e7e76f7e834efc20dcb02ceee88cfb7b0d031a521cf596a2c68",
+    "line": 3,
+    "responseBodySha256": "be8a9a8e7b5103b7ef0c4a9822786fadc2fb33c24870023ca53fbf7232b95f08",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 249,
+      "total_tokens": 251,
+      "cache_read_input_tokens": 3441,
+      "cache_creation_input_tokens": 489,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 489,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 489,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 249,
+      "cached": 3441,
+      "cacheWrite": 489
+    },
+    "after": {
+      "input": 2,
+      "output": 249,
+      "cached": 3441,
+      "cacheWrite": 489
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "line": 1,
+    "responseBodySha256": "dffa70ecb06c4c766f1ba7e1240a8f83000ab4ed778c9b24cd2690bc8103c239",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 898,
+      "completion_tokens": 13,
+      "total_tokens": 911,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "miss",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "line": 2,
+    "responseBodySha256": "1e2d8d18ace670defc22baa6b43a5c7312e5366b1350e53621aa8a13f7c457e0",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 80317,
+      "completion_tokens": 34,
+      "total_tokens": 80351,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 80314,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 80314,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 80314
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "line": 3,
+    "responseBodySha256": "de0329e33e1a92c0924ef23a4ad5976d11a4b0e22377fef2b5d8202cde1e73b6",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 81296,
+      "completion_tokens": 211,
+      "total_tokens": 81507,
+      "prompt_tokens_details": {
+        "cached_tokens": 80314,
+        "cache_write_tokens": 979,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 80314,
+        "write_tokens": 979,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.015034781,
+        "upstream_read_savings_usd": 0.01445652
+      }
+    },
+    "extracted": {
+      "input": 81296,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 80314
+    },
+    "after": {
+      "input": 81296,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 979
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "line": 4,
+    "responseBodySha256": "d9600b6fde6db30ce52f5084e9ab7d10e02b3aeddbb47d50f1f475bc9cbf1182",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:4",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 81534,
+      "completion_tokens": 79,
+      "total_tokens": 81613,
+      "prompt_tokens_details": {
+        "cached_tokens": 81293,
+        "cache_write_tokens": 238,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 81293,
+        "write_tokens": 238,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.01521805,
+        "upstream_read_savings_usd": 0.01463274
+      }
+    },
+    "extracted": {
+      "input": 81534,
+      "output": 79,
+      "reasoning": 0,
+      "cached": 81293
+    },
+    "after": {
+      "input": 81534,
+      "output": 79,
+      "reasoning": 0,
+      "cached": 81293,
+      "cacheWrite": 238
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "line": 1,
+    "responseBodySha256": "967776c543474ce8fe8178a00ced21f9cb7da209f404fd8fc176102ce21a65d2",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "line": 2,
+    "responseBodySha256": "c67ea8204ac56a7d7aa9c8bc1148718a12336a8669f9c9ca53dfa42408ee77a7",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3441,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "line": 3,
+    "responseBodySha256": "6afcf45bb6e8730d1e6cdb25c90138e4db0d3cedd2ff20cab46de817b9f24f41",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2189,
+      "completion_tokens": 64,
+      "total_tokens": 2253,
+      "prompt_tokens_details": {
+        "cached_tokens": 1864,
+        "cache_write_tokens": 322,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 1864,
+        "write_tokens": 322,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000348941,
+        "upstream_read_savings_usd": 0.00033552
+      }
+    },
+    "extracted": {
+      "input": 2189,
+      "output": 64,
+      "reasoning": 0,
+      "cached": 1864
+    },
+    "after": {
+      "input": 2189,
+      "output": 64,
+      "reasoning": 0,
+      "cached": 1864,
+      "cacheWrite": 322
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "0be379804f4da2582185cbba8685159e70e70c88e47c29193c1b1aea0bf9a82e",
+    "line": 1,
+    "responseBodySha256": "1ec7a046dbd91c58b6e274f02be201601bdad0ea432afdb9052cbb84fad51d37",
+    "callId": "sha256:094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_creation_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1853,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 1853,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cacheWrite": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 0,
+      "cacheWrite": 1853
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "0be379804f4da2582185cbba8685159e70e70c88e47c29193c1b1aea0bf9a82e",
+    "line": 2,
+    "responseBodySha256": "62d752621e658ffd14d1a3cb723cfdb42f96be98e754b6440d0d2163f1d56c22",
+    "callId": "sha256:094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 1853,
+      "cache_creation_input_tokens": 1588,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1588,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 1588,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 1853,
+      "cacheWrite": 1588
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 1853,
+      "cacheWrite": 1588
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "0be379804f4da2582185cbba8685159e70e70c88e47c29193c1b1aea0bf9a82e",
+    "line": 3,
+    "responseBodySha256": "e81fa6fb2a6a9b213b44f618fcba6df65407d5d01b0a855aa166bb2d2e64db1c",
+    "callId": "sha256:094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 249,
+      "total_tokens": 251,
+      "cache_read_input_tokens": 3441,
+      "cache_creation_input_tokens": 489,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 489,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 489,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 249,
+      "cached": 3441,
+      "cacheWrite": 489
+    },
+    "after": {
+      "input": 2,
+      "output": 249,
+      "cached": 3441,
+      "cacheWrite": 489
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "line": 1,
+    "responseBodySha256": "8f04593df5d71adfa225ca6d5bcedd474eb866821b445752614921e3becd56cc",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "line": 2,
+    "responseBodySha256": "c10eec0630f8baacb35f6114220d1c77faf99ad038b030dab5968c0c21143cfe",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3441,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "line": 3,
+    "responseBodySha256": "cb392cb9b49576035c2fdf7fa8ed67e578cd9f5b1a690268659c0d05ee419077",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 189,
+      "total_tokens": 191,
+      "cache_read_input_tokens": 3930,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3930,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.00735696,
+        "upstream_read_savings_usd": 0.007074
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 189,
+      "cached": 3930
+    },
+    "after": {
+      "input": 2,
+      "output": 189,
+      "cached": 3930,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "line": 1,
+    "responseBodySha256": "cdb50812676aa4449be6f6665929a1cd59b158a10669078fb73cd2a9bc46aa31",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 898,
+      "completion_tokens": 13,
+      "total_tokens": 911,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "miss",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "line": 2,
+    "responseBodySha256": "39bd4b38b972a0657f1335d36bf255c24c984829d95b550e4b34213eab95ce3f",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 80317,
+      "completion_tokens": 34,
+      "total_tokens": 80351,
+      "prompt_tokens_details": {
+        "cached_tokens": 80314,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 80314,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.015034781,
+        "upstream_read_savings_usd": 0.01445652
+      }
+    },
+    "extracted": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 80314
+    },
+    "after": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "line": 3,
+    "responseBodySha256": "1df1d6cda22231a0bccd86e92127a15e022c8a9d7a0a27d1eaae761737b095ea",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 81296,
+      "completion_tokens": 224,
+      "total_tokens": 81520,
+      "prompt_tokens_details": {
+        "cached_tokens": 80314,
+        "cache_write_tokens": 979,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 80314,
+        "write_tokens": 979,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.015034781,
+        "upstream_read_savings_usd": 0.01445652
+      }
+    },
+    "extracted": {
+      "input": 81296,
+      "output": 224,
+      "reasoning": 0,
+      "cached": 80314
+    },
+    "after": {
+      "input": 81296,
+      "output": 224,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 979
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "line": 4,
+    "responseBodySha256": "9d0d5eaa1e67fa6857c7b64404887546960943a3bb2a28c0025bf8324887ec2b",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:4",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 81547,
+      "completion_tokens": 82,
+      "total_tokens": 81629,
+      "prompt_tokens_details": {
+        "cached_tokens": 81293,
+        "cache_write_tokens": 251,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 81293,
+        "write_tokens": 251,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.01521805,
+        "upstream_read_savings_usd": 0.01463274
+      }
+    },
+    "extracted": {
+      "input": 81547,
+      "output": 82,
+      "reasoning": 0,
+      "cached": 81293
+    },
+    "after": {
+      "input": 81547,
+      "output": 82,
+      "reasoning": 0,
+      "cached": 81293,
+      "cacheWrite": 251
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "93e3b2e193078b4f0358eb98222db4d9fc13dd41d21dfba356f888785a44e4bd",
+    "line": 1,
+    "responseBodySha256": "c451e82a8d1c4e475eef8ce58ae366ce17180d1ba14db892f7707bfeae12ade0",
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "93e3b2e193078b4f0358eb98222db4d9fc13dd41d21dfba356f888785a44e4bd",
+    "line": 2,
+    "responseBodySha256": "57d179a270f1fa4dc7e570cb020313bad9ba8c75c859cdbb61911c113c3240a3",
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3441,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d34ce877c71aad4c20f55aacdfce4c02155c362a642c302e251b8182e0c32771",
+    "line": 1,
+    "responseBodySha256": "931f883caefe759d724458b00a084189a9be40941aaf969ffd7c0473ad04c7c8",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1853,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003468816,
+        "upstream_read_savings_usd": 0.0033354
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d34ce877c71aad4c20f55aacdfce4c02155c362a642c302e251b8182e0c32771",
+    "line": 2,
+    "responseBodySha256": "f12fa6dcdc6a2fc6988bb4251fe93dbbb262b437b6a0b0a0b1044ae2e552a61e",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3441,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d34ce877c71aad4c20f55aacdfce4c02155c362a642c302e251b8182e0c32771",
+    "line": 3,
+    "responseBodySha256": "18111613448ba4fc2a24da5ac02b9e38551dec699203f62be805e47717223597",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 172,
+      "total_tokens": 174,
+      "cache_read_input_tokens": 3441,
+      "cache_creation_input_tokens": 489,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 489,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3441,
+        "write_tokens": 0,
+        "write_5m_tokens": 489,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006441552,
+        "upstream_read_savings_usd": 0.0061938
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 172,
+      "cached": 3441,
+      "cacheWrite": 489
+    },
+    "after": {
+      "input": 2,
+      "output": 172,
+      "cached": 3441,
+      "cacheWrite": 489
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "37977d469838d8bcc39668a317060af0f9de79a2a58573429dac63273c49d258",
+    "line": 1,
+    "responseBodySha256": "cb53055ee715384c8dc39244bfbf0c4ad9c4ed63ce1ad41ffb1d70a697829b33",
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 898,
+      "completion_tokens": 13,
+      "total_tokens": 911,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "miss",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b643a423a7ad37b10f57c74c6c67938822a6096ad621c790c729bbbd7333575e",
+    "line": 1,
+    "responseBodySha256": "33367535178e40122d2862e27f50cb4af6110f63b239afbf8732b9dea859807c",
+    "callId": "sha256:094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_creation_input_tokens": 1853,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1853,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 1853,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cacheWrite": 1853
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 0,
+      "cacheWrite": 1853
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "9c39539bfc3c3a7fbefa3e48e6ef1f6c3aa088037b5f9e8e492f17166a6ea8e1",
+    "line": 1,
+    "responseBodySha256": "d3186ddccce2e6608a2171a21d1818f502436b42798975a61a4aa0b895d8460e",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1953,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1953,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003656016,
+        "upstream_read_savings_usd": 0.0035154
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "9c39539bfc3c3a7fbefa3e48e6ef1f6c3aa088037b5f9e8e492f17166a6ea8e1",
+    "line": 2,
+    "responseBodySha256": "7f1e99de1df61f8be1e35495789a40ac34d40ab312cc38d9df18d88804e3d9f7",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3541,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3541,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006628752,
+        "upstream_read_savings_usd": 0.0063738
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "9c39539bfc3c3a7fbefa3e48e6ef1f6c3aa088037b5f9e8e492f17166a6ea8e1",
+    "line": 3,
+    "responseBodySha256": "d207fcf0501cc00db2709936d242117190d7c3496f47b7eb199859e49e5bd839",
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 192,
+      "total_tokens": 194,
+      "cache_read_input_tokens": 3541,
+      "cache_creation_input_tokens": 489,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 489,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3541,
+        "write_tokens": 0,
+        "write_5m_tokens": 489,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006628752,
+        "upstream_read_savings_usd": 0.0063738
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 192,
+      "cached": 3541,
+      "cacheWrite": 489
+    },
+    "after": {
+      "input": 2,
+      "output": 192,
+      "cached": 3541,
+      "cacheWrite": 489
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "line": 1,
+    "responseBodySha256": "4550a73bbbf7de71bb544e90132d165357e82f4b4c5d1ea5f2ac0053b9185377",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 952,
+      "completion_tokens": 24,
+      "total_tokens": 976,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "miss",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "line": 2,
+    "responseBodySha256": "42e71ab2533cdb756e9988ad4a6fa92146122f7ee0766d27489165a5cd2c5a0d",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 1061,
+      "completion_tokens": 34,
+      "total_tokens": 1095,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 1058,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 1058,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 1058
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "line": 3,
+    "responseBodySha256": "3fb02252a46960984e8d8e7c2c4d7085ddaa5f7e9e830de60120fa2a0d05d47b",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2040,
+      "completion_tokens": 211,
+      "total_tokens": 2251,
+      "prompt_tokens_details": {
+        "cached_tokens": 1058,
+        "cache_write_tokens": 979,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 1058,
+        "write_tokens": 979,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000198058,
+        "upstream_read_savings_usd": 0.00019044
+      }
+    },
+    "extracted": {
+      "input": 2040,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 1058
+    },
+    "after": {
+      "input": 2040,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 1058,
+      "cacheWrite": 979
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "line": 4,
+    "responseBodySha256": "2161a1a2f1a4ad01e0a18a1b311f0d7e63b83ced6d171c6ee45c28436229f709",
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2278,
+      "completion_tokens": 106,
+      "total_tokens": 2384,
+      "prompt_tokens_details": {
+        "cached_tokens": 2037,
+        "cache_write_tokens": 238,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 2037,
+        "write_tokens": 238,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000381326,
+        "upstream_read_savings_usd": 0.00036666
+      }
+    },
+    "extracted": {
+      "input": 2278,
+      "output": 106,
+      "reasoning": 0,
+      "cached": 2037
+    },
+    "after": {
+      "input": 2278,
+      "output": 106,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 238
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d75114455b63d2653382960604f1f35315327ee5ad891092c8364cb461855ddc",
+    "line": 1,
+    "responseBodySha256": "afcf15267e342fd8108796b626be242176dccca4142b1683816e9a62699a92b6",
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_read_input_tokens": 1953,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1953,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003656016,
+        "upstream_read_savings_usd": 0.0035154
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d75114455b63d2653382960604f1f35315327ee5ad891092c8364cb461855ddc",
+    "line": 2,
+    "responseBodySha256": "1f8eedb9b077dffb731a272d9c79e11010a5011b857106d5a153f7a55891e0a5",
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 3541,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3541,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006628752,
+        "upstream_read_savings_usd": 0.0063738
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d75114455b63d2653382960604f1f35315327ee5ad891092c8364cb461855ddc",
+    "line": 3,
+    "responseBodySha256": "451351b5fed2869ec71624ca9547f75be7b95043723358a41906c5963fc59853",
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 217,
+      "total_tokens": 219,
+      "cache_read_input_tokens": 3541,
+      "cache_creation_input_tokens": 489,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 489,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 3541,
+        "write_tokens": 0,
+        "write_5m_tokens": 489,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.006628752,
+        "upstream_read_savings_usd": 0.0063738
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 217,
+      "cached": 3541,
+      "cacheWrite": 489
+    },
+    "after": {
+      "input": 2,
+      "output": 217,
+      "cached": 3541,
+      "cacheWrite": 489
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "4b02cc31ca4927fc8dc4a47bb4889d5992f0969cad0a1d97225c024f7d4c09ae",
+    "line": 1,
+    "responseBodySha256": "96cd45e27b09a3c18f996c6670e98f9034409c0cd2924d56cbf744ead8f6b86f",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_creation_input_tokens": 1953,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1953,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 1953,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cacheWrite": 1953
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 0,
+      "cacheWrite": 1953
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "4b02cc31ca4927fc8dc4a47bb4889d5992f0969cad0a1d97225c024f7d4c09ae",
+    "line": 2,
+    "responseBodySha256": "9e765da16d57a20d828f007b29c19e8b7cb6191621ce51cb525a107d82d392da",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 2,
+      "completion_tokens": 455,
+      "total_tokens": 457,
+      "cache_read_input_tokens": 1953,
+      "cache_creation_input_tokens": 1588,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1588,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 1953,
+        "write_tokens": 0,
+        "write_5m_tokens": 1588,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.003656016,
+        "upstream_read_savings_usd": 0.0035154
+      }
+    },
+    "extracted": {
+      "input": 2,
+      "output": 455,
+      "cached": 1953,
+      "cacheWrite": 1588
+    },
+    "after": {
+      "input": 2,
+      "output": 455,
+      "cached": 1953,
+      "cacheWrite": 1588
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "4b02cc31ca4927fc8dc4a47bb4889d5992f0969cad0a1d97225c024f7d4c09ae",
+    "line": 3,
+    "responseBodySha256": "9bb60091888da1b2ef5d5464990f46fd206f240db93ac28ee5311a64a28b8a64",
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2243,
+      "completion_tokens": 76,
+      "total_tokens": 2319,
+      "prompt_tokens_details": {
+        "cached_tokens": 1918,
+        "cache_write_tokens": 322,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 1918,
+        "write_tokens": 322,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.00035905,
+        "upstream_read_savings_usd": 0.00034524
+      }
+    },
+    "extracted": {
+      "input": 2243,
+      "output": 76,
+      "reasoning": 0,
+      "cached": 1918
+    },
+    "after": {
+      "input": 2243,
+      "output": 76,
+      "reasoning": 0,
+      "cached": 1918,
+      "cacheWrite": 322
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "line": 1,
+    "responseBodySha256": "5778837b98472d1aa3a8df51c6b9b740145ae29495ffe2714bf01fa1f5505932",
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 952,
+      "completion_tokens": 24,
+      "total_tokens": 976,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "miss",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0
+    },
+    "after": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "line": 2,
+    "responseBodySha256": "5601cfeb8f0eebe0f6d0c9ce40fafeafff1296bc557e83282dd998e550222040",
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 1061,
+      "completion_tokens": 34,
+      "total_tokens": 1095,
+      "prompt_tokens_details": {
+        "cached_tokens": 1058,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 1058,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000198058,
+        "upstream_read_savings_usd": 0.00019044
+      }
+    },
+    "extracted": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 1058
+    },
+    "after": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 1058,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "line": 3,
+    "responseBodySha256": "9d83c541d9e78d0f9b0e1641c372c0455998abe8c6e6e070d69d9f856ea8da1f",
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2040,
+      "completion_tokens": 226,
+      "total_tokens": 2266,
+      "prompt_tokens_details": {
+        "cached_tokens": 2037,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 2037,
+        "write_tokens": 0,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000381326,
+        "upstream_read_savings_usd": 0.00036666
+      }
+    },
+    "extracted": {
+      "input": 2040,
+      "output": 226,
+      "reasoning": 0,
+      "cached": 2037
+    },
+    "after": {
+      "input": 2040,
+      "output": 226,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 0
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "line": 4,
+    "responseBodySha256": "d22a32950f94b703f4c1af2784af76bc893ab39fafabf349b7385c75d10201f8",
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
+    "status": 200,
+    "model": "gpt-5.6-luna",
+    "rawUsage": {
+      "prompt_tokens": 2293,
+      "completion_tokens": 88,
+      "total_tokens": 2381,
+      "prompt_tokens_details": {
+        "cached_tokens": 2037,
+        "cache_write_tokens": 253,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "read_write",
+        "provider": "openai",
+        "request_mode": "openai_prompt_cache_key",
+        "read_tokens": 2037,
+        "write_tokens": 253,
+        "write_5m_tokens": 0,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0.000381326,
+        "upstream_read_savings_usd": 0.00036666
+      }
+    },
+    "extracted": {
+      "input": 2293,
+      "output": 88,
+      "reasoning": 0,
+      "cached": 2037
+    },
+    "after": {
+      "input": 2293,
+      "output": 88,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 253
+    }
+  },
+  {
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "ab8ab910375fdfa9a78c02ce03890bab1abacac2effe6bdf24c19734128e8ffb",
+    "line": 1,
+    "responseBodySha256": "c3764b7f490ced0d5b1790aa06af2d4d93e67611df653c1911d22412ccb85247",
+    "callId": "sha256:094c5d6e654fd0fa766bbe5db6d1a1fe213bdbab4a4f14ae434986c5c4d0d751:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "status": 200,
+    "model": "claude-sonnet-5",
+    "rawUsage": {
+      "prompt_tokens": 1,
+      "completion_tokens": 64,
+      "total_tokens": 65,
+      "cache_creation_input_tokens": 1953,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 1953,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "prompt_cache": {
+        "enabled": true,
+        "status": "write",
+        "provider": "anthropic",
+        "request_mode": "anthropic_cache_control",
+        "read_tokens": 0,
+        "write_tokens": 0,
+        "write_5m_tokens": 1953,
+        "write_1h_tokens": 0,
+        "read_savings_usd": 0,
+        "upstream_read_savings_usd": 0
+      }
+    },
+    "extracted": {
+      "input": 1,
+      "output": 64,
+      "cacheWrite": 1953
+    },
+    "after": {
+      "input": 1,
+      "output": 64,
+      "cached": 0,
+      "cacheWrite": 1953
+    }
+  }
+]

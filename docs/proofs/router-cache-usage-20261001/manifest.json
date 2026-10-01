@@ -1,0 +1,32 @@
+{
+  "schema": "agent-eval.usage-proof.manifest.v1",
+  "files": [
+    {
+      "file": "after.json",
+      "bytes": 68696,
+      "sha256": "4015229a91eb49b89d8fb546372a0e0384dcffd4855a32162f59df2fc25e7246"
+    },
+    {
+      "file": "component-projections.json",
+      "bytes": 25504,
+      "sha256": "c8cdc6c5548b2f9cbc7e04eef1c76daaa0ea4bc900037196dc861123080d67b8"
+    },
+    {
+      "file": "component-projections.nested-only.json",
+      "bytes": 8859,
+      "sha256": "a062bd32bfd800559b3d4d19424369e35e3cbb8fcbfc49a0f3cc2a164c54132d"
+    },
+    {
+      "file": "summary.json",
+      "bytes": 2241,
+      "sha256": "ad85993e2470098d125bc36ca4fc433f5795bf3643fee3668ca4c767489f5d73"
+    },
+    {
+      "file": "summary.nested-only.json",
+      "bytes": 1359,
+      "sha256": "acd477c4b2c7968dad7cc6cb5dd4b05a493fbb4a2ed96cd6bda60a8d58981700"
+    }
+  ],
+  "privateOriginals": "/mnt/traces/eval-router-cache-usage-20261001",
+  "modelInference": false
+}

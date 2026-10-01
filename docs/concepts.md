@@ -154,6 +154,14 @@ that can seed memory, replay scenarios, and optimization.
 | **Provenance** | Where a number came from: the package version, the source revision, the run identity, the exact attempt. |
 | **`RunRecord`** | The analysis-time projection of one run: who ran, on what, with which seed, at what cost, and what it scored. |
 
+### Read provider usage
+
+Use the public `extractUsage` reader for retained provider response bodies.
+It preserves reported cache reads and writes, including Router prompt details and `prompt_cache` fields.
+An explicit cache zero remains zero; an absent cache component remains omitted.
+The reader does not establish complete physical-call coverage or authoritative billing.
+Keep raw usage and its source identity beside the projection.
+
 ### Improving a surface
 
 | Term | Plain English |

@@ -1,0 +1,49 @@
+{
+  "schema": "agent-eval.real-usage-replay.v1",
+  "sourceRevision": "443abdf0 plus minimal usage-reader change",
+  "before": {
+    "file": "/home/drew/webb/_wt/lab-evidence-unified/node_modules/.pnpm/@tangle-network+agent-eval@0.203.0/node_modules/@tangle-network/agent-eval/dist/index.js",
+    "sha256": "ca8daec8e5c02f31f98142210a8e00c6c48552ffd4e577538fd730a4edfd59a9"
+  },
+  "afterModule": {
+    "file": "/home/drew/code/_wt/eval-router-cache-usage-20261001/dist/index.js",
+    "sha256": "1dde3ce40faf7cff852a3b46eddb2a9f9a5bc4f48deea05ebc3dcb66bba41cb3"
+  },
+  "realResponses": 45,
+  "missingCacheWritesBefore": 34,
+  "missingCacheWritesAfter": 0,
+  "existingComponentsPreserved": true,
+  "componentProjectionControls": 34,
+  "modelInference": false,
+  "scientificUnits": 0,
+  "coverageLimit": "These45 actual responses exercise both newly supported shapes, including23 explicit zero and11 positive cache-write values. Missing cache components remain omitted. Replay cannot establish full physical-call coverage or billing.",
+  "realExplicitNestedCacheWrites": 19,
+  "newlyPreservedCacheWrites": 34,
+  "newlyPreservedZeroCacheWrites": 23,
+  "newlyPreservedPositiveCacheWrites": 11,
+  "promptCacheOnlyNewComponents": 15,
+  "amendment": {
+    "originalSummarySha256": "e055d668b819c577978c1cecdb8d8836adc34cc7776a10a5a59be27d12024ed8",
+    "cause": "Original summary selected nested details only. Its19 count excluded15 prompt_cache-only responses; its positive-unobserved statement did not describe the full population. Raw inputs and before/after projections remain unchanged.",
+    "nestedDetails": {
+      "newComponents": 19,
+      "zero": 19,
+      "positive": 0
+    },
+    "promptCacheOnly": {
+      "newComponents": 15,
+      "zero": 4,
+      "positive": 11
+    },
+    "reviewInstrument": "/mnt/traces/discovery-issue-review-20261001/eval906-independent-replay.mjs",
+    "reviewProof": "/mnt/traces/discovery-issue-review-20261001/eval906-frozen-proof"
+  },
+  "sourceSha256": "a3a8b6ed7a0fb815dc73a03f59b662a8a3fd4ecc0e45caea819e808b080c38f4",
+  "sourceBaseRevision": "443abdf0",
+  "checks": {
+    "build": "passed",
+    "typecheck": "passed",
+    "verifyPackage": "passed",
+    "unitTests": "not run per task instruction"
+  }
+}
