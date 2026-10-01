@@ -8,11 +8,21 @@
     },
     {
       "file": "component-projections.json",
+      "bytes": 25504,
+      "sha256": "c8cdc6c5548b2f9cbc7e04eef1c76daaa0ea4bc900037196dc861123080d67b8"
+    },
+    {
+      "file": "component-projections.nested-only.json",
       "bytes": 8859,
       "sha256": "a062bd32bfd800559b3d4d19424369e35e3cbb8fcbfc49a0f3cc2a164c54132d"
     },
     {
       "file": "summary.json",
+      "bytes": 2274,
+      "sha256": "0097f1cb905af14a94e81a44382db388d0318c258543f68492d77a69bafc7c03"
+    },
+    {
+      "file": "summary.nested-only.json",
       "bytes": 1359,
       "sha256": "acd477c4b2c7968dad7cc6cb5dd4b05a493fbb4a2ed96cd6bda60a8d58981700"
     }

@@ -11,13 +11,34 @@
   },
   "realResponses": 45,
   "realExplicitCacheWrites": 19,
-  "missingCacheWritesBefore": 19,
+  "missingCacheWritesBefore": 34,
   "missingCacheWritesAfter": 0,
   "existingComponentsPreserved": true,
-  "componentProjectionControls": 19,
+  "componentProjectionControls": 34,
   "modelInference": false,
   "scientificUnits": 0,
-  "coverageLimit": "All newly handled cache-write values in these retained Router responses are explicit zero. Positive counts from these aliases remain unobserved; existing Anthropic counters are unchanged. Replay cannot establish full physical-call coverage or billing.",
+  "coverageLimit": "These45 actual responses exercise both newly supported shapes, including23 explicit zero and11 positive cache-write values. Missing cache components remain omitted. Replay cannot establish full physical-call coverage or billing.",
+  "realExplicitNestedCacheWrites": 19,
+  "newlyPreservedCacheWrites": 34,
+  "newlyPreservedZeroCacheWrites": 23,
+  "newlyPreservedPositiveCacheWrites": 11,
+  "promptCacheOnlyNewComponents": 15,
+  "amendment": {
+    "originalSummarySha256": "e055d668b819c577978c1cecdb8d8836adc34cc7776a10a5a59be27d12024ed8",
+    "cause": "Original summary selected nested details only. Its19 count excluded15 prompt_cache-only responses; its positive-unobserved statement did not describe the full population. Raw inputs and before/after projections remain unchanged.",
+    "nestedDetails": {
+      "newComponents": 19,
+      "zero": 19,
+      "positive": 0
+    },
+    "promptCacheOnly": {
+      "newComponents": 15,
+      "zero": 4,
+      "positive": 11
+    },
+    "reviewInstrument": "/mnt/traces/discovery-issue-review-20261001/eval906-independent-replay.mjs",
+    "reviewProof": "/mnt/traces/discovery-issue-review-20261001/eval906-frozen-proof"
+  },
   "sourceSha256": "a3a8b6ed7a0fb815dc73a03f59b662a8a3fd4ecc0e45caea819e808b080c38f4",
   "sourceBaseRevision": "443abdf0",
   "checks": {

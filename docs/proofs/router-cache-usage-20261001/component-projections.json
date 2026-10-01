@@ -1,7 +1,41 @@
 [
   {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "160488dae2d48e7e76f7e834efc20dcb02ceee88cfb7b0d031a521cf596a2c68",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "160488dae2d48e7e76f7e834efc20dcb02ceee88cfb7b0d031a521cf596a2c68",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 898,
       "output": 13,
@@ -17,7 +51,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 80317,
       "output": 34,
@@ -33,7 +69,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 81296,
       "output": 211,
@@ -49,7 +87,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:4",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "b7a6765fecba0f6efd6d6fd2ea62d40b6ada8cde2570345af3a99ffd14a140da",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 81534,
       "output": 79,
@@ -64,8 +104,42 @@
     }
   },
   {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
     "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r2/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "290cf83c38a81952f4eeaf50743a36f76e185dcd309118fb7a016a5fe49757b5",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2189,
       "output": 64,
@@ -80,8 +154,58 @@
     }
   },
   {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "1661dfd4b429c08c830bfec56ecaf8d28ff78ff1aef613ef218268dff6de615b",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 189,
+      "cached": 3930,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 189
+    }
+  },
+  {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 898,
       "output": 13,
@@ -97,7 +221,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 80317,
       "output": 34,
@@ -113,7 +239,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 81296,
       "output": 224,
@@ -129,7 +257,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:4",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "701d43ca999ccc34a7608a7d657ebe072f74e65c174d01ee45b7a240ee00d9d2",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 81547,
       "output": 82,
@@ -144,8 +274,74 @@
     }
   },
   {
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "93e3b2e193078b4f0358eb98222db4d9fc13dd41d21dfba356f888785a44e4bd",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "93e3b2e193078b4f0358eb98222db4d9fc13dd41d21dfba356f888785a44e4bd",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d34ce877c71aad4c20f55aacdfce4c02155c362a642c302e251b8182e0c32771",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1853,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d34ce877c71aad4c20f55aacdfce4c02155c362a642c302e251b8182e0c32771",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3441,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
     "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r3/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "37977d469838d8bcc39668a317060af0f9de79a2a58573429dac63273c49d258",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 898,
       "output": 13,
@@ -160,8 +356,42 @@
     }
   },
   {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "9c39539bfc3c3a7fbefa3e48e6ef1f6c3aa088037b5f9e8e492f17166a6ea8e1",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_7a3b81dd3732cdbb5a7acece03e665b38cb8e9638c2771168220bc466698c4a0_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "9c39539bfc3c3a7fbefa3e48e6ef1f6c3aa088037b5f9e8e492f17166a6ea8e1",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 952,
       "output": 24,
@@ -177,7 +407,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 1061,
       "output": 34,
@@ -193,7 +425,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2040,
       "output": 211,
@@ -209,7 +443,9 @@
   },
   {
     "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "618b966a16572a1434586c5b74fb74a730975851487f3f569480a4df8c5421e7",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2278,
       "output": 106,
@@ -224,8 +460,42 @@
     }
   },
   {
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d75114455b63d2653382960604f1f35315327ee5ad891092c8364cb461855ddc",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1,
+      "output": 64,
+      "cached": 1953,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1,
+      "output": 64
+    }
+  },
+  {
+    "callId": "sha256:82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_82973461e953bc7c013ef309fd82fb7603d7e367afc0066c111eacfa573e88d1_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "d75114455b63d2653382960604f1f35315327ee5ad891092c8364cb461855ddc",
+    "kind": "Only recorded cache component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2,
+      "output": 455,
+      "cached": 3541,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2,
+      "output": 455
+    }
+  },
+  {
     "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "4b02cc31ca4927fc8dc4a47bb4889d5992f0969cad0a1d97225c024f7d4c09ae",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2243,
       "output": 76,
@@ -241,7 +511,9 @@
   },
   {
     "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 952,
       "output": 24,
@@ -257,7 +529,9 @@
   },
   {
     "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 1061,
       "output": 34,
@@ -273,7 +547,9 @@
   },
   {
     "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2040,
       "output": 226,
@@ -289,7 +565,9 @@
   },
   {
     "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
-    "kind": "Only recorded component fields removed; no invented values.",
+    "source": "/mnt/traces/autoroute-native-development-20261001-r4/measurement/measurement/sha256_5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31_0/candidate/evidence/provider-responses.jsonl",
+    "sourceSha256": "e9a46644b152b97ccde9e86d3c5baef0005bbce7bab6ef359b98274fea0817ce",
+    "kind": "Only recorded cache component fields removed; no invented values.",
     "promptCacheFallback": {
       "input": 2293,
       "output": 88,
