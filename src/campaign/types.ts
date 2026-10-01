@@ -479,7 +479,8 @@ export interface TraceSpan {
 }
 
 /** Scoped artifact writer — `write(path, content)` lands under
- *  `<runDir>/<cellId>/<path>`. */
+ *  the execution attempt's artifacts directory. Returned paths identify
+ *  that attempt; retries and resumed runs never replace previous attempts. */
 export interface CampaignArtifactWriter {
   write(path: string, content: string | Uint8Array): Promise<string>
   writeJson(path: string, value: unknown): Promise<string>
@@ -615,6 +616,8 @@ export interface CampaignCellResult<TArtifact> {
    *  whose manifest differs from the current run. */
   manifestHash?: string
   cellId: string
+  /** Exact execution attempt; absent only on historical cached records. */
+  attempt?: { runAttemptId: string; number: number }
   scenarioId: string
   rep: number
   generation?: number
@@ -641,7 +644,7 @@ export interface CampaignCellResult<TArtifact> {
   cached: boolean
   /** Failed attempts dispatched before this result under `cellRetry`.
    *  Missing when the first attempt produced this result. Each earlier
-   *  attempt keeps its own `<cell>/failure-receipt.attempt-<n>.json`. */
+   *  attempt keeps its own artifacts, trace, result, and failure receipt. */
   retryAttempts?: number
   /** Stage that produced `error`. Missing on successful cells. */
   errorStage?: 'dispatch' | 'judge'

@@ -5,7 +5,7 @@
  * everything that happens inside a single cell.
  */
 
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { CostAccountingIncompleteError, type CostLedgerHandle } from '../cost-ledger'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import {
@@ -16,7 +16,7 @@ import {
   readCachedCell,
   withCurrentAgentModelEvidence,
 } from './cell-cache'
-import { cellDirectory, stableCostTagsFor } from './cell-schedule'
+import { cellAttemptDirectory, cellDirectory, stableCostTagsFor } from './cell-schedule'
 import { runJudgeCell } from './judge-cell'
 import type {
   CampaignCellFailureReceipt,
@@ -81,6 +81,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   storage.ensureDir(cellDir)
   const stableCostTags = stableCostTagsFor(args.opts, args.slot)
   const costTags = { ...stableCostTags, runAttemptId: args.runAttemptId }
+  const attemptCostTags = { ...costTags, attemptNumber: String(args.attempt) }
 
   // Resumability: cache key = (manifestHash, scenarioId, rep)
   const cachePath = join(cellDir, 'cached-result.json')
@@ -118,15 +119,52 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   const startMs = Date.now()
-  const trace = args.buildTraceWriter(args.slot.cellId, cellDir)
+  const attempt = { runAttemptId: args.runAttemptId, number: args.attempt }
+  const attemptDir = cellAttemptDirectory(cellDir, attempt)
+  const artifactDir = join(attemptDir, 'artifacts')
+  const traceDir = join(attemptDir, 'trace')
+  storage.ensureDir(artifactDir)
+  storage.ensureDir(traceDir)
+  const attemptPrefix = relative(cellDir, attemptDir).split(sep).join('/')
   const artifactsByPath: Record<string, string> = {}
+  const identityPath = join(attemptDir, 'identity.json')
+  storage.write(
+    identityPath,
+    JSON.stringify(
+      {
+        ...attempt,
+        manifestHash: args.manifestHash,
+        cellId: args.slot.cellId,
+        scenarioId: args.slot.scenario.id,
+        rep: args.slot.rep,
+        seed: args.slot.cellSeed,
+        startedAt: args.now().toISOString(),
+      },
+      null,
+      2,
+    ),
+  )
+  artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/identity.json`] = identityPath
+  storage.write(join(cellDir, 'latest-attempt.json'), JSON.stringify(attempt))
+  const trace = args.buildTraceWriter(args.slot.cellId, traceDir)
   let paidCallStarted = false
   const artifacts: CampaignArtifactWriter = {
     async write(path, content) {
-      const fullPath = join(cellDir, path)
+      const fullPath = resolve(artifactDir, path)
+      const artifactPath = relative(artifactDir, fullPath)
+      if (
+        !artifactPath ||
+        artifactPath === '..' ||
+        artifactPath.startsWith('..' + sep) ||
+        isAbsolute(artifactPath)
+      ) {
+        throw new Error('Artifact path must remain inside this execution attempt')
+      }
       storage.ensureDir(join(fullPath, '..'))
       storage.write(fullPath, content)
-      artifactsByPath[`${args.slot.cellId}/${path}`] = fullPath
+      artifactsByPath[
+        `${args.slot.cellId}/${attemptPrefix}/artifacts/${artifactPath.split(sep).join('/')}`
+      ] = fullPath
       return fullPath
     },
     async writeJson(path, value) {
@@ -141,7 +179,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
         channel: input.channel ?? 'agent',
         phase: args.costPhase,
         actor: input.actor,
-        tags: costTags,
+        tags: attemptCostTags,
         signal: cellAbort.signal,
       })
       if (result.receipt) {
@@ -302,7 +340,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
           signal: args.signal,
           costLedger: args.costLedger,
           costPhase: args.costPhase,
-          costTags,
+          costTags: attemptCostTags,
         })
         judgeScores[judge.name] = score
       } catch (err) {
@@ -330,6 +368,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
 
   const cell: CampaignCellResult<TArtifact> = {
     manifestHash: args.manifestHash,
+    attempt,
     cellId: args.slot.cellId,
     scenarioId: args.slot.scenario.id,
     rep: args.slot.rep,
@@ -363,9 +402,8 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       cell,
       cost: args.costLedger.summary({ phase: args.costPhase, tags: costTags }),
     }
-    // The retry decision is made where the receipt is written so the receipt
-    // name records it: a retried attempt keeps its evidence at
-    // `failure-receipt.attempt-<n>.json` and never fires `onFailure` — a
+    // A retried attempt keeps its evidence in its own execution directory
+    // and never fires `onFailure` — a
     // retryable failure is not a campaign error until attempts are exhausted.
     // A cancelled campaign and a fatal accounting error are never retried.
     retry =
@@ -374,16 +412,16 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       !args.signal.aborted &&
       fatalCellError === undefined &&
       args.cellRetry.retryable(receipt.failure)
-    const receiptName = retry
-      ? `failure-receipt.attempt-${args.attempt}.json`
-      : 'failure-receipt.json'
-    const failurePath = join(cellDir, receiptName)
+    const failurePath = join(attemptDir, 'failure-receipt.json')
     storage.write(failurePath, JSON.stringify(receipt, null, 2))
-    artifactsByPath[`${args.slot.cellId}/${receiptName}`] = failurePath
+    artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/failure-receipt.json`] = failurePath
     if (!retry) args.onFailure?.(failure)
   }
 
   await trace.flush()
+  const resultPath = join(attemptDir, 'result.json')
+  storage.write(resultPath, JSON.stringify(cell))
+  artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/result.json`] = resultPath
 
   if (!errorMessage && args.resumable) {
     storage.write(cachePath, JSON.stringify(cell))

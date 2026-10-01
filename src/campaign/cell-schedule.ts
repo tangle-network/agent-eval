@@ -48,6 +48,19 @@ export function cellDirectory(runDir: string, cellId: string): string {
   return join(runDir, cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
 }
 
+export function cellAttemptDirectory(
+  cellDir: string,
+  attempt: { runAttemptId: string; number: number },
+): string {
+  if (
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(attempt.runAttemptId) ||
+    !Number.isSafeInteger(attempt.number) ||
+    attempt.number < 1
+  )
+    throw new Error('Invalid campaign attempt identity')
+  return join(cellDir, 'attempts', attempt.runAttemptId, `attempt-${attempt.number}`)
+}
+
 export function cellCachePath(runDir: string, cellId: string): string {
   return join(cellDirectory(runDir, cellId), 'cached-result.json')
 }

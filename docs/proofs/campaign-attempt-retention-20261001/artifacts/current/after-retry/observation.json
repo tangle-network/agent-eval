@@ -1,0 +1,514 @@
+{
+  "invocations": 2,
+  "observed": [
+    {
+      "invocation": 1,
+      "path": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/artifacts/captured-response.json",
+      "sha256": "0b87b7e969e1233f4927f091369327480e998e28ac98bbe97a69423bd282fdac",
+      "value": {
+        "cellId": "capture-retention:0",
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "invocation": 1,
+        "content": "Actual filesystem capture from invocation 1"
+      }
+    },
+    {
+      "invocation": 2,
+      "path": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/artifacts/captured-response.json",
+      "sha256": "74e46c137ea0c465395cd01a36465b52cc5658161344233e62d8bfbbc7b6ebd0",
+      "value": {
+        "cellId": "capture-retention:0",
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "invocation": 2,
+        "content": "Actual filesystem capture from invocation 2"
+      }
+    }
+  ],
+  "attempts": [
+    {
+      "identity": {
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "number": 1,
+        "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": 0,
+        "seed": 42,
+        "startedAt": "2026-10-01T17:12:40.120Z"
+      },
+      "result": {
+        "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+        "attempt": {
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "number": 1
+        },
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": 0,
+        "artifact": null,
+        "judgeScores": {},
+        "costUsd": 0,
+        "costProvenance": {
+          "kind": "estimated",
+          "usd": 0
+        },
+        "costCallIds": [
+          "c26674f7-275c-4c6c-aceb-8516c1eff8e9"
+        ],
+        "tokenUsage": {
+          "input": 0,
+          "output": 0
+        },
+        "resolvedModels": [
+          "not-an-inference"
+        ],
+        "resolvedModel": "not-an-inference",
+        "durationMs": 6,
+        "seed": 42,
+        "cached": false,
+        "errorStage": "dispatch",
+        "error": "Operational interruption after native artifact capture"
+      },
+      "trace": [
+        {
+          "name": "native.callback.capture",
+          "cellId": "capture-retention:0",
+          "startMs": 1790874760121,
+          "invocation": 1,
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "durationMs": 0
+        },
+        {
+          "name": "cost.operational-file-read",
+          "cellId": "capture-retention:0",
+          "startMs": 1790874760125,
+          "amountUsd": 0,
+          "durationMs": 0
+        }
+      ],
+      "path": "after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1"
+    },
+    {
+      "identity": {
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "number": 2,
+        "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": 0,
+        "seed": 42,
+        "startedAt": "2026-10-01T17:12:40.126Z"
+      },
+      "result": {
+        "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+        "attempt": {
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "number": 2
+        },
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": 0,
+        "artifact": {
+          "cellId": "capture-retention:0",
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "invocation": 2,
+          "content": "Actual filesystem capture from invocation 2"
+        },
+        "judgeScores": {},
+        "costUsd": 0,
+        "costProvenance": {
+          "kind": "estimated",
+          "usd": 0
+        },
+        "costCallIds": [
+          "a409cf65-dba3-4dbd-b9b4-826f8ddd0c67",
+          "c26674f7-275c-4c6c-aceb-8516c1eff8e9"
+        ],
+        "tokenUsage": {
+          "input": 0,
+          "output": 0
+        },
+        "resolvedModels": [
+          "not-an-inference"
+        ],
+        "resolvedModel": "not-an-inference",
+        "durationMs": 1,
+        "seed": 42,
+        "cached": false,
+        "retryAttempts": 1
+      },
+      "trace": [
+        {
+          "name": "native.callback.capture",
+          "cellId": "capture-retention:0",
+          "startMs": 1790874760126,
+          "invocation": 2,
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "durationMs": 0
+        },
+        {
+          "name": "cost.operational-file-read",
+          "cellId": "capture-retention:0",
+          "startMs": 1790874760127,
+          "amountUsd": 0,
+          "durationMs": 0
+        }
+      ],
+      "path": "after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2"
+    }
+  ],
+  "receipt": {
+    "schemaVersion": 1,
+    "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+    "recordedAt": "2026-10-01T17:12:40.126Z",
+    "failure": {
+      "stage": "dispatch",
+      "error": {
+        "name": "Error",
+        "message": "Operational interruption after native artifact capture",
+        "stack": "Error: Operational interruption after native artifact capture\n    at Object.dispatch (file:///mnt/traces/eval-attempt-artifacts-20261001-r2/qualify.mjs:36:33)\n    at async executeCell (file:///home/drew/code/_wt/eval-router-cache-usage-20261001/dist/llm-judge-DyZdrp6I.js:491:19)\n    at async file:///home/drew/code/_wt/eval-router-cache-usage-20261001/dist/llm-judge-DyZdrp6I.js:923:15\n    at async Promise.allSettled (index 0)\n    at async runCampaign (file:///home/drew/code/_wt/eval-router-cache-usage-20261001/dist/llm-judge-DyZdrp6I.js:970:22)\n    at async qualify (file:///mnt/traces/eval-attempt-artifacts-20261001-r2/qualify.mjs:40:38)\n    at async file:///mnt/traces/eval-attempt-artifacts-20261001-r2/qualify.mjs:85:96"
+      }
+    },
+    "cell": {
+      "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+      "attempt": {
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "number": 1
+      },
+      "cellId": "capture-retention:0",
+      "scenarioId": "capture-retention",
+      "rep": 0,
+      "artifact": null,
+      "judgeScores": {},
+      "costUsd": 0,
+      "costProvenance": {
+        "kind": "estimated",
+        "usd": 0
+      },
+      "costCallIds": [
+        "c26674f7-275c-4c6c-aceb-8516c1eff8e9"
+      ],
+      "tokenUsage": {
+        "input": 0,
+        "output": 0
+      },
+      "resolvedModels": [
+        "not-an-inference"
+      ],
+      "resolvedModel": "not-an-inference",
+      "durationMs": 6,
+      "seed": 42,
+      "cached": false,
+      "errorStage": "dispatch",
+      "error": "Operational interruption after native artifact capture"
+    },
+    "cost": {
+      "totalCalls": 1,
+      "pendingCalls": 0,
+      "unresolvedCalls": 0,
+      "reservedCostUsd": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "totalCostUsd": 0,
+      "costProvenance": {
+        "kind": "estimated",
+        "usd": 0
+      },
+      "byChannel": [
+        {
+          "channel": "agent",
+          "calls": 1,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "reasoningTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0,
+          "unpricedCalls": 0,
+          "unknownUsageCalls": 0
+        }
+      ],
+      "unpricedModels": [],
+      "fullyPriced": true,
+      "usageComplete": true,
+      "accountingComplete": true,
+      "incompleteReasons": []
+    }
+  },
+  "pointer": {
+    "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+    "number": 2
+  },
+  "reports": [
+    {
+      "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+      "splitDigest": "sha256:23ea149e81be5435966bd1d185776c7d2e119739830f98a47d4738bdbd46ade6",
+      "seed": 42,
+      "reps": 1,
+      "startedAt": "2026-10-01T17:12:40.119Z",
+      "endedAt": "2026-10-01T17:12:40.127Z",
+      "durationMs": 8,
+      "cells": [
+        {
+          "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+          "attempt": {
+            "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+            "number": 2
+          },
+          "cellId": "capture-retention:0",
+          "scenarioId": "capture-retention",
+          "rep": 0,
+          "artifact": {
+            "cellId": "capture-retention:0",
+            "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+            "invocation": 2,
+            "content": "Actual filesystem capture from invocation 2"
+          },
+          "judgeScores": {},
+          "costUsd": 0,
+          "costProvenance": {
+            "kind": "estimated",
+            "usd": 0
+          },
+          "costCallIds": [
+            "a409cf65-dba3-4dbd-b9b4-826f8ddd0c67",
+            "c26674f7-275c-4c6c-aceb-8516c1eff8e9"
+          ],
+          "tokenUsage": {
+            "input": 0,
+            "output": 0
+          },
+          "resolvedModels": [
+            "not-an-inference"
+          ],
+          "resolvedModel": "not-an-inference",
+          "durationMs": 1,
+          "seed": 42,
+          "cached": false,
+          "retryAttempts": 1
+        }
+      ],
+      "aggregates": {
+        "byJudge": {},
+        "byScenario": {},
+        "cost": {
+          "totalCalls": 2,
+          "pendingCalls": 0,
+          "unresolvedCalls": 0,
+          "reservedCostUsd": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "reasoningTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0,
+          "totalCostUsd": 0,
+          "costProvenance": {
+            "kind": "estimated",
+            "usd": 0
+          },
+          "byChannel": [
+            {
+              "channel": "agent",
+              "calls": 2,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "reasoningTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "costUsd": 0,
+              "unpricedCalls": 0,
+              "unknownUsageCalls": 0
+            }
+          ],
+          "unpricedModels": [],
+          "fullyPriced": true,
+          "usageComplete": true,
+          "accountingComplete": true,
+          "incompleteReasons": []
+        },
+        "cellsExecuted": 1,
+        "cellsSkipped": 0,
+        "cellsCached": 0,
+        "cellsFailed": 0,
+        "cellsDispatchFailed": 0,
+        "cellsJudgeFailed": 0,
+        "cellsUnclassifiedFailed": 0
+      },
+      "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry",
+      "artifactsByPath": {
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/identity.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/identity.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/artifacts/captured-response.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/artifacts/captured-response.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/failure-receipt.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/failure-receipt.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/result.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-1/result.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/identity.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/identity.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/artifacts/captured-response.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/artifacts/captured-response.json",
+        "capture-retention:0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/result.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry/capture-retention_0/attempts/74c13884-d47e-4b6d-a823-5bd44ee0e6cb/attempt-2/result.json"
+      },
+      "scenarios": [
+        {
+          "id": "capture-retention",
+          "kind": "operational",
+          "scenarioDigest": "sha256:70a52f79806918ce9e4833c4ed81360245988fced43a4605ab703d7afacb20a3"
+        }
+      ]
+    }
+  ],
+  "ledgerReceipts": [
+    {
+      "status": "settled",
+      "callId": "c26674f7-275c-4c6c-aceb-8516c1eff8e9",
+      "channel": "agent",
+      "phase": "campaign",
+      "actor": "operational-file-read",
+      "model": "not-an-inference",
+      "timestamp": 1790874760122,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0,
+      "costUnknown": false,
+      "usageUnknown": false,
+      "estimatedCostUsd": 0,
+      "tags": {
+        "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry",
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": "0",
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "attemptNumber": "1"
+      }
+    },
+    {
+      "status": "settled",
+      "callId": "a409cf65-dba3-4dbd-b9b4-826f8ddd0c67",
+      "channel": "agent",
+      "phase": "campaign",
+      "actor": "operational-file-read",
+      "model": "not-an-inference",
+      "timestamp": 1790874760126,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0,
+      "costUnknown": false,
+      "usageUnknown": false,
+      "estimatedCostUsd": 0,
+      "tags": {
+        "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry",
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": "0",
+        "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+        "attemptNumber": "2"
+      }
+    }
+  ],
+  "cacheReuse": {
+    "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+    "splitDigest": "sha256:23ea149e81be5435966bd1d185776c7d2e119739830f98a47d4738bdbd46ade6",
+    "seed": 42,
+    "reps": 1,
+    "startedAt": "2026-10-01T17:12:40.128Z",
+    "endedAt": "2026-10-01T17:12:40.128Z",
+    "durationMs": 0,
+    "cells": [
+      {
+        "manifestHash": "6d4d16fdd6cbaa1119fc301e329b128e6485461e9bc013bdbeaea9ec0270b19c",
+        "attempt": {
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "number": 2
+        },
+        "cellId": "capture-retention:0",
+        "scenarioId": "capture-retention",
+        "rep": 0,
+        "artifact": {
+          "cellId": "capture-retention:0",
+          "runAttemptId": "74c13884-d47e-4b6d-a823-5bd44ee0e6cb",
+          "invocation": 2,
+          "content": "Actual filesystem capture from invocation 2"
+        },
+        "judgeScores": {},
+        "costUsd": 0,
+        "costProvenance": {
+          "kind": "estimated",
+          "usd": 0
+        },
+        "costCallIds": [
+          "a409cf65-dba3-4dbd-b9b4-826f8ddd0c67",
+          "c26674f7-275c-4c6c-aceb-8516c1eff8e9"
+        ],
+        "tokenUsage": {
+          "input": 0,
+          "output": 0
+        },
+        "durationMs": 1,
+        "seed": 42,
+        "cached": true,
+        "retryAttempts": 1,
+        "resolvedModels": [
+          "not-an-inference"
+        ],
+        "resolvedModel": "not-an-inference"
+      }
+    ],
+    "aggregates": {
+      "byJudge": {},
+      "byScenario": {},
+      "cost": {
+        "totalCalls": 2,
+        "pendingCalls": 0,
+        "unresolvedCalls": 0,
+        "reservedCostUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "reasoningTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0,
+        "totalCostUsd": 0,
+        "costProvenance": {
+          "kind": "estimated",
+          "usd": 0
+        },
+        "byChannel": [
+          {
+            "channel": "agent",
+            "calls": 2,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "costUsd": 0,
+            "unpricedCalls": 0,
+            "unknownUsageCalls": 0
+          }
+        ],
+        "unpricedModels": [],
+        "fullyPriced": true,
+        "usageComplete": true,
+        "accountingComplete": true,
+        "incompleteReasons": []
+      },
+      "cellsExecuted": 1,
+      "cellsSkipped": 0,
+      "cellsCached": 1,
+      "cellsFailed": 0,
+      "cellsDispatchFailed": 0,
+      "cellsJudgeFailed": 0,
+      "cellsUnclassifiedFailed": 0
+    },
+    "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-retry",
+    "artifactsByPath": {},
+    "scenarios": [
+      {
+        "id": "capture-retention",
+        "kind": "operational",
+        "scenarioDigest": "sha256:70a52f79806918ce9e4833c4ed81360245988fced43a4605ab703d7afacb20a3"
+      }
+    ]
+  },
+  "firstContentStillPresent": true,
+  "modelInference": false,
+  "researchUnits": 0
+}

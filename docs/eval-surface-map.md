@@ -140,7 +140,16 @@ Signing stays with the consumer: an `AttestedReport` is a stable byte-identical 
 
 ## Failed cells: receipts and bounded retry
 
-A failed cell writes `<cell>/failure-receipt.json` before the campaign can abort.
+Each executed attempt uses `<cell>/attempts/<runAttemptId>/attempt-<number>/`.
+It retains `identity.json`, `result.json`, consumer `artifacts/`, and writer `trace/`.
+A failed attempt writes `failure-receipt.json` before the campaign can abort.
+The cell result carries `attempt: { runAttemptId, number }`; `latest-attempt.json` locates the current attempt.
+Retries share a run identity and increment the number.
+A resumed invocation receives a new run identity.
+A successful cache reuse dispatches nothing and retains the original attempt identity.
+Earlier attempt files and historical root artifacts remain unchanged.
+Custom trace writers receive the attempt trace directory.
+Use that directory with `convertTraceStoresToOtlp({ root, layout: 'flat' }, outPath)` for TraceStore conversion.
 The receipt records the stage (`dispatch` or `judge`), the serialized error, the exact cell result, and the settled cost of that cell.
 `abortOnCellError: true` stops the campaign on the first failed cell; the default keeps the remaining schedule running and returns the failed cell.
 
@@ -148,7 +157,8 @@ The receipt records the stage (`dispatch` or `judge`), the serialized error, the
 A failed attempt that `retryable` accepts is dispatched again in the same slot (same `cellId`, same seed) until it succeeds or `attempts` is exhausted.
 Use `transientDispatchFailure()` as the predicate to retry only dispatch-stage transport failures (502/503/504, dropped streams, admission rejections) and never judge-stage failures.
 Every attempt charges the shared cost ledger, so the final cell's `costUsd` and `costCallIds` cover all attempts.
-A retried attempt keeps its receipt at `<cell>/failure-receipt.attempt-<n>.json`, and the final cell records the retry count as `retryAttempts`.
+Agent and judge call receipts carry `runAttemptId` and `attemptNumber` tags.
+Every attempt retains its receipt and capture files; the final cell records the retry count as `retryAttempts`.
 With `abortOnCellError`, the abort fires only when a cell's final attempt fails.
 Without `cellRetry`, a failed cell is final: one transient 503 leaves campaign coverage incomplete, and `runImprovementLoop` then refuses the holdout comparison.
 

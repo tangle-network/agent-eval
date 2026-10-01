@@ -152,7 +152,7 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   expectUsage?: 'assert' | 'warn' | 'off'
   /** Test seam — override the wall clock for deterministic tests. */
   now?: () => Date
-  /** Test seam — override per-cell trace writer factory. */
+  /** Override the trace writer. The supplied directory belongs to this attempt. */
   buildTraceWriter?: (cellId: string, dir: string) => CampaignTraceWriter
   /** Storage backend for run/cell dirs, the resumability cache, artifacts,
    *  and trace spans. Default: the Node filesystem (`fsCampaignStorage`).
@@ -178,7 +178,7 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   }) => string | undefined
 }
 
-/** Durable `<cell>/failure-receipt.json` written before a failed cell can
+/** Durable `<attempt>/failure-receipt.json` written before a failed cell can
  * trigger campaign-wide cancellation. The cell records dispatch measurements;
  * `cost` covers every settled agent and judge call attributed to this exact run
  * attempt. */
@@ -203,11 +203,9 @@ export interface CampaignCellFailureReceipt<TArtifact = unknown> {
  * Bounded in-run retry of failed cells. Every attempt dispatches the same
  * slot and charges the shared cost ledger, so the final cell's `costUsd`,
  * `tokenUsage`, and `costCallIds` cover all attempts. Each retried attempt
- * keeps its failure receipt at `<cell>/failure-receipt.attempt-<n>.json`; a
- * final failed attempt keeps the usual `<cell>/failure-receipt.json`. The
- * final cell records the retry count as `retryAttempts`. Artifacts and trace
- * spans written by a later attempt replace those of the retried attempt; the
- * per-attempt failure receipts are the durable evidence.
+ * keeps its artifacts, trace, result, and failure receipt in a separate
+ * execution directory, including attempts resumed in a later invocation.
+ * The final cell records the retry count as `retryAttempts`.
  */
 export interface CampaignCellRetryPolicy {
   /** Total attempts per cell, including the first. A positive safe integer. */

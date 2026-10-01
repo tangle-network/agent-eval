@@ -1,0 +1,198 @@
+{
+  "invocations": 2,
+  "observed": [
+    {
+      "invocation": 1,
+      "path": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume/capture-retention_0/captured-response.json",
+      "sha256": "36f08e9a29651e4506af2c01fa13df81fff0711f1c53f3f4633f79397b90c569",
+      "value": {
+        "cellId": "capture-retention:0",
+        "runAttemptId": "08005dbd-35ff-488f-8942-22732fc5f036",
+        "invocation": 1,
+        "content": "Actual filesystem capture from invocation 1"
+      }
+    },
+    {
+      "invocation": 2,
+      "path": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume/capture-retention_0/captured-response.json",
+      "sha256": "bd867bf7291384d653ab799dc2eebf768878ca3a8681fa869684d6da0808cfd7",
+      "value": {
+        "cellId": "capture-retention:0",
+        "runAttemptId": "cc7546fa-7b18-4a50-8444-204439c84bae",
+        "invocation": 2,
+        "content": "Actual filesystem capture from invocation 2"
+      }
+    }
+  ],
+  "firstContentStillPresent": false,
+  "finalBytes": {
+    "cellId": "capture-retention:0",
+    "runAttemptId": "cc7546fa-7b18-4a50-8444-204439c84bae",
+    "invocation": 2,
+    "content": "Actual filesystem capture from invocation 2"
+  },
+  "reports": [
+    {
+      "manifestHash": "6e492a4dc01bf06d2f7e169cdde455d0b0416e34bd4396c1ec7f72f795d57fa7",
+      "splitDigest": "sha256:4a729491b198148335bdd5b8f6429d48611d3b44480f1982e77f3a91e4cf2a5f",
+      "seed": 42,
+      "reps": 1,
+      "startedAt": "2026-10-01T16:47:43.722Z",
+      "endedAt": "2026-10-01T16:47:43.723Z",
+      "durationMs": 1,
+      "cells": [
+        {
+          "manifestHash": "6e492a4dc01bf06d2f7e169cdde455d0b0416e34bd4396c1ec7f72f795d57fa7",
+          "cellId": "capture-retention:0",
+          "scenarioId": "capture-retention",
+          "rep": 0,
+          "artifact": null,
+          "judgeScores": {},
+          "costUsd": 0,
+          "costProvenance": {
+            "kind": "observed",
+            "usd": 0
+          },
+          "costCallIds": [],
+          "tokenUsage": {
+            "input": 0,
+            "output": 0
+          },
+          "durationMs": 1,
+          "seed": 42,
+          "cached": false,
+          "errorStage": "dispatch",
+          "error": "Operational interruption after native artifact capture"
+        }
+      ],
+      "aggregates": {
+        "byJudge": {},
+        "byScenario": {},
+        "cost": {
+          "totalCalls": 0,
+          "pendingCalls": 0,
+          "unresolvedCalls": 0,
+          "reservedCostUsd": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "reasoningTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0,
+          "totalCostUsd": 0,
+          "costProvenance": {
+            "kind": "observed",
+            "usd": 0
+          },
+          "byChannel": [],
+          "unpricedModels": [],
+          "fullyPriced": true,
+          "usageComplete": true,
+          "accountingComplete": true,
+          "incompleteReasons": []
+        },
+        "cellsExecuted": 0,
+        "cellsSkipped": 0,
+        "cellsCached": 0,
+        "cellsFailed": 1,
+        "cellsDispatchFailed": 1,
+        "cellsJudgeFailed": 0,
+        "cellsUnclassifiedFailed": 0
+      },
+      "runDir": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume",
+      "artifactsByPath": {
+        "capture-retention:0/captured-response.json": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume/capture-retention_0/captured-response.json",
+        "capture-retention:0/failure-receipt.json": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume/capture-retention_0/failure-receipt.json"
+      },
+      "scenarios": [
+        {
+          "id": "capture-retention",
+          "kind": "operational",
+          "scenarioDigest": "sha256:955e060f603d0f2e9cd84b8426b05de1faab5b9dbbefdc5d494834afdcb56fc9"
+        }
+      ]
+    },
+    {
+      "manifestHash": "6e492a4dc01bf06d2f7e169cdde455d0b0416e34bd4396c1ec7f72f795d57fa7",
+      "splitDigest": "sha256:4a729491b198148335bdd5b8f6429d48611d3b44480f1982e77f3a91e4cf2a5f",
+      "seed": 42,
+      "reps": 1,
+      "startedAt": "2026-10-01T16:47:43.723Z",
+      "endedAt": "2026-10-01T16:47:43.979Z",
+      "durationMs": 256,
+      "cells": [
+        {
+          "manifestHash": "6e492a4dc01bf06d2f7e169cdde455d0b0416e34bd4396c1ec7f72f795d57fa7",
+          "cellId": "capture-retention:0",
+          "scenarioId": "capture-retention",
+          "rep": 0,
+          "artifact": {
+            "cellId": "capture-retention:0",
+            "runAttemptId": "cc7546fa-7b18-4a50-8444-204439c84bae",
+            "invocation": 2,
+            "content": "Actual filesystem capture from invocation 2"
+          },
+          "judgeScores": {},
+          "costUsd": 0,
+          "costProvenance": {
+            "kind": "observed",
+            "usd": 0
+          },
+          "costCallIds": [],
+          "tokenUsage": {
+            "input": 0,
+            "output": 0
+          },
+          "durationMs": 256,
+          "seed": 42,
+          "cached": false
+        }
+      ],
+      "aggregates": {
+        "byJudge": {},
+        "byScenario": {},
+        "cost": {
+          "totalCalls": 0,
+          "pendingCalls": 0,
+          "unresolvedCalls": 0,
+          "reservedCostUsd": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "reasoningTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0,
+          "totalCostUsd": 0,
+          "costProvenance": {
+            "kind": "observed",
+            "usd": 0
+          },
+          "byChannel": [],
+          "unpricedModels": [],
+          "fullyPriced": true,
+          "usageComplete": true,
+          "accountingComplete": true,
+          "incompleteReasons": []
+        },
+        "cellsExecuted": 1,
+        "cellsSkipped": 0,
+        "cellsCached": 0,
+        "cellsFailed": 0,
+        "cellsDispatchFailed": 0,
+        "cellsJudgeFailed": 0,
+        "cellsUnclassifiedFailed": 0
+      },
+      "runDir": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume",
+      "artifactsByPath": {
+        "capture-retention:0/captured-response.json": "/mnt/traces/eval-attempt-artifacts-20261001/before-resume/capture-retention_0/captured-response.json"
+      },
+      "scenarios": [
+        {
+          "id": "capture-retention",
+          "kind": "operational",
+          "scenarioDigest": "sha256:955e060f603d0f2e9cd84b8426b05de1faab5b9dbbefdc5d494834afdcb56fc9"
+        }
+      ]
+    }
+  ],
+  "modelInference": false,
+  "researchUnits": 0
+}
