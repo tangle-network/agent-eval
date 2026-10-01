@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.203.1] — 2026-10-01
+
+- fix(usage): preserve reported Router cache components (#906)
+- fix(llm): consolidate fallback into one physical attempt budget (#902)
+- fix(http): prevent duplicate work across dispatch failure boundaries (#905)
+
 ## [0.203.0] — 2026-09-30
 
 - fix(capture): retain all runtime receipts and attempt identity (#903)
