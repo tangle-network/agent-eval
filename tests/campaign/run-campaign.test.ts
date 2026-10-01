@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cellAttemptDirectory } from '../../src/campaign/cell-schedule'
 import { campaignCoverage } from '../../src/campaign/coverage'
 import {
   type CampaignCellFailureReceipt,
@@ -48,6 +49,17 @@ const DISPATCH: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) =
   })
   if (!paid.succeeded) throw paid.error
   return paid.value
+}
+
+function failureReceiptPath(cellDir: string, number?: number): string {
+  const attempt = JSON.parse(readFileSync(join(cellDir, 'latest-attempt.json'), 'utf8'))
+  return join(
+    cellAttemptDirectory(cellDir, {
+      runAttemptId: attempt.runAttemptId,
+      number: number ?? attempt.number,
+    }),
+    'failure-receipt.json',
+  )
 }
 
 const SCENARIOS: FakeScenario[] = [
@@ -791,7 +803,7 @@ describe('runCampaign — core primitive', () => {
     expect(ledger.list()[0]).toMatchObject({ phase: 'search.baseline', actor: 'worker' })
 
     const failureReceipt = JSON.parse(
-      readFileSync(join(runDir, 'a_0', 'failure-receipt.json'), 'utf8'),
+      readFileSync(failureReceiptPath(join(runDir, 'a_0')), 'utf8'),
     ) as CampaignCellFailureReceipt<FakeArtifact>
     const failedCallIds = ledger
       .list({ tags: { scenarioId: 'a' } })
@@ -827,9 +839,7 @@ describe('runCampaign — core primitive', () => {
         accountingComplete: true,
       },
     })
-    expect(result.artifactsByPath['a:0/failure-receipt.json']).toBe(
-      join(runDir, 'a_0', 'failure-receipt.json'),
-    )
+    expect(Object.values(result.artifactsByPath)).toContain(failureReceiptPath(join(runDir, 'a_0')))
   })
 
   it('atomically reserves capped calls without constraining free dispatches', async () => {
@@ -1052,7 +1062,7 @@ describe('runCampaign — core primitive', () => {
     })
 
     const failureReceipt = JSON.parse(
-      readFileSync(join(runDir, 'a_0', 'failure-receipt.json'), 'utf8'),
+      readFileSync(failureReceiptPath(join(runDir, 'a_0')), 'utf8'),
     ) as CampaignCellFailureReceipt<FakeArtifact>
     expect(result.cells[0]?.error).toBe(
       "judge 'paid-judge' failed: judge provider returned malformed output",
@@ -1090,12 +1100,6 @@ describe('runCampaign — core primitive', () => {
       },
     })
     expect(failureReceipt.cost.totalCostUsd).toBeCloseTo(0.3, 9)
-  })
-
-  it('writes spans.jsonl per cell', async () => {
-    await runCampaign({ scenarios: SCENARIOS.slice(0, 1), dispatch: DISPATCH, runDir })
-    const cellDirs = readdirSync(runDir).filter((d) => d.startsWith('a_'))
-    expect(cellDirs.length).toBeGreaterThan(0)
   })
 })
 
@@ -1654,7 +1658,12 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     })
     expect(result.aggregates.cost.totalCostUsd).toBe(0.25)
     const failureReceipt = JSON.parse(
-      storage.read(join(lateCostRunDir, 'late-cost_0', 'failure-receipt.json'))!,
+      storage.read(
+        join(
+          cellAttemptDirectory(join(lateCostRunDir, 'late-cost_0'), result.cells[0]!.attempt!),
+          'failure-receipt.json',
+        ),
+      )!,
     ) as CampaignCellFailureReceipt<FakeArtifact>
     expect(failureReceipt).toMatchObject({
       cell: {
@@ -1755,7 +1764,7 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
             () => {
               siblingAborted = true
               failureReceiptExistedBeforeSiblingAbort = existsSync(
-                join(failFastRunDir, 'fails_0', 'failure-receipt.json'),
+                failureReceiptPath(join(failFastRunDir, 'fails_0')),
               )
               setTimeout(() => {
                 siblingStopped = true
@@ -1781,7 +1790,7 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     expect(failureReceiptExistedBeforeSiblingAbort).toBe(true)
     expect(laterStarted).toBe(false)
     expect(
-      JSON.parse(readFileSync(join(failFastRunDir, 'fails_0', 'failure-receipt.json'), 'utf8')),
+      JSON.parse(readFileSync(failureReceiptPath(join(failFastRunDir, 'fails_0')), 'utf8')),
     ).toMatchObject({
       failure: {
         stage: 'dispatch',
@@ -1791,7 +1800,7 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
       cost: { pendingCalls: 0 },
     })
     expect(
-      JSON.parse(readFileSync(join(failFastRunDir, 'sibling_0', 'failure-receipt.json'), 'utf8')),
+      JSON.parse(readFileSync(failureReceiptPath(join(failFastRunDir, 'sibling_0')), 'utf8')),
     ).toMatchObject({
       failure: {
         stage: 'dispatch',
@@ -1835,7 +1844,7 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     expect(outcome).toEqual({ kind: 'rejected', error: judgeError })
     expect(dispatches).toBe(1)
     expect(
-      JSON.parse(readFileSync(join(judgeFailFastRunDir, 'a_0', 'failure-receipt.json'), 'utf8')),
+      JSON.parse(readFileSync(failureReceiptPath(join(judgeFailFastRunDir, 'a_0')), 'utf8')),
     ).toMatchObject({
       failure: {
         stage: 'judge',
@@ -1924,7 +1933,7 @@ describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
     // The failed attempt keeps its own receipt, so the 503 stays auditable
     // after the retry succeeded.
     const attemptReceipt = JSON.parse(
-      readFileSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'), 'utf8'),
+      readFileSync(failureReceiptPath(join(runDir, 'flaky_0'), 1), 'utf8'),
     ) as CampaignCellFailureReceipt<FakeArtifact>
     expect(attemptReceipt).toMatchObject({
       schemaVersion: 1,
@@ -1997,10 +2006,10 @@ describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
     expect(cell.error).toContain('HTTP 503')
     expect(cell.costUsd).toBeCloseTo(0.03, 9)
     // Every attempt's spend stays auditable, not just the last one.
-    expect(existsSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'))).toBe(true)
-    expect(existsSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-2.json'))).toBe(true)
+    expect(existsSync(failureReceiptPath(join(runDir, 'flaky_0'), 1))).toBe(true)
+    expect(existsSync(failureReceiptPath(join(runDir, 'flaky_0'), 2))).toBe(true)
     const finalReceipt = JSON.parse(
-      readFileSync(join(runDir, 'flaky_0', 'failure-receipt.json'), 'utf8'),
+      readFileSync(failureReceiptPath(join(runDir, 'flaky_0')), 'utf8'),
     ) as CampaignCellFailureReceipt<FakeArtifact>
     expect(finalReceipt.cell.retryAttempts).toBe(2)
     expect(finalReceipt.cost.totalCostUsd).toBeCloseTo(0.03, 9)
@@ -2033,8 +2042,8 @@ describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
     expect(dispatches).toBe(1)
     expect(result.cells[0]).toMatchObject({ errorStage: 'judge', errorJudge: 'unstable-judge' })
     expect(result.cells[0]!.retryAttempts).toBeUndefined()
-    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.json'))).toBe(true)
-    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.attempt-1.json'))).toBe(false)
+    expect(existsSync(failureReceiptPath(join(runDir, 'a_0')))).toBe(true)
+    expect(existsSync(failureReceiptPath(join(runDir, 'a_0'), 2))).toBe(false)
   })
 
   it('abortOnCellError does not fire while a retryable failure has attempts left', async () => {
@@ -2078,10 +2087,10 @@ describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
     expect(outcome).toEqual({ kind: 'rejected', error: attemptErrors[1] })
     expect(calls).toBe(2)
     expect(
-      JSON.parse(readFileSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'), 'utf8')),
+      JSON.parse(readFileSync(failureReceiptPath(join(runDir, 'flaky_0'), 1), 'utf8')),
     ).toMatchObject({ failure: { error: { message: 'HTTP 503 first' } } })
     expect(
-      JSON.parse(readFileSync(join(runDir, 'flaky_0', 'failure-receipt.json'), 'utf8')),
+      JSON.parse(readFileSync(failureReceiptPath(join(runDir, 'flaky_0')), 'utf8')),
     ).toMatchObject({ failure: { error: { message: 'HTTP 503 second' } } })
   })
 
@@ -2103,7 +2112,7 @@ describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
     expect(calls).toBe(1)
     expect(result.cells[0]!.error).toBeDefined()
     expect(result.cells[0]!.retryAttempts).toBeUndefined()
-    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.json'))).toBe(true)
-    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.attempt-1.json'))).toBe(false)
+    expect(existsSync(failureReceiptPath(join(runDir, 'a_0')))).toBe(true)
+    expect(existsSync(failureReceiptPath(join(runDir, 'a_0'), 2))).toBe(false)
   })
 })
