@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.203.2] — 2026-10-01
+
+- fix(campaign): preserve artifacts and traces for every attempt (#908)
+
 ## [0.203.1] — 2026-10-01
 
 - fix(usage): preserve reported Router cache components (#906)
