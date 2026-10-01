@@ -10,7 +10,6 @@
     "sha256": "1dde3ce40faf7cff852a3b46eddb2a9f9a5bc4f48deea05ebc3dcb66bba41cb3"
   },
   "realResponses": 45,
-  "realExplicitCacheWrites": 19,
   "missingCacheWritesBefore": 34,
   "missingCacheWritesAfter": 0,
   "existingComponentsPreserved": true,

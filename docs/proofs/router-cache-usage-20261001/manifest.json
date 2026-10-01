@@ -18,8 +18,8 @@
     },
     {
       "file": "summary.json",
-      "bytes": 2274,
-      "sha256": "0097f1cb905af14a94e81a44382db388d0318c258543f68492d77a69bafc7c03"
+      "bytes": 2241,
+      "sha256": "ad85993e2470098d125bc36ca4fc433f5795bf3643fee3668ca4c767489f5d73"
     },
     {
       "file": "summary.nested-only.json",
