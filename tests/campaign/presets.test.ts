@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeProposalFinding } from '../../src/analyst/types'
+import { cellAttemptDirectory } from '../../src/campaign/cell-schedule'
 import {
   buildLoopProvenanceRecord,
   type CodeSurface,
@@ -462,8 +463,17 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
     expect(h1Attempts).toBe(4)
     for (const arm of ['holdout-baseline', 'holdout-winner']) {
       const cellDir = join(exhaustedRunDir, arm, 'h1_0')
-      expect(existsSync(join(cellDir, 'failure-receipt.attempt-1.json'))).toBe(true)
-      expect(existsSync(join(cellDir, 'failure-receipt.json'))).toBe(true)
+      const attempt = JSON.parse(readFileSync(join(cellDir, 'latest-attempt.json'), 'utf8'))
+      for (const number of [1, 2]) {
+        expect(
+          existsSync(
+            join(
+              cellAttemptDirectory(cellDir, { runAttemptId: attempt.runAttemptId, number }),
+              'failure-receipt.json',
+            ),
+          ),
+        ).toBe(true)
+      }
     }
     rmSync(exhaustedRunDir, { recursive: true, force: true })
   })
