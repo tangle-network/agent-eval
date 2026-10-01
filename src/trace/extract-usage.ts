@@ -87,12 +87,17 @@ export function extractUsage(body: unknown): ExtractedUsage | null {
     nestedNumber(usage, OUTPUT_DETAIL_KEYS, ['reasoning_tokens', 'reasoningTokens'])
   const reasoning = exclusiveReasoning ?? inclusiveReasoning
   const nestedCache = nestedRecord(usage, 'cache')
+  const promptCache = nestedRecord(usage, 'prompt_cache')
   const cached =
     firstTokenCount(usage, CACHED_KEYS) ??
     firstTokenCount(nestedCache, ['read']) ??
-    nestedNumber(usage, INPUT_DETAIL_KEYS, ['cached_tokens', 'cachedTokens'])
+    nestedNumber(usage, INPUT_DETAIL_KEYS, ['cached_tokens', 'cachedTokens']) ??
+    firstTokenCount(promptCache, ['read_tokens'])
   const cacheWrite =
-    firstTokenCount(usage, CACHE_WRITE_KEYS) ?? firstTokenCount(nestedCache, ['write'])
+    firstTokenCount(usage, CACHE_WRITE_KEYS) ??
+    firstTokenCount(nestedCache, ['write']) ??
+    nestedNumber(usage, INPUT_DETAIL_KEYS, ['cache_write_tokens', 'cacheWriteTokens']) ??
+    firstTokenCount(promptCache, ['write_tokens'])
   if (
     input === undefined &&
     inputOther === undefined &&

@@ -1,0 +1,306 @@
+[
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:1",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:2",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 80314
+    },
+    "allCacheComponentsRemoved": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 81296,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 979
+    },
+    "allCacheComponentsRemoved": {
+      "input": 81296,
+      "output": 211,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:4",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 81534,
+      "output": 79,
+      "reasoning": 0,
+      "cached": 81293,
+      "cacheWrite": 238
+    },
+    "allCacheComponentsRemoved": {
+      "input": 81534,
+      "output": 79,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:0d0be573-dfa1-4e93-96e1-1875cd8790d2:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2189,
+      "output": 64,
+      "reasoning": 0,
+      "cached": 1864,
+      "cacheWrite": 322
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2189,
+      "output": 64,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:2",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 80317,
+      "output": 34,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 81296,
+      "output": 224,
+      "reasoning": 0,
+      "cached": 80314,
+      "cacheWrite": 979
+    },
+    "allCacheComponentsRemoved": {
+      "input": 81296,
+      "output": 224,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:4",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 81547,
+      "output": 82,
+      "reasoning": 0,
+      "cached": 81293,
+      "cacheWrite": 251
+    },
+    "allCacheComponentsRemoved": {
+      "input": 81547,
+      "output": 82,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:96d197d7-d362-4b4f-a78a-1c485d56d7c5:turn:1",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 898,
+      "output": 13,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 1058
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2040,
+      "output": 211,
+      "reasoning": 0,
+      "cached": 1058,
+      "cacheWrite": 979
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2040,
+      "output": 211,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:2f7f9ef5fe23b740b558604ca7b4d6af15452f1160575521a2e0d5f0b3fa12bf:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2278,
+      "output": 106,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 238
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2278,
+      "output": 106,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:946fdb890ecfc1a490f90e0a88812d088f955eef47f782ba12a7982fe77e692a:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2243,
+      "output": 76,
+      "reasoning": 0,
+      "cached": 1918,
+      "cacheWrite": 322
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2243,
+      "output": 76,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:1",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0,
+      "cached": 0,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 952,
+      "output": 24,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:2",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0,
+      "cached": 1058,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 1061,
+      "output": 34,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:3",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2040,
+      "output": 226,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 0
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2040,
+      "output": 226,
+      "reasoning": 0
+    }
+  },
+  {
+    "callId": "sha256:5dca9781fdfa199c2c2ee2ad1a9df1dbe18931967dffc60243b64cd1380c5f31:0:287b8bf4-edb6-473c-a27c-6de40881d1c4:turn:4",
+    "kind": "Only recorded component fields removed; no invented values.",
+    "promptCacheFallback": {
+      "input": 2293,
+      "output": 88,
+      "reasoning": 0,
+      "cached": 2037,
+      "cacheWrite": 253
+    },
+    "allCacheComponentsRemoved": {
+      "input": 2293,
+      "output": 88,
+      "reasoning": 0
+    }
+  }
+]
