@@ -58,6 +58,7 @@ import {
 } from './store'
 import { bindSpanSourceReader } from './store-boundary'
 import type { SpanSourceReader } from './store-contract'
+import { traceSpanSchema } from './store-schemas'
 import {
   type DatasetOverview,
   DEFAULT_TRACE_ANALYST_BUDGETS,
@@ -125,6 +126,7 @@ interface TraceIndexEntry {
   end_time: string
   duration_ms: number
   raw_jsonl_bytes: number
+  agents: Set<string>
   models: Set<string>
   tools: Set<string>
   spans: SpanIndexEntry[]
@@ -151,9 +153,12 @@ export interface ToolSpansToTraceAnalysisStoreOptions {
   perMatchTextBudget?: number
 }
 
-type BufferedOtlpTraceStoreOptions = ToolSpansToTraceAnalysisStoreOptions
+/** Budgets and authorized source access shared by canonical span-record stores. */
+export type SpanRecordsToTraceAnalysisStoreOptions = ToolSpansToTraceAnalysisStoreOptions
 
-export interface OtlpFileTraceStoreOptions extends BufferedOtlpTraceStoreOptions {
+type BufferedTraceStoreOptions = ToolSpansToTraceAnalysisStoreOptions
+
+export interface OtlpFileTraceStoreOptions extends BufferedTraceStoreOptions {
   /** Path to the OTLP-JSONL file. */
   path: string
   /**
@@ -169,7 +174,7 @@ export interface OtlpFileTraceStoreOptions extends BufferedOtlpTraceStoreOptions
 /** Default ceiling for {@link OtlpFileTraceStoreOptions.maxFileBytes}. */
 export const DEFAULT_MAX_TRACE_FILE_BYTES = 256 * 1024 * 1024
 
-abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
+abstract class BufferedTraceStore implements TraceAnalysisStore {
   readonly readSpanSource?: SpanSourceReader
   private readonly perAttributeViewBudget: number
   private readonly perAttributeSpanBudget: number
@@ -180,7 +185,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
   private bufferValue?: Buffer
   private bufferTask?: SharedAbortableTask<Buffer>
 
-  constructor(opts: BufferedOtlpTraceStoreOptions) {
+  constructor(opts: BufferedTraceStoreOptions) {
     this.perAttributeViewBudget = validateInteger(
       opts.perAttributeViewBudget ?? DEFAULT_TRACE_ANALYST_BUDGETS.perAttributeViewBudget,
       'perAttributeViewBudget',
@@ -258,7 +263,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
     for (const t of matched) {
       await scanCheckpoint(context?.signal, traceIndex++)
       if (t.service_name) services.add(t.service_name)
-      if (t.agent_name) agents.add(t.agent_name)
+      for (const agent of t.agents) agents.add(agent)
       for (const m of t.models) models.add(m)
       for (const tn of t.tools) tools.add(tn)
       rawBytes += t.raw_jsonl_bytes
@@ -575,6 +580,10 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
 
   protected abstract sourcePath(): string
 
+  protected projectRecord(raw: Record<string, unknown>): TraceAnalystSpan | null {
+    return projectOtlpFlatLine(raw)
+  }
+
   private async index(context?: TraceAnalysisStoreContext): Promise<DatasetIndex> {
     context?.signal?.throwIfAborted()
     if (this.indexValue) return this.indexValue
@@ -632,7 +641,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
       if (!parsed || typeof parsed !== 'object') {
         throw new TraceFileMalformedError(this.sourcePath(), lineNumber, lineOffset)
       }
-      const span = projectOtlpFlatLine(parsed as Record<string, unknown>)
+      const span = this.projectRecord(parsed as Record<string, unknown>)
       if (!span) {
         throw new TraceFileMalformedError(this.sourcePath(), lineNumber, lineOffset)
       }
@@ -649,6 +658,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
           end_time: span.end_time,
           duration_ms: 0,
           raw_jsonl_bytes: 0,
+          agents: new Set(),
           models: new Set(),
           tools: new Set(),
           spans: [],
@@ -684,6 +694,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
       if (span.status === 'ERROR') entry.has_errors = true
       if (compareSpanTime(span.start_time, entry.start_time) < 0) entry.start_time = span.start_time
       if (compareSpanTime(span.end_time, entry.end_time) > 0) entry.end_time = span.end_time
+      if (span.agent_name) entry.agents.add(span.agent_name)
       if (span.model_name) entry.models.add(span.model_name)
       if (span.tool_name) entry.tools.add(span.tool_name)
     }
@@ -735,7 +746,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
         if (!t.service_name || !filters.service_names.includes(t.service_name)) continue
       }
       if (filters.agent_names && filters.agent_names.length > 0) {
-        if (!t.agent_name || !filters.agent_names.includes(t.agent_name)) continue
+        if (![...t.agents].some((agent) => filters.agent_names!.includes(agent))) continue
       }
       if (filters.model_names && filters.model_names.length > 0) {
         if (![...t.models].some((m) => filters.model_names!.includes(m))) continue
@@ -915,7 +926,7 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
   }
 }
 
-export class OtlpFileTraceStore extends BufferedOtlpTraceStore {
+export class OtlpFileTraceStore extends BufferedTraceStore {
   private readonly path: string
   private readonly maxFileBytes: number
 
@@ -954,10 +965,10 @@ export class OtlpFileTraceStore extends BufferedOtlpTraceStore {
   }
 }
 
-class OtlpBufferTraceStore extends BufferedOtlpTraceStore {
+class BufferTraceStore extends BufferedTraceStore {
   constructor(
     private readonly source: Buffer,
-    opts: BufferedOtlpTraceStoreOptions,
+    opts: BufferedTraceStoreOptions,
   ) {
     super(opts)
   }
@@ -972,20 +983,62 @@ class OtlpBufferTraceStore extends BufferedOtlpTraceStore {
   }
 }
 
+class SpanRecordTraceStore extends BufferTraceStore {
+  protected override projectRecord(raw: Record<string, unknown>): TraceAnalystSpan {
+    return traceSpanSchema.parse(raw)
+  }
+}
+
+/**
+ * Snapshot canonical spans without reinterpreting their identifiers, kind, or duration.
+ * Reads use the same indexed, bounded engine as the OTLP adapters. Raw byte counts
+ * and searches refer to the canonical JSONL snapshot, not an external source artifact.
+ */
+export function spanRecordsToTraceAnalysisStore(
+  records: readonly TraceAnalystSpan[],
+  options: SpanRecordsToTraceAnalysisStoreOptions = {},
+): TraceAnalysisStore {
+  if (!records || records.length === 0) {
+    throw new CaptureIntegrityError('spanRecordsToTraceAnalysisStore: no span records supplied')
+  }
+  const seen = new Map<string, Set<string>>()
+  const lines = records.map((record, index) => {
+    try {
+      const span = traceSpanSchema.parse(record)
+      const traceSpans = seen.get(span.trace_id) ?? new Set<string>()
+      if (traceSpans.has(span.span_id)) {
+        throw new CaptureIntegrityError(
+          `spanRecordsToTraceAnalysisStore: duplicate span '${span.span_id}' in trace '${span.trace_id}'`,
+        )
+      }
+      traceSpans.add(span.span_id)
+      seen.set(span.trace_id, traceSpans)
+      return JSON.stringify(span)
+    } catch (cause) {
+      if (cause instanceof CaptureIntegrityError) throw cause
+      throw new CaptureIntegrityError(
+        `spanRecordsToTraceAnalysisStore: invalid span record at index ${index}`,
+        { cause },
+      )
+    }
+  })
+  return new SpanRecordTraceStore(Buffer.from(`${lines.join('\n')}\n`, 'utf8'), options)
+}
+
 /** Build the bounded trace store directly from OpenInference JSONL text. */
 export function otlpTextToTraceAnalysisStore(
   text: string,
   opts: ToolSpansToTraceAnalysisStoreOptions = {},
 ): TraceAnalysisStore {
   if (!text.trim()) throw new CaptureIntegrityError('OTLP trace text must not be empty')
-  return new OtlpBufferTraceStore(Buffer.from(text, 'utf8'), opts)
+  return new BufferTraceStore(Buffer.from(text, 'utf8'), opts)
 }
 
 export function createOtlpBufferTraceStore(
   source: Buffer,
   options: ToolSpansToTraceAnalysisStoreOptions = {},
 ): TraceAnalysisStore {
-  return new OtlpBufferTraceStore(source, options)
+  return new BufferTraceStore(source, options)
 }
 
 export {

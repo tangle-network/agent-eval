@@ -240,6 +240,16 @@ Do not copy the schemas or reimplement the handlers in another adapter.
 
 Custom stores implement `TraceAnalysisStore`.
 `OtlpFileTraceStore`, `otlpTextToTraceAnalysisStore()`, and `toolSpansToTraceAnalysisStore()` provide common adapters.
+`spanRecordsToTraceAnalysisStore(records, options)` accepts `readonly TraceAnalystSpan[]`
+from `@tangle-network/agent-eval/traces` when a consumer already has canonical spans.
+It snapshots and validates those records before returning the same indexed store,
+without an OTLP conversion: opaque IDs, parent links, declared kinds, explicit
+`duration_ms` (including zero), status, and JSON attributes remain caller evidence.
+Empty input, invalid records, and duplicate span IDs within a trace fail with
+`CaptureIntegrityError`; identical span IDs in different traces remain distinct.
+The existing budget options and optional authorized `sourceReader` apply.
+`raw_jsonl_bytes` and regex searches describe the canonical JSONL snapshot;
+original artifact reads remain the separate `sourceReader` capability.
 Store results are checked for missing fields, undeclared fields, inconsistent counts, invalid continuation flags, oversized responses, and unsafe search patterns.
 
 ### Original source fields

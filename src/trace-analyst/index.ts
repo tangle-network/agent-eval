@@ -100,6 +100,8 @@ export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
   otlpTextToTraceAnalysisStore,
+  type SpanRecordsToTraceAnalysisStoreOptions,
+  spanRecordsToTraceAnalysisStore,
   type ToolSpansToTraceAnalysisStoreOptions,
 } from './store-otlp'
 export { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'
