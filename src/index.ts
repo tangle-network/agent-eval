@@ -1114,4 +1114,8 @@ export type { OtlpSpan } from './trace/otel'
 export { InMemoryRawProviderSink } from './trace/raw-provider-sink'
 export type { GenericSpan, JudgeSpan, RunStatus } from './trace/schema'
 export { createBoundedTraceAnalysisStore } from './trace-analyst/store'
-export { otlpTextToTraceAnalysisStore } from './trace-analyst/store-otlp'
+export {
+  otlpTextToTraceAnalysisStore,
+  type SpanRecordsToTraceAnalysisStoreOptions,
+  spanRecordsToTraceAnalysisStore,
+} from './trace-analyst/store-otlp'

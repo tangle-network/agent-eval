@@ -94,7 +94,7 @@ const spanKind = z.preprocess(
 )
 const spanStatus = z.enum(['OK', 'ERROR', 'UNSET'])
 
-const traceSpan = z
+export const traceSpanSchema = z
   .object({
     trace_id: identifier,
     span_id: identifier,
@@ -190,7 +190,7 @@ const oversizedTrace = z
 const traceView = z
   .object({
     trace_id: identifier,
-    spans: z.array(traceSpan).optional(),
+    spans: z.array(traceSpanSchema).optional(),
     oversized: oversizedTrace.optional(),
   })
   .strict()
@@ -201,7 +201,7 @@ const traceView = z
 const spansView = z
   .object({
     trace_id: identifier,
-    spans: z.array(traceSpan),
+    spans: z.array(traceSpanSchema),
     missing_span_ids: z.array(identifier),
     omitted_span_ids: z.array(identifier),
     has_more: z.boolean(),
