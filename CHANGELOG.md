@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.204.0] — 2026-10-02
+
+- feat(traces): build indexed stores from canonical span records (#911)
+
 ## [0.203.2] — 2026-10-01
 
 - fix(campaign): preserve artifacts and traces for every attempt (#908)
