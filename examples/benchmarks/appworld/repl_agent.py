@@ -53,6 +53,7 @@ PRICE_PER_M: dict[str, dict[str, float]] = {
     "gpt-5": {"input": 1.25, "output": 10.0},
     "gpt-5-2025-08-07": {"input": 1.25, "output": 10.0},
     "gpt-5-codex": {"input": 1.25, "output": 10.0},
+    "gpt-5.6-terra": {"input": 2.0, "output": 12.0},
     "gpt-5.1": {"input": 1.25, "output": 10.0},
     "gpt-5.1-2025-11-13": {"input": 1.25, "output": 10.0},
     "gpt-5-pro": {"input": 15.0, "output": 120.0},
@@ -112,7 +113,9 @@ def price(model: str, in_tok: int, out_tok: int) -> float | None:
     p = PRICE_PER_M.get(model) or PRICE_PER_M.get(model.split("@", 1)[0])
     if p is None:
         return None
-    return in_tok * p["input"] / 1e6 + out_tok * p["output"] / 1e6
+    input_multiplier = 2 if model == "gpt-5.6-terra" and in_tok > 272_000 else 1
+    output_multiplier = 1.5 if model == "gpt-5.6-terra" and in_tok > 272_000 else 1
+    return in_tok * p["input"] * input_multiplier / 1e6 + out_tok * p["output"] * output_multiplier / 1e6
 
 
 def otlp_line(
@@ -173,6 +176,11 @@ def chat_with_backoff(client: OpenAI, *, rate_limit_budget: float, **kwargs: Any
     timeout (which raises a non-RateLimitError and propagates immediately). The
     429 budget is wall-clock bounded — once it's spent, the 429 propagates and
     the run records a real failure rather than retrying forever."""
+    if kwargs.get("model") == "gpt-5.6-terra":
+        # Direct OpenAI cannot rely on the Router parameter normalizer.
+        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        kwargs.pop("temperature", None)
+        kwargs["reasoning_effort"] = "none"
     deadline = time.monotonic() + rate_limit_budget
     delay = 2.0
     while True:
@@ -229,6 +237,7 @@ def run_task(
     spans: list[dict[str, Any]] = []
 
     run_start_ns = time.time_ns()
+    step_costs: list[float | None] = []
     in_tok_total = 0
     out_tok_total = 0
     n_llm_calls = 0
@@ -297,6 +306,7 @@ def run_task(
             usage = resp.usage
             in_tok = usage.prompt_tokens if usage else 0
             out_tok = usage.completion_tokens if usage else 0
+            step_costs.append(price(model, in_tok, out_tok))
             in_tok_total += in_tok
             out_tok_total += out_tok
             messages.append({"role": "assistant", "content": content})
@@ -407,7 +417,9 @@ def run_task(
         ),
     )
 
-    cost = price(model, in_tok_total, out_tok_total)
+    cost = (sum(c for c in step_costs if c is not None)
+            if price(model, 0, 0) is not None and all(c is not None for c in step_costs)
+            else None)
     wall_ms = (run_end_ns - run_start_ns) / 1e6
     terminal_outcome = "succeeded" if completed else ("failed" if last_error else "incomplete")
     prompt_hash = hashlib.sha256(active_system_prompt.encode("utf-8")).hexdigest()

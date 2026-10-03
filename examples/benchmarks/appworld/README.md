@@ -31,7 +31,7 @@ export APPWORLD_DIR=/path/to/appworld
 export OPTIMIZER_PYTHON=/path/to/optimizer-venv/bin/python
 export OPENAI_BASE_URL=https://api.openai.com/v1
 export OPENAI_API_KEY="$YOUR_API_KEY"
-export BENCH_MODEL=gpt-5.1
+export BENCH_MODEL=gpt-5.6-terra
 export GEPA_PRICE_IN_PER_M=0.4
 export GEPA_PRICE_OUT_PER_M=1.6
 export SKILLOPT_PRICE_IN_PER_M=0.4
@@ -53,7 +53,7 @@ Common settings:
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `BENCH_MODEL` | `gpt-5.1` | Model that performs AppWorld tasks |
+| `BENCH_MODEL` | `gpt-5.6-terra` | Model that performs AppWorld tasks |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing both optimizer packages |
 | `GEPA_MODEL` | `BENCH_MODEL` | Endpoint model used by GEPA |
 | `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-task calls |
@@ -132,7 +132,7 @@ It does not mean the estimate was reconciled to a provider invoice.
 cd "$APPWORLD_DIR"
 .venv/bin/python /path/to/agent-eval/examples/benchmarks/appworld/repl_agent.py \
   --task-id 50e1ac9_1 \
-  --model gpt-5.1 \
+  --model gpt-5.6-terra \
   --max-steps 25 \
   --call-timeout 45 \
   --rate-limit-budget 120 \
@@ -154,3 +154,9 @@ They execute the loop, code extraction, span output, run-record projection, cost
 
 AppWorld's `simplified_react_code_agent` is an independent worker implementation for cross-checking episode behavior.
 It does not emit the trace file consumed by this example.
+
+### October 2026 model migration
+
+The default is GPT-5.6 Terra, listed as system-routeable with trusted pricing in Tangle Router's maintained catalog. Bare GPT-6 Sol is not yet spend-authorized on the direct company-funded route. Explicit BENCH_MODEL/optimizer overrides remain supported.
+
+For direct OpenAI Terra requests, the REPL uses max_completion_tokens, reasoning_effort=none, and omits temperature. Temperature-based sampling experiments must explicitly choose a model that supports sampling; varying seeds alone does not certify independent reps. Costs remain estimates, calculated per call with the >272K input context tier. Old cost-table entries and run evidence retain their original identities. Re-run comparisons under the new model; historical outcomes do not transfer.
