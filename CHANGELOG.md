@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.205.1] — 2026-10-03
+
+- fix(statistics): refuse invalid Wilson observations (#915)
+
 ## [0.205.0] — 2026-10-03
 
 - feat(statistics): canonical sample summaries and independent inference (#913)
