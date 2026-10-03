@@ -417,7 +417,9 @@ def run_task(
         ),
     )
 
-    cost = sum(c for c in step_costs if c is not None) if all(c is not None for c in step_costs) else None
+    cost = (sum(c for c in step_costs if c is not None)
+            if price(model, 0, 0) is not None and all(c is not None for c in step_costs)
+            else None)
     wall_ms = (run_end_ns - run_start_ns) / 1e6
     terminal_outcome = "succeeded" if completed else ("failed" if last_error else "incomplete")
     prompt_hash = hashlib.sha256(active_system_prompt.encode("utf-8")).hexdigest()
