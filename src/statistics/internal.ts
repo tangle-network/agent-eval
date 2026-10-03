@@ -4,6 +4,7 @@
  */
 
 import { ValidationError } from '../errors'
+import { interpolatedQuantile } from '../math/quantile'
 import { lnGamma } from '../math/special-functions'
 import { mulberry32 } from './random'
 
@@ -117,8 +118,7 @@ export function zQuantile(p: number): number {
 export function medianInPlace(xs: number[]): number {
   if (xs.length === 0) return 0
   xs.sort((a, b) => a - b)
-  const mid = Math.floor(xs.length / 2)
-  return xs.length % 2 === 0 ? (xs[mid - 1]! + xs[mid]!) / 2 : xs[mid]!
+  return interpolatedQuantile(xs, 0.5)
 }
 
 /**

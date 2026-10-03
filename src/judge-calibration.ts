@@ -19,6 +19,7 @@
  * decide whether to trust the judge, retrain it, or add a tie-breaker.
  */
 
+import { interpolatedQuantile as quantile } from './math/quantile'
 import { pearsonR, spearmanR } from './statistics/descriptive'
 import { mulberry32 } from './statistics/random'
 
@@ -503,16 +504,4 @@ function avgPairwise(rows: number[][], fn: (a: number[], b: number[]) => number)
 function percentileBounds(ciLevel: number): [number, number] {
   const tail = (1 - ciLevel) / 2
   return [tail, 1 - tail]
-}
-
-/** Linear-interpolated quantile of a pre-sorted ascending array. */
-function quantile(sorted: number[], q: number): number {
-  if (sorted.length === 0) return NaN
-  if (sorted.length === 1) return sorted[0]!
-  const pos = q * (sorted.length - 1)
-  const lo = Math.floor(pos)
-  const hi = Math.ceil(pos)
-  if (lo === hi) return sorted[lo]!
-  const frac = pos - lo
-  return sorted[lo]! * (1 - frac) + sorted[hi]! * frac
 }

@@ -414,3 +414,24 @@ release decision.
 - **Reading a verdict someone else produced?** Read [verdicts.md](./verdicts.md) for what `certification` carries and what an absent one means.
 - **Grading a finding by executing its repair?** Read [trace-repair-grader.md](./trace-repair-grader.md), and [trajectory-replay.md](./trajectory-replay.md) for re-executing a recorded failure.
 - **Checking package ownership?** Read [charter.md](./charter.md) for the implemented foundations and host responsibilities.
+
+## Independent sample statistics
+
+The root export owns `summarizeSample`, `sampleMedian`, and `welchsTTest`.
+`summarizeSample` reports finite sample facts, interpolated quartiles and a seeded median-bootstrap spread.
+An empty sample returns `null`; a zero mean leaves relative dispersion (`cv`) unavailable.
+Fewer than three observations retain a null `medianInterval`, not a confidence interval fabricated from the observed range.
+The bootstrap interval describes the observed sample, not a significance test or generalization guarantee.
+Confidence and resample count are explicit, and nonfinite input is refused.
+Stability labels and decisions remain consumer policy.
+
+`welchsTTest(a,b)` compares independent samples with positive direction meaning B minus A.
+Its existing `status: 'ok'` result includes means, difference, standard error, t statistic, fractional degrees of freedom, two-sided p-value, effect size and 95% interval.
+Too few samples or zero within-group variance retains the existing `insufficient-sample` or `zero-variance` status, observed means and difference, NaN inferential fields and a null interval.
+An unavailable test is not evidence that the groups are equivalent.
+Use the existing `cohensD` alongside it; an undefined standardized effect stays null.
+
+The root also exports contingency-table inference, normal and Student-t tails, and centered linear-regression slope inference.
+`twoByTwoPValue` chooses Fisher exact inference for sparse expected counts and the Pearson chi-squared tail otherwise.
+A regression with insufficient residual degrees of freedom or constant x retains a null slope p-value.
+These primitives do not choose product acceptance thresholds or authorize release.

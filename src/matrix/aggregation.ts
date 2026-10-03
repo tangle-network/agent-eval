@@ -8,6 +8,7 @@
  * so a per-axis cost row says when it under-counts.
  */
 
+import { interpolatedQuantile } from '../math/quantile'
 import type { AxisSummary, CellResult, MatrixAxis, MatrixCell, MatrixResult } from './types'
 
 interface Row<Output> {
@@ -24,14 +25,7 @@ function flattenRuns<Output>(cells: MatrixResult<Output>['cells']): Row<Output>[
 }
 
 function quantile(sorted: number[], q: number): number {
-  if (sorted.length === 0) return 0
-  if (sorted.length === 1) return sorted[0] as number
-  const pos = (sorted.length - 1) * q
-  const lo = Math.floor(pos)
-  const hi = Math.ceil(pos)
-  if (lo === hi) return sorted[lo] as number
-  const frac = pos - lo
-  return (sorted[lo] as number) * (1 - frac) + (sorted[hi] as number) * frac
+  return sorted.length ? interpolatedQuantile(sorted, q) : 0
 }
 
 export function summariseRows<Output>(
