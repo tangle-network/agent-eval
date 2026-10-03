@@ -110,6 +110,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/trusted-head.ts',
   'src/llm-client.ts',
   'src/math/normal.ts',
+  'src/math/quantile.ts',
   'src/math/special-functions.ts',
   'src/math/student-t.ts',
   'src/metrics.ts',
@@ -118,6 +119,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/statistics/descriptive.ts',
   'src/statistics/effect-sizes.ts',
   'src/statistics/index.ts',
+  'src/statistics/inference.ts',
   'src/statistics/internal.ts',
   'src/statistics/multiplicity.ts',
   'src/statistics/paired-binary.ts',
@@ -125,6 +127,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/statistics/power-and-mde.ts',
   'src/statistics/random.ts',
   'src/statistics/rank-tests.ts',
+  'src/statistics/samples.ts',
   'src/statistics/sequential-eprocess.ts',
   'src/trace-analyst/errors.ts',
   'src/trace-analyst/otlp-span.ts',
@@ -145,7 +148,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'f871e4e415a58dfb2ebb976ad70e9152cafa11af1e04f9362528b67e205a6c45'
+  '67a117a6fa1df65e3407a6c193492dd7aee7a809a95570d83d5b04cb88c9237b'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

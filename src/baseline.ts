@@ -13,8 +13,10 @@
  * Returns a structured verdict: improved | regressed | stable | unstable.
  */
 
-import { studentTCdf, studentTQuantile } from './math/student-t'
-import { cohensD } from './statistics'
+import { interpolatedQuantile } from './math/quantile'
+import { studentTQuantile } from './math/student-t'
+import { cohensD } from './statistics/effect-sizes'
+import { studentTTwoSidedPValue } from './statistics/inference'
 
 export interface MetricSamples {
   /** Stable metric key (e.g. "overallScore", "firstTokenMs"). */
@@ -165,20 +167,14 @@ export function compareToBaseline(
 }
 
 function mean(xs: number[]): number {
-  return xs.reduce((a, b) => a + b, 0) / xs.length
+  return xs.length ? xs.reduce((sum, value) => sum + value / xs.length, 0) : Number.NaN
 }
 
 /** Inter-quartile range; 0 when the sample has no spread. */
 export function iqr(xs: number[]): number {
   if (xs.length === 0) return 0
   const sorted = [...xs].sort((a, b) => a - b)
-  const q = (p: number) => {
-    const idx = p * (sorted.length - 1)
-    const lo = Math.floor(idx)
-    const hi = Math.ceil(idx)
-    return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo)
-  }
-  return q(0.75) - q(0.25)
+  return interpolatedQuantile(sorted, 0.75) - interpolatedQuantile(sorted, 0.25)
 }
 
 /**
@@ -195,6 +191,13 @@ export function welchsTTest(a: number[], b: number[]): WelchTestResult {
   const mA = mean(a)
   const mB = mean(b)
   const delta = mB - mA
+  if (
+    (a.length && !Number.isFinite(mA)) ||
+    (b.length && !Number.isFinite(mB)) ||
+    (a.length && b.length && !Number.isFinite(delta))
+  ) {
+    throw new RangeError('welchsTTest: sample arithmetic exceeded finite range')
+  }
   if (a.length < 2 || b.length < 2) {
     return {
       status: 'insufficient-sample',
@@ -213,6 +216,9 @@ export function welchsTTest(a: number[], b: number[]): WelchTestResult {
   const vA = variance(a, mA)
   const vB = variance(b, mB)
   const seSquared = vA / a.length + vB / b.length
+  if (!Number.isFinite(seSquared)) {
+    throw new RangeError('welchsTTest: sample arithmetic exceeded finite range')
+  }
   const d = cohensD(a, b)
   if (seSquared === 0) {
     return {
@@ -231,14 +237,17 @@ export function welchsTTest(a: number[], b: number[]): WelchTestResult {
 
   const standardError = Math.sqrt(seSquared)
   const t = delta / standardError
-  const df =
-    (seSquared * seSquared) /
-    ((vA / a.length) ** 2 / (a.length - 1) + (vB / b.length) ** 2 / (b.length - 1))
-  const p = 2 * (1 - studentTCdf(Math.abs(t), df))
+  const fractionA = vA / a.length / seSquared
+  const fractionB = vB / b.length / seSquared
+  const df = 1 / (fractionA ** 2 / (a.length - 1) + fractionB ** 2 / (b.length - 1))
+  const p = studentTTwoSidedPValue(t, df)
   if (d === null) {
     throw new Error('welchsTTest: non-zero standard error produced no pooled effect size')
   }
   const halfWidth = studentTQuantile(0.975, df) * standardError
+  if (![df, d, halfWidth, delta - halfWidth, delta + halfWidth].every(Number.isFinite)) {
+    throw new RangeError('welchsTTest: sample arithmetic exceeded finite range')
+  }
   return {
     status: 'ok',
     meanA: mA,

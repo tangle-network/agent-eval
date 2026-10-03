@@ -530,8 +530,8 @@ export type {
   ProposalFinding,
 } from './analyst/types'
 export { computeFindingId, makeFinding, makeProposalFinding } from './analyst/types'
-
-export { iqr } from './baseline'
+export type { WelchTestResult, WelchTestStatus } from './baseline'
+export { iqr, welchsTTest } from './baseline'
 
 export type { BenchmarkEvaluation } from './benchmarks/types'
 
@@ -1106,6 +1106,18 @@ export type {
 } from './reference-replay'
 export type { ActionableSideInfo } from './release-confidence'
 export type { SandboxDriver } from './sandbox-harness'
+export type { LinearRegressionResult } from './statistics/inference'
+export {
+  chiSquared,
+  chiSquaredPValue,
+  fisherExactTwoSided,
+  linearRegressionSlope,
+  normalTwoSidedPValue,
+  studentTTwoSidedPValue,
+  twoByTwoPValue,
+} from './statistics/inference'
+export type { SampleSummary, SampleSummaryOptions } from './statistics/samples'
+export { sampleMedian, summarizeSample } from './statistics/samples'
 export type { SteeringBundle } from './steering'
 export type { SteeringOptimizationResult, SteeringOptimizationRow } from './steering-optimizer'
 export { PairwiseSteeringOptimizer } from './steering-optimizer'
