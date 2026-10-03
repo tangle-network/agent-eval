@@ -28,13 +28,20 @@ export interface ProportionInterval {
  * 0/1, where the normal (Wald) approximation produces bounds outside [0, 1] and
  * understates coverage. Use this for any pass-rate / hit-rate / realness-rate
  * CI — the continuous `confidenceInterval` assumes the wrong distribution for a
- * proportion. `n = 0 ⇒ {0, 0, 0}`.
+ * proportion. Counts must be finite nonnegative integers, successes cannot exceed
+ * n, and confidence must lie strictly between zero and one. `n = 0 ⇒ {0, 0, 0}`.
  */
 export function wilson(successes: number, n: number, confidence = 0.95): ProportionInterval {
-  if (n <= 0) return { estimate: 0, lower: 0, upper: 0 }
-  if (successes < 0 || successes > n) {
+  if (!Number.isSafeInteger(n) || n < 0) {
+    throw new Error('wilson: n must be a finite nonnegative integer')
+  }
+  if (!Number.isSafeInteger(successes) || successes < 0 || successes > n) {
     throw new Error(`wilson: successes (${successes}) must be in [0, ${n}]`)
   }
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+    throw new Error('wilson: confidence must be between zero and one')
+  }
+  if (n === 0) return { estimate: 0, lower: 0, upper: 0 }
   const z = zQuantile(1 - (1 - confidence) / 2)
   const p = successes / n
   const z2 = z * z

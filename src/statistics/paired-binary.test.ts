@@ -38,6 +38,22 @@ describe('wilson — binomial proportion CI', () => {
     expect(wilson(0, 0)).toEqual({ estimate: 0, lower: 0, upper: 0 })
   })
 
+  it('refuses invalid counts before returning an empty interval', () => {
+    for (const n of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => wilson(0, n)).toThrow(/finite nonnegative integer/)
+    }
+    for (const successes of [-1, NaN, Infinity, 1.5, 11]) {
+      expect(() => wilson(successes, 10)).toThrow(/must be in/)
+    }
+    expect(() => wilson(1, 0)).toThrow(/must be in/)
+  })
+  it('validates confidence even when no observations exist', () => {
+    for (const confidence of [0, 1, -0.5, NaN, Infinity]) {
+      expect(() => wilson(0, 0, confidence)).toThrow(/confidence/)
+      expect(() => wilson(8, 10, confidence)).toThrow(/confidence/)
+    }
+    expect(wilson(0, 0, 0.8)).toEqual({ estimate: 0, lower: 0, upper: 0 })
+  })
   it('a wider interval at smaller n for the same proportion', () => {
     const small = wilson(4, 5)
     const large = wilson(80, 100)
