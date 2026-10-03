@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.205.2] — 2026-10-03
+
+- feat(rollout): parse retained Claude transcript text (#917)
+
 ## [0.205.1] — 2026-10-03
 
 - fix(statistics): refuse invalid Wilson observations (#915)
