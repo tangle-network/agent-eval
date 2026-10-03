@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { claudeProjectSlug, findClaudeTranscripts, readClaudeTranscript } from './claude-jsonl'
+import {
+  claudeProjectSlug,
+  findClaudeTranscripts,
+  parseClaudeTranscript,
+  readClaudeTranscript,
+} from './claude-jsonl'
 
 let dir: string
 beforeEach(async () => {
@@ -162,5 +167,70 @@ describe('readClaudeTranscript', () => {
     expect(t.startedAt).toBe('2026-07-22T19:00:00.000Z')
     expect(t.endedAt).toBe('2026-07-22T19:00:04.000Z')
     expect(t.model).toBe('claude-fable-5')
+  })
+})
+
+describe('parseClaudeTranscript', () => {
+  it('opens retained text through the same message, tool and gap projection as a file', async () => {
+    const raw = [
+      JSON.stringify({ type: 'user', message: { content: 'Check the result.' } }),
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-10-03T06:00:00Z',
+        message: {
+          id: 'retained-message',
+          model: 'retained-model',
+          usage: {
+            input_tokens: 12,
+            output_tokens: 7,
+            cache_read_input_tokens: 3,
+            cache_creation_input_tokens: 0,
+          },
+          content: [
+            { type: 'tool_use', id: 'call-original', name: 'Read', input: { path: 'result.json' } },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'call-original', content: 'verified' }],
+        },
+      }),
+      '{broken',
+    ].join('\n')
+    const parsed = parseClaudeTranscript(raw)
+    expect(parsed.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool'])
+    expect(parsed.messages[1]?.tool_calls?.[0]).toMatchObject({
+      id: 'call-original',
+      function: { name: 'Read', arguments: '{"path":"result.json"}' },
+    })
+    expect(parsed.messages[2]).toMatchObject({ tool_call_id: 'call-original', content: 'verified' })
+    expect(parsed.gaps).toContain('line 4: malformed JSON')
+    expect(parsed.usage).toEqual({ tokensIn: 12, tokensOut: 7, cacheRead: 3, cacheWrite: 0 })
+    const path = join(dir, 'retained.jsonl')
+    await writeFile(path, raw)
+    expect(await readClaudeTranscript(path)).toEqual(parsed)
+  })
+
+  it('keeps a native subagent separate and leaves missing usage unknown', () => {
+    const raw = jsonl([
+      {
+        type: 'assistant',
+        isSidechain: true,
+        agentId: 'native-child',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Child finding.' }] },
+      },
+    ])
+    expect(parseClaudeTranscript(raw).messages).toEqual([])
+    const child = parseClaudeTranscript(raw, { includeSidechain: true })
+    expect(child.messages).toEqual([{ role: 'assistant', content: 'Child finding.' }])
+    expect(child.usage).toEqual({
+      tokensIn: null,
+      tokensOut: null,
+      cacheRead: null,
+      cacheWrite: null,
+    })
+    expect(child.gaps).toHaveLength(4)
   })
 })

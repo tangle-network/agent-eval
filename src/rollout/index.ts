@@ -83,6 +83,8 @@ export {
   claudeProjectSlug,
   DEFAULT_CLAUDE_PROJECTS_DIR,
   findClaudeTranscripts,
+  parseClaudeTranscript,
+  type ReadClaudeTranscriptOptions,
   readClaudeTranscript,
 } from './readers/claude-jsonl'
 export {
