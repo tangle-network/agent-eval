@@ -92,7 +92,7 @@ Validation preserves source order and rejects duplicate pairs or missing ordinal
 | the gate checks themselves | `src/rollout/gate-checks.ts` | `GATE_CHECK_IDS`, `GATE_CHECKS`, `GATE_POLICIES`, `gateErrors(subject, policy)` — the one list every entry point draws from. The subject is the LINE (`{outcome, steps}`), not the outcome alone: a per-step reward is training signal and lives outside `outcome`. `readReward` / `payloadIsPopulated` are the total readers every check narrows through, so a value the gate cannot classify is refused rather than read as clean |
 | ledger file API | `src/rollout/ledger.ts` | `writeRolloutLedger`, `appendRolloutLines`, `readRolloutLedger` |
 | minting from records | `src/rollout/mint.ts` | `mintRolloutRows(records, traceStore)`: RunRecord joined to trace via shared `runId`. `unmintableReasons(record)`: the same door's refusals, reported without throwing |
-| harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project jsonl) |
+| harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project JSONL), `parseClaudeTranscript` (retained JSONL text) |
 | interchange | `src/rollout/interchange/harbor.ts` | `toHarborTrajectory` / `toHarborTrajectories` / `fromHarborTrajectory` / `relabelImportedSplit` (Harbor ATIF-v1.7); all root-exported as well as on the `/rollout` subpath |
 | exporters | `src/rollout/exporters.ts` | `toSftRows`, `toRewardRows`, `toVerifiersRolloutOutputs` (Prime Intellect), `toRftItems` (OpenAI RFT), `toJsonl` |
 | RL exporters | `src/rl/exporters.ts` | `toDpoRows`, `toGrpoRows`, `toSftRows`, `toPrmRows`; all training inputs are `MintedRolloutLine[]` or line-referenced artifacts with explicit line context |
@@ -200,3 +200,11 @@ A step carrying none of the four produces no span — absent stays absent.
 Letta's trajectory-v1 is a strict subset of what we need from ATIF for this purpose: no per-step or aggregate cost, no multi-agent/subagent structure, and no token-id or logprob channel.
 A Letta sink would therefore carry strictly less than the ATIF one while adding a second format to keep correct against schema drift.
 Do not add one without a concrete consumer that reads Letta and cannot read ATIF.
+
+### Read retained Claude transcripts
+
+Use `parseClaudeTranscript(raw, options)` from `@tangle-network/agent-eval/rollout` for JSONL already resolved from a retained artifact.
+It returns the same messages, tool calls/results, usage and source gaps as `readClaudeTranscript(path, options)`.
+Set `includeSidechain: true` when reading a native subagent transcript.
+The caller retains the original bytes and verifies their artifact identity before parsing.
+This parser does not read CAS, store another copy, redact content or establish capture completeness.

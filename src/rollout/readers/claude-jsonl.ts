@@ -148,13 +148,21 @@ function blockText(content: unknown): string {
     .join('\n')
 }
 
-/** Parse one transcript jsonl into canonical messages + usage totals. */
+/** Read one transcript file through the same parser used for retained source text. */
 export async function readClaudeTranscript(
   path: string,
   options: ReadClaudeTranscriptOptions = {},
 ): Promise<ClaudeTranscript> {
+  return parseClaudeTranscript(await readFile(path, 'utf8'), options)
+}
+
+/** Parse retained JSONL without another file or store; source gaps remain explicit. */
+export function parseClaudeTranscript(
+  raw: string,
+  options: ReadClaudeTranscriptOptions = {},
+): ClaudeTranscript {
   const gaps: string[] = []
-  const entries = parseClaudeEntries(await readFile(path, 'utf8'), (gap) => gaps.push(gap))
+  const entries = parseClaudeEntries(raw, (gap) => gaps.push(gap))
   return transcriptFromEntries(entries, { ...options, sourceGaps: gaps })
 }
 
