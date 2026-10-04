@@ -500,10 +500,6 @@ function render({ rows, consumers }) {
     lines.push('')
     lines.push(`${subpathRows.length} value exports — ${counts.production} production, ${counts.planned} planned, ${counts.none} none.`)
     lines.push('')
-    if (subpath === './search') {
-      lines.push('`taskMatrix(state, { split? })` clusters at most 200 nodes using the shared `evenSample` helper in registration order. For larger ledgers, `data.sampling` reports `{ nodesClustered: 200, nodesTotal, cap: 200 }` and `data.method` states the cap. Matrix cells, unit clustering, and specialist gains use only those nodes and their observed units. Ledgers of at most 200 nodes retain the complete previous output without sampling metadata. See [search-ledger.md](./search-ledger.md#all-eight-lenses-one-page) for clustering and specialist-gain rules.')
-      lines.push('')
-    }
     lines.push('| symbol | consumer | evidence |')
     lines.push('| --- | --- | --- |')
     for (const row of subpathRows) {

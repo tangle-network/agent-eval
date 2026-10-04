@@ -1429,8 +1429,6 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 
 38 value exports — 26 production, 6 planned, 6 none.
 
-`taskMatrix(state, { split? })` clusters at most 200 nodes using the shared `evenSample` helper in registration order. For larger ledgers, `data.sampling` reports `{ nodesClustered: 200, nodesTotal, cap: 200 }` and `data.method` states the cap. Matrix cells, unit clustering, and specialist gains use only those nodes and their observed units. Ledgers of at most 200 nodes retain the complete previous output without sampling metadata. See [search-ledger.md](./search-ledger.md#all-eight-lenses-one-page) for clustering and specialist-gain rules.
-
 | symbol | consumer | evidence |
 | --- | --- | --- |
 | `draftOnPlateau` | production | this package: scripts/search-sim.ts:162 |
