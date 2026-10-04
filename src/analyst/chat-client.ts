@@ -133,6 +133,7 @@ export interface OpenAiCompatibleTransportOpts
       | 'fetch'
       | 'jsonPayloadMode'
       | 'jsonSchemaTransport'
+      | 'minIntervalMs'
       | 'provider'
       | 'rawSink'
       | 'signal'
@@ -246,6 +247,7 @@ function openAiCompatibleClient(opts: OpenAiCompatibleTransportOpts): ChatClient
     ...(opts.jsonSchemaTransport === undefined
       ? {}
       : { jsonSchemaTransport: opts.jsonSchemaTransport }),
+    ...(opts.minIntervalMs === undefined ? {} : { minIntervalMs: opts.minIntervalMs }),
     ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     ...(opts.rawSink === undefined ? {} : { rawSink: opts.rawSink }),
     ...(opts.signal === undefined ? {} : { signal: opts.signal }),
