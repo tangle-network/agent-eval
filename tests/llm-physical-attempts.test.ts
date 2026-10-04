@@ -261,18 +261,22 @@ describe('physical request lifetime and receipt consistency', () => {
 
   it('clamps server backoff to the remaining whole-operation deadline', async () => {
     const { baseUrl, requests } = await endpoint((res) => {
-      res.writeHead(429, { 'Retry-After': '2' })
+      res.writeHead(429, { 'Retry-After': '10' })
       res.end('busy')
     })
     const started = performance.now()
+    // The server asks for 10 s and the whole call has 3 s, which leaves the first request room on
+    // a loaded runner (at 150 ms the request itself was aborted, publish run 37238259408). The call
+    // ends with the server's 429 at once: sleeping to the deadline let an early timer start one more
+    // attempt with no time left, and its abort replaced the 429.
     await expect(
       callLlm(request, {
         baseUrl,
         maximumAttempts: 3,
-        deadlineMs: 150,
+        deadlineMs: 3_000,
       }),
     ).rejects.toMatchObject({ status: 429 })
-    expect(performance.now() - started).toBeLessThan(1_200)
+    expect(performance.now() - started).toBeLessThan(1_500)
     expect(requests).toHaveLength(1)
   })
 
