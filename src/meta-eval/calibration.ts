@@ -257,9 +257,13 @@ function categoricalEntries(
   if (forecast === null || typeof forecast !== 'object' || typeof forecast.outcome !== 'string') {
     throw new Error(`${label} forecast ${index} needs probabilities and a string outcome`)
   }
-  const entries = Object.entries(forecast.probabilities ?? {})
+  const probabilities = forecast.probabilities
+  if (probabilities === null || typeof probabilities !== 'object' || Array.isArray(probabilities)) {
+    throw new Error(`${label} forecast ${index} probabilities must be an object keyed by outcome`)
+  }
+  const entries = Object.entries(probabilities)
   if (entries.length < 2) throw new Error(`${label} forecast ${index} needs at least two outcomes`)
-  if (!Object.hasOwn(forecast.probabilities, forecast.outcome)) {
+  if (!entries.some(([name]) => name === forecast.outcome)) {
     throw new Error(
       `${label} forecast ${index} has no probability for outcome ${JSON.stringify(forecast.outcome)}`,
     )

@@ -27,6 +27,16 @@ describe('multiclassBrierScore', () => {
       multiclassBrierScore([{ probabilities: { a: 0.5, b: 0.5 }, outcome: 'c' }]),
     ).toThrow(/no probability for outcome/)
     expect(() => multiclassBrierScore([])).toThrow(/at least one/)
+    expect(() =>
+      multiclassBrierScore([
+        { probabilities: [0.5, 0.5] as unknown as Record<string, number>, outcome: '0' },
+      ]),
+    ).toThrow(/object keyed by outcome/)
+    const hidden: Record<string, number> = { a: 0.5, b: 0.5 }
+    Object.defineProperty(hidden, 'c', { value: 0, enumerable: false })
+    expect(() => multiclassBrierScore([{ probabilities: hidden, outcome: 'c' }])).toThrow(
+      /no probability for outcome/,
+    )
   })
 })
 
