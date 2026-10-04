@@ -144,4 +144,64 @@ describe('Runtime reader transcript coverage', () => {
       },
     })
   })
+
+  // 2026-10-04 trace proof: the summary said 7 of 7 workers carried an available transcript while
+  // one receipt held only Pi's models-store.json and another was a partial copy stored before the
+  // deadline-ended harness stopped; the run's own trace gate named the Pi worker missing.
+  it('counts a receipt as a session only when its copy is complete and holds a session file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-receipts-'))
+    await mkdir(join(dir, 'blobs'))
+    const descriptor = (harness: string, paths: string[]) =>
+      JSON.stringify({
+        kind: 'retained-harness-transcript',
+        harness,
+        files: paths.map((path) => ({ path: `session/execution/session-home/${path}`, bytes: 10 })),
+      })
+    await writeFile(
+      blob(dir, '4'),
+      descriptor('claude-code', ['.claude/projects/-home-agent/a.jsonl']),
+    )
+    await writeFile(blob(dir, '5'), descriptor('pi', ['.pi/agent/models-store.json']))
+    await writeFile(
+      blob(dir, '6'),
+      descriptor('claude-code', ['.claude/projects/-home-agent/b.jsonl']),
+    )
+    await writeFile(blob(dir, '7'), descriptor('opencode', ['.local/share/opencode/opencode.db']))
+    const journal = [
+      { kind: 'begin', root: ROOT, at: at() },
+      spawned(ROOT),
+      ...(
+        [
+          ['ok', '4', true, 'claude-code'],
+          ['pi', '5', true, 'pi'],
+          ['deadline', '6', false, 'claude-code'],
+          ['opencode', '7', true, 'opencode'],
+        ] as const
+      ).flatMap(([id, c, coverageComplete, harness]) => [
+        spawned(`${ROOT}:${id}`),
+        dispatched(`${ROOT}:${id}`),
+        settled(`${ROOT}:${id}`, {
+          status: 'available',
+          transcriptRef: ref(c),
+          harness,
+          coverageComplete,
+        }),
+      ]),
+    ]
+    await writeFile(
+      join(dir, 'spawn-journal.jsonl'),
+      `${journal.map((line) => JSON.stringify(line)).join('\n')}\n`,
+    )
+    const sources = await readRuntimeSupervisorRun(dir)
+    const byId = new Map(sources.workers?.map((worker) => [worker.workerId, worker]))
+    expect(byId.get(`${ROOT}:pi`)?.nativeSession).toMatchObject({
+      status: 'available',
+      coverageComplete: true,
+      sessionFiles: 0,
+    })
+    expect(byId.get(`${ROOT}:deadline`)?.nativeSession).toMatchObject({ coverageComplete: false })
+    expect(sources.traceCommand).toContain(
+      '2 of 4 workers carry a complete native session receipt (workers[].nativeSession); 1 only a partial copy; 1 a receipt with no session file',
+    )
+  })
 })

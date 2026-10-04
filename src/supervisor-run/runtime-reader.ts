@@ -534,30 +534,80 @@ function keepReceipt(fact: NodeTranscriptFacts, receipt: Record<string, unknown>
 }
 
 /**
+ * The files each harness writes its conversation to. A receipt can be available and complete
+ * while holding none of them: on the 2026-10-04 trace proof a Pi worker that never wrote a session
+ * stored only `.pi/agent/models-store.json`, and this summary counted it as a transcript.
+ */
+const HARNESS_SESSION_FILE: Readonly<Record<string, RegExp>> = {
+  'claude-code': /(^|\/)\.claude\/projects\/.+\.jsonl$/u,
+  codex: /(^|\/)\.codex\/sessions\/.+\.jsonl$/u,
+  pi: /(^|\/)\.pi\/agent\/sessions\/.+\.jsonl$/u,
+  opencode:
+    /(^|\/)(\.local\/share\/opencode\/(opencode\.db|storage\/session\/.+\.json|export\/.+\.json)|\.opencode\/sessions\/.+)$/u,
+}
+
+/** Session files the receipt's transcript blob lists, or undefined when it cannot say. */
+async function receiptSessionFiles(file: string): Promise<number | undefined> {
+  let descriptor: unknown
+  try {
+    descriptor = JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return undefined
+  }
+  const harness = record(descriptor)?.harness
+  const files = record(descriptor)?.files
+  const pattern = typeof harness === 'string' ? HARNESS_SESSION_FILE[harness] : undefined
+  if (pattern === undefined || !Array.isArray(files)) return undefined
+  return files.filter((entry) => {
+    const path = record(entry)?.path
+    return typeof path === 'string' && pattern.test(path)
+  }).length
+}
+
+type NativeSessionState = 'complete' | 'partial' | 'no-session-file' | 'unavailable' | 'none'
+
+function nativeSessionState(session: WorkerNativeSession | null | undefined): NativeSessionState {
+  if (session === null || session === undefined) return 'none'
+  if (session.status !== 'available') return 'unavailable'
+  if (session.coverageComplete === false) return 'partial'
+  if (session.sessionFiles === 0) return 'no-session-file'
+  return 'complete'
+}
+
+/**
  * What this reader can say about harness-session traces. Every spawned worker counts, including
  * one that recorded nothing; the root is reported apart because its receipt lives in result.json
  * (`rootHarnessTranscript`), not on a worker. Runtime records the session identity on each
- * receipt, so the sessions are read per node, not through one command.
+ * receipt, so the sessions are read per node, not through one command. A receipt counts as a
+ * session only when its copy is complete and holds a file the harness writes its conversation to.
  */
 function nativeTraceSummary(
   workers: readonly WorkerLogSource[],
   root: NodeTranscript | undefined,
 ): string {
-  const available = workers.filter((worker) => worker.nativeSession?.status === 'available').length
+  const states = workers.map((worker) => nativeSessionState(worker.nativeSession))
+  const count = (state: NativeSessionState): number => states.filter((s) => s === state).length
   const rootSession = root?.nativeSession ?? null
-  const rootState =
+  const rootState = nativeSessionState(rootSession)
+  const rootText =
     rootSession === null
       ? 'no receipt'
-      : rootSession.status === 'available'
-        ? 'available'
-        : `unavailable (${rootSession.reason})`
-  if (
-    available === 0 &&
-    rootSession === null &&
-    workers.every((worker) => worker.nativeSession === null)
-  )
+      : rootSession.status === 'unavailable'
+        ? `unavailable (${rootSession.reason})`
+        : rootState === 'complete'
+          ? 'complete'
+          : rootState === 'partial'
+            ? 'partial copy'
+            : 'no session file'
+  if (rootSession === null && states.every((state) => state === 'none'))
     return 'unavailable — no node carries a Runtime harness transcript receipt'
-  return `per node — ${available} of ${workers.length} workers carry an available native harness transcript (workers[].nativeSession); root: ${rootState} (result.json rootHarnessTranscript)`
+  const gaps = [
+    count('partial') > 0 ? `${count('partial')} only a partial copy` : null,
+    count('no-session-file') > 0
+      ? `${count('no-session-file')} a receipt with no session file`
+      : null,
+  ].filter((gap): gap is string => gap !== null)
+  return `per node — ${count('complete')} of ${workers.length} workers carry a complete native session receipt (workers[].nativeSession)${gaps.length > 0 ? `; ${gaps.join('; ')}` : ''}; root: ${rootText} (result.json rootHarnessTranscript)`
 }
 
 async function workspaceCapturesFromOutput(
@@ -735,10 +785,18 @@ async function nodeTranscripts(
     if (fact.receipt !== null) {
       if (fact.receipt.status === 'available') {
         const file = blobFile(runDir, fact.receipt.transcriptRef)
-        nativeSession =
-          file !== null && (await isFile(file))
-            ? { status: 'available', ref: file }
-            : { status: 'unavailable', reason: 'receipt-blob-missing' }
+        if (file !== null && (await isFile(file))) {
+          const sessionFiles = await receiptSessionFiles(file)
+          const coverageComplete = fact.receipt.coverageComplete
+          nativeSession = {
+            status: 'available',
+            ref: file,
+            ...(typeof coverageComplete === 'boolean' ? { coverageComplete } : {}),
+            ...(sessionFiles === undefined ? {} : { sessionFiles }),
+          }
+        } else {
+          nativeSession = { status: 'unavailable', reason: 'receipt-blob-missing' }
+        }
       } else {
         nativeSession = {
           status: 'unavailable',
