@@ -91,9 +91,21 @@ recorded TypeSafe score answers and both recorded Clef score answers.
 
 Probabilities are not made equivalent across models. A Clef 0.8 and a Jev 0.8 are different
 statements, so a threshold belongs to one model: change `{ model, threshold }` together and audit
-the pair with `auditProbabilityPolicy` against independent outcomes. `brierScore` and
-`calibrationFromPairs` (with `range: { lo: 0, hi: 1 }`; `binning: 'equal-frequency'` for
-equal-mass bins) in `/meta-eval` report calibration on the same pairs.
+the pair with `auditProbabilityPolicy` against independent outcomes.
+
+Score each question type with its proper scoring rule from `/meta-eval`, on `probabilities` and
+`noul`, never on `confidence`:
+
+| Question | Rule |
+| --- | --- |
+| `noul` | `brierScore` (binary) |
+| `choice` | `multiclassBrierScore` (sum form, range 0 to 2) |
+| `score` | `rankedProbabilityScore` (levels in order, range 0 to 1) |
+
+Top-label ECE comes from `calibrationFromPairs` on (top probability, top answer correct) pairs, with
+`range: { lo: 0, hi: 1 }` and `binning: 'equal-frequency'` for equal-mass bins.
+When items share a source (one task, one pull request), interval estimates resample whole sources:
+`clusterBootstrapMean` takes per-item values or per-item paired differences with their cluster id.
 
 ## Any classifier, not only System One
 
