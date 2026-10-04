@@ -526,6 +526,26 @@ interface NodeTranscriptFacts {
   receipt: Record<string, unknown> | null
 }
 
+/** A later receipt replaces an earlier one, except that an absence never replaces an available one. */
+function keepReceipt(fact: NodeTranscriptFacts, receipt: Record<string, unknown> | null): void {
+  if (receipt === null) return
+  if (fact.receipt?.status === 'available' && receipt.status !== 'available') return
+  fact.receipt = receipt
+}
+
+/**
+ * What this reader can say about harness-session traces: how many nodes carry an available
+ * native transcript receipt. Runtime records the session identity on each receipt, so the run's
+ * sessions are read per node (`workers[].nativeSession`), not through one command.
+ */
+function nativeTraceSummary(transcripts: ReadonlyMap<string, NodeTranscript>): string {
+  const sessions = [...transcripts.values()].map((transcript) => transcript.nativeSession)
+  const receipted = sessions.filter((session) => session !== null).length
+  const available = sessions.filter((session) => session?.status === 'available').length
+  if (receipted === 0) return 'unavailable — no node carries a Runtime harness transcript receipt'
+  return `per node — ${available} of ${transcripts.size} nodes carry an available native harness transcript (${receipted - available} receipt(s) name why not); read workers[].nativeSession`
+}
+
 async function workspaceCapturesFromOutput(
   runDir: string,
   ref: unknown,
@@ -634,7 +654,10 @@ async function workspaceCapturesFromOutput(
  *   records retain ordinary and steerable results; they are not counted as dispatched turns.
  * - The terminal event's `harnessTranscript` receipt covers the harness's native session files.
  *   Those are the only record of the harness's own subagents, so an unavailable receipt is a
- *   separate gap from a missing turn, and its reason is Runtime's, verbatim.
+ *   separate gap from a missing turn, and its reason is Runtime's, verbatim. `settled`,
+ *   `cancelled` and `reconciled` all carry one; an available receipt is never replaced by a later
+ *   absence. The root has no terminal event, so its receipt is the settle record's
+ *   `rootHarnessTranscript`.
  *
  * Blob files are checked on disk: a receipt that names a blob the directory no longer holds is
  * not a retained transcript.
@@ -643,6 +666,7 @@ async function nodeTranscripts(
   runDir: string,
   events: readonly Record<string, unknown>[],
   nodeIds: ReadonlySet<string>,
+  root?: { readonly id: string; readonly receipt: Record<string, unknown> | null },
 ): Promise<Map<string, NodeTranscript>> {
   const facts = new Map<string, NodeTranscriptFacts>()
   const entry = (id: string): NodeTranscriptFacts => {
@@ -669,11 +693,17 @@ async function nodeTranscripts(
     }
     if (event.kind === 'execution-admitted' && record(event.admission)?.phase === 'dispatched') {
       entry(id).dispatched += 1
-    } else if (event.kind === 'settled' || event.kind === 'cancelled') {
-      const receipt = record(event.harnessTranscript)
-      if (receipt !== null) entry(id).receipt = receipt
+    } else if (
+      event.kind === 'settled' ||
+      event.kind === 'cancelled' ||
+      event.kind === 'reconciled'
+    ) {
+      // A reconciled node carries its receipt on `reconciled`, which 15 available transcripts of
+      // the 2026-10-04 Discovery archives did and this reader once skipped.
+      keepReceipt(entry(id), record(event.harnessTranscript))
     }
   }
+  if (root !== undefined && nodeIds.has(root.id)) keepReceipt(entry(root.id), root.receipt)
   const out = new Map<string, NodeTranscript>()
   for (const [id, fact] of facts) {
     const retained: string[] = []
@@ -830,6 +860,7 @@ export async function readRuntimeSupervisorRun(
     runDir,
     normalized.events,
     new Set([normalized.root, ...workerIds]),
+    { id: normalized.root, receipt: record(result?.rootHarnessTranscript) },
   )
   const workers: WorkerLogSource[] = childSpawns.map((event) => {
     const workerId = nonEmptyString(event.id) as string
@@ -874,7 +905,7 @@ export async function readRuntimeSupervisorRun(
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
     rootTranscriptRef: (await isFile(rootStream)) ? rootStream : null,
     rootWorkspaceCaptures: transcripts.get(normalized.root)?.workspaceCaptures ?? null,
-    traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
+    traceCommand: nativeTraceSummary(transcripts),
   }
 }
 
