@@ -356,6 +356,11 @@ function renderTaskMatrixText(data: TaskMatrixData): string {
   const lines = [
     `task matrix (${data.split} split, ${data.direction}): ${data.nodeIds.length} node(s) × ${data.unitIds.length} unit(s), ${data.nodeClusters.length} node cluster(s), ${data.unitClusters.length} unit cluster(s)`,
   ]
+  if (data.sampling) {
+    lines.push(
+      `  clustered ${data.sampling.nodesClustered} of ${data.sampling.nodesTotal} nodes (cap ${data.sampling.cap}), evenly sampled in registration order; unit clusters and specialist gains use the same nodes`,
+    )
+  }
   for (const row of data.specialistGain) {
     const gain =
       row.gain === null

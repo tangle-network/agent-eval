@@ -23,7 +23,13 @@
 
 import type { SearchStateView } from '../../campaign/search-state'
 import { compareCodeUnits } from '../../ledger-core/canonical'
+import { evenSample } from './geometry'
 import { INSUFFICIENT_FROM, rankingSplit } from './shared'
+
+// Pairwise scoring costs O(n²u + u²n), before sorting the distances. At 200
+// nodes, node clustering makes at most 39,800 distance calls instead of
+// 3,998,000 at 2,000 nodes (<1%); unit distances also scan only those 200.
+const TASK_MATRIX_NODES = 200
 
 const SPECIALIST_GAIN_METHOD = `per unit cluster, the best node's mean over the cluster's units minus the mean of the node means, in the objective's direction and the metric's units, among nodes not decided invalid that scored every unit of the cluster; reported from 2 such nodes and ${INSUFFICIENT_FROM} units; a point value with no interval: the largest of several noisy means exceeds their mean even when no node specializes, so read it against the spread of the node means`
 
@@ -60,8 +66,14 @@ export interface TaskMatrixSpecialistRow {
 export interface TaskMatrixData {
   split: 'train' | 'selection'
   direction: 'maximize' | 'minimize'
-  /** How `specialistGain` is computed. */
+  /** How `specialistGain` is computed, including the node cap when sampled. */
   method: string
+  /** Present only when nodes were sampled; absent for an unchanged full matrix. */
+  sampling?: {
+    nodesClustered: number
+    nodesTotal: number
+    cap: number
+  }
   nodeIds: string[]
   unitIds: string[]
   nodeClusters: TaskMatrixCluster[]
@@ -85,7 +97,14 @@ export function taskMatrix(
   const split = options.split ?? rankingSplit(state)
   const direction = state.header?.objective.direction ?? 'maximize'
   const sign = direction === 'maximize' ? 1 : -1
-  const nodeIds = state.nodeIds()
+  const allNodeIds = state.nodeIds()
+  // Use the same sample for both axes, cells, and specialist gains. Units
+  // observed only on omitted nodes must not become empty matrix columns.
+  const nodeIds = evenSample(allNodeIds, TASK_MATRIX_NODES)
+  const sampling =
+    nodeIds.length < allNodeIds.length
+      ? { nodesClustered: nodeIds.length, nodesTotal: allNodeIds.length, cap: TASK_MATRIX_NODES }
+      : null
   const invalid = new Set(
     state
       .nodes()
@@ -167,7 +186,10 @@ export function taskMatrix(
     data: {
       split,
       direction,
-      method: SPECIALIST_GAIN_METHOD,
+      method: sampling
+        ? `${SPECIALIST_GAIN_METHOD}; node clustering, unit clustering, and specialist gains use ${sampling.nodesClustered} of ${sampling.nodesTotal} nodes, evenly sampled in registration order (cap ${sampling.cap})`
+        : SPECIALIST_GAIN_METHOD,
+      ...(sampling ? { sampling } : {}),
       nodeIds: orderedNodeIds,
       unitIds: orderedUnitIds,
       nodeClusters,
