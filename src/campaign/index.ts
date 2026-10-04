@@ -110,6 +110,7 @@ export {
   SEARCH_ESTIMATOR,
   type SearchPosterior,
   searchCellSetDigest,
+  searchEstimateMethod,
   searchPosterior,
 } from './estimate-node'
 export type {
