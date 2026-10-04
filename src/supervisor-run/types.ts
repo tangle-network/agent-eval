@@ -69,7 +69,17 @@ export interface WorkerTurnCoverage {
 
 /** A native harness session receipt: the retained artifact, or the store's reason there is none. */
 export type WorkerNativeSession =
-  | { readonly status: 'available'; readonly ref: string }
+  | {
+      readonly status: 'available'
+      readonly ref: string
+      /** False when Runtime stored a partial copy (the session may continue past it). Absent on
+       *  receipts that do not say. */
+      readonly coverageComplete?: boolean
+      /** Stored files the harness writes its conversation to. Zero means the receipt holds other
+       *  native files only (a model cache, a config). Absent when the descriptor does not list
+       *  files or the harness has no known session layout. */
+      readonly sessionFiles?: number
+    }
   | { readonly status: 'unavailable'; readonly reason: string }
 
 /**
