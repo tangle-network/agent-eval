@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.207.0] — 2026-10-04
+
+- feat(meta-eval): proper scoring rules for choice and score answers, cluster bootstrap (#926)
+- fix(campaign): expose canonical search estimate staging (#925)
+- fix(search): bound task matrix clustering to 200 nodes (#922)
+
 ## [0.206.0] — 2026-10-04
 
 - feat(systemone)!: make System One provider-neutral and normalize provider rounding (#920)
