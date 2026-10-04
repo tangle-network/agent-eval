@@ -1,0 +1,1371 @@
+{
+  "capturedAt": "2026-10-04T00:43:18.784Z",
+  "note": "One live call per model with the same request, recorded as received. Cloudflare responses keep the Workers AI v4 envelope; the account id in each endpoint is redacted. No credential is stored here. `boundaries` records how clef-flash answered inputs at the edge of its schema.",
+  "calls": [
+    {
+      "provider": "cloudflare",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef",
+      "status": 200,
+      "request": {
+        "model": "clef",
+        "state": {
+          "task": "Fix the off-by-one error in the pagination helper so the last page is returned.",
+          "repository_files": [
+            "src/module_00.ts",
+            "src/module_01.ts",
+            "src/module_02.ts",
+            "src/module_03.ts",
+            "src/module_04.ts",
+            "src/module_05.ts",
+            "src/module_06.ts",
+            "src/module_07.ts",
+            "src/module_08.ts",
+            "src/module_09.ts",
+            "src/module_10.ts",
+            "src/module_11.ts",
+            "src/module_12.ts",
+            "src/module_13.ts",
+            "src/module_14.ts",
+            "src/module_15.ts",
+            "src/module_16.ts",
+            "src/module_17.ts",
+            "src/module_18.ts",
+            "src/module_19.ts",
+            "src/module_20.ts",
+            "src/module_21.ts",
+            "src/module_22.ts",
+            "src/module_23.ts",
+            "src/module_24.ts",
+            "src/module_25.ts",
+            "src/module_26.ts",
+            "src/module_27.ts",
+            "src/module_28.ts",
+            "src/module_29.ts",
+            "src/module_30.ts",
+            "src/module_31.ts",
+            "src/module_32.ts",
+            "src/module_33.ts",
+            "src/module_34.ts",
+            "src/module_35.ts",
+            "src/module_36.ts",
+            "src/module_37.ts",
+            "src/module_38.ts",
+            "src/module_39.ts",
+            "src/module_40.ts",
+            "src/module_41.ts",
+            "src/module_42.ts",
+            "src/module_43.ts",
+            "src/module_44.ts",
+            "src/module_45.ts",
+            "src/module_46.ts",
+            "src/module_47.ts",
+            "src/module_48.ts",
+            "src/module_49.ts"
+          ],
+          "agent_report": "I changed src/module_17.ts: `pageCount = Math.floor(total / size)` became `Math.ceil(total / size)`. Tests: 41 passed, 0 failed. I did not touch other files.",
+          "diff": "--- a/src/module_17.ts\n+++ b/src/module_17.ts\n@@ -12 +12 @@\n-  const pageCount = Math.floor(total / size)\n+  const pageCount = Math.ceil(total / size)"
+        },
+        "questions": {
+          "delivered": {
+            "type": "noul",
+            "instructions": "Did the agent fix the off-by-one error the task describes?",
+            "criteria": {
+              "true": "The diff fixes the last-page computation.",
+              "false": "The diff does not fix it."
+            }
+          },
+          "quality": {
+            "type": "score",
+            "instructions": "Rate how completely the change and report satisfy the task.",
+            "criteria": [
+              "level 0 of 9: nothing delivered",
+              "level 1 of 9: partially delivered",
+              "level 2 of 9: partially delivered",
+              "level 3 of 9: partially delivered",
+              "level 4 of 9: partially delivered",
+              "level 5 of 9: partially delivered",
+              "level 6 of 9: partially delivered",
+              "level 7 of 9: partially delivered",
+              "level 8 of 9: partially delivered",
+              "level 9 of 9: fully delivered with tests"
+            ]
+          },
+          "fixed.file": {
+            "type": "choice",
+            "instructions": "Which file did the agent change?",
+            "criteria": {
+              "src/module_00.ts": null,
+              "src/module_01.ts": null,
+              "src/module_02.ts": null,
+              "src/module_03.ts": null,
+              "src/module_04.ts": null,
+              "src/module_05.ts": null,
+              "src/module_06.ts": null,
+              "src/module_07.ts": null,
+              "src/module_08.ts": null,
+              "src/module_09.ts": null,
+              "src/module_10.ts": null,
+              "src/module_11.ts": null,
+              "src/module_12.ts": null,
+              "src/module_13.ts": null,
+              "src/module_14.ts": null,
+              "src/module_15.ts": null,
+              "src/module_16.ts": null,
+              "src/module_17.ts": null,
+              "src/module_18.ts": null,
+              "src/module_19.ts": null,
+              "src/module_20.ts": null,
+              "src/module_21.ts": null,
+              "src/module_22.ts": null,
+              "src/module_23.ts": null,
+              "src/module_24.ts": null,
+              "src/module_25.ts": null,
+              "src/module_26.ts": null,
+              "src/module_27.ts": null,
+              "src/module_28.ts": null,
+              "src/module_29.ts": null,
+              "src/module_30.ts": null,
+              "src/module_31.ts": null,
+              "src/module_32.ts": null,
+              "src/module_33.ts": null,
+              "src/module_34.ts": null,
+              "src/module_35.ts": null,
+              "src/module_36.ts": null,
+              "src/module_37.ts": null,
+              "src/module_38.ts": null,
+              "src/module_39.ts": null,
+              "src/module_40.ts": null,
+              "src/module_41.ts": null,
+              "src/module_42.ts": null,
+              "src/module_43.ts": null,
+              "src/module_44.ts": null,
+              "src/module_45.ts": null,
+              "src/module_46.ts": null,
+              "src/module_47.ts": null,
+              "src/module_48.ts": null,
+              "src/module_49.ts": null
+            }
+          },
+          "risk": {
+            "type": "choice",
+            "instructions": "What is the main remaining risk of this change?",
+            "criteria": {
+              "none": "No meaningful risk remains.",
+              "regression": "It may break callers that relied on the old count.",
+              "untested": "The edge case has no dedicated test."
+            }
+          },
+          "rubric4": {
+            "type": "score",
+            "instructions": "How well does the report evidence its claims?",
+            "criteria": [
+              "no evidence",
+              "claims only",
+              "diff shown",
+              "diff and test results shown"
+            ]
+          }
+        }
+      },
+      "response": {
+        "result": {
+          "model": "clef",
+          "answers": {
+            "delivered": {
+              "type": "noul",
+              "noul": 0.9233
+            },
+            "quality": {
+              "type": "score",
+              "score": 6.6052,
+              "legend": {
+                "0": "level 0 of 9: nothing delivered",
+                "1": "level 1 of 9: partially delivered",
+                "2": "level 2 of 9: partially delivered",
+                "3": "level 3 of 9: partially delivered",
+                "4": "level 4 of 9: partially delivered",
+                "5": "level 5 of 9: partially delivered",
+                "6": "level 6 of 9: partially delivered",
+                "7": "level 7 of 9: partially delivered",
+                "8": "level 8 of 9: partially delivered",
+                "9": "level 9 of 9: fully delivered with tests"
+              },
+              "probabilities": {
+                "0": 0.0162,
+                "1": 0.063,
+                "2": 0.0461,
+                "3": 0.0648,
+                "4": 0.0641,
+                "5": 0.0659,
+                "6": 0.0705,
+                "7": 0.0736,
+                "8": 0.0909,
+                "9": 0.4449
+              },
+              "confidence": 0.1506
+            },
+            "fixed.file": {
+              "type": "choice",
+              "choice": "src/module_17.ts",
+              "probabilities": {
+                "src/module_00.ts": 0.0027,
+                "src/module_01.ts": 0.0037,
+                "src/module_02.ts": 0.0031,
+                "src/module_03.ts": 0.0034,
+                "src/module_04.ts": 0.0033,
+                "src/module_05.ts": 0.0034,
+                "src/module_06.ts": 0.004,
+                "src/module_07.ts": 0.0045,
+                "src/module_08.ts": 0.0036,
+                "src/module_09.ts": 0.004,
+                "src/module_10.ts": 0.0032,
+                "src/module_11.ts": 0.0048,
+                "src/module_12.ts": 0.0042,
+                "src/module_13.ts": 0.0051,
+                "src/module_14.ts": 0.0059,
+                "src/module_15.ts": 0.0055,
+                "src/module_16.ts": 0.0076,
+                "src/module_17.ts": 0.7704,
+                "src/module_18.ts": 0.0037,
+                "src/module_19.ts": 0.0048,
+                "src/module_20.ts": 0.0043,
+                "src/module_21.ts": 0.0038,
+                "src/module_22.ts": 0.0046,
+                "src/module_23.ts": 0.005,
+                "src/module_24.ts": 0.0056,
+                "src/module_25.ts": 0.004,
+                "src/module_26.ts": 0.0042,
+                "src/module_27.ts": 0.0051,
+                "src/module_28.ts": 0.0049,
+                "src/module_29.ts": 0.005,
+                "src/module_30.ts": 0.004,
+                "src/module_31.ts": 0.0046,
+                "src/module_32.ts": 0.004,
+                "src/module_33.ts": 0.0056,
+                "src/module_34.ts": 0.0059,
+                "src/module_35.ts": 0.0051,
+                "src/module_36.ts": 0.0066,
+                "src/module_37.ts": 0.0065,
+                "src/module_38.ts": 0.0059,
+                "src/module_39.ts": 0.0063,
+                "src/module_40.ts": 0.0042,
+                "src/module_41.ts": 0.0049,
+                "src/module_42.ts": 0.0048,
+                "src/module_43.ts": 0.0049,
+                "src/module_44.ts": 0.0053,
+                "src/module_45.ts": 0.0039,
+                "src/module_46.ts": 0.0041,
+                "src/module_47.ts": 0.0055,
+                "src/module_48.ts": 0.0059,
+                "src/module_49.ts": 0.0046
+              },
+              "confidence": 0.5863
+            },
+            "risk": {
+              "type": "choice",
+              "choice": "untested",
+              "probabilities": {
+                "none": 0.1669,
+                "regression": 0.3188,
+                "untested": 0.5143
+              },
+              "confidence": 0.091
+            },
+            "rubric4": {
+              "type": "score",
+              "score": 2.7163,
+              "legend": {
+                "0": "no evidence",
+                "1": "claims only",
+                "2": "diff shown",
+                "3": "diff and test results shown"
+              },
+              "probabilities": {
+                "0": 0.0126,
+                "1": 0.0524,
+                "2": 0.1412,
+                "3": 0.7938
+              },
+              "confidence": 0.5373
+            }
+          },
+          "usage": {
+            "input_tokens": 2037,
+            "output_tokens": 0
+          }
+        },
+        "success": true,
+        "errors": [],
+        "messages": []
+      }
+    },
+    {
+      "provider": "cloudflare",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "status": 200,
+      "request": {
+        "model": "clef-flash",
+        "state": {
+          "task": "Fix the off-by-one error in the pagination helper so the last page is returned.",
+          "repository_files": [
+            "src/module_00.ts",
+            "src/module_01.ts",
+            "src/module_02.ts",
+            "src/module_03.ts",
+            "src/module_04.ts",
+            "src/module_05.ts",
+            "src/module_06.ts",
+            "src/module_07.ts",
+            "src/module_08.ts",
+            "src/module_09.ts",
+            "src/module_10.ts",
+            "src/module_11.ts",
+            "src/module_12.ts",
+            "src/module_13.ts",
+            "src/module_14.ts",
+            "src/module_15.ts",
+            "src/module_16.ts",
+            "src/module_17.ts",
+            "src/module_18.ts",
+            "src/module_19.ts",
+            "src/module_20.ts",
+            "src/module_21.ts",
+            "src/module_22.ts",
+            "src/module_23.ts",
+            "src/module_24.ts",
+            "src/module_25.ts",
+            "src/module_26.ts",
+            "src/module_27.ts",
+            "src/module_28.ts",
+            "src/module_29.ts",
+            "src/module_30.ts",
+            "src/module_31.ts",
+            "src/module_32.ts",
+            "src/module_33.ts",
+            "src/module_34.ts",
+            "src/module_35.ts",
+            "src/module_36.ts",
+            "src/module_37.ts",
+            "src/module_38.ts",
+            "src/module_39.ts",
+            "src/module_40.ts",
+            "src/module_41.ts",
+            "src/module_42.ts",
+            "src/module_43.ts",
+            "src/module_44.ts",
+            "src/module_45.ts",
+            "src/module_46.ts",
+            "src/module_47.ts",
+            "src/module_48.ts",
+            "src/module_49.ts"
+          ],
+          "agent_report": "I changed src/module_17.ts: `pageCount = Math.floor(total / size)` became `Math.ceil(total / size)`. Tests: 41 passed, 0 failed. I did not touch other files.",
+          "diff": "--- a/src/module_17.ts\n+++ b/src/module_17.ts\n@@ -12 +12 @@\n-  const pageCount = Math.floor(total / size)\n+  const pageCount = Math.ceil(total / size)"
+        },
+        "questions": {
+          "delivered": {
+            "type": "noul",
+            "instructions": "Did the agent fix the off-by-one error the task describes?",
+            "criteria": {
+              "true": "The diff fixes the last-page computation.",
+              "false": "The diff does not fix it."
+            }
+          },
+          "quality": {
+            "type": "score",
+            "instructions": "Rate how completely the change and report satisfy the task.",
+            "criteria": [
+              "level 0 of 9: nothing delivered",
+              "level 1 of 9: partially delivered",
+              "level 2 of 9: partially delivered",
+              "level 3 of 9: partially delivered",
+              "level 4 of 9: partially delivered",
+              "level 5 of 9: partially delivered",
+              "level 6 of 9: partially delivered",
+              "level 7 of 9: partially delivered",
+              "level 8 of 9: partially delivered",
+              "level 9 of 9: fully delivered with tests"
+            ]
+          },
+          "fixed.file": {
+            "type": "choice",
+            "instructions": "Which file did the agent change?",
+            "criteria": {
+              "src/module_00.ts": null,
+              "src/module_01.ts": null,
+              "src/module_02.ts": null,
+              "src/module_03.ts": null,
+              "src/module_04.ts": null,
+              "src/module_05.ts": null,
+              "src/module_06.ts": null,
+              "src/module_07.ts": null,
+              "src/module_08.ts": null,
+              "src/module_09.ts": null,
+              "src/module_10.ts": null,
+              "src/module_11.ts": null,
+              "src/module_12.ts": null,
+              "src/module_13.ts": null,
+              "src/module_14.ts": null,
+              "src/module_15.ts": null,
+              "src/module_16.ts": null,
+              "src/module_17.ts": null,
+              "src/module_18.ts": null,
+              "src/module_19.ts": null,
+              "src/module_20.ts": null,
+              "src/module_21.ts": null,
+              "src/module_22.ts": null,
+              "src/module_23.ts": null,
+              "src/module_24.ts": null,
+              "src/module_25.ts": null,
+              "src/module_26.ts": null,
+              "src/module_27.ts": null,
+              "src/module_28.ts": null,
+              "src/module_29.ts": null,
+              "src/module_30.ts": null,
+              "src/module_31.ts": null,
+              "src/module_32.ts": null,
+              "src/module_33.ts": null,
+              "src/module_34.ts": null,
+              "src/module_35.ts": null,
+              "src/module_36.ts": null,
+              "src/module_37.ts": null,
+              "src/module_38.ts": null,
+              "src/module_39.ts": null,
+              "src/module_40.ts": null,
+              "src/module_41.ts": null,
+              "src/module_42.ts": null,
+              "src/module_43.ts": null,
+              "src/module_44.ts": null,
+              "src/module_45.ts": null,
+              "src/module_46.ts": null,
+              "src/module_47.ts": null,
+              "src/module_48.ts": null,
+              "src/module_49.ts": null
+            }
+          },
+          "risk": {
+            "type": "choice",
+            "instructions": "What is the main remaining risk of this change?",
+            "criteria": {
+              "none": "No meaningful risk remains.",
+              "regression": "It may break callers that relied on the old count.",
+              "untested": "The edge case has no dedicated test."
+            }
+          },
+          "rubric4": {
+            "type": "score",
+            "instructions": "How well does the report evidence its claims?",
+            "criteria": [
+              "no evidence",
+              "claims only",
+              "diff shown",
+              "diff and test results shown"
+            ]
+          }
+        }
+      },
+      "response": {
+        "result": {
+          "model": "clef-flash",
+          "answers": {
+            "delivered": {
+              "type": "noul",
+              "noul": 0.8368
+            },
+            "quality": {
+              "type": "score",
+              "score": 5.9854,
+              "legend": {
+                "0": "level 0 of 9: nothing delivered",
+                "1": "level 1 of 9: partially delivered",
+                "2": "level 2 of 9: partially delivered",
+                "3": "level 3 of 9: partially delivered",
+                "4": "level 4 of 9: partially delivered",
+                "5": "level 5 of 9: partially delivered",
+                "6": "level 6 of 9: partially delivered",
+                "7": "level 7 of 9: partially delivered",
+                "8": "level 8 of 9: partially delivered",
+                "9": "level 9 of 9: fully delivered with tests"
+              },
+              "probabilities": {
+                "0": 0.0334,
+                "1": 0.0778,
+                "2": 0.0708,
+                "3": 0.0697,
+                "4": 0.0725,
+                "5": 0.0769,
+                "6": 0.0772,
+                "7": 0.0889,
+                "8": 0.0983,
+                "9": 0.3345
+              },
+              "confidence": 0.0707
+            },
+            "fixed.file": {
+              "type": "choice",
+              "choice": "src/module_17.ts",
+              "probabilities": {
+                "src/module_00.ts": 0.0032,
+                "src/module_01.ts": 0.0035,
+                "src/module_02.ts": 0.0032,
+                "src/module_03.ts": 0.003,
+                "src/module_04.ts": 0.0031,
+                "src/module_05.ts": 0.003,
+                "src/module_06.ts": 0.0029,
+                "src/module_07.ts": 0.003,
+                "src/module_08.ts": 0.0031,
+                "src/module_09.ts": 0.0029,
+                "src/module_10.ts": 0.0034,
+                "src/module_11.ts": 0.0036,
+                "src/module_12.ts": 0.0034,
+                "src/module_13.ts": 0.0033,
+                "src/module_14.ts": 0.0035,
+                "src/module_15.ts": 0.0034,
+                "src/module_16.ts": 0.004,
+                "src/module_17.ts": 0.8412,
+                "src/module_18.ts": 0.004,
+                "src/module_19.ts": 0.0037,
+                "src/module_20.ts": 0.0034,
+                "src/module_21.ts": 0.0037,
+                "src/module_22.ts": 0.0033,
+                "src/module_23.ts": 0.0032,
+                "src/module_24.ts": 0.0032,
+                "src/module_25.ts": 0.0031,
+                "src/module_26.ts": 0.003,
+                "src/module_27.ts": 0.0031,
+                "src/module_28.ts": 0.0031,
+                "src/module_29.ts": 0.0031,
+                "src/module_30.ts": 0.0032,
+                "src/module_31.ts": 0.0033,
+                "src/module_32.ts": 0.0032,
+                "src/module_33.ts": 0.0029,
+                "src/module_34.ts": 0.0031,
+                "src/module_35.ts": 0.003,
+                "src/module_36.ts": 0.003,
+                "src/module_37.ts": 0.003,
+                "src/module_38.ts": 0.003,
+                "src/module_39.ts": 0.003,
+                "src/module_40.ts": 0.0034,
+                "src/module_41.ts": 0.0037,
+                "src/module_42.ts": 0.0033,
+                "src/module_43.ts": 0.0031,
+                "src/module_44.ts": 0.0032,
+                "src/module_45.ts": 0.0031,
+                "src/module_46.ts": 0.0031,
+                "src/module_47.ts": 0.0032,
+                "src/module_48.ts": 0.0033,
+                "src/module_49.ts": 0.0033
+              },
+              "confidence": 0.7022
+            },
+            "risk": {
+              "type": "choice",
+              "choice": "regression",
+              "probabilities": {
+                "none": 0.4041,
+                "regression": 0.4412,
+                "untested": 0.1547
+              },
+              "confidence": 0.0728
+            },
+            "rubric4": {
+              "type": "score",
+              "score": 2.7284,
+              "legend": {
+                "0": "no evidence",
+                "1": "claims only",
+                "2": "diff shown",
+                "3": "diff and test results shown"
+              },
+              "probabilities": {
+                "0": 0.0239,
+                "1": 0.0332,
+                "2": 0.1335,
+                "3": 0.8094
+              },
+              "confidence": 0.5662
+            }
+          },
+          "usage": {
+            "input_tokens": 2037,
+            "output_tokens": 0
+          }
+        },
+        "success": true,
+        "errors": [],
+        "messages": []
+      }
+    },
+    {
+      "provider": "typesafe",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "status": 200,
+      "request": {
+        "model": "jev-1.13.0",
+        "state": {
+          "task": "Fix the off-by-one error in the pagination helper so the last page is returned.",
+          "repository_files": [
+            "src/module_00.ts",
+            "src/module_01.ts",
+            "src/module_02.ts",
+            "src/module_03.ts",
+            "src/module_04.ts",
+            "src/module_05.ts",
+            "src/module_06.ts",
+            "src/module_07.ts",
+            "src/module_08.ts",
+            "src/module_09.ts",
+            "src/module_10.ts",
+            "src/module_11.ts",
+            "src/module_12.ts",
+            "src/module_13.ts",
+            "src/module_14.ts",
+            "src/module_15.ts",
+            "src/module_16.ts",
+            "src/module_17.ts",
+            "src/module_18.ts",
+            "src/module_19.ts",
+            "src/module_20.ts",
+            "src/module_21.ts",
+            "src/module_22.ts",
+            "src/module_23.ts",
+            "src/module_24.ts",
+            "src/module_25.ts",
+            "src/module_26.ts",
+            "src/module_27.ts",
+            "src/module_28.ts",
+            "src/module_29.ts",
+            "src/module_30.ts",
+            "src/module_31.ts",
+            "src/module_32.ts",
+            "src/module_33.ts",
+            "src/module_34.ts",
+            "src/module_35.ts",
+            "src/module_36.ts",
+            "src/module_37.ts",
+            "src/module_38.ts",
+            "src/module_39.ts",
+            "src/module_40.ts",
+            "src/module_41.ts",
+            "src/module_42.ts",
+            "src/module_43.ts",
+            "src/module_44.ts",
+            "src/module_45.ts",
+            "src/module_46.ts",
+            "src/module_47.ts",
+            "src/module_48.ts",
+            "src/module_49.ts"
+          ],
+          "agent_report": "I changed src/module_17.ts: `pageCount = Math.floor(total / size)` became `Math.ceil(total / size)`. Tests: 41 passed, 0 failed. I did not touch other files.",
+          "diff": "--- a/src/module_17.ts\n+++ b/src/module_17.ts\n@@ -12 +12 @@\n-  const pageCount = Math.floor(total / size)\n+  const pageCount = Math.ceil(total / size)"
+        },
+        "questions": {
+          "delivered": {
+            "type": "noul",
+            "instructions": "Did the agent fix the off-by-one error the task describes?",
+            "criteria": {
+              "true": "The diff fixes the last-page computation.",
+              "false": "The diff does not fix it."
+            }
+          },
+          "quality": {
+            "type": "score",
+            "instructions": "Rate how completely the change and report satisfy the task.",
+            "criteria": [
+              "level 0 of 9: nothing delivered",
+              "level 1 of 9: partially delivered",
+              "level 2 of 9: partially delivered",
+              "level 3 of 9: partially delivered",
+              "level 4 of 9: partially delivered",
+              "level 5 of 9: partially delivered",
+              "level 6 of 9: partially delivered",
+              "level 7 of 9: partially delivered",
+              "level 8 of 9: partially delivered",
+              "level 9 of 9: fully delivered with tests"
+            ]
+          },
+          "fixed.file": {
+            "type": "choice",
+            "instructions": "Which file did the agent change?",
+            "criteria": {
+              "src/module_00.ts": null,
+              "src/module_01.ts": null,
+              "src/module_02.ts": null,
+              "src/module_03.ts": null,
+              "src/module_04.ts": null,
+              "src/module_05.ts": null,
+              "src/module_06.ts": null,
+              "src/module_07.ts": null,
+              "src/module_08.ts": null,
+              "src/module_09.ts": null,
+              "src/module_10.ts": null,
+              "src/module_11.ts": null,
+              "src/module_12.ts": null,
+              "src/module_13.ts": null,
+              "src/module_14.ts": null,
+              "src/module_15.ts": null,
+              "src/module_16.ts": null,
+              "src/module_17.ts": null,
+              "src/module_18.ts": null,
+              "src/module_19.ts": null,
+              "src/module_20.ts": null,
+              "src/module_21.ts": null,
+              "src/module_22.ts": null,
+              "src/module_23.ts": null,
+              "src/module_24.ts": null,
+              "src/module_25.ts": null,
+              "src/module_26.ts": null,
+              "src/module_27.ts": null,
+              "src/module_28.ts": null,
+              "src/module_29.ts": null,
+              "src/module_30.ts": null,
+              "src/module_31.ts": null,
+              "src/module_32.ts": null,
+              "src/module_33.ts": null,
+              "src/module_34.ts": null,
+              "src/module_35.ts": null,
+              "src/module_36.ts": null,
+              "src/module_37.ts": null,
+              "src/module_38.ts": null,
+              "src/module_39.ts": null,
+              "src/module_40.ts": null,
+              "src/module_41.ts": null,
+              "src/module_42.ts": null,
+              "src/module_43.ts": null,
+              "src/module_44.ts": null,
+              "src/module_45.ts": null,
+              "src/module_46.ts": null,
+              "src/module_47.ts": null,
+              "src/module_48.ts": null,
+              "src/module_49.ts": null
+            }
+          },
+          "risk": {
+            "type": "choice",
+            "instructions": "What is the main remaining risk of this change?",
+            "criteria": {
+              "none": "No meaningful risk remains.",
+              "regression": "It may break callers that relied on the old count.",
+              "untested": "The edge case has no dedicated test."
+            }
+          },
+          "rubric4": {
+            "type": "score",
+            "instructions": "How well does the report evidence its claims?",
+            "criteria": [
+              "no evidence",
+              "claims only",
+              "diff shown",
+              "diff and test results shown"
+            ]
+          }
+        }
+      },
+      "response": {
+        "model": "jev-1.13.0",
+        "answers": {
+          "delivered": {
+            "type": "noul",
+            "noul": 0.95
+          },
+          "quality": {
+            "type": "score",
+            "score": 8.79,
+            "confidence": 0.92,
+            "legend": {
+              "0": "level 0 of 9: nothing delivered",
+              "1": "level 1 of 9: partially delivered",
+              "2": "level 2 of 9: partially delivered",
+              "3": "level 3 of 9: partially delivered",
+              "4": "level 4 of 9: partially delivered",
+              "5": "level 5 of 9: partially delivered",
+              "6": "level 6 of 9: partially delivered",
+              "7": "level 7 of 9: partially delivered",
+              "8": "level 8 of 9: partially delivered",
+              "9": "level 9 of 9: fully delivered with tests"
+            },
+            "probabilities": {
+              "0": 0,
+              "1": 0,
+              "2": 0,
+              "3": 0,
+              "4": 0,
+              "5": 0.01,
+              "6": 0.01,
+              "7": 0.01,
+              "8": 0.05,
+              "9": 0.92
+            }
+          },
+          "fixed.file": {
+            "type": "choice",
+            "choice": "src/module_17.ts",
+            "confidence": 1,
+            "probabilities": {
+              "src/module_28.ts": 0,
+              "src/module_43.ts": 0,
+              "src/module_14.ts": 0,
+              "src/module_49.ts": 0,
+              "src/module_42.ts": 0,
+              "src/module_36.ts": 0,
+              "src/module_35.ts": 0,
+              "src/module_38.ts": 0,
+              "src/module_40.ts": 0,
+              "src/module_01.ts": 0,
+              "src/module_48.ts": 0,
+              "src/module_47.ts": 0,
+              "src/module_44.ts": 0,
+              "src/module_17.ts": 1,
+              "src/module_20.ts": 0,
+              "src/module_26.ts": 0,
+              "src/module_07.ts": 0,
+              "src/module_11.ts": 0,
+              "src/module_31.ts": 0,
+              "src/module_24.ts": 0,
+              "src/module_34.ts": 0,
+              "src/module_08.ts": 0,
+              "src/module_39.ts": 0,
+              "src/module_22.ts": 0,
+              "src/module_19.ts": 0,
+              "src/module_41.ts": 0,
+              "src/module_23.ts": 0,
+              "src/module_16.ts": 0,
+              "src/module_06.ts": 0,
+              "src/module_29.ts": 0,
+              "src/module_09.ts": 0,
+              "src/module_21.ts": 0,
+              "src/module_05.ts": 0,
+              "src/module_00.ts": 0,
+              "src/module_02.ts": 0,
+              "src/module_04.ts": 0,
+              "src/module_12.ts": 0,
+              "src/module_25.ts": 0,
+              "src/module_30.ts": 0,
+              "src/module_10.ts": 0,
+              "src/module_18.ts": 0,
+              "src/module_37.ts": 0,
+              "src/module_46.ts": 0,
+              "src/module_32.ts": 0,
+              "src/module_03.ts": 0,
+              "src/module_13.ts": 0,
+              "src/module_45.ts": 0,
+              "src/module_15.ts": 0,
+              "src/module_33.ts": 0,
+              "src/module_27.ts": 0
+            }
+          },
+          "risk": {
+            "type": "choice",
+            "choice": "regression",
+            "confidence": 0.7,
+            "probabilities": {
+              "untested": 0.14,
+              "none": 0.07,
+              "regression": 0.79
+            }
+          },
+          "rubric4": {
+            "type": "score",
+            "score": 2.98,
+            "confidence": 0.98,
+            "legend": {
+              "0": "no evidence",
+              "1": "claims only",
+              "2": "diff shown",
+              "3": "diff and test results shown"
+            },
+            "probabilities": {
+              "0": 0,
+              "1": 0,
+              "2": 0.01,
+              "3": 0.99
+            }
+          }
+        },
+        "usage": {
+          "input_tokens": 1779,
+          "output_tokens": 709
+        }
+      }
+    }
+  ],
+  "boundaries": [
+    {
+      "case": "missing-instructions",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q": {
+            "type": "noul"
+          }
+        }
+      },
+      "status": 400,
+      "error": "AiError: Bad input: Error: required properties at '/' are 'model,state,questions' (fc0e7499-c71d-4abb-b2ef-e017b24aec23)"
+    },
+    {
+      "case": "null-instructions",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q": {
+            "type": "noul",
+            "instructions": null
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"questions\":[\"Input should be a valid string\",\"Input should be a valid integer\",\"Input should be a valid number\",\"Input should be a valid boolean\",\"Input should be a valid dictionary\",\"Input should be a valid list\"]}}}} (d7e813d4-cac4-424a-a9e5-fc306118c48c)"
+    },
+    {
+      "case": "one-option-choice",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q": {
+            "type": "choice",
+            "instructions": "pick",
+            "criteria": {
+              "a": null
+            }
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"questions\":[\"Dictionary should have at least 2 items after validation, not 1\"]}}}} (238f0249-dbab-4fec-b7d0-de52d3f0c666)"
+    },
+    {
+      "case": "sixty-five-questions",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q0": {
+            "type": "noul",
+            "instructions": "Is 0 even?"
+          },
+          "q1": {
+            "type": "noul",
+            "instructions": "Is 1 even?"
+          },
+          "q2": {
+            "type": "noul",
+            "instructions": "Is 2 even?"
+          },
+          "q3": {
+            "type": "noul",
+            "instructions": "Is 3 even?"
+          },
+          "q4": {
+            "type": "noul",
+            "instructions": "Is 4 even?"
+          },
+          "q5": {
+            "type": "noul",
+            "instructions": "Is 5 even?"
+          },
+          "q6": {
+            "type": "noul",
+            "instructions": "Is 6 even?"
+          },
+          "q7": {
+            "type": "noul",
+            "instructions": "Is 7 even?"
+          },
+          "q8": {
+            "type": "noul",
+            "instructions": "Is 8 even?"
+          },
+          "q9": {
+            "type": "noul",
+            "instructions": "Is 9 even?"
+          },
+          "q10": {
+            "type": "noul",
+            "instructions": "Is 10 even?"
+          },
+          "q11": {
+            "type": "noul",
+            "instructions": "Is 11 even?"
+          },
+          "q12": {
+            "type": "noul",
+            "instructions": "Is 12 even?"
+          },
+          "q13": {
+            "type": "noul",
+            "instructions": "Is 13 even?"
+          },
+          "q14": {
+            "type": "noul",
+            "instructions": "Is 14 even?"
+          },
+          "q15": {
+            "type": "noul",
+            "instructions": "Is 15 even?"
+          },
+          "q16": {
+            "type": "noul",
+            "instructions": "Is 16 even?"
+          },
+          "q17": {
+            "type": "noul",
+            "instructions": "Is 17 even?"
+          },
+          "q18": {
+            "type": "noul",
+            "instructions": "Is 18 even?"
+          },
+          "q19": {
+            "type": "noul",
+            "instructions": "Is 19 even?"
+          },
+          "q20": {
+            "type": "noul",
+            "instructions": "Is 20 even?"
+          },
+          "q21": {
+            "type": "noul",
+            "instructions": "Is 21 even?"
+          },
+          "q22": {
+            "type": "noul",
+            "instructions": "Is 22 even?"
+          },
+          "q23": {
+            "type": "noul",
+            "instructions": "Is 23 even?"
+          },
+          "q24": {
+            "type": "noul",
+            "instructions": "Is 24 even?"
+          },
+          "q25": {
+            "type": "noul",
+            "instructions": "Is 25 even?"
+          },
+          "q26": {
+            "type": "noul",
+            "instructions": "Is 26 even?"
+          },
+          "q27": {
+            "type": "noul",
+            "instructions": "Is 27 even?"
+          },
+          "q28": {
+            "type": "noul",
+            "instructions": "Is 28 even?"
+          },
+          "q29": {
+            "type": "noul",
+            "instructions": "Is 29 even?"
+          },
+          "q30": {
+            "type": "noul",
+            "instructions": "Is 30 even?"
+          },
+          "q31": {
+            "type": "noul",
+            "instructions": "Is 31 even?"
+          },
+          "q32": {
+            "type": "noul",
+            "instructions": "Is 32 even?"
+          },
+          "q33": {
+            "type": "noul",
+            "instructions": "Is 33 even?"
+          },
+          "q34": {
+            "type": "noul",
+            "instructions": "Is 34 even?"
+          },
+          "q35": {
+            "type": "noul",
+            "instructions": "Is 35 even?"
+          },
+          "q36": {
+            "type": "noul",
+            "instructions": "Is 36 even?"
+          },
+          "q37": {
+            "type": "noul",
+            "instructions": "Is 37 even?"
+          },
+          "q38": {
+            "type": "noul",
+            "instructions": "Is 38 even?"
+          },
+          "q39": {
+            "type": "noul",
+            "instructions": "Is 39 even?"
+          },
+          "q40": {
+            "type": "noul",
+            "instructions": "Is 40 even?"
+          },
+          "q41": {
+            "type": "noul",
+            "instructions": "Is 41 even?"
+          },
+          "q42": {
+            "type": "noul",
+            "instructions": "Is 42 even?"
+          },
+          "q43": {
+            "type": "noul",
+            "instructions": "Is 43 even?"
+          },
+          "q44": {
+            "type": "noul",
+            "instructions": "Is 44 even?"
+          },
+          "q45": {
+            "type": "noul",
+            "instructions": "Is 45 even?"
+          },
+          "q46": {
+            "type": "noul",
+            "instructions": "Is 46 even?"
+          },
+          "q47": {
+            "type": "noul",
+            "instructions": "Is 47 even?"
+          },
+          "q48": {
+            "type": "noul",
+            "instructions": "Is 48 even?"
+          },
+          "q49": {
+            "type": "noul",
+            "instructions": "Is 49 even?"
+          },
+          "q50": {
+            "type": "noul",
+            "instructions": "Is 50 even?"
+          },
+          "q51": {
+            "type": "noul",
+            "instructions": "Is 51 even?"
+          },
+          "q52": {
+            "type": "noul",
+            "instructions": "Is 52 even?"
+          },
+          "q53": {
+            "type": "noul",
+            "instructions": "Is 53 even?"
+          },
+          "q54": {
+            "type": "noul",
+            "instructions": "Is 54 even?"
+          },
+          "q55": {
+            "type": "noul",
+            "instructions": "Is 55 even?"
+          },
+          "q56": {
+            "type": "noul",
+            "instructions": "Is 56 even?"
+          },
+          "q57": {
+            "type": "noul",
+            "instructions": "Is 57 even?"
+          },
+          "q58": {
+            "type": "noul",
+            "instructions": "Is 58 even?"
+          },
+          "q59": {
+            "type": "noul",
+            "instructions": "Is 59 even?"
+          },
+          "q60": {
+            "type": "noul",
+            "instructions": "Is 60 even?"
+          },
+          "q61": {
+            "type": "noul",
+            "instructions": "Is 61 even?"
+          },
+          "q62": {
+            "type": "noul",
+            "instructions": "Is 62 even?"
+          },
+          "q63": {
+            "type": "noul",
+            "instructions": "Is 63 even?"
+          },
+          "q64": {
+            "type": "noul",
+            "instructions": "Is 64 even?"
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"questions\":[\"Dictionary should have at most 64 items after validation, not 65\"]}}}} (6231c0ad-d911-4a56-ae5d-45e7ae6c84f6)"
+    },
+    {
+      "case": "bad-id-char",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "bad id!": {
+            "type": "noul",
+            "instructions": "Is the sky blue?"
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"questions\":[\"String should match pattern '^[A-Za-z0-9_.-]{1,100}$'\"]}}}} (59b02bc7-d733-4c62-9943-57b280d39807)"
+    },
+    {
+      "case": "eleven-level-score",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q": {
+            "type": "score",
+            "instructions": "rate",
+            "criteria": [
+              "l0",
+              "l1",
+              "l2",
+              "l3",
+              "l4",
+              "l5",
+              "l6",
+              "l7",
+              "l8",
+              "l9",
+              "l10"
+            ]
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"questions\":[\"List should have at most 10 items after validation, not 11\"]}}}} (7ef91d32-3cc8-463a-a0ea-cc6bb464075a)"
+    },
+    {
+      "case": "null-score-level",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": "The sky is blue today.",
+        "questions": {
+          "q": {
+            "type": "score",
+            "instructions": "rate",
+            "criteria": [
+              null,
+              "good"
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "result": {
+          "model": "clef-flash",
+          "answers": {
+            "q": {
+              "type": "score",
+              "score": 0.7403,
+              "legend": {
+                "0": null,
+                "1": "good"
+              },
+              "probabilities": {
+                "0": 0.2597,
+                "1": 0.7403
+              },
+              "confidence": 0.231
+            }
+          },
+          "usage": {
+            "input_tokens": 122,
+            "output_tokens": 0
+          }
+        },
+        "success": true,
+        "errors": [],
+        "messages": []
+      }
+    },
+    {
+      "case": "no-model-field",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "state": "The sky is blue today.",
+        "questions": {
+          "ok": {
+            "type": "noul",
+            "instructions": "Is the sky blue?"
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "result": {
+          "model": "clef-flash",
+          "answers": {
+            "ok": {
+              "type": "noul",
+              "noul": 0.9828
+            }
+          },
+          "usage": {
+            "input_tokens": 147,
+            "output_tokens": 0
+          }
+        },
+        "success": true,
+        "errors": [],
+        "messages": []
+      }
+    },
+    {
+      "case": "clef-on-flash-url",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef",
+        "state": "The sky is blue today.",
+        "questions": {
+          "ok": {
+            "type": "noul",
+            "instructions": "Is the sky blue?"
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Unsupported model 'clef'. Use 'clef-flash'.\"}} (20801021-941a-4c7d-afe1-0c90565a967d)"
+    },
+    {
+      "case": "null-state",
+      "endpoint": "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef-flash",
+      "request": {
+        "model": "clef-flash",
+        "state": null,
+        "questions": {
+          "ok": {
+            "type": "noul",
+            "instructions": "Is the sky blue?"
+          }
+        }
+      },
+      "status": 422,
+      "error": "AiError: AiError: {\"error\":{\"type\":\"invalid_request\",\"message\":\"Request body failed validation\",\"details\":{\"formErrors\":[],\"fieldErrors\":{\"state\":[\"Input should be a valid string\",\"Input should be a valid dictionary\",\"Input should be a valid list\"]}}}} (9e6c5535-c4d5-4ca4-8ccc-548c9df12752)"
+    }
+  ]
+}

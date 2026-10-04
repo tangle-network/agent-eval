@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ProductIntegrityArtifact } from '../examples/jev-product-integrity'
-import { productIntegrityJudge, sourceFileJudge } from '../examples/jev-product-integrity'
-import type { JevAnswer, JevRequest } from '../src/jev'
+import type { ProductIntegrityArtifact } from '../examples/systemone-product-integrity'
+import { productIntegrityJudge, sourceFileJudge } from '../examples/systemone-product-integrity'
+import type { SystemOneAnswer, SystemOneRequest } from '../src/systemone'
 
 const scenario = { id: 'product', kind: 'product' }
 const signal = () => new AbortController().signal
@@ -13,14 +13,15 @@ const artifact: ProductIntegrityArtifact = {
   measurements: [{ claim: '1 ms', code: 'start(); score(record); stop()' }],
 }
 
-function reply(request: JevRequest, overrides: Record<string, number[]> = {}) {
-  const answers: Record<string, JevAnswer> = {}
+function reply(request: SystemOneRequest, overrides: Record<string, number[]> = {}) {
+  const answers: Record<string, SystemOneAnswer> = {}
   for (const [key, question] of Object.entries(request.questions)) {
     if (question.type === 'noul') {
       answers[key] = { type: 'noul', noul: overrides[key]?.[0] ?? 1 }
     } else if (question.type === 'score') {
-      const probabilities = overrides[key]
-        ?? question.criteria.map((_, index) => index === question.criteria.length - 1 ? 1 : 0)
+      const probabilities =
+        overrides[key] ??
+        question.criteria.map((_, index) => (index === question.criteria.length - 1 ? 1 : 0))
       answers[key] = {
         type: 'score',
         score: probabilities.reduce((sum, probability, index) => sum + probability * index, 0),
@@ -34,14 +35,14 @@ function reply(request: JevRequest, overrides: Record<string, number[]> = {}) {
 }
 
 function judge(overrides: Record<string, number[]> = {}) {
-  const evaluate = vi.fn(async (request: JevRequest) => reply(request, overrides))
+  const evaluate = vi.fn(async (request: SystemOneRequest) => reply(request, overrides))
   return {
     evaluate,
     judge: productIntegrityJudge('product', { model: 'jev-test', version: 'v1', evaluate }),
   }
 }
 
-describe('application-owned Jev examples', () => {
+describe('application-owned System One examples', () => {
   it('keeps product questions in an opt-in example and sends actual artifact evidence', async () => {
     const fixture = judge()
     await fixture.judge.score({ artifact, scenario, signal: signal() })
@@ -55,25 +56,38 @@ describe('application-owned Jev examples', () => {
   })
 
   it('separates a measurement defect from other dimensions', async () => {
-    const result = await judge({ measurementHonesty: [0.8, 0.2, 0, 0] }).judge.score({ artifact, scenario, signal: signal() })
+    const result = await judge({ measurementHonesty: [0.8, 0.2, 0, 0] }).judge.score({
+      artifact,
+      scenario,
+      signal: signal(),
+    })
     expect(result.dimensions.measurementHonesty).toBeCloseTo(0.2 / 3)
     expect(result.dimensions.productMaturity).toBe(1)
   })
 
   it('preserves the score distribution', async () => {
-    const result = await judge({ testsExerciseTheProduct: [0.3, 0.4, 0.2, 0.1] }).judge.score({ artifact, scenario, signal: signal() })
+    const result = await judge({ testsExerciseTheProduct: [0.3, 0.4, 0.2, 0.1] }).judge.score({
+      artifact,
+      scenario,
+      signal: signal(),
+    })
     expect(result.dimensions.testsExerciseTheProduct).toBeCloseTo(1.1 / 3)
     expect(result.distribution?.testsExerciseTheProduct?.[0]?.probability).toBe(0.3)
   })
 
   it('retains a boolean probability rather than thresholding it', async () => {
-    const result = await judge({ deliverablesAreFinished: [0.05] }).judge.score({ artifact, scenario, signal: signal() })
+    const result = await judge({ deliverablesAreFinished: [0.05] }).judge.score({
+      artifact,
+      scenario,
+      signal: signal(),
+    })
     expect(result.dimensions.deliverablesAreFinished).toBe(0.05)
   })
 
   it('rejects missing answers', async () => {
     const instance = productIntegrityJudge('product', {
-      model: 'jev-test', version: 'v1',
+      model: 'jev-test',
+      version: 'v1',
       evaluate: async (request) => {
         const response = reply(request)
         delete response.answers.sizeIsAuthored
@@ -85,21 +99,31 @@ describe('application-owned Jev examples', () => {
 
   it('honors explicit weights', async () => {
     const instance = productIntegrityJudge('weighted', {
-      model: 'jev-test', version: 'v1',
+      model: 'jev-test',
+      version: 'v1',
       evaluate: async (request) => reply(request, { measurementHonesty: [1, 0, 0, 0] }),
       weights: { measurementHonesty: 2, intentCoverage: 1 },
     })
-    expect((await instance.score({ artifact, scenario, signal: signal() })).composite).toBeCloseTo(1 / 3)
+    expect((await instance.score({ artifact, scenario, signal: signal() })).composite).toBeCloseTo(
+      1 / 3,
+    )
   })
 
   it('refuses weights for undeclared dimensions', async () => {
-    expect(() => productIntegrityJudge('bad', {
-      model: 'jev-test', version: 'v1', evaluate: async (request) => reply(request), weights: { missing: 1 },
-    })).toThrow()
+    expect(() =>
+      productIntegrityJudge('bad', {
+        model: 'jev-test',
+        version: 'v1',
+        evaluate: async (request) => reply(request),
+        weights: { missing: 1 },
+      }),
+    ).toThrow()
   })
 
   it('can apply the same evaluator to a file contract', async () => {
-    const evaluate = vi.fn(async (request: JevRequest) => reply(request, { completeness: [1, 0, 0, 0] }))
+    const evaluate = vi.fn(async (request: SystemOneRequest) =>
+      reply(request, { completeness: [1, 0, 0, 0] }),
+    )
     const instance = sourceFileJudge('file', { model: 'jev-test', version: 'v1', evaluate })
     const file = { path: 'store.ts', content: 'throw new Error()', expectation: 'Persist records' }
     const result = await instance.score({ artifact: file, scenario, signal: signal() })

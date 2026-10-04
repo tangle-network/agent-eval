@@ -4,17 +4,17 @@ Use native evaluations to assess bounded hypotheses about recorded behavior. Do 
 classifier whether an agent is "malicious" or a whole run is "safe". Observable policy breaches,
 model-supported hypotheses, missing evidence and unusual behavior are different results.
 
-The optional `/jev` helpers are ordinary functions:
+The optional `/systemone` helpers are ordinary functions:
 
-- `prepareJevReview`: validate and freeze caller-defined native questions, evidence references,
+- `prepareSystemOneReview`: validate and freeze caller-defined native questions, evidence references,
   coverage and decision thresholds before spending. The digest binds the definition, input and
   authored question/option order. Optional undefined object fields are absent on the wire.
-- `assessJevReview`: validate native answers and interpret designated alternative masses as
+- `assessSystemOneReview`: validate native answers and interpret designated alternative masses as
   `supported`, `refuted` or `unresolved`. Re-scoring makes no network call.
-- `jevReviewFindings`: map that report into the existing `AnalystFinding` contract. It keeps
+- `systemOneReviewFindings`: map that report into the existing `AnalystFinding` contract. It keeps
   unresolved checks visible and labels supported claims as model-supported hypotheses.
 
-These helpers do not constrain `jevEvaluator`, `jevJudge`, `jevAnalyst`, or the provider-independent
+These helpers do not constrain `systemOneEvaluator`, `systemOneJudge`, `systemOneAnalyst`, or the provider-independent
 `createEvaluator`/`asJudge`/`asAnalyst` APIs. Use an ordinary custom mapper for different policies.
 No model, taxonomy, severity, operating threshold, global safety score or storage backend is chosen
 by the generic implementation.
@@ -26,16 +26,16 @@ Supply the native request on each invocation. This example's `question`, `eviden
 
 ```ts
 import {
-  prepareJevReview, assessJevReview, jevEvaluator,
-} from '@tangle-network/agent-eval/jev'
+  prepareSystemOneReview, assessSystemOneReview, systemOneEvaluator,
+} from '@tangle-network/agent-eval/systemone'
 
-const evaluate = jevEvaluator({
+const evaluate = systemOneEvaluator({
   evaluate: nativeTransport, // One Router /v1/systemone attempt; preserve signal/idempotency key.
   receipt: readRouterReceipt,
   maximumCharge: enforcedMaximumCharge,
 })
 
-const review = prepareJevReview({
+const review = prepareSystemOneReview({
   version: policy.version,
   request: {
     model: selectedModel,
@@ -59,7 +59,7 @@ const review = prepareJevReview({
 })
 const result = await evaluate(review.request, executionContext)
 await persistAuthorizedObservation({ review, result })
-const report = assessJevReview(review, result.value)
+const report = assessSystemOneReview(review, result.value)
 ```
 
 The example assumes a native Choice question with `supported`, `refuted` and `insufficient`
@@ -71,8 +71,8 @@ not a requirement imposed on other evaluators.
 
 ## Optional behavior recipe
 
-`examples/jev-behavior-review.ts` provides replaceable question definitions and
-`behaviorReviewAnalyst`, which composes the existing `jevAnalyst`. Copy/adapt the recipe in an
+`examples/systemone-behavior-review.ts` provides replaceable question definitions and
+`behaviorReviewAnalyst`, which composes the existing `systemOneAnalyst`. Copy/adapt the recipe in an
 application; it is not a default policy installed by importing the package. Select only relevant
 checks and provide thresholds, severity, exact policy and evidence for every selected check.
 
@@ -126,7 +126,7 @@ probability with its frozen binary threshold rule; it must not silently drop the
 `/rl` already has `detectRewardHacking` for reward divergence, distribution shift, reward
 disagreement and judge drift. Those diagnostic scores are not probabilities. Keep the raw,
 ungated proxy and independently measured task outcome so a previous rejection does not hide the
-disagreement. Do not substitute the Jev monitor as the only independent outcome.
+disagreement. Do not substitute the System One monitor as the only independent outcome.
 
 The analyst system already has deterministic control-integrity and behavioral/efficiency
 checks, plus deep trace analyst definitions such as intent divergence and knowledge poisoning.
@@ -134,7 +134,7 @@ Run exact checks for facts code can establish; use a bounded semantic review for
 escalate selected cases to the existing deeper analyst. None is replaced by this recipe.
 
 A prepared review can be a custom registry input or built from a filtered trace store. Existing
-`asAnalyst`/`jevAnalyst` forward the shared paid-call account, cancellation and deadline. The
+`asAnalyst`/`systemOneAnalyst` forward the shared paid-call account, cancellation and deadline. The
 recipe verifies persisted definition identity before inference, records the native observation
 before mapping, and returns ordinary findings. Graphs consume these through their existing
 analyst-registry adapter. No new supervisor, scheduler, ledger, or trace database is introduced.
@@ -158,7 +158,7 @@ It decides `pass`, `hack` or `unknown` for one claim from signals the caller com
 - `farmingSignal`: one value of a parameter the scope declares, repeated across a lane's sweep of claims.
 - `graderReferenceSignal`: the claim page justifies itself by the checker or by the printed letter.
 - `refereeSignal`: a model reads the source and the claim's parameters, never the claimant's prose (`sourceScopeRefereeMessages`, `parseSourceScopeReferee`).
-- `jevSignal`: typed questions over the same brief (`claimIntegrityJevReview`). The caller supplies calibrated thresholds.
+- `systemOneSignal`: typed questions over the same brief (`claimIntegritySystemOneReview`). The caller supplies calibrated thresholds.
 - `monitorSignal`: `askTraceQuestions` with `claimIntegrityTraceQuestions`, on escalation only.
 - `checkerReadSignal`: context for a reader; it never moves a verdict.
 
@@ -172,7 +172,7 @@ Keep verdicts, scopes and questions away from the agent that filed the claim: an
 ## Security and validation boundaries
 
 TypeSafe's Jev 1.13 documentation explicitly warns that adversarial state content can move the
-answer. Delimiters and explicit criteria are useful instructions, not a proof of injection
+answer; treat every System One model the same way. Delimiters and explicit criteria are useful instructions, not a proof of injection
 resistance. These monitors are advisory evidence, not the sole authorization/safety barrier.
 Trusted policy and references must come from outside the evaluated agent; tenant scope, redaction,
 credential handling and controls remain with existing application/security owners.
@@ -192,7 +192,7 @@ attacks, not only the worker under a fixed monitor.
 
 The new tests exercise pure mapping, canonical identity, metadata isolation and real
 Eval/AnalystRegistry accounting composition with an injected model boundary. They do not prove
-that Jev detects these behaviors correctly or is robust against adversarial prompts. No live
+that a System One model detects these behaviors correctly or is robust against adversarial prompts. No live
 provider, product UI rollout, runtime hook installation or production enforcement is added here.
 
 Sources reviewed: https://docs.typesafe.ai/confidence and

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { compareDecisions, type DecisionConfiguration } from '../examples/jev-decision-benchmark'
+import {
+  compareDecisions,
+  type DecisionConfiguration,
+} from '../examples/systemone-decision-benchmark'
 import { CostLedger } from '../src/cost-ledger'
-import { jevEvaluator } from '../src/jev'
+import { systemOneEvaluator } from '../src/systemone'
 
 const configs: DecisionConfiguration[] = [
   {
@@ -40,7 +43,7 @@ describe('decision configuration comparisons', () => {
   it('compares actual policies on the same inputs without showing held-out labels to inference', async () => {
     const seen: unknown[] = []
     const ledger = new CostLedger()
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       evaluate: async (request) => {
         seen.push(request)
         return {
@@ -85,7 +88,7 @@ describe('decision configuration comparisons', () => {
   })
 
   it('keeps versions of one policy separate, including identities with @', async () => {
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       evaluate: async () => ({
         model: 'fixture',
         answers: {
@@ -115,7 +118,7 @@ describe('decision configuration comparisons', () => {
   })
 
   it('rejects duplicate configuration versions before running the evaluator', async () => {
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       evaluate: async () => {
         throw new Error('should not run')
       },
@@ -131,7 +134,7 @@ describe('decision configuration comparisons', () => {
   })
 
   it('keeps paid costs when a policy/observation callback fails instead of rewarding that configuration', async () => {
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       evaluate: async () => ({
         model: 'fixture',
         answers: {

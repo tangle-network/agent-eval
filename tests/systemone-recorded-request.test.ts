@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseJevRecordedRequest, parseJevRequest, parseJevResult } from '../src/jev-protocol'
+import {
+  parseSystemOneRecordedRequest,
+  parseSystemOneRequest,
+  parseSystemOneResult,
+} from '../src/systemone-protocol'
 
 const archived = () => ({
   request: {
@@ -26,18 +30,18 @@ const archived = () => ({
   costHeader: '0.0100',
 })
 
-describe('recorded Jev evidence is not live request admission', () => {
+describe('recorded System One evidence is not live request admission', () => {
   it('reads an old persisted decision twice without changing evidence or allowing redispatch', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'jev-archive-'))
+    const root = await mkdtemp(join(tmpdir(), 'systemone-archive-'))
     try {
       const file = join(root, 'observation.json')
       const bytes = JSON.stringify(archived())
       await writeFile(file, bytes)
       for (let pass = 0; pass < 2; pass++) {
         const observation = JSON.parse(await readFile(file, 'utf8'))
-        const request = parseJevRecordedRequest(observation.request)
-        expect(parseJevResult(observation.result, request)).toBe(observation.result)
-        expect(() => parseJevRequest(request)).toThrow()
+        const request = parseSystemOneRecordedRequest(observation.request)
+        expect(parseSystemOneResult(observation.result, request)).toBe(observation.result)
+        expect(() => parseSystemOneRequest(request)).toThrow()
         expect(observation.costHeader).toBe('0.0100')
         expect(JSON.stringify(observation)).toBe(bytes)
       }
@@ -49,12 +53,12 @@ describe('recorded Jev evidence is not live request admission', () => {
 
   it('applies identical result checks to old and current requests', () => {
     const observation = archived()
-    const request = parseJevRecordedRequest(observation.request)
+    const request = parseSystemOneRecordedRequest(observation.request)
     observation.result.answers.grade.legend[0] = 'rewritten' as never
-    expect(() => parseJevResult(observation.result, request)).toThrow(/rubric/)
+    expect(() => parseSystemOneResult(observation.result, request)).toThrow(/rubric/)
     const malformed = archived()
     malformed.result.answers.grade.probabilities[1] = 0.4
-    expect(() => parseJevResult(malformed.result, request)).toThrow(/distribution/)
+    expect(() => parseSystemOneResult(malformed.result, request)).toThrow(/distribution/)
   })
 
   it('allows current observations through either reader, preserving authored option order', () => {
@@ -64,23 +68,23 @@ describe('recorded Jev evidence is not live request admission', () => {
       questions: { next: { type: 'choice', criteria: { review: null, finish: { done: true } } } },
     }
     const bytes = JSON.stringify(request)
-    expect(parseJevRecordedRequest(request)).toBe(request)
-    expect(parseJevRequest(request)).toBe(request)
+    expect(parseSystemOneRecordedRequest(request)).toBe(request)
+    expect(parseSystemOneRequest(request)).toBe(request)
     expect(JSON.stringify(request)).toBe(bytes)
   })
 
   it('does not widen historical decoding to corrupted or lossy records', () => {
     for (const state of [false, 7, undefined, new Date(), { count: Infinity }]) {
-      expect(() => parseJevRecordedRequest({ ...archived().request, state })).toThrow()
+      expect(() => parseSystemOneRecordedRequest({ ...archived().request, state })).toThrow()
     }
     const invalid = archived().request
     invalid.questions.grade.criteria = [null] as never
-    expect(() => parseJevRecordedRequest(invalid)).toThrow(/two/)
+    expect(() => parseSystemOneRecordedRequest(invalid)).toThrow(/two/)
   })
 
   it('still rejects null score levels on the paid path when state is valid', () => {
     const request = { ...archived().request, state: 'evidence' }
-    expect(parseJevRecordedRequest(request)).toBe(request)
-    expect(() => parseJevRequest(request)).toThrow(/score level/)
+    expect(parseSystemOneRecordedRequest(request)).toBe(request)
+    expect(() => parseSystemOneRequest(request)).toThrow(/score level/)
   })
 })

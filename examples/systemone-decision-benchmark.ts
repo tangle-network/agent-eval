@@ -1,14 +1,14 @@
 /** Compare executable decision policies using the existing matrix runner, not another evaluator. */
 import type { CostReceipt } from '../src/cost-ledger'
 import type { EvaluationContext, Evaluator } from '../src/evaluation'
-import type { JevQuestions, JevRequest, JevResult, JevState } from '../src/jev-protocol'
+import type { SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneState } from '../src/systemone-protocol'
 import { runAgentMatrix, withCellSpend } from '../src/matrix'
 
 export interface DecisionCase {
   id: string
   /** Shared cases from one incident must keep the same sourceUnit when splitting datasets. */
   sourceUnit: string
-  input: JevState
+  input: SystemOneState
   /** Held-out label. Never sent to the classifier. Null means a reviewed unresolved outcome. */
   expected: string | null
 }
@@ -17,17 +17,17 @@ export interface DecisionConfiguration {
   id: string
   version: string
   model: string
-  questions: JevQuestions | ((input: JevState) => JevQuestions)
-  state?: (input: JevState) => JevState
+  questions: SystemOneQuestions | ((input: SystemOneState) => SystemOneQuestions)
+  state?: (input: SystemOneState) => SystemOneState
   /** An ordinary policy: exact labels, utility, abstention, or constraints belong to the caller. */
-  decide: (result: JevResult) => string | null
+  decide: (result: SystemOneResult) => string | null
 }
 
 /** Application recipe. It intentionally keeps the final label separate from preparation/inference. */
 export async function compareDecisions(options: {
   cases: DecisionCase[]
   configurations: DecisionConfiguration[]
-  evaluate: Evaluator<JevRequest, JevResult>
+  evaluate: Evaluator<SystemOneRequest, SystemOneResult>
   context?: Omit<EvaluationContext, 'callId'>
   maxConcurrency?: number
   repetitions?: number
@@ -35,8 +35,8 @@ export async function compareDecisions(options: {
     caseId: string
     sourceUnit: string
     configuration: { id: string; version: string }
-    request: JevRequest
-    result: Awaited<ReturnType<Evaluator<JevRequest, JevResult>>>
+    request: SystemOneRequest
+    result: Awaited<ReturnType<Evaluator<SystemOneRequest, SystemOneResult>>>
     decision: string | null
   }) => void | Promise<void>
 }) {
@@ -64,7 +64,7 @@ export async function compareDecisions(options: {
       const config = cell.axes.configuration!.value as DecisionConfiguration
       const test = cell.axes.case!.value as DecisionCase
       const input = structuredClone(test.input)
-      const request: JevRequest = {
+      const request: SystemOneRequest = {
         model: config.model,
         state: config.state ? config.state(input) : input,
         questions:

@@ -74,7 +74,7 @@ function subpathEntries() {
   for (const [subpath, target] of Object.entries(packageJson.exports)) {
     if (subpath.endsWith('.json')) continue
     // The build entry is named by the published file, which need not spell
-    // the subpath: `./jev/protocol` publishes `dist/jev-protocol.js`.
+    // the subpath: `./systemone/protocol` publishes `dist/systemone-protocol.js`.
     const published = typeof target === 'string' ? target : (target.import ?? target.default)
     const key = published.replace(/^\.\/dist\//, '').replace(/\.js$/, '')
     const source = buildMap.get(key)

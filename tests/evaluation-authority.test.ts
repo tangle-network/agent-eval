@@ -3,7 +3,7 @@ import { AnalystRegistry } from '../src/analyst/registry'
 import type { AnalystContext } from '../src/analyst/types'
 import { CostLedger } from '../src/cost-ledger'
 import { asAnalyst, asJudge, createEvaluator, type EvaluationContext } from '../src/evaluation'
-import { jevAnalyst, jevEvaluator } from '../src/jev'
+import { systemOneAnalyst, systemOneEvaluator } from '../src/systemone'
 
 const maximumCharge = { externallyEnforcedMaximumUsd: 0.1 }
 const receipt = () => ({ model: 'fixture', inputTokens: 10, outputTokens: 2, actualCostUsd: 0.1 })
@@ -189,7 +189,7 @@ describe('native and generic analyst authority use the same path', () => {
   it('keeps the same configured cap for native analysts after removing the provider-specific override', async () => {
     const ledger = new CostLedger({ costCeilingUsd: 0.15 })
     const execute = vi.fn(async () => value)
-    const analyst = jevAnalyst<string>({
+    const analyst = systemOneAnalyst<string>({
       id: 'native',
       version: 'v1',
       description: 'Native review',
@@ -218,7 +218,7 @@ describe('native and generic analyst authority use the same path', () => {
         return value
       },
     )
-    const evaluate = jevEvaluator({ evaluate: transport, receipt })
+    const evaluate = systemOneEvaluator({ evaluate: transport, receipt })
     const result = await evaluate(request, { callId: 'native-attempt-1' })
     expect(transport.mock.calls[0]?.[0]).toEqual(request)
     expect(result.value.answers.ready.noul).toBe(0.8)

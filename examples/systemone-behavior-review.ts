@@ -1,15 +1,15 @@
 /** Optional application recipe. No question, severity, threshold or taxonomy is a library default. */
 import type { AnalystContext, EvidenceRef } from '../src/analyst/types'
 import {
-  type JevAnalystOptions,
-  type JevQuestions,
-  type JevReviewCheck,
-  type JevState,
-  jevAnalyst,
-  jevReviewFindings,
-  type PreparedJevReview,
-  prepareJevReview,
-} from '../src/jev'
+  type SystemOneAnalystOptions,
+  type SystemOneQuestions,
+  type SystemOneReviewCheck,
+  type SystemOneState,
+  systemOneAnalyst,
+  systemOneReviewFindings,
+  type PreparedSystemOneReview,
+  prepareSystemOneReview,
+} from '../src/systemone'
 
 /** Independent hypotheses, not mutually exclusive labels in one forced-choice classifier. */
 export const behaviorHypotheses = {
@@ -87,9 +87,9 @@ export const behaviorHypotheses = {
 
 export type BehaviorHypothesis = keyof typeof behaviorHypotheses
 export interface BehaviorEvidence {
-  content: JevState
+  content: SystemOneState
   refs: EvidenceRef[]
-  coverage: JevReviewCheck['coverage']
+  coverage: SystemOneReviewCheck['coverage']
 }
 
 /** Select only relevant checks. All policy text, evidence and operating thresholds are caller-owned. */
@@ -97,22 +97,22 @@ export function prepareBehaviorReview(input: {
   model: string
   version: string
   subject: string
-  policy: { definition: JevState; ref: EvidenceRef }
+  policy: { definition: SystemOneState; ref: EvidenceRef }
   checks: Partial<
     Record<
       BehaviorHypothesis,
       {
         evidence: BehaviorEvidence
-        severity: JevReviewCheck['severity']
+        severity: SystemOneReviewCheck['severity']
         supportAtLeast: number
         refuteAtLeast: number
       }
     >
   >
-}): PreparedJevReview {
-  const questions: JevQuestions = Object.create(null)
-  const checks: Record<string, JevReviewCheck> = Object.create(null)
-  const evidence: Record<string, JevState> = Object.create(null)
+}): PreparedSystemOneReview {
+  const questions: SystemOneQuestions = Object.create(null)
+  const checks: Record<string, SystemOneReviewCheck> = Object.create(null)
+  const evidence: Record<string, SystemOneState> = Object.create(null)
   for (const [id, config] of Object.entries(input.checks)) {
     if (!Object.hasOwn(behaviorHypotheses, id) || !config)
       throw new TypeError('Unknown behavior check')
@@ -151,7 +151,7 @@ export function prepareBehaviorReview(input: {
     }
     evidence[id] = config.evidence.content
   }
-  return prepareJevReview({
+  return prepareSystemOneReview({
     version: input.version,
     request: {
       model: input.model,
@@ -163,25 +163,25 @@ export function prepareBehaviorReview(input: {
 }
 
 type ReviewAnalystOptions = Omit<
-  JevAnalystOptions<PreparedJevReview>,
+  SystemOneAnalystOptions<PreparedSystemOneReview>,
   'questions' | 'renderState' | 'findings'
 >
 
 /** Same registry/graph contract and paid-call account; no new runner or mandatory safety gate. */
 export function behaviorReviewAnalyst(options: ReviewAnalystOptions) {
-  return jevAnalyst<PreparedJevReview>({
+  return systemOneAnalyst<PreparedSystemOneReview>({
     ...options,
     questions: (review) => review.request.questions,
     renderState: (review) => {
       const { digest, ...definition } = review
-      if (prepareJevReview(definition).digest !== digest)
+      if (prepareSystemOneReview(definition).digest !== digest)
         throw new TypeError('Review definition changed after preparation')
       if (review.request.model !== options.model)
         throw new TypeError('Review model differs from analyst model')
       return review.request.state
     },
     findings: (result, review, context: AnalystContext) =>
-      jevReviewFindings(review, result, {
+      systemOneReviewFindings(review, result, {
         analystId: options.id,
         ...(context.tags?.producedAt ? { producedAt: context.tags.producedAt } : {}),
       }),

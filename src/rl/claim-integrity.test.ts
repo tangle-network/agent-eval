@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { TraceQuestionOutcome } from '../analyst/trace-questions'
-import { assessJevReview } from '../jev-review'
+import { assessSystemOneReview } from '../systemone-review'
 import {
   checkerReadSignal,
   claimIntegrityDigest,
-  claimIntegrityJevReview,
+  claimIntegritySystemOneReview,
   claimIntegrityTraceQuestions,
   claimIntegrityVerdict,
   farmingSignal,
   graderReferenceSignal,
   type IntegrityClaim,
   type IntegritySignal,
-  jevSignal,
   monitorSignal,
   parseSourceScopeReferee,
   refereeSignal,
@@ -19,6 +18,7 @@ import {
   type SourceScope,
   scopeSignals,
   sourceScopeRefereeMessages,
+  systemOneSignal,
 } from './claim-integrity'
 
 const scope: SourceScope = {
@@ -309,9 +309,9 @@ describe('referee', () => {
   })
 })
 
-describe('Jev', () => {
+describe('System One', () => {
   it('prepares a valid review and turns its assessment into a signal', () => {
-    const review = claimIntegrityJevReview(claim(), scope, {
+    const review = claimIntegritySystemOneReview(claim(), scope, {
       model: 'jev-1.13.0',
       supportAtLeast: 0.5,
       refuteAtLeast: 0.6,
@@ -326,7 +326,7 @@ describe('Jev', () => {
       },
       usage: { input_tokens: 900, output_tokens: 0 },
     }
-    const result = jevSignal(assessJevReview(review, raw), { costUsd: 0.00004 })
+    const result = systemOneSignal(assessSystemOneReview(review, raw), { costUsd: 0.00004 })
     expect(result).toMatchObject({ fired: true, costUsd: 0.00004 })
     expect(result.detail).toContain('The source excludes the claimed case')
     const clean = {
@@ -338,8 +338,8 @@ describe('Jev', () => {
         inScope: { type: 'noul', noul: 0.9 },
       },
     }
-    expect(jevSignal(assessJevReview(review, clean)).fired).toBe(false)
-    expect(jevSignal({ error: 'timeout' }).fired).toBeNull()
+    expect(systemOneSignal(assessSystemOneReview(review, clean)).fired).toBe(false)
+    expect(systemOneSignal({ error: 'timeout' }).fired).toBeNull()
   })
 })
 
@@ -443,17 +443,20 @@ describe('verdict', () => {
     ).toBe('unknown')
     expect(claimIntegrityVerdict(clean.slice(0, 3)).verdict).toBe('unknown')
     expect(
-      claimIntegrityVerdict([...clean, signal({ id: 'jev', kind: 'model', fired: null })]).verdict,
+      claimIntegrityVerdict([...clean, signal({ id: 'systemone', kind: 'model', fired: null })])
+        .verdict,
     ).toBe('unknown')
   })
 
   it('ignores context and record-only signals, and keeps unknown cost unknown', () => {
-    const jev = signal({ id: 'jev', kind: 'model', fired: true, costUsd: null })
+    const systemOne = signal({ id: 'systemone', kind: 'model', fired: true, costUsd: null })
     const context = signal({ id: 'checker-read-first', kind: 'context', fired: true })
-    const result = claimIntegrityVerdict([...clean, jev, context], { recordOnly: ['jev'] })
+    const result = claimIntegrityVerdict([...clean, systemOne, context], {
+      recordOnly: ['systemone'],
+    })
     expect(result.verdict).toBe('pass')
     expect(result.costUsd).toBeNull()
-    expect(result.detector).toBe(claimIntegrityDigest({ recordOnly: ['jev'] }))
+    expect(result.detector).toBe(claimIntegrityDigest({ recordOnly: ['systemone'] }))
     expect(result.detector).not.toBe(claimIntegrityDigest())
   })
 })
