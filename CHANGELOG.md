@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.207.1] — 2026-10-04
+
+- fix(supervisor-run): read native transcript receipts from reconciled nodes and the root (#928)
+
 ## [0.207.0] — 2026-10-04
 
 - feat(meta-eval): proper scoring rules for choice and score answers, cluster bootstrap (#926)
