@@ -723,6 +723,10 @@ try {
         FinalEvidencePolicy,
       } from '@tangle-network/agent-eval/contract'
       import {
+        searchEstimateMethod,
+        type SearchEstimateMethod,
+      } from '@tangle-network/agent-eval/campaign'
+      import {
         defineEvaluationClaim,
         summarizeEvaluationUnits,
         openFinalEvidenceLedger,
@@ -749,6 +753,24 @@ try {
       const productMatches: Equal<JudgeInput['scenario'], ProductScenario> = true
       const dimensionMatches: Equal<Awaited<ReturnType<JudgeFn>>, DimensionJudgeScore[]> = true
       const heldoutMatches: Equal<ReturnType<HeldOutGate['evaluate']>, HeldOutGateDecision> = true
+      const searchEstimateMethodMatches: Equal<ReturnType<typeof searchEstimateMethod>, SearchEstimateMethod> = true
+
+      const searchEstimateCases: [number, SearchEstimateMethod][] = [
+        [0, 'none'],
+        [1, 'none'],
+        [2, 'insufficient'],
+        [5, 'insufficient'],
+        [6, 'descriptive'],
+        [19, 'descriptive'],
+        [20, 'bootstrap'],
+        [100, 'bootstrap'],
+      ]
+      for (const [pairs, expected] of searchEstimateCases) {
+        const method = searchEstimateMethod(pairs)
+        if (method !== expected) {
+          throw new Error('packed search estimate method for ' + pairs + ': expected ' + expected + ', received ' + method)
+        }
+      }
 
       const claim = defineEvaluationClaim({
         use: 'comparison',
@@ -802,7 +824,7 @@ try {
       }
       void [
         scenarioMatches, scoreMatches, decisionMatches, productMatches, dimensionMatches,
-        heldoutMatches, exclusion, calibrateJudgeContinuous, positionalBias, selfPreference,
+        heldoutMatches, searchEstimateMethodMatches, exclusion, calibrateJudgeContinuous, positionalBias, selfPreference,
         OutcomeStoreError, FinalEvidenceError, FinalEvidenceConflictError,
       ]
     `,
