@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.206.0] — 2026-10-04
+
+- feat(systemone)!: make System One provider-neutral and normalize provider rounding (#920)
+- Migrate AppWorld default and direct request contract to Terra (#919)
+
 ## [0.205.2] — 2026-10-03
 
 - feat(rollout): parse retained Claude transcript text (#917)
