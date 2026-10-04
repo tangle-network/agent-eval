@@ -110,8 +110,10 @@ export {
   SEARCH_ESTIMATOR,
   type SearchPosterior,
   searchCellSetDigest,
+  searchEstimateMethod,
   searchPosterior,
 } from './estimate-node'
+export type { SearchEstimateMethod } from './search-ledger-types'
 export type {
   ExternalOptimizerExecutionSummary,
   ExternalOptimizerObservationArtifact,
@@ -470,7 +472,6 @@ export {
   type SearchEdgeAttribution,
   type SearchEdgeOperator,
   type SearchEdgeRecordedEvent,
-  type SearchEstimateMethod,
   type SearchExecutionIdentity,
   type SearchFailureReason,
   type SearchLedger,
