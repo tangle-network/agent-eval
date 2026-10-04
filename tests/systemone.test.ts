@@ -1,15 +1,15 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
-import type { JevQuestions, JevRequest } from '../src/jev'
+import type { SystemOneQuestions, SystemOneRequest } from '../src/systemone'
 import {
   asAnalyst,
   asJudge,
   createEvaluator,
-  jevAnalyst,
-  jevEvaluator,
-  jevJudge,
-  parseJevRequest,
-  parseJevResult,
-} from '../src/jev'
+  parseSystemOneRequest,
+  parseSystemOneResult,
+  systemOneAnalyst,
+  systemOneEvaluator,
+  systemOneJudge,
+} from '../src/systemone'
 
 const model = 'jev-test'
 const scenario = { id: 'one', kind: 'test' }
@@ -22,9 +22,9 @@ const questions = {
     criteria: { inspect: null, finish: { required: true } },
   },
   supported: { type: 'noul', criteria: { true: { evidence: ['verified'] }, false: null } },
-} satisfies JevQuestions
+} satisfies SystemOneQuestions
 
-function response(request: JevRequest) {
+function response(request: SystemOneRequest) {
   const answers: Record<string, unknown> = {}
   for (const [name, question] of Object.entries(request.questions)) {
     if (question.type === 'noul') {
@@ -55,16 +55,16 @@ function response(request: JevRequest) {
 
 const pricing = { inputUsdPerMillion: 1, outputUsdPerMillion: 0 }
 function fixture() {
-  const execute = vi.fn(async (request: JevRequest) => response(request))
-  return { execute, evaluate: jevEvaluator({ evaluate: execute, pricing }) }
+  const execute = vi.fn(async (request: SystemOneRequest) => response(request))
+  return { execute, evaluate: systemOneEvaluator({ evaluate: execute, pricing }) }
 }
 
 describe('native question contract', () => {
   it('accepts caller JSON, structured criteria, null descriptions, and omitted instructions', () => {
     const request = { model, state: 'task', questions }
-    expect(parseJevRequest(request)).toBe(request)
+    expect(parseSystemOneRequest(request)).toBe(request)
     const raw = response(request)
-    expect(parseJevResult(raw, request)).toBe(raw)
+    expect(parseSystemOneResult(raw, request)).toBe(raw)
   })
 
   it('preserves exact answer names and choice labels', async () => {
@@ -95,7 +95,7 @@ describe('native question contract', () => {
       legend: { 0: 'incomplete', 1: { weight: 1, evidence: ['complete'] } },
       probabilities: { 0: 0, 1: 1 },
     }
-    expect(() => parseJevResult(raw, request)).not.toThrow()
+    expect(() => parseSystemOneResult(raw, request)).not.toThrow()
   })
 
   it.each([
@@ -107,17 +107,17 @@ describe('native question contract', () => {
     { model, state: 'task', questions: { q: { type: 'score', criteria: [null, 'one'] } } },
     { model, state: 'task', questions: { q: { type: 'choice', criteria: {} } } },
   ])('rejects invalid native requests', (request) => {
-    expect(() => parseJevRequest(request)).toThrow()
+    expect(() => parseSystemOneRequest(request)).toThrow()
   })
 
   it('retains reported model identity without guessing alias syntax', async () => {
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       evaluate: async (request) => ({ ...response(request), model: 'resolved-version' }),
     })
     expect(
       (await evaluate({ model: 'deployment-alias', state: 'task', questions })).value.model,
     ).toBe('resolved-version')
-    const pinned = jevEvaluator({
+    const pinned = systemOneEvaluator({
       evaluate: async (request) => ({ ...response(request), model: 'different' }),
       acceptModel: (requested, served) => requested === served,
     })
@@ -126,16 +126,16 @@ describe('native question contract', () => {
 
   it('refuses missing answers, invalid usage, and inconsistent distributions', () => {
     const request = { model, state: 'task', questions }
-    expect(() => parseJevResult({ ...response(request), answers: {} }, request)).toThrow()
-    expect(() => parseJevResult({ ...response(request), usage: {} }, request)).toThrow()
+    expect(() => parseSystemOneResult({ ...response(request), answers: {} }, request)).toThrow()
+    expect(() => parseSystemOneResult({ ...response(request), usage: {} }, request)).toThrow()
     const raw = response(request)
     raw.answers.supported = { type: 'noul', noul: Number.NaN }
-    expect(() => parseJevResult(raw, request)).toThrow()
+    expect(() => parseSystemOneResult(raw, request)).toThrow()
   })
 })
 
 describe('reusable evaluation and interpretation', () => {
-  it('supports a non-Jev classifier without inventing Jev-shaped outputs', async () => {
+  it('supports a classifier outside System One without inventing System One-shaped outputs', async () => {
     const evaluate = createEvaluator({
       execute: async (text: string) => ({ label: text.length ? 'present' : 'empty' }),
       receipt: () => ({
@@ -179,13 +179,13 @@ describe('reusable evaluation and interpretation', () => {
   })
 
   it('supports choices in a judge when the caller supplies the utility mapping', async () => {
-    const judge = jevJudge('route', {
+    const judge = systemOneJudge('route', {
       model,
       version: 'v1',
       questions,
       // A custom map decides what the judge reports, and nothing in `questions` predicts it:
       // this map answers a question named `route` with a dimension named `ready`. Without the
-      // declaration the judge would advertise `route` and emit `ready`, so jevJudge requires it.
+      // declaration the judge would advertise `route` and emit `ready`, so systemOneJudge requires it.
       dimensions: [{ key: 'ready', description: 'Probability the route finishes' }],
       evaluate: async (request) => response(request),
       renderState: ({ artifact }: { artifact: string }) => artifact,
@@ -201,8 +201,8 @@ describe('reusable evaluation and interpretation', () => {
   })
 
   it('builds questions per scenario while keeping comparable output dimensions', async () => {
-    const seen: JevRequest[] = []
-    const judge = jevJudge('dynamic', {
+    const seen: SystemOneRequest[] = []
+    const judge = systemOneJudge('dynamic', {
       model,
       version: 'v1',
       dimensions: [{ key: 'supported', description: 'Evidence support' }],
@@ -227,7 +227,7 @@ describe('reusable evaluation and interpretation', () => {
 
   it('allows analysts to produce no findings without erasing paid work', async () => {
     const recordUsage = vi.fn()
-    const analyst = jevAnalyst<string>({
+    const analyst = systemOneAnalyst<string>({
       id: 'trace',
       description: 'Caller-defined analysis',
       inputKind: 'custom',
@@ -268,13 +268,16 @@ describe('reusable evaluation and interpretation', () => {
 describe('paid-call boundaries', () => {
   it('forwards cancellation and paid-call identity', async () => {
     const execute = vi.fn(
-      async (request: JevRequest, context: { signal: AbortSignal; idempotencyKey: string }) => {
+      async (
+        request: SystemOneRequest,
+        context: { signal: AbortSignal; idempotencyKey: string },
+      ) => {
         expect(context.signal).toBeInstanceOf(AbortSignal)
         expect(context.idempotencyKey).toBeTruthy()
         return response(request)
       },
     )
-    await jevEvaluator({ evaluate: execute })(
+    await systemOneEvaluator({ evaluate: execute })(
       { model, state: 'task', questions },
       { signal: signal() },
     )
@@ -293,7 +296,7 @@ describe('paid-call boundaries', () => {
 
   it('settles reported usage before rejecting malformed answers', async () => {
     const onReceipt = vi.fn()
-    const evaluate = jevEvaluator({
+    const evaluate = systemOneEvaluator({
       pricing,
       evaluate: async (request) => ({ ...response(request), answers: {} }),
     })
@@ -327,7 +330,7 @@ describe('paid-call boundaries', () => {
   it('rejects an expired analyst before rendering state or inferring', async () => {
     const renderState = vi.fn(() => 'trace')
     const { execute } = fixture()
-    const analyst = jevAnalyst<string>({
+    const analyst = systemOneAnalyst<string>({
       id: 'trace',
       description: 'Review',
       inputKind: 'custom',

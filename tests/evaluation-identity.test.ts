@@ -8,19 +8,24 @@ import {
   type EvaluationAnalystOptions,
   type EvaluationJudgeOptions,
 } from '../src/evaluation'
-import { type JevQuestions, type JevRequest, jevAnalyst, jevJudge } from '../src/jev'
+import {
+  type SystemOneQuestions,
+  type SystemOneRequest,
+  systemOneAnalyst,
+  systemOneJudge,
+} from '../src/systemone'
 
 const score = (value: number) => ({ dimensions: { metric: value }, composite: value, notes: '' })
 const dimensions = () => [{ key: 'metric', description: 'Fixed metric' }]
 const receipt = () => ({ model: 'fixture', inputTokens: 1, outputTokens: 1, actualCostUsd: 0.01 })
-const requestQuestions = (reversed = false): JevQuestions => ({
+const requestQuestions = (reversed = false): SystemOneQuestions => ({
   next: {
     type: 'choice',
     instructions: { scope: 'supplied evidence' },
     criteria: reversed ? { inspect: null, proceed: null } : { proceed: null, inspect: null },
   },
 })
-const native = async (request: JevRequest) => ({
+const native = async (request: SystemOneRequest) => ({
   model: request.model,
   usage: { input_tokens: 1, output_tokens: 1 },
   answers: Object.fromEntries(
@@ -40,8 +45,8 @@ const native = async (request: JevRequest) => ({
     }),
   ),
 })
-const judge = (questions: JevQuestions) =>
-  jevJudge<string>('route', {
+const judge = (questions: SystemOneQuestions) =>
+  systemOneJudge<string>('route', {
     model: 'fixture',
     version: 'v1',
     questions,
@@ -51,8 +56,8 @@ const judge = (questions: JevQuestions) =>
     receipt,
     map: () => score(0.7),
   })
-const analyst = (questions: JevQuestions) =>
-  jevAnalyst<string>({
+const analyst = (questions: SystemOneQuestions) =>
+  systemOneAnalyst<string>({
     id: 'route',
     description: 'A caller-owned native classifier',
     inputKind: 'custom',
@@ -85,7 +90,7 @@ describe('native evaluator identity retains authored ordering', () => {
   it('dispatches the original order rather than canonical-key order', async () => {
     const execute = vi.fn(native)
     const questions = requestQuestions()
-    const instance = jevJudge<string>('route', {
+    const instance = systemOneJudge<string>('route', {
       model: 'fixture',
       version: 'v1',
       questions,
@@ -110,7 +115,7 @@ describe('native evaluator identity retains authored ordering', () => {
   it('is stable across JSON persistence and optional SDK undefined properties', () => {
     const questions = requestQuestions()
     questions.check = { type: 'noul', instructions: undefined, criteria: undefined }
-    const restored = JSON.parse(JSON.stringify(questions)) as JevQuestions
+    const restored = JSON.parse(JSON.stringify(questions)) as SystemOneQuestions
     expect(judge(questions).judgeVersion).toBe(judge(restored).judgeVersion)
     expect(analyst(questions).version).toBe(analyst(restored).version)
   })
@@ -211,7 +216,7 @@ describe('constructed adapters retain the versioned callbacks and metadata', () 
 
   it('a native judge does not publish caller-mutable dimensions under a stable hash', () => {
     const declared = dimensions()
-    const instance = jevJudge<string>('route', {
+    const instance = systemOneJudge<string>('route', {
       model: 'fixture',
       version: 'v1',
       questions: requestQuestions(),

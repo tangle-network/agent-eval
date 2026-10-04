@@ -1,4 +1,4 @@
-# Inspect recorded Jev evidence without new inference
+# Inspect recorded System One evidence without new inference
 
 The historical decoder from #897 is already the protocol owner. This example
 uses that implementation; it adds no parser, SDK, ledger, database or replay
@@ -7,7 +7,7 @@ policy.
 From a repository checkout with dependencies installed:
 
 ```sh
-pnpm exec tsx examples/jev-replay.ts request.json response.json
+pnpm exec tsx examples/systemone-replay.ts request.json response.json
 ```
 
 Supply the original native request and response as separate JSON files. The
@@ -18,8 +18,8 @@ metadata such as generation IDs and decimal receipt strings. Neither input file
 is rewritten. This is offline inspection, not replay of a paid provider request.
 
 Historical null state and null score levels remain readable through
-`parseJevRecordedRequest`. They are still invalid for new paid calls through
-`parseJevRequest`. Do not cast a historical request to the live type, or change
+`parseSystemOneRecordedRequest`. They are still invalid for new paid calls through
+`parseSystemOneRequest`. Do not cast a historical request to the live type, or change
 its stored rubric just to satisfy today's admission schema.
 
 A mismatch, unreadable file or malformed record returns exit code 1 with a
@@ -30,9 +30,9 @@ terminal or output destination and retain its existing access controls.
 The same helper is importable from the example:
 
 ```ts
-import { inspectJevFiles } from './examples/jev-replay'
+import { inspectSystemOneFiles } from './examples/systemone-replay'
 
-const observation = await inspectJevFiles('request.json', 'response.json')
+const observation = await inspectSystemOneFiles('request.json', 'response.json')
 // Apply an application-owned deterministic mapping to the retained answers.
 ```
 

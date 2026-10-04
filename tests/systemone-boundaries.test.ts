@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { asJudge, jevAnalyst, jevEvaluator, jevJudge, parseJevRequest } from '../src/jev'
 import { canonicalString, jsonDocument } from '../src/ledger-core/canonical'
+import {
+  asJudge,
+  parseSystemOneRequest,
+  systemOneAnalyst,
+  systemOneEvaluator,
+  systemOneJudge,
+} from '../src/systemone'
 
 const model = 'test-classifier'
 const scenario = { id: 'case', kind: 'test' }
@@ -20,8 +26,8 @@ const options = {
 describe('native SDK and execution boundaries', () => {
   it('hashes optional undefined fields exactly like their JSON wire form', () => {
     // The official noul() builder returns criteria: undefined when criteria are omitted.
-    const explicit = jevJudge('ready', options)
-    const omitted = jevJudge('ready', {
+    const explicit = systemOneJudge('ready', options)
+    const omitted = systemOneJudge('ready', {
       ...options,
       questions: { ready: { type: 'noul', instructions: null } },
     })
@@ -33,8 +39,8 @@ describe('native SDK and execution boundaries', () => {
       inputKind: 'custom' as const,
       findings: () => [],
     }
-    expect(jevAnalyst(common).version).toBe(
-      jevAnalyst({
+    expect(systemOneAnalyst(common).version).toBe(
+      systemOneAnalyst({
         ...common,
         questions: { ready: { type: 'noul', instructions: null } },
       }).version,
@@ -43,7 +49,7 @@ describe('native SDK and execution boundaries', () => {
 
   it('allows optional absent noul outcomes without accepting absent required descriptions', () => {
     expect(() =>
-      parseJevRequest({
+      parseSystemOneRequest({
         model,
         state: 'ready',
         questions: {
@@ -52,7 +58,7 @@ describe('native SDK and execution boundaries', () => {
       }),
     ).not.toThrow()
     expect(() =>
-      parseJevRequest({
+      parseSystemOneRequest({
         model,
         state: 'ready',
         questions: {
@@ -69,7 +75,7 @@ describe('native SDK and execution boundaries', () => {
     { evidence: Number.NaN },
   ])('rejects lossy evidence before paid admission', async (state) => {
     const execute = vi.fn(async () => rawResult)
-    const evaluate = jevEvaluator({ evaluate: execute })
+    const evaluate = systemOneEvaluator({ evaluate: execute })
     await expect(
       evaluate({ model, state: state as never, questions: { ready: { type: 'noul' } } }),
     ).rejects.toThrow()
@@ -87,7 +93,7 @@ describe('native SDK and execution boundaries', () => {
   it('passes the deadline-aware signal to evidence preparation and findings', async () => {
     const controller = new AbortController()
     const signals: (AbortSignal | undefined)[] = []
-    const analyst = jevAnalyst({
+    const analyst = systemOneAnalyst({
       ...options,
       questions: { ready: { type: 'noul' } },
       id: 'ready',
@@ -116,7 +122,7 @@ describe('native SDK and execution boundaries', () => {
 
   it('retains the paid observation but does not map a cancelled evaluation into a decision', async () => {
     const controller = new AbortController()
-    const evaluate = jevEvaluator({ evaluate: async () => rawResult })
+    const evaluate = systemOneEvaluator({ evaluate: async () => rawResult })
     const map = vi.fn(() => ({ dimensions: { ready: 0.8 }, composite: 0.8, notes: '' }))
     const record = vi.fn(() => controller.abort())
     const judge = asJudge({

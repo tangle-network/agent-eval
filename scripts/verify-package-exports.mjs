@@ -89,8 +89,8 @@ try {
     '.': ['import', 'types'],
     './profile-cell': ['import', 'types'],
     './evaluation': ['import', 'types'],
-    './jev': ['import', 'types'],
-    './jev/protocol': ['import', 'types'],
+    './systemone': ['import', 'types'],
+    './systemone/protocol': ['import', 'types'],
     './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
     './search': ['import', 'types'],
@@ -115,6 +115,9 @@ try {
       }
       run('test', ['-f', join(packageDir, relativeTarget)], repoRoot)
     }
+  }
+  if (packageJson.exports?.['./jev'] || packageJson.exports?.['./jev/protocol']) {
+    throw new Error('packed package retains the renamed ./jev exports')
   }
   if (packageJson.exports?.['./belief-state']) {
     throw new Error('packed package retains removed belief-state export')
@@ -1021,9 +1024,30 @@ try {
         for (const name of [
           'InMemoryOutcomeStore', 'OutcomeStoreError', 'auditEvaluator', 'calibrateJudge',
           'calibrationFromPairs', 'calibrateJudgeContinuous', 'continuousAgreement', 'positionalBias',
-          'selfPreference', 'verbosityBias', 'rubricPredictiveValidity',
+          'selfPreference', 'verbosityBias', 'rubricPredictiveValidity', 'brierScore',
         ]) {
           if (!(name in metaEval)) throw new Error('missing meta-eval export ' + name)
+        }
+        const systemOneProtocol = await import('@tangle-network/agent-eval/systemone/protocol')
+        const systemOne = await import('@tangle-network/agent-eval/systemone')
+        for (const name of [
+          'normalizeSystemOneResult', 'systemOneConfidence', 'parseSystemOneRequest',
+          'parseSystemOneRecordedRequest', 'parseSystemOneResult', 'systemOneUsage',
+          'SystemOneResponseError',
+        ]) {
+          if (!(name in systemOneProtocol)) throw new Error('missing systemone/protocol export ' + name)
+          if (!(name in systemOne)) throw new Error('missing systemone export ' + name)
+        }
+        for (const name of [
+          'systemOneEvaluator', 'systemOneJudge', 'systemOneAnalyst', 'normalizedSystemOneScore',
+          'prepareSystemOneReview', 'assessSystemOneReview', 'systemOneReviewFindings',
+        ]) {
+          if (!(name in systemOne)) throw new Error('missing systemone export ' + name)
+        }
+        const probabilities = { a: 0.5143, b: 0.3188, c: 0.1669 }
+        const confidence = systemOneProtocol.systemOneConfidence({ type: 'choice', probabilities })
+        if (Math.abs(confidence - (0.5143 - 1 / 3) / (2 / 3)) > 1e-12) {
+          throw new Error('packed systemOneConfidence changed its definition')
         }
         const wire = await import('@tangle-network/agent-eval/wire')
         if (!('dispatchRpc' in wire)) throw new Error('missing wire export dispatchRpc')

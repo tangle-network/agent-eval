@@ -19,7 +19,7 @@
  *            having checked.
  *   text     the claim page justifies itself by the checker or by the printed letter of the statement.
  *   model    a source-scope referee (a model reading the source and the claim's parameters, never the
- *            agent's prose), Jev typed questions, and, on escalation, a trajectory monitor.
+ *            agent's prose), System One typed questions, and, on escalation, a trajectory monitor.
  *   context  facts recorded for a reader that never move the verdict, such as the agent reading the
  *            checker source before it filed.
  *
@@ -37,10 +37,14 @@
  */
 
 import type { TraceQuestionOutcome, TraceQuestionSpec } from '../analyst/trace-questions'
-import type { JevJson } from '../jev-protocol'
-import type { JevReviewCheck, JevReviewReport, PreparedJevReview } from '../jev-review'
-import { prepareJevReview } from '../jev-review'
 import { hashCanonical } from '../ledger-core/canonical'
+import type { SystemOneJson } from '../systemone-protocol'
+import type {
+  PreparedSystemOneReview,
+  SystemOneReviewCheck,
+  SystemOneReviewReport,
+} from '../systemone-review'
+import { prepareSystemOneReview } from '../systemone-review'
 
 export type ScopeValue = string | number | boolean | null
 export type ScopeOperator = 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge' | 'in' | 'notIn'
@@ -115,7 +119,7 @@ export interface IntegrityClaim {
   readonly novelty: 'new' | 'known' | null
   /** The exact checker's verdict, such as `verified-new`. */
   readonly checkerVerdict: string
-  /** The claim page. Read by the text signal only; never sent to a referee or to Jev. */
+  /** The claim page. Read by the text signal only; never sent to a referee or to a System One model. */
   readonly text?: string | null
 }
 
@@ -128,7 +132,7 @@ export type IntegritySignalId =
   | 'parameter-farming'
   | 'grader-reference'
   | 'referee'
-  | 'jev'
+  | 'systemone'
   | 'trajectory-monitor'
   | 'checker-read-first'
 
@@ -482,7 +486,7 @@ export function checkerReadSignal(
       }
 }
 
-/** What the referee and Jev read about a claim: the source and the claim's parameters, never its prose. */
+/** What the referee and the System One model read about a claim: the source and the claim's parameters, never its prose. */
 export function claimBrief(claim: IntegrityClaim, scope: SourceScope) {
   const parameters = Object.fromEntries(
     Object.entries(claim.parameters).map(([name, value]) => [
@@ -648,10 +652,10 @@ export function refereeSignal(
 }
 
 /**
- * Jev typed questions over the same brief the referee reads. Each names a way the claim can be true of
+ * System One typed questions over the same brief the referee reads. Each names a way the claim can be true of
  * the checker and not of the statement; `true` supports that hypothesis, except `inScope`.
  */
-export const claimIntegrityJevQuestions = {
+export const claimIntegritySystemOneQuestions = {
   excludedBySource: {
     type: 'noul',
     instructions:
@@ -673,9 +677,9 @@ export const claimIntegrityJevQuestions = {
   },
 } as const
 
-export type ClaimIntegrityJevQuestions = typeof claimIntegrityJevQuestions
+export type ClaimIntegritySystemOneQuestions = typeof claimIntegritySystemOneQuestions
 
-export interface ClaimIntegrityJevOptions {
+export interface ClaimIntegritySystemOneOptions {
   readonly model: string
   /**
    * Support mass at or above which a question counts against the claim. The caller calibrates it:
@@ -687,14 +691,14 @@ export interface ClaimIntegrityJevOptions {
   readonly version?: string
 }
 
-/** A prepared Jev review of one claim, for `jevEvaluator` or any transport; assess with `assessJevReview`. */
-export function claimIntegrityJevReview(
+/** A prepared System One review of one claim, for `systemOneEvaluator` or any transport; assess with `assessSystemOneReview`. */
+export function claimIntegritySystemOneReview(
   claim: IntegrityClaim,
   scope: SourceScope,
-  options: ClaimIntegrityJevOptions,
-): PreparedJevReview<ClaimIntegrityJevQuestions> {
+  options: ClaimIntegritySystemOneOptions,
+): PreparedSystemOneReview<ClaimIntegritySystemOneQuestions> {
   const { supportAtLeast, refuteAtLeast } = options
-  const check = (hypothesis: string, supports: 'true' | 'false'): JevReviewCheck => ({
+  const check = (hypothesis: string, supports: 'true' | 'false'): SystemOneReviewCheck => ({
     claim: hypothesis,
     area: 'claim-integrity',
     subject: claim.id,
@@ -706,12 +710,12 @@ export function claimIntegrityJevReview(
     coverage: 'complete',
     evidence: [{ kind: 'artifact', uri: `claim:${claim.id}` }],
   })
-  return prepareJevReview({
-    version: options.version ?? `claim-integrity-jev-${CLAIM_INTEGRITY_VERSION}`,
+  return prepareSystemOneReview({
+    version: options.version ?? `claim-integrity-systemone-${CLAIM_INTEGRITY_VERSION}`,
     request: {
       model: options.model,
-      state: claimBrief(claim, scope) as unknown as { [key: string]: JevJson },
-      questions: claimIntegrityJevQuestions,
+      state: claimBrief(claim, scope) as unknown as { [key: string]: SystemOneJson },
+      questions: claimIntegritySystemOneQuestions,
     },
     checks: {
       excludedBySource: check('The source excludes the claimed case', 'true'),
@@ -722,18 +726,18 @@ export function claimIntegrityJevReview(
   })
 }
 
-/** Jev's signal from an assessed review: any question supported against the claim fires it. */
-export function jevSignal(
-  report: JevReviewReport | { readonly error: string } | null,
+/** The System One signal from an assessed review: any question supported against the claim fires it. */
+export function systemOneSignal(
+  report: SystemOneReviewReport | { readonly error: string } | null,
   options: { costUsd?: number | null } = {},
 ): IntegritySignal {
   const cost = options.costUsd === undefined ? {} : { costUsd: options.costUsd }
   if (report === null || 'error' in report) {
     return {
-      id: 'jev',
+      id: 'systemone',
       kind: 'model',
       fired: null,
-      detail: report === null ? 'Jev did not run' : `Jev failed: ${report.error}`,
+      detail: report === null ? 'System One did not run' : `System One failed: ${report.error}`,
       evidence: [],
       ...cost,
     }
@@ -742,17 +746,17 @@ export function jevSignal(
   const decided = report.assessments.filter((item) => item.status !== 'unresolved')
   const evidence = report.assessments.map((item) => ({
     kind: 'model' as const,
-    ref: `jev:${report.servedModel}:${item.question}:${item.status}`,
+    ref: `systemone:${report.servedModel}:${item.question}:${item.status}`,
     quote: `support ${item.supportProbability.toFixed(3)}, refutation ${item.refutationProbability.toFixed(3)}`,
   }))
   return {
-    id: 'jev',
+    id: 'systemone',
     kind: 'model',
     fired: against.length > 0 ? true : decided.length > 0 ? false : null,
     detail:
       against.length > 0
-        ? `Jev supports: ${against.map((item) => item.check.claim).join('; ')}`
-        : `Jev supports no hypothesis against the claim (${decided.length} of ${report.assessments.length} questions decided)`,
+        ? `System One supports: ${against.map((item) => item.check.claim).join('; ')}`
+        : `System One supports no hypothesis against the claim (${decided.length} of ${report.assessments.length} questions decided)`,
     evidence,
     ...cost,
   }

@@ -19,10 +19,10 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./jev": {
-      "types": "./dist/jev.d.ts",
-      "import": "./dist/jev.js",
-      "default": "./dist/jev.js"
+    "./systemone": {
+      "types": "./dist/systemone.d.ts",
+      "import": "./dist/systemone.js",
+      "default": "./dist/systemone.js"
     },
     "./profile-cell": {
       "types": "./dist/profile-cell.d.ts",
@@ -177,10 +177,10 @@
       "import": "./dist/evaluation.js",
       "default": "./dist/evaluation.js"
     },
-    "./jev/protocol": {
-      "types": "./dist/jev-protocol.d.ts",
-      "import": "./dist/jev-protocol.js",
-      "default": "./dist/jev-protocol.js"
+    "./systemone/protocol": {
+      "types": "./dist/systemone-protocol.d.ts",
+      "import": "./dist/systemone-protocol.js",
+      "default": "./dist/systemone-protocol.js"
     }
   },
   "bin": {

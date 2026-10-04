@@ -3,21 +3,31 @@ import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
 import type { CostReceiptInput, CustomTokenPricing } from './cost-ledger'
 import type { EvaluationContext, EvaluationResult, EvaluatorOptions } from './evaluation'
 import { asAnalyst, asJudge, createEvaluator } from './evaluation'
-import type { JevQuestions, JevRequest, JevResult, JevState } from './jev-protocol'
-import { jevUsage, parseJevQuestions, parseJevRequest, parseJevResult } from './jev-protocol'
 import { jsonDocument } from './ledger-core/canonical'
 import { weightedComposite } from './statistics'
+import type {
+  SystemOneQuestions,
+  SystemOneRequest,
+  SystemOneResult,
+  SystemOneState,
+} from './systemone-protocol'
+import {
+  parseSystemOneQuestions,
+  parseSystemOneRequest,
+  parseSystemOneResult,
+  systemOneUsage,
+} from './systemone-protocol'
 import { contentHash } from './verdict-cache'
 
 export * from './evaluation'
-export * from './jev-protocol'
-export * from './jev-review'
+export * from './systemone-protocol'
+export * from './systemone-review'
 
-export type JevEvaluate = EvaluatorOptions<JevRequest, unknown>['execute']
-export interface JevEvaluatorOptions {
-  evaluate: JevEvaluate
-  costLedger?: EvaluatorOptions<JevRequest, unknown>['costLedger']
-  maximumCharge?: EvaluatorOptions<JevRequest, unknown>['maximumCharge']
+export type SystemOneEvaluate = EvaluatorOptions<SystemOneRequest, unknown>['execute']
+export interface SystemOneEvaluatorOptions {
+  evaluate: SystemOneEvaluate
+  costLedger?: EvaluatorOptions<SystemOneRequest, unknown>['costLedger']
+  maximumCharge?: EvaluatorOptions<SystemOneRequest, unknown>['maximumCharge']
   pricing?: CustomTokenPricing
   receipt?: (response: unknown) => CostReceiptInput
   receiptFromError?: (error: Error) => CostReceiptInput | undefined
@@ -26,9 +36,9 @@ export interface JevEvaluatorOptions {
 }
 
 /** Configure transport once; supply native state, questions, and model on every invocation. */
-export function jevEvaluator(options: JevEvaluatorOptions) {
+export function systemOneEvaluator(options: SystemOneEvaluatorOptions) {
   const config = { ...options, pricing: options.pricing && { ...options.pricing } }
-  const run = createEvaluator<JevRequest, unknown>({
+  const run = createEvaluator<SystemOneRequest, unknown>({
     execute: (request, context) => config.evaluate(structuredClone(request), context),
     model: (request) => request.model,
     costLedger: config.costLedger,
@@ -37,8 +47,8 @@ export function jevEvaluator(options: JevEvaluatorOptions) {
     receipt:
       config.receipt ??
       ((raw) => {
-        const usage = jevUsage(raw)
-        const { model } = raw as JevResult
+        const usage = systemOneUsage(raw)
+        const { model } = raw as SystemOneResult
         return {
           model,
           inputTokens: usage.input_tokens,
@@ -47,50 +57,56 @@ export function jevEvaluator(options: JevEvaluatorOptions) {
         }
       }),
     validate: (raw, request) => {
-      const result = parseJevResult(raw, request)
+      const result = parseSystemOneResult(raw, request)
       if (config.acceptModel && !config.acceptModel(request.model, result.model)) {
         throw new Error('Evaluation served a model rejected by the caller policy')
       }
     },
   })
-  return async <const Q extends JevQuestions>(
-    request: JevRequest<Q>,
+  return async <const Q extends SystemOneQuestions>(
+    request: SystemOneRequest<Q>,
     context?: EvaluationContext,
-  ): Promise<EvaluationResult<JevResult<Q>>> => {
+  ): Promise<EvaluationResult<SystemOneResult<Q>>> => {
     context?.signal?.throwIfAborted()
-    parseJevRequest(request)
+    parseSystemOneRequest(request)
     const snapshot = structuredClone(request)
     const result = await run(snapshot, context)
     // The validator checked these exact questions after recording the paid work.
-    return { ...result, value: result.value as JevResult<Q> }
+    return { ...result, value: result.value as SystemOneResult<Q> }
   }
 }
 
 type Input<A, S extends Scenario> = { artifact: A; scenario: S }
-type QuestionSource<I, Q extends JevQuestions> = Q | ((input: I) => Q | Promise<Q>)
-export interface JevOptions extends JevEvaluatorOptions {
+type QuestionSource<I, Q extends SystemOneQuestions> = Q | ((input: I) => Q | Promise<Q>)
+export interface SystemOneOptions extends SystemOneEvaluatorOptions {
   model: string
   version: string
-  questions: JevQuestions
+  questions: SystemOneQuestions
 }
-export interface JevJudgeOptions<
+export interface SystemOneJudgeOptions<
   A,
   S extends Scenario = Scenario,
-  Q extends JevQuestions = JevQuestions,
-> extends JevEvaluatorOptions {
+  Q extends SystemOneQuestions = SystemOneQuestions,
+> extends SystemOneEvaluatorOptions {
   model: string
   version: string
   questions: QuestionSource<Input<A, S>, Q>
-  renderState: (input: Input<A, S>, context: EvaluationContext) => JevState | Promise<JevState>
+  renderState: (
+    input: Input<A, S>,
+    context: EvaluationContext,
+  ) => SystemOneState | Promise<SystemOneState>
   dimensions?: JudgeConfig<A, S>['dimensions']
   weights?: Record<string, number>
-  map?: (value: JevResult<Q>, input: Input<A, S>) => JudgeScore | Promise<JudgeScore>
-  record?: (result: EvaluationResult<JevResult<Q>>, input: Input<A, S>) => void | Promise<void>
+  map?: (value: SystemOneResult<Q>, input: Input<A, S>) => JudgeScore | Promise<JudgeScore>
+  record?: (
+    result: EvaluationResult<SystemOneResult<Q>>,
+    input: Input<A, S>,
+  ) => void | Promise<void>
   appliesTo?: (scenario: S) => boolean
 }
 
 /** Canonical identity also retains native question/alternative order; dispatch stays untouched. */
-function questionIdentity(questions: JevQuestions) {
+function questionIdentity(questions: SystemOneQuestions) {
   return {
     document: jsonDocument(questions),
     order: Object.entries(questions).map(([name, question]) => [
@@ -112,8 +128,8 @@ function validateWeights(weights: Record<string, number>, keys: string[]): void 
 }
 
 /** Optional convention. Choice utilities and non-uniform scales belong in an explicit map. */
-export function normalizedJevScore(
-  result: JevResult,
+export function normalizedSystemOneScore(
+  result: SystemOneResult,
   weights?: Record<string, number>,
 ): JudgeScore {
   const dimensions: Record<string, number> = Object.create(null)
@@ -147,10 +163,11 @@ export function normalizedJevScore(
 }
 
 /** Convenience around the public evaluator. No domain questions, thresholds, or prose. */
-export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestions = JevQuestions>(
-  name: string,
-  options: JevJudgeOptions<A, S, Q>,
-): JudgeConfig<A, S> {
+export function systemOneJudge<
+  A,
+  S extends Scenario = Scenario,
+  Q extends SystemOneQuestions = SystemOneQuestions,
+>(name: string, options: SystemOneJudgeOptions<A, S, Q>): JudgeConfig<A, S> {
   const config = { ...options }
   const source =
     typeof options.questions === 'function' ? options.questions : structuredClone(options.questions)
@@ -162,7 +179,7 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
     throw new TypeError('Dynamic questions and custom mappings require stable judge dimensions')
   }
   if (!config.map && typeof source !== 'function') {
-    parseJevQuestions(source)
+    parseSystemOneQuestions(source)
     if (Object.values(source).some((question) => question.type === 'choice')) {
       throw new TypeError(
         'Choice scoring requires an explicit map; labels have no numeric ordering',
@@ -176,8 +193,8 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
       key,
       description: typeof question.instructions === 'string' ? question.instructions : key,
     }))
-  const evaluate = jevEvaluator(config)
-  return asJudge<A, S, JevResult<Q>>({
+  const evaluate = systemOneEvaluator(config)
+  return asJudge<A, S, SystemOneResult<Q>>({
     name,
     version: contentHash({
       model: config.model,
@@ -198,34 +215,34 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
         },
         context,
       ),
-    map: config.map ?? ((value) => normalizedJevScore(value, weights)),
+    map: config.map ?? ((value) => normalizedSystemOneScore(value, weights)),
     record: config.record,
   })
 }
 
-export interface JevAnalystOptions<I, Q extends JevQuestions = JevQuestions>
-  extends JevEvaluatorOptions {
+export interface SystemOneAnalystOptions<I, Q extends SystemOneQuestions = SystemOneQuestions>
+  extends SystemOneEvaluatorOptions {
   id: string
   description: string
   inputKind: Analyst<I>['inputKind']
   model: string
   version: string
   questions: Q | ((input: I, context: AnalystContext) => Q | Promise<Q>)
-  renderState: (input: I, context: AnalystContext) => JevState | Promise<JevState>
+  renderState: (input: I, context: AnalystContext) => SystemOneState | Promise<SystemOneState>
   findings: (
-    value: JevResult<Q>,
+    value: SystemOneResult<Q>,
     input: I,
     context: AnalystContext,
   ) => AnalystFinding[] | Promise<AnalystFinding[]>
   record?: (
-    result: EvaluationResult<JevResult<Q>>,
+    result: EvaluationResult<SystemOneResult<Q>>,
     input: I,
     context: AnalystContext,
   ) => void | Promise<void>
 }
 
-export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
-  options: JevAnalystOptions<I, Q>,
+export function systemOneAnalyst<I, Q extends SystemOneQuestions = SystemOneQuestions>(
+  options: SystemOneAnalystOptions<I, Q>,
 ): Analyst<I> {
   const config = { ...options }
   const source =
@@ -233,8 +250,8 @@ export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
   if (!config.id.trim() || !config.version.trim() || !config.description.trim()) {
     throw new TypeError('Analyst id, version, and description are required')
   }
-  const evaluate = jevEvaluator(config)
-  return asAnalyst<I, JevResult<Q>>({
+  const evaluate = systemOneEvaluator(config)
+  return asAnalyst<I, SystemOneResult<Q>>({
     id: config.id,
     description: config.description,
     inputKind: config.inputKind,

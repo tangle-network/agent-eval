@@ -5,10 +5,10 @@ import {
   type EvidenceRef,
   makeFinding,
 } from './analyst/types'
-import type { JevQuestions, JevRequest, JevResult } from './jev-protocol'
-import { parseJevRequest, parseJevResult } from './jev-protocol'
 import { canonicalString, hashCanonical, jsonDocument } from './ledger-core/canonical'
 import { deepFreezeCanonicalJson } from './ledger-core/deep-freeze'
+import type { SystemOneQuestions, SystemOneRequest, SystemOneResult } from './systemone-protocol'
+import { parseSystemOneRequest, parseSystemOneResult } from './systemone-protocol'
 
 const name = z.string().trim().min(1)
 const probability = z.number().finite().gt(0).max(1)
@@ -41,20 +41,20 @@ const checkSchema = z
   })
 
 /** Optional interpretation of native choices/scores. Policy and evidence belong to the caller. */
-export type JevReviewCheck = z.infer<typeof checkSchema>
-export interface JevReviewInput<Q extends JevQuestions = JevQuestions> {
+export type SystemOneReviewCheck = z.infer<typeof checkSchema>
+export interface SystemOneReviewInput<Q extends SystemOneQuestions = SystemOneQuestions> {
   version: string
-  request: JevRequest<Q>
-  checks: { [K in keyof Q]: JevReviewCheck }
+  request: SystemOneRequest<Q>
+  checks: { [K in keyof Q]: SystemOneReviewCheck }
 }
 
-export interface PreparedJevReview<Q extends JevQuestions = JevQuestions>
-  extends JevReviewInput<Q> {
+export interface PreparedSystemOneReview<Q extends SystemOneQuestions = SystemOneQuestions>
+  extends SystemOneReviewInput<Q> {
   /** Binds questions, option order, context, evidence, thresholds and definition version. */
   digest: string
 }
 
-export interface JevReviewAssessment {
+export interface SystemOneReviewAssessment {
   question: string
   status: 'supported' | 'refuted' | 'unresolved'
   reason:
@@ -69,17 +69,17 @@ export interface JevReviewAssessment {
   refutationProbability: number
   unresolvedProbability: number
   modelConfidence: number | null
-  check: JevReviewCheck
+  check: SystemOneReviewCheck
 }
 
-export interface JevReviewReport {
+export interface SystemOneReviewReport {
   reviewDigest: string
   requestedModel: string
   servedModel: string
-  assessments: JevReviewAssessment[]
+  assessments: SystemOneReviewAssessment[]
 }
 
-function alternatives(question: JevQuestions[string]): string[] {
+function alternatives(question: SystemOneQuestions[string]): string[] {
   if (question.type === 'noul') return ['true', 'false']
   return question.type === 'choice'
     ? Object.keys(question.criteria)
@@ -87,16 +87,16 @@ function alternatives(question: JevQuestions[string]): string[] {
 }
 
 /** Validate before paid admission; make a detached, frozen snapshot without rewriting native JSON. */
-export function prepareJevReview<const Q extends JevQuestions>(
-  input: JevReviewInput<Q>,
-): PreparedJevReview<Q> {
+export function prepareSystemOneReview<const Q extends SystemOneQuestions>(
+  input: SystemOneReviewInput<Q>,
+): PreparedSystemOneReview<Q> {
   if (!input.version?.trim()) throw new TypeError('Review version is required')
-  parseJevRequest(input.request)
+  parseSystemOneRequest(input.request)
   // Document form drops only optional undefined object fields; canonicalization rejects loss.
   const document = jsonDocument(input)
   canonicalString(document)
   // Canonical bytes are for hashing, not dispatch: option order can affect a classifier.
-  const snapshot = structuredClone(document) as JevReviewInput<Q>
+  const snapshot = structuredClone(document) as SystemOneReviewInput<Q>
   const keys = Object.keys(snapshot.request.questions)
   if (
     !snapshot.checks ||
@@ -128,14 +128,14 @@ export function prepareJevReview<const Q extends JevQuestions>(
 }
 
 /** Re-score the same retained distribution without new inference or any authorization effect. */
-export function assessJevReview<Q extends JevQuestions>(
-  review: PreparedJevReview<Q>,
+export function assessSystemOneReview<Q extends SystemOneQuestions>(
+  review: PreparedSystemOneReview<Q>,
   raw: unknown,
-): JevReviewReport {
+): SystemOneReviewReport {
   const { digest, ...input } = review
-  const prepared = prepareJevReview(input)
+  const prepared = prepareSystemOneReview(input)
   if (prepared.digest !== digest) throw new TypeError('Review definition changed after preparation')
-  const result = parseJevResult(raw, prepared.request)
+  const result = parseSystemOneResult(raw, prepared.request)
   const assessments = Object.entries(prepared.checks).map(([question, check]) => {
     const answer = result.answers[question]!
     const probabilities: Record<string, number> =
@@ -148,8 +148,8 @@ export function assessJevReview<Q extends JevQuestions>(
     const unresolvedProbability = sum(
       Object.keys(probabilities).filter((label) => !used.has(label)),
     )
-    let status: JevReviewAssessment['status'] = 'unresolved'
-    let reason: JevReviewAssessment['reason'] = 'below-threshold'
+    let status: SystemOneReviewAssessment['status'] = 'unresolved'
+    let reason: SystemOneReviewAssessment['reason'] = 'below-threshold'
     if (supportProbability > 1 || refutationProbability > 1 || unresolvedProbability > 1) {
       throw new TypeError('Review probability mass exceeds one; do not silently normalize it')
     }
@@ -188,13 +188,13 @@ export function assessJevReview<Q extends JevQuestions>(
 }
 
 /** Ordinary analyst findings; a negative review is not a global safety certificate. */
-export function jevReviewFindings<Q extends JevQuestions>(
-  review: PreparedJevReview<Q>,
-  result: JevResult<Q>,
+export function systemOneReviewFindings<Q extends SystemOneQuestions>(
+  review: PreparedSystemOneReview<Q>,
+  result: SystemOneResult<Q>,
   options: { analystId: string; producedAt?: string },
 ): AnalystFinding[] {
   if (!options.analystId.trim()) throw new TypeError('Analyst id is required')
-  const report = assessJevReview(review, result)
+  const report = assessSystemOneReview(review, result)
   return report.assessments
     .filter((item) => item.status !== 'refuted')
     .map((item) =>

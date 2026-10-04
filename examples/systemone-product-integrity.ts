@@ -1,7 +1,7 @@
 // Optional application recipe. These questions and thresholds are not library defaults.
 import type { JudgeConfig, Scenario } from '../src/campaign/types'
-import type { JevJudgeOptions, JevQuestions } from '../src/jev'
-import { jevJudge } from '../src/jev'
+import type { SystemOneJudgeOptions, SystemOneQuestions } from '../src/systemone'
+import { systemOneJudge } from '../src/systemone'
 
 export interface ProductIntegrityArtifact {
   intent: string
@@ -67,10 +67,10 @@ export const productQuestions = {
     type: 'noul',
     instructions: 'Do reported code counts exclude vendored dependencies and generated code?',
   },
-} satisfies JevQuestions
+} satisfies SystemOneQuestions
 
 type IntegrityOptions<S extends Scenario> = Omit<
-  JevJudgeOptions<ProductIntegrityArtifact, S>,
+  SystemOneJudgeOptions<ProductIntegrityArtifact, S>,
   'questions' | 'renderState'
 >
 
@@ -78,7 +78,7 @@ export function productIntegrityJudge<S extends Scenario = Scenario>(
   name: string,
   options: IntegrityOptions<S>,
 ): JudgeConfig<ProductIntegrityArtifact, S> {
-  return jevJudge<ProductIntegrityArtifact, S>(name, {
+  return systemOneJudge<ProductIntegrityArtifact, S>(name, {
     ...options,
     questions: productQuestions,
     renderState: ({ artifact }) => ({
@@ -101,9 +101,9 @@ export interface SourceFileArtifact {
 
 export function sourceFileJudge<S extends Scenario = Scenario>(
   name: string,
-  options: Omit<JevJudgeOptions<SourceFileArtifact, S>, 'questions' | 'renderState'>,
+  options: Omit<SystemOneJudgeOptions<SourceFileArtifact, S>, 'questions' | 'renderState'>,
 ): JudgeConfig<SourceFileArtifact, S> {
-  return jevJudge<SourceFileArtifact, S>(name, {
+  return systemOneJudge<SourceFileArtifact, S>(name, {
     ...options,
     renderState: ({ artifact }) => ({
       path: artifact.path,

@@ -159,6 +159,28 @@ export function calibrationFromPairs(
   return { evalMetric, outcomeMetric, n: pairs.length, bins, ece, maxGap }
 }
 
+/**
+ * Mean squared error of probability forecasts against binary outcomes, Σ(p − y)²/N; always
+ * forecasting 0.5 scores 0.25. For the reliability table and ECE use `calibrationFromPairs`
+ * with `range: { lo: 0, hi: 1 }` (`binning: 'equal-frequency'` gives equal-mass bins).
+ */
+export function brierScore(pairs: readonly CalibrationPair[]): number {
+  if (!pairs.length) throw new Error('Brier score requires at least one pair')
+  let total = 0
+  for (const [index, pair] of pairs.entries()) {
+    if (
+      pair === null ||
+      typeof pair !== 'object' ||
+      !(pair.evalScore >= 0 && pair.evalScore <= 1) ||
+      (pair.outcome !== 0 && pair.outcome !== 1)
+    ) {
+      throw new Error(`Brier pair ${index} needs a probability in [0, 1] and an outcome of 0 or 1`)
+    }
+    total += (pair.evalScore - pair.outcome) ** 2
+  }
+  return total / pairs.length
+}
+
 function toBin(chunk: CalibrationPair[], lower?: number, upper?: number): CalibrationBin {
   const xs = chunk.map((c) => c.evalScore)
   const ys = chunk.map((c) => c.outcome)

@@ -1,7 +1,7 @@
 export const buildEntries = {
   index: 'src/index.ts',
-  jev: 'src/jev.ts',
-  'jev-protocol': 'src/jev-protocol.ts',
+  systemone: 'src/systemone.ts',
+  'systemone-protocol': 'src/systemone-protocol.ts',
   evaluation: 'src/evaluation.ts',
   'profile-cell': 'src/agent-profile-cell.ts',
   'analyst/index': 'src/analyst/index.ts',
