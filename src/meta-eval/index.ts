@@ -18,6 +18,7 @@ export {
   verbosityBias,
 } from '../judge-calibration'
 export * from './calibration'
+export * from './cluster-bootstrap'
 export * from './correlation-study'
 export {
   auditEvaluator,

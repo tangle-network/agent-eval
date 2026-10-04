@@ -181,6 +181,107 @@ export function brierScore(pairs: readonly CalibrationPair[]): number {
   return total / pairs.length
 }
 
+/** One categorical forecast: a distribution over named outcomes and the outcome that occurred. */
+export interface CategoricalForecast {
+  /** Probability per outcome name. Must sum to 1 within 1e-6 and include `outcome`. */
+  probabilities: Readonly<Record<string, number>>
+  outcome: string
+}
+
+/**
+ * Multiclass Brier score in its sum form, mean over forecasts of Σₖ(pₖ − yₖ)², range [0, 2].
+ * With two outcomes it is twice the binary `brierScore`. A uniform forecast over K outcomes
+ * scores 1 − 1/K. The distribution is not renormalized here: repair provider rounding before
+ * scoring (`normalizeSystemOneResult` in `/systemone/protocol`), so a defective answer stays
+ * visible instead of being scored as if it were valid.
+ */
+export function multiclassBrierScore(forecasts: readonly CategoricalForecast[]): number {
+  if (!forecasts.length) throw new Error('multiclass Brier score requires at least one forecast')
+  let total = 0
+  for (const [index, forecast] of forecasts.entries()) {
+    const entries = categoricalEntries(forecast, index, 'multiclass Brier')
+    for (const [name, probability] of entries) {
+      total += (probability - (name === forecast.outcome ? 1 : 0)) ** 2
+    }
+  }
+  return total / forecasts.length
+}
+
+/** One ordinal forecast: probabilities in level order, lowest level first. */
+export interface OrdinalForecast {
+  probabilities: readonly number[]
+  /** Index into `probabilities` of the level that occurred. */
+  outcome: number
+}
+
+/**
+ * Ranked probability score, mean over forecasts of Σₖ₌₁ᴷ⁻¹(Fₖ − Oₖ)² / (K − 1), where F and O are
+ * the cumulative forecast and observation, range [0, 1]. Unlike multiclass Brier it charges
+ * less for mass on a level next to the outcome than for mass far from it, which is the right
+ * penalty for score questions. With two levels it equals the binary Brier score.
+ */
+export function rankedProbabilityScore(forecasts: readonly OrdinalForecast[]): number {
+  if (!forecasts.length) throw new Error('ranked probability score requires at least one forecast')
+  let total = 0
+  for (const [index, forecast] of forecasts.entries()) {
+    const probabilities = forecast?.probabilities
+    if (!Array.isArray(probabilities) || probabilities.length < 2) {
+      throw new Error(`RPS forecast ${index} needs at least two level probabilities`)
+    }
+    assertDistribution(probabilities, `RPS forecast ${index}`)
+    if (
+      !Number.isInteger(forecast.outcome) ||
+      forecast.outcome < 0 ||
+      forecast.outcome >= probabilities.length
+    ) {
+      throw new Error(
+        `RPS forecast ${index} outcome must index one of its ${probabilities.length} levels`,
+      )
+    }
+    let cumulative = 0
+    let sum = 0
+    for (let level = 0; level < probabilities.length - 1; level++) {
+      cumulative += probabilities[level]!
+      sum += (cumulative - (level >= forecast.outcome ? 1 : 0)) ** 2
+    }
+    total += sum / (probabilities.length - 1)
+  }
+  return total / forecasts.length
+}
+
+function categoricalEntries(
+  forecast: CategoricalForecast,
+  index: number,
+  label: string,
+): [string, number][] {
+  if (forecast === null || typeof forecast !== 'object' || typeof forecast.outcome !== 'string') {
+    throw new Error(`${label} forecast ${index} needs probabilities and a string outcome`)
+  }
+  const entries = Object.entries(forecast.probabilities ?? {})
+  if (entries.length < 2) throw new Error(`${label} forecast ${index} needs at least two outcomes`)
+  if (!Object.hasOwn(forecast.probabilities, forecast.outcome)) {
+    throw new Error(
+      `${label} forecast ${index} has no probability for outcome ${JSON.stringify(forecast.outcome)}`,
+    )
+  }
+  assertDistribution(
+    entries.map(([, probability]) => probability),
+    `${label} forecast ${index}`,
+  )
+  return entries
+}
+
+function assertDistribution(probabilities: readonly number[], label: string): void {
+  let sum = 0
+  for (const probability of probabilities) {
+    if (!(probability >= 0 && probability <= 1)) {
+      throw new Error(`${label} has a probability outside [0, 1]: ${probability}`)
+    }
+    sum += probability
+  }
+  if (Math.abs(sum - 1) > 1e-6) throw new Error(`${label} probabilities sum to ${sum}, not 1`)
+}
+
 function toBin(chunk: CalibrationPair[], lower?: number, upper?: number): CalibrationBin {
   const xs = chunk.map((c) => c.evalScore)
   const ys = chunk.map((c) => c.outcome)
