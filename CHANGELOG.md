@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.207.2] — 2026-10-04
+
+- fix(supervisor-run): count every spawned worker and report the root apart in the trace summary (#930)
+
 ## [0.207.1] — 2026-10-04
 
 - fix(supervisor-run): read native transcript receipts from reconciled nodes and the root (#928)
