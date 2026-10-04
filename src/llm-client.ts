@@ -949,7 +949,12 @@ async function callLlmAttempts(
           // A wait the deadline cannot cover ends the call with this answer. Sleeping to the
           // deadline let a timer that fired a millisecond early start one more attempt with no time
           // left, whose abort replaced the server's status (agent-eval publish run 37238259408).
-          if (wait >= remainingMs()) break
+          if (wait >= remainingMs()) {
+            // A caller abort that landed while the answer was recorded still wins, as the
+            // retry wait would have reported it.
+            callerSignal?.throwIfAborted()
+            break
+          }
           await retryDelay(wait)
           continue
         }
@@ -1145,6 +1150,7 @@ async function callLlmAttempts(
         await retryDelay(wait)
         continue
       }
+      callerSignal?.throwIfAborted()
       throw err
     } finally {
       clearTimeout(timeoutHandle)

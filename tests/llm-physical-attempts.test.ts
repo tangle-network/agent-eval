@@ -280,6 +280,29 @@ describe('physical request lifetime and receipt consistency', () => {
     expect(requests).toHaveLength(1)
   })
 
+  it('reports a caller abort that lands while a final answer is recorded', async () => {
+    const { baseUrl } = await endpoint((res) => {
+      res.writeHead(429, { 'Retry-After': '10' })
+      res.end('busy')
+    })
+    const controller = new AbortController()
+    const reason = new Error('caller stopped the call')
+    await expect(
+      callLlm(request, {
+        baseUrl,
+        maximumAttempts: 3,
+        deadlineMs: 3_000,
+        signal: controller.signal,
+        rawSink: {
+          // The answer has been read when its error event is recorded.
+          async record(event) {
+            if (event.direction === 'error') controller.abort(reason)
+          },
+        },
+      }),
+    ).rejects.toBe(reason)
+  })
+
   it('does not dispatch when the whole-operation deadline is already exhausted', async () => {
     const { baseUrl, requests } = await endpoint((res) => success(res))
     await expect(callLlm(request, { baseUrl, deadlineMs: 0 })).rejects.toMatchObject({
