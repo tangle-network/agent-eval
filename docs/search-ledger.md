@@ -208,18 +208,24 @@ The two `--wired` behaviors above (`incumbentWithOperatorBandit`, `draftOnPlatea
 | `tree(state)` | a tidy tree of nodes and edges — the base view every other lens sits beside; a node with unknown-cost cells shows its known spend, its proven floor and how many cells are unknown, never a total | `tree.nodeCount` (drives no policy) |
 | `operatorYield(state, { split? })` | each edge operator's proposals, re-proposals, outcome counts and yield: a node's gain over the root from `searchPosterior` (`estimateNode`'s tree-wide contrast) divided by the known cost of producing and screening it — its even share of the proposal operation's cost over that operation's child edges, plus its cells allocated before its first decision (the first rung and the train feedback); cells of later rungs and the claim are the allocator's and the claim's choice, so they are not charged to the operator; a node counts once, under the operator of the edge that registered it, and a re-proposal adds a proposal but no outcome or sample; a node is excluded from yield when it was decided invalid, shares fewer than 2 units with the root, or its proposal or a screen cell has an unknown, unrecorded or zero cost | `operatorYield.weights`: an operator's yield mean once it has 6 or more yield-eligible nodes (`MIN_OUTCOMES_FOR_WEIGHT`), else `null` |
 | `front(state, { split?, axes? })` | the Pareto frontier over per-unit mean score and known cost per attempted cell on the split (reusing `paretoFrontier`), with room for caller-declared extra axes; a node's total spend depends on how far the allocator measured it, so it is shown but is not an axis; a node decided invalid, scored on fewer than 2 units, with an unknown-cost cell on the split, or with a non-finite extra axis is excluded from every frontier pass, with the reason | `front.membership`: 1 for a node on the frontier, 0 otherwise (including an excluded node) |
-| `taskMatrix(state, { split? })` | nodes and units, each single-linkage clustered on the root-mean-square difference over their shared scores, cutoff at the data's own median pairwise distance | `taskMatrix.specialistGain`: per unit cluster, the best node's mean minus the mean of node means, in the objective's direction, among nodes not decided invalid that scored every unit of the cluster; `null` with the reason, and omitted from the signal, below 2 such nodes or 6 units |
+| `taskMatrix(state, { split? })` | at most 200 nodes, evenly sampled in registration order when the ledger is larger, and their observed units; each axis is single-linkage clustered on the root-mean-square difference over shared scores, cutoff at the sample's own median pairwise distance; sampled results report `data.sampling` counts and the cap in `data.method` | `taskMatrix.specialistGain`: per unit cluster, the best sampled node's mean minus the mean of sampled node means, in the objective's direction, among nodes not decided invalid that scored every unit of the cluster; `null` with the reason, and omitted from the signal, below 2 such nodes or 6 units |
 
 `agent-eval search show <ledger> [--tree] [--operator-yield] [--front] [--task-matrix]` prints each lens's text form below the search summary, so an agent reading the CLI sees the same numbers Intelligence, discovery lab, VerticalBench and agent-runtime `improve()` would render from the same JSON.
 
 The task matrix evaluates each node pair and each unit pair at most twice.
-Clustering preserves the median cutoff, missing-score rules, deterministic ordering, and specialist gains.
+Its 200-node cap bounds node-distance calls to 39,800, under 1% of the 3,998,000 calls for 2,000 nodes.
+It reuses the same `evenSample` helper as `landscape`; the matrix cells, unit clusters, and specialist gains all use those selected nodes.
+Units observed only on omitted nodes are omitted too. The unit count itself is not capped.
+For a larger ledger, `data.sampling` is `{ nodesClustered: 200, nodesTotal, cap: 200 }`, `data.method` states the cap and scope, and the text CLI prints how many nodes were clustered out of the total.
+Ledgers with at most 200 nodes retain their complete output, including the original method text and absence of sampling metadata.
+Within that node set, clustering preserves the median cutoff, missing-score rules, deterministic ordering, and specialist-gain eligibility.
 Piped CLI output includes the complete JSON before the process exits.
 
-Run the proof against retained search ledgers:
+Run the self-contained proof, optionally adding retained search ledgers:
 
 ```sh
 pnpm build
+pnpm exec tsx scripts/prove-task-matrix.mts
 pnpm exec tsx scripts/prove-task-matrix.mts /path/to/search-ledger.jsonl
 ```
 
