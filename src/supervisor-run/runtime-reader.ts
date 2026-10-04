@@ -534,16 +534,30 @@ function keepReceipt(fact: NodeTranscriptFacts, receipt: Record<string, unknown>
 }
 
 /**
- * What this reader can say about harness-session traces: how many nodes carry an available
- * native transcript receipt. Runtime records the session identity on each receipt, so the run's
- * sessions are read per node (`workers[].nativeSession`), not through one command.
+ * What this reader can say about harness-session traces. Every spawned worker counts, including
+ * one that recorded nothing; the root is reported apart because its receipt lives in result.json
+ * (`rootHarnessTranscript`), not on a worker. Runtime records the session identity on each
+ * receipt, so the sessions are read per node, not through one command.
  */
-function nativeTraceSummary(transcripts: ReadonlyMap<string, NodeTranscript>): string {
-  const sessions = [...transcripts.values()].map((transcript) => transcript.nativeSession)
-  const receipted = sessions.filter((session) => session !== null).length
-  const available = sessions.filter((session) => session?.status === 'available').length
-  if (receipted === 0) return 'unavailable — no node carries a Runtime harness transcript receipt'
-  return `per node — ${available} of ${transcripts.size} nodes carry an available native harness transcript (${receipted - available} receipt(s) name why not); read workers[].nativeSession`
+function nativeTraceSummary(
+  workers: readonly WorkerLogSource[],
+  root: NodeTranscript | undefined,
+): string {
+  const available = workers.filter((worker) => worker.nativeSession?.status === 'available').length
+  const rootSession = root?.nativeSession ?? null
+  const rootState =
+    rootSession === null
+      ? 'no receipt'
+      : rootSession.status === 'available'
+        ? 'available'
+        : `unavailable (${rootSession.reason})`
+  if (
+    available === 0 &&
+    rootSession === null &&
+    workers.every((worker) => worker.nativeSession === null)
+  )
+    return 'unavailable — no node carries a Runtime harness transcript receipt'
+  return `per node — ${available} of ${workers.length} workers carry an available native harness transcript (workers[].nativeSession); root: ${rootState} (result.json rootHarnessTranscript)`
 }
 
 async function workspaceCapturesFromOutput(
@@ -905,7 +919,7 @@ export async function readRuntimeSupervisorRun(
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
     rootTranscriptRef: (await isFile(rootStream)) ? rootStream : null,
     rootWorkspaceCaptures: transcripts.get(normalized.root)?.workspaceCaptures ?? null,
-    traceCommand: nativeTraceSummary(transcripts),
+    traceCommand: nativeTraceSummary(workers, transcripts.get(normalized.root)),
   }
 }
 
