@@ -22,7 +22,8 @@
  * contract every caller-owned transport speaks.
  *
  * OpenAI-compatible `/v1/chat/completions` client with:
- *   - Exponential-backoff retry on 429 + 5xx gateway errors (502/503/504).
+ *   - Retry-After-aware retry on 429 + 5xx gateway errors (502/503/504).
+ *   - Optional shared min-interval pacing of physical requests.
  *   - Retry on transient network errors (fetch failed, AbortError, ECONNRESET).
  *   - One retry at temperature 1 when a model explicitly requires it.
  *   - Graceful json_schema → json_object degrade on 400 with schema-reject body.
@@ -135,7 +136,7 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export interface LlmChargeBounds {
-  /** Total physical requests, including retries and schema/temperature fallback. Default 3. */
+  /** Total physical requests, including retries and schema/temperature fallback. Default 6. */
   maximumAttempts?: number
   /** The transport sends JSON mode instead of a response schema. */
   jsonSchemaTransport?: 'native' | 'json-object'
@@ -349,6 +350,15 @@ export interface LlmClientOptions extends LlmChargeBounds {
   /** Default timeout in ms. Per-call can override. */
   defaultTimeoutMs?: number
   /**
+   * Minimum milliseconds between physical request starts, including retries
+   * and schema/temperature fallback. Default 0 (disabled). For an RPM limit,
+   * use at least `60_000 / rpm`. Reuse one options object with the free
+   * functions, or one LlmClient/createChatClient instance, per key. Pacing is
+   * process-local; new options objects and other processes do not share a quota.
+   * Waiting respects signal/deadlineMs but does not consume the HTTP timeout.
+   */
+  minIntervalMs?: number
+  /**
    * Caller-supplied abort signal — e.g. a campaign-wide cancel. Linked to
    * each attempt's per-attempt timeout controller, so aborting it cancels
    * the in-flight fetch. A caller abort is FATAL: it is not retried even
@@ -413,7 +423,7 @@ export interface LlmClientOptions extends LlmChargeBounds {
 const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
 const DEFAULT_MAXIMUM_ATTEMPTS =
   process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS === undefined
-    ? 3
+    ? 6
     : Number(process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS)
 
 function resolveMaximumAttempts(configured: number | undefined): number {
@@ -422,6 +432,31 @@ function resolveMaximumAttempts(configured: number | undefined): number {
     throw new RangeError('LLM maximum attempts must be a positive integer')
   }
   return attempts
+}
+
+interface LlmPacingState {
+  lastStartedAt?: number
+}
+
+// Weak keys keep neither credentials nor completed campaigns alive. The class
+// associates its per-call option copies with the same state as its defaults.
+const pacingStates = new WeakMap<LlmClientOptions, LlmPacingState>()
+
+function pacingState(opts: LlmClientOptions): LlmPacingState {
+  let state = pacingStates.get(opts)
+  if (!state) {
+    state = {}
+    pacingStates.set(opts, state)
+  }
+  return state
+}
+
+function resolveMinInterval(configured: number | undefined): number {
+  const interval = configured ?? 0
+  if (!Number.isFinite(interval) || interval < 0) {
+    throw new RangeError('LLM minIntervalMs must be a finite non-negative number')
+  }
+  return interval
 }
 
 function providerTokenCount(value: unknown): number | undefined {
@@ -491,10 +526,13 @@ function classifyTransient(err: unknown, depth: number): boolean {
 }
 
 function parseRetryAfter(headers: Headers): number | null {
-  const h = headers.get('retry-after')
+  const h = headers.get('retry-after')?.trim()
   if (!h) return null
   const asNumber = Number(h)
-  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber * 1000
+  if (Number.isFinite(asNumber)) {
+    const ms = asNumber * 1000
+    return asNumber >= 0 && Number.isFinite(ms) ? ms : null
+  }
   const asDate = Date.parse(h)
   if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now())
   return null
@@ -688,6 +726,16 @@ function parseWireToolCalls(value: unknown, model: string): LlmToolCall[] | unde
 
 /** Backoff belongs to the caller's operation and must stop when it is cancelled. */
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  // A larger setTimeout overflows to a near-immediate wakeup in JS runtimes.
+  // Chunk long provider delays rather than silently retrying early.
+  while (ms > 2_147_483_647) {
+    await sleepChunk(2_147_483_647, signal)
+    ms -= 2_147_483_647
+  }
+  await sleepChunk(Math.ceil(ms), signal)
+}
+
+async function sleepChunk(ms: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     const onAbort = () => {
@@ -815,6 +863,8 @@ async function callLlmAttempts(
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
   const maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+  const minIntervalMs = resolveMinInterval(opts.minIntervalMs)
+  const pacing = minIntervalMs > 0 ? pacingState(opts) : undefined
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
   const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
@@ -833,7 +883,7 @@ async function callLlmAttempts(
   const remainingMs = () =>
     deadlineMs === undefined ? Infinity : Math.max(0, deadlineMs - (Date.now() - deadlineStart))
   const retryDelay = (ms: number) => sleep(Math.min(ms, remainingMs()), callerSignal)
-  for (let attempt = 0; attempt < maximumAttempts; attempt++) {
+  const assertActive = () => {
     // A caller cancel is fatal — never retried. Checking before each attempt
     // means an already-aborted signal short-circuits without firing fetch.
     if (callerSignal?.aborted) {
@@ -846,6 +896,9 @@ async function callLlmAttempts(
         ? lastErr
         : new DOMException('callLlm deadline exceeded', 'TimeoutError')
     }
+  }
+  for (let attempt = 0; attempt < maximumAttempts; attempt++) {
+    assertActive()
     const requestBody = buildBody(
       effectiveRequest,
       opts.jsonSchemaTransport === 'json-object',
@@ -853,8 +906,8 @@ async function callLlmAttempts(
     )
     const controller = new AbortController()
     const attemptSignal = combineAbortSignals(controller.signal, callerSignal)!
-    const timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
-    const started = Date.now()
+    let timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
+    let started = Date.now()
     let attemptErrorRecorded = false
     try {
       if (sink) {
@@ -875,6 +928,26 @@ async function callLlmAttempts(
         })
       }
       attemptSignal.throwIfAborted()
+      if (pacing) {
+        // Gate at the actual fetch boundary, after async raw capture. Concurrent
+        // waiters recheck the last real start instead of reserving stale slots
+        // that could bunch up after a slow sink or an event-loop stall.
+        const waitingSince = Date.now()
+        clearTimeout(timeoutHandle)
+        for (;;) {
+          assertActive()
+          const delay = (pacing.lastStartedAt ?? -Infinity) + minIntervalMs - Date.now()
+          if (delay <= 0) break
+          await retryDelay(delay)
+        }
+        // Pacing consumes the operation deadline, not HTTP time or latency.
+        started += Date.now() - waitingSince
+        timeoutHandle = setTimeout(
+          () => controller.abort(),
+          Math.min(timeoutMs - (Date.now() - started), remainingMs()),
+        )
+        pacing.lastStartedAt = Date.now()
+      }
       const res = await fetchFn(url, {
         method: 'POST',
         headers,
@@ -1234,10 +1307,17 @@ export class LlmClient {
   constructor(opts: LlmClientOptions = {}) {
     this.opts = opts
     this.maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+    resolveMinInterval(opts.minIntervalMs)
+  }
+
+  private options(per?: LlmClientOptions): LlmClientOptions {
+    const options = { ...this.opts, ...per }
+    pacingStates.set(options, pacingState(this.opts))
+    return options
   }
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {
-    const options = { ...this.opts, ...per }
+    const options = this.options(per)
     return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)
   }
 
@@ -1245,6 +1325,6 @@ export class LlmClient {
     req: LlmCallRequest,
     per?: LlmClientOptions,
   ): Promise<{ value: T; result: LlmCallResult }> {
-    return callLlmJson<T>(req, { ...this.opts, ...per })
+    return callLlmJson<T>(req, this.options(per))
   }
 }
