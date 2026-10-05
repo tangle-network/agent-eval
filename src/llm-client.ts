@@ -1009,7 +1009,17 @@ async function callLlmAttempts(
         ) {
           lastErr = err
           const retryAfter = parseRetryAfter(res.headers)
-          await retryDelay(retryAfter ?? backoffMs(attempt))
+          const wait = retryAfter ?? backoffMs(attempt)
+          // A wait the deadline cannot cover ends the call with this answer. Sleeping to the
+          // deadline let a timer that fired a millisecond early start one more attempt with no time
+          // left, whose abort replaced the server's status (agent-eval publish run 37238259408).
+          if (wait >= remainingMs()) {
+            // A caller abort that landed while the answer was recorded still wins, as the
+            // retry wait would have reported it.
+            callerSignal?.throwIfAborted()
+            break
+          }
+          await retryDelay(wait)
           continue
         }
         throw err
@@ -1194,14 +1204,17 @@ async function callLlmAttempts(
           redactedFields: [],
         })
       }
+      const wait = backoffMs(attempt)
       if (
         attempt < maximumAttempts - 1 &&
         isTransientLlmError(err) &&
-        !deadlineExceeded(deadlineStart, deadlineMs)
+        !deadlineExceeded(deadlineStart, deadlineMs) &&
+        wait < remainingMs()
       ) {
-        await retryDelay(backoffMs(attempt))
+        await retryDelay(wait)
         continue
       }
+      callerSignal?.throwIfAborted()
       throw err
     } finally {
       clearTimeout(timeoutHandle)
