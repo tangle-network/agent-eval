@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.207.4] — 2026-10-05
+
+- fix(llm): honor full retry delays and pace campaign calls (#934)
+- fix(llm): report a caller abort that lands while the final answer is recorded (#936)
+- fix(llm): end a call with the server's answer when the deadline cannot cover its retry wait (#935)
+
 ## [0.207.3] — 2026-10-04
 
 - fix(supervisor-run): count a receipt as a native session only when its copy is complete and holds a session file (#932)
