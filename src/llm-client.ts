@@ -892,13 +892,37 @@ async function callLlmAttempts(
     )
     const controller = new AbortController()
     const attemptSignal = combineAbortSignals(controller.signal, callerSignal)!
-    let timeoutHandle =
-      minIntervalMs === 0
-        ? setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
-        : undefined
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
     let started = Date.now()
+    // An attempt cancelled or timed out while queued never reached the
+    // provider, so it leaves no request or error event in the raw log.
+    let dispatched = false
     let attemptErrorRecorded = false
     try {
+      if (minIntervalMs > 0) {
+        // Recheck after every wake: concurrent waiters must not dispatch a
+        // catch-up burst.
+        while (true) {
+          callerSignal?.throwIfAborted()
+          if (deadlineExceeded(deadlineStart, deadlineMs)) {
+            throw lastErr instanceof Error
+              ? lastErr
+              : new DOMException('callLlm deadline exceeded', 'TimeoutError')
+          }
+          const waitMs =
+            pacing.lastStartedAt === undefined
+              ? 0
+              : pacing.lastStartedAt + minIntervalMs - Date.now()
+          if (waitMs <= 0) break
+          await retryDelay(waitMs)
+        }
+        // Queue time consumes the operation deadline, not the HTTP timeout.
+        started = Date.now()
+      }
+      // Claim the slot before any await so a concurrent waiter cannot take it.
+      pacing.lastStartedAt = started
+      dispatched = true
+      timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
       if (sink) {
         await recordRaw(sink, redactor, {
           eventId: newRecordId(),
@@ -916,29 +940,7 @@ async function callLlmAttempts(
           redactedFields: [],
         })
       }
-      if (minIntervalMs > 0) {
-        // Recheck after every wake: concurrent waiters must not dispatch a
-        // catch-up burst. Do this after the async sink, immediately before fetch.
-        while (true) {
-          callerSignal?.throwIfAborted()
-          if (deadlineExceeded(deadlineStart, deadlineMs)) {
-            throw lastErr instanceof Error
-              ? lastErr
-              : new DOMException('callLlm deadline exceeded', 'TimeoutError')
-          }
-          const waitMs =
-            pacing.lastStartedAt === undefined
-              ? 0
-              : pacing.lastStartedAt + minIntervalMs - Date.now()
-          if (waitMs <= 0) break
-          await retryDelay(waitMs)
-        }
-        // Queue time consumes the operation deadline, not the HTTP timeout.
-        started = Date.now()
-        timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
-      }
       attemptSignal.throwIfAborted()
-      pacing.lastStartedAt = Date.now()
       const res = await fetchFn(url, {
         method: 'POST',
         headers,
@@ -1165,7 +1167,7 @@ async function callLlmAttempts(
       // transient patterns — a cancelled call must surface immediately, not
       // be retried against the same dead intent.
       if (callerSignal?.aborted) {
-        if (sink && !attemptErrorRecorded) {
+        if (sink && dispatched && !attemptErrorRecorded) {
           await recordRaw(sink, redactor, {
             eventId: newRecordId(),
             runId: traceContext?.runId,
@@ -1184,7 +1186,7 @@ async function callLlmAttempts(
         }
         throw err
       }
-      if (sink && !attemptErrorRecorded) {
+      if (sink && dispatched && !attemptErrorRecorded) {
         // Record only if neither the !res.ok branch nor the JSON.parse catch
         // already produced an error event for this attempt. Covers network
         // failures, timeouts, and aborts.

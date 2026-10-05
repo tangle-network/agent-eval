@@ -22,7 +22,9 @@ Concurrent callers recheck the interval after waking, so overdue waiters do not
 create a catch-up burst. Responses may overlap. Per-call overrides on an internal
 `LlmClient` retain its shared pacing state. Pacing is outside the HTTP-attempt
 timeout, but inside the operation deadline, and cancellation interrupts waits.
-A cancelled waiter does not reserve a future request slot.
+A cancelled waiter does not reserve a future request slot. The raw request
+event is written after the wait, at the claimed start, so a call cancelled or
+expired while queued leaves no raw request or error event.
 
 `Retry-After` already took precedence over the capped exponential backoff. The
 regression suite now checks a full 30-second delay followed by a paced call

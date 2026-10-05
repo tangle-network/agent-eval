@@ -237,6 +237,38 @@ describe('Retry-After and optional physical-call pacing', () => {
     expect(mock.starts).toEqual([0, 1_000])
   })
 
+  it('records raw events only for dispatched requests, at their paced start', async () => {
+    const mock = transport()
+    const events: Array<{ direction: string; at: number }> = []
+    const client = new LlmClient({
+      baseUrl,
+      fetch: mock.fetch,
+      minIntervalMs: 1_000,
+      rawSink: {
+        record(event) {
+          events.push({ direction: event.direction, at: event.timestamp - epoch })
+        },
+      },
+    })
+    await client.call(request)
+    const controller = new AbortController()
+    const cancelled = client.call(request, { signal: controller.signal }).catch((error) => error)
+    const expired = client.call(request, { deadlineMs: 200 }).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(100)
+    controller.abort(new Error('owner cancelled'))
+    expect(await cancelled).toMatchObject({ message: 'owner cancelled' })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await expired).toMatchObject({ name: 'TimeoutError' })
+    const next = client.call(request)
+    await vi.advanceTimersByTimeAsync(800)
+    await next
+    expect(mock.starts).toEqual([0, 1_000])
+    expect(events.filter((event) => event.direction !== 'response')).toEqual([
+      { direction: 'request', at: 0 },
+      { direction: 'request', at: 1_000 },
+    ])
+  })
+
   it('expires a pacing wait at the operation deadline without fetching', async () => {
     const mock = transport()
     const client = new LlmClient({ baseUrl, fetch: mock.fetch, minIntervalMs: 1_000 })
