@@ -1,4 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+/**
+ * The transcript is a real Claude Code 2.1.286 session written while the CLI talked to the
+ * trace-proof scripted model (beelink1 trace-proof-r2, 2026-10-04): two shell tool calls and a
+ * final answer, 100 input and 20 output tokens per response, each response written as one record
+ * per content block.
+ */
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -9,6 +15,11 @@ import {
   readClaudeTranscript,
 } from './claude-jsonl'
 
+const FIXTURE = join(
+  import.meta.dirname,
+  '../../../tests/fixtures/harness-sessions/claude-code.jsonl',
+)
+
 let dir: string
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'claude-reader-'))
@@ -16,8 +27,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
-
-const jsonl = (rows: unknown[]): string => `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`
 
 describe('claudeProjectSlug', () => {
   it('matches Claude Code project-directory naming', () => {
@@ -41,196 +50,30 @@ describe('findClaudeTranscripts', () => {
 })
 
 describe('readClaudeTranscript', () => {
-  it('retains messages but reports malformed source and unknown usage', async () => {
-    const path = join(dir, 'broken.jsonl')
-    await writeFile(
-      path,
-      [
-        JSON.stringify({ type: 'user', message: { role: 'user', content: 'start' } }),
-        '{bad json',
-        JSON.stringify({
-          type: 'assistant',
-          message: { id: 'msg-1', role: 'assistant', content: [{ type: 'text', text: 'done' }] },
-        }),
-      ].join('\n'),
-    )
-    const transcript = await readClaudeTranscript(path)
-    expect(transcript.messages.map((message) => message.role)).toEqual(['user', 'assistant'])
-    expect(transcript.gaps).toContain('line 2: malformed JSON')
-    expect(transcript.usage).toEqual({
-      tokensIn: null,
-      tokensOut: null,
-      cacheRead: null,
-      cacheWrite: null,
-    })
-  })
-
-  it('converts user/assistant/tool lines, merges per-block assistant lines, counts usage once', async () => {
-    const usage = {
-      input_tokens: 10,
-      output_tokens: 20,
-      cache_read_input_tokens: 5,
-      cache_creation_input_tokens: 7,
-    }
-    const path = join(dir, 'session.jsonl')
-    await writeFile(
-      path,
-      jsonl([
-        { type: 'queue-operation', operation: 'enqueue' },
-        {
-          type: 'user',
-          timestamp: '2026-07-22T19:00:00.000Z',
-          message: { role: 'user', content: 'Fix the bug.' },
-        },
-        {
-          type: 'assistant',
-          timestamp: '2026-07-22T19:00:01.000Z',
-          message: {
-            id: 'msg_1',
-            model: 'claude-fable-5',
-            role: 'assistant',
-            content: [{ type: 'thinking', thinking: 'Look at the file first.' }],
-            usage,
-          },
-        },
-        {
-          type: 'assistant',
-          timestamp: '2026-07-22T19:00:02.000Z',
-          message: {
-            id: 'msg_1',
-            model: 'claude-fable-5',
-            role: 'assistant',
-            content: [
-              { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: '/a.py' } },
-            ],
-            usage,
-          },
-        },
-        {
-          type: 'user',
-          timestamp: '2026-07-22T19:00:03.000Z',
-          message: {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: 'toolu_1',
-                content: [{ type: 'text', text: 'print(1)' }],
-              },
-            ],
-          },
-        },
-        {
-          type: 'assistant',
-          timestamp: '2026-07-22T19:00:04.000Z',
-          message: {
-            id: 'msg_2',
-            model: 'claude-fable-5',
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Fixed.' }],
-            usage,
-          },
-        },
-        {
-          type: 'assistant',
-          isSidechain: true,
-          timestamp: '2026-07-22T19:00:05.000Z',
-          message: {
-            id: 'msg_side',
-            role: 'assistant',
-            content: [{ type: 'text', text: 'subagent noise' }],
-            usage,
-          },
-        },
-      ]),
-    )
-    const t = await readClaudeTranscript(path)
-    expect(t.messages).toEqual([
-      { role: 'user', content: 'Fix the bug.' },
-      {
-        role: 'assistant',
-        content: null,
-        reasoning_content: 'Look at the file first.',
-        tool_calls: [
-          {
-            id: 'toolu_1',
-            type: 'function',
-            function: { name: 'Read', arguments: '{"file_path":"/a.py"}' },
-          },
-        ],
-      },
-      { role: 'tool', tool_call_id: 'toolu_1', content: 'print(1)' },
-      { role: 'assistant', content: 'Fixed.' },
+  it('reads a real transcript: one message per response, usage counted once per response', async () => {
+    const transcript = await readClaudeTranscript(FIXTURE)
+    expect(transcript.messages.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
     ])
-    // msg_1 usage counted once despite two jsonl lines; sidechain excluded.
-    expect(t.usage).toEqual({ tokensIn: 20, tokensOut: 40, cacheRead: 10, cacheWrite: 14 })
-    expect(t.startedAt).toBe('2026-07-22T19:00:00.000Z')
-    expect(t.endedAt).toBe('2026-07-22T19:00:04.000Z')
-    expect(t.model).toBe('claude-fable-5')
-  })
-})
-
-describe('parseClaudeTranscript', () => {
-  it('opens retained text through the same message, tool and gap projection as a file', async () => {
-    const raw = [
-      JSON.stringify({ type: 'user', message: { content: 'Check the result.' } }),
-      JSON.stringify({
-        type: 'assistant',
-        timestamp: '2026-10-03T06:00:00Z',
-        message: {
-          id: 'retained-message',
-          model: 'retained-model',
-          usage: {
-            input_tokens: 12,
-            output_tokens: 7,
-            cache_read_input_tokens: 3,
-            cache_creation_input_tokens: 0,
-          },
-          content: [
-            { type: 'tool_use', id: 'call-original', name: 'Read', input: { path: 'result.json' } },
-          ],
-        },
-      }),
-      JSON.stringify({
-        type: 'user',
-        message: {
-          content: [{ type: 'tool_result', tool_use_id: 'call-original', content: 'verified' }],
-        },
-      }),
-      '{broken',
-    ].join('\n')
-    const parsed = parseClaudeTranscript(raw)
-    expect(parsed.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool'])
-    expect(parsed.messages[1]?.tool_calls?.[0]).toMatchObject({
-      id: 'call-original',
-      function: { name: 'Read', arguments: '{"path":"result.json"}' },
-    })
-    expect(parsed.messages[2]).toMatchObject({ tool_call_id: 'call-original', content: 'verified' })
-    expect(parsed.gaps).toContain('line 4: malformed JSON')
-    expect(parsed.usage).toEqual({ tokensIn: 12, tokensOut: 7, cacheRead: 3, cacheWrite: 0 })
-    const path = join(dir, 'retained.jsonl')
-    await writeFile(path, raw)
-    expect(await readClaudeTranscript(path)).toEqual(parsed)
+    expect(transcript.messages[1]!.tool_calls?.map((c) => c.function.name)).toEqual(['Bash'])
+    expect(transcript.messages[2]!.content).toContain('TRACEPROOF-WORKER-REAP-TOOL-OUTPUT')
+    expect(transcript.usage).toEqual({ tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0 })
+    expect(transcript.model).toBe('traceproof-scripted-model')
+    expect(transcript.gaps).toEqual([])
   })
 
-  it('keeps a native subagent separate and leaves missing usage unknown', () => {
-    const raw = jsonl([
-      {
-        type: 'assistant',
-        isSidechain: true,
-        agentId: 'native-child',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'Child finding.' }] },
-      },
-    ])
-    expect(parseClaudeTranscript(raw).messages).toEqual([])
-    const child = parseClaudeTranscript(raw, { includeSidechain: true })
-    expect(child.messages).toEqual([{ role: 'assistant', content: 'Child finding.' }])
-    expect(child.usage).toEqual({
-      tokensIn: null,
-      tokensOut: null,
-      cacheRead: null,
-      cacheWrite: null,
-    })
-    expect(child.gaps).toHaveLength(4)
+  it('parses retained text the same way and names a malformed line without losing usage', async () => {
+    const raw = await readFile(FIXTURE, 'utf8')
+    expect(parseClaudeTranscript(raw)).toEqual(await readClaudeTranscript(FIXTURE))
+    const lines = raw.split('\n')
+    const broken = [...lines.slice(0, 3), '{bad json', ...lines.slice(3)].join('\n')
+    const transcript = parseClaudeTranscript(broken)
+    expect(transcript.gaps).toEqual(['retained transcript: line 4 is not a JSON record'])
+    expect(transcript.usage).toEqual({ tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0 })
   })
 })

@@ -86,12 +86,12 @@ export {
   parseClaudeTranscript,
   type ReadClaudeTranscriptOptions,
   readClaudeTranscript,
+  transcriptFromSession,
 } from './readers/claude-jsonl'
 export {
   DEFAULT_OPENCODE_DB,
   findOpencodeSessionsByDirectory,
-  type OpencodeSessionRow,
-  openOpencodeDb,
+  readOpencodeSession,
   readOpencodeSessionMessages,
 } from './readers/opencode-sqlite'
 export {

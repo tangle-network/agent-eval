@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
+import { summarizeSessionInput } from '@tangle-network/harness-sessions'
 import { hashCanonical } from '../../ledger-core/canonical'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type {
@@ -643,7 +644,6 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
     if (type === 'file-history-snapshot') metrics.fileSnapshots += 1
 
     const message = record(entry.message)
-    if (message) addUsage(metrics, record(message.usage))
     const content = Array.isArray(message?.content) ? message.content : []
     for (const item of content) {
       const part = record(item)
@@ -658,6 +658,14 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
     }
   }
 
+  // Claude Code writes one record per content block of a response, each repeating the response's
+  // usage; the shared session reader counts each response once.
+  const usage = summarizeSessionInput('claude-code', { records: entries }).usage
+  metrics.inputTokens = usage?.input ?? 0
+  metrics.outputTokens = usage?.output ?? 0
+  metrics.reasoningTokens = usage?.reasoning ?? 0
+  metrics.cachedTokens = usage?.cacheRead ?? 0
+  metrics.cacheWriteTokens = usage?.cacheWrite ?? 0
   if (startedAt !== undefined && completedAt !== undefined)
     metrics.wallMs = Math.max(0, completedAt - startedAt)
   metrics.processScore = claudeProcessScore(metrics)
