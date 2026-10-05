@@ -135,7 +135,7 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export interface LlmChargeBounds {
-  /** Total physical requests, including retries and schema/temperature fallback. Default 3. */
+  /** Total physical requests, including retries and schema/temperature fallback. Default 6. */
   maximumAttempts?: number
   /** The transport sends JSON mode instead of a response schema. */
   jsonSchemaTransport?: 'native' | 'json-object'
@@ -349,6 +349,13 @@ export interface LlmClientOptions extends LlmChargeBounds {
   /** Default timeout in ms. Per-call can override. */
   defaultTimeoutMs?: number
   /**
+   * Minimum milliseconds between physical request starts, including retries.
+   * Default 0 (disabled). Share one LlmClient per key, or reuse the same options
+   * object with callLlm/callLlmJson, to pace concurrent and sequential calls.
+   * Independent options objects and processes do not share a quota.
+   */
+  minIntervalMs?: number
+  /**
    * Caller-supplied abort signal — e.g. a campaign-wide cancel. Linked to
    * each attempt's per-attempt timeout controller, so aborting it cancels
    * the in-flight fetch. A caller abort is FATAL: it is not retried even
@@ -413,7 +420,7 @@ export interface LlmClientOptions extends LlmChargeBounds {
 const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
 const DEFAULT_MAXIMUM_ATTEMPTS =
   process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS === undefined
-    ? 3
+    ? 6
     : Number(process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS)
 
 function resolveMaximumAttempts(configured: number | undefined): number {
@@ -422,6 +429,27 @@ function resolveMaximumAttempts(configured: number | undefined): number {
     throw new RangeError('LLM maximum attempts must be a positive integer')
   }
   return attempts
+}
+
+function resolveMinIntervalMs(configured: number | undefined): number {
+  const interval = configured ?? 0
+  if (!Number.isFinite(interval) || interval < 0) {
+    throw new RangeError('LLM minIntervalMs must be a finite non-negative number')
+  }
+  return interval
+}
+
+// Weak keys avoid retaining credentials or completed campaigns. LlmClient binds
+// its per-call option copies to the same state as its constructor options.
+const pacingStates = new WeakMap<LlmClientOptions, { lastStartedAt?: number }>()
+
+function pacingStateFor(opts: LlmClientOptions): { lastStartedAt?: number } {
+  let state = pacingStates.get(opts)
+  if (!state) {
+    state = {}
+    pacingStates.set(opts, state)
+  }
+  return state
 }
 
 function providerTokenCount(value: unknown): number | undefined {
@@ -491,10 +519,13 @@ function classifyTransient(err: unknown, depth: number): boolean {
 }
 
 function parseRetryAfter(headers: Headers): number | null {
-  const h = headers.get('retry-after')
+  const h = headers.get('retry-after')?.trim()
   if (!h) return null
   const asNumber = Number(h)
-  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber * 1000
+  if (!Number.isNaN(asNumber)) {
+    const delay = asNumber * 1000
+    return Number.isFinite(delay) && delay >= 0 ? delay : null
+  }
   const asDate = Date.parse(h)
   if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now())
   return null
@@ -688,19 +719,25 @@ function parseWireToolCalls(value: unknown, model: string): LlmToolCall[] | unde
 
 /** Backoff belongs to the caller's operation and must stop when it is cancelled. */
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted()
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      reject(signal?.reason)
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
+  // A timer above the signed 32-bit limit becomes a near-immediate timeout.
+  // Split long server delays rather than truncating Retry-After or overflowing.
+  do {
+    signal?.throwIfAborted()
+    const chunk = Math.min(Math.ceil(ms), 2_147_483_647)
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        reject(signal?.reason)
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, chunk)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+    ms -= chunk
+  } while (ms > 0)
 }
 
 /** True once the cross-attempt wall-clock budget (if any) is exhausted. */
@@ -815,6 +852,8 @@ async function callLlmAttempts(
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
   const maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+  const minIntervalMs = resolveMinIntervalMs(opts.minIntervalMs)
+  const pacing = pacingStateFor(opts)
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
   const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
@@ -853,10 +892,37 @@ async function callLlmAttempts(
     )
     const controller = new AbortController()
     const attemptSignal = combineAbortSignals(controller.signal, callerSignal)!
-    const timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
-    const started = Date.now()
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let started = Date.now()
+    // An attempt cancelled or timed out while queued never reached the
+    // provider, so it leaves no request or error event in the raw log.
+    let dispatched = false
     let attemptErrorRecorded = false
     try {
+      if (minIntervalMs > 0) {
+        // Recheck after every wake: concurrent waiters must not dispatch a
+        // catch-up burst.
+        while (true) {
+          callerSignal?.throwIfAborted()
+          if (deadlineExceeded(deadlineStart, deadlineMs)) {
+            throw lastErr instanceof Error
+              ? lastErr
+              : new DOMException('callLlm deadline exceeded', 'TimeoutError')
+          }
+          const waitMs =
+            pacing.lastStartedAt === undefined
+              ? 0
+              : pacing.lastStartedAt + minIntervalMs - Date.now()
+          if (waitMs <= 0) break
+          await retryDelay(waitMs)
+        }
+        // Queue time consumes the operation deadline, not the HTTP timeout.
+        started = Date.now()
+      }
+      // Claim the slot before any await so a concurrent waiter cannot take it.
+      pacing.lastStartedAt = started
+      dispatched = true
+      timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
       if (sink) {
         await recordRaw(sink, redactor, {
           eventId: newRecordId(),
@@ -1101,7 +1167,7 @@ async function callLlmAttempts(
       // transient patterns — a cancelled call must surface immediately, not
       // be retried against the same dead intent.
       if (callerSignal?.aborted) {
-        if (sink && !attemptErrorRecorded) {
+        if (sink && dispatched && !attemptErrorRecorded) {
           await recordRaw(sink, redactor, {
             eventId: newRecordId(),
             runId: traceContext?.runId,
@@ -1120,7 +1186,7 @@ async function callLlmAttempts(
         }
         throw err
       }
-      if (sink && !attemptErrorRecorded) {
+      if (sink && dispatched && !attemptErrorRecorded) {
         // Record only if neither the !res.ok branch nor the JSON.parse catch
         // already produced an error event for this attempt. Covers network
         // failures, timeouts, and aborts.
@@ -1247,10 +1313,17 @@ export class LlmClient {
   constructor(opts: LlmClientOptions = {}) {
     this.opts = opts
     this.maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+    resolveMinIntervalMs(opts.minIntervalMs)
+  }
+
+  private callOptions(per?: LlmClientOptions): LlmClientOptions {
+    const options = { ...this.opts, ...per }
+    pacingStates.set(options, pacingStateFor(this.opts))
+    return options
   }
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {
-    const options = { ...this.opts, ...per }
+    const options = this.callOptions(per)
     return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)
   }
 
@@ -1258,6 +1331,6 @@ export class LlmClient {
     req: LlmCallRequest,
     per?: LlmClientOptions,
   ): Promise<{ value: T; result: LlmCallResult }> {
-    return callLlmJson<T>(req, { ...this.opts, ...per })
+    return callLlmJson<T>(req, this.callOptions(per))
   }
 }
