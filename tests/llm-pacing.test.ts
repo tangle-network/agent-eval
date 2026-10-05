@@ -109,15 +109,18 @@ describe('Retry-After and optional physical-call pacing', () => {
     expect(mock.starts).toEqual([0, delay])
   })
 
-  it.each(['-1', '1e400', 'not-a-delay'])('backs off for invalid Retry-After %s', async (header) => {
-    const mock = transport((index) => (index === 0 ? limited(header) : success()))
-    const pending = callLlm(request, { baseUrl, fetch: mock.fetch, maximumAttempts: 2 })
-    await vi.advanceTimersByTimeAsync(499)
-    expect(mock.starts).toEqual([0])
-    await vi.advanceTimersByTimeAsync(1)
-    await pending
-    expect(mock.starts).toEqual([0, 500])
-  })
+  it.each(['-1', '1e400', 'not-a-delay'])(
+    'backs off for invalid Retry-After %s',
+    async (header) => {
+      const mock = transport((index) => (index === 0 ? limited(header) : success()))
+      const pending = callLlm(request, { baseUrl, fetch: mock.fetch, maximumAttempts: 2 })
+      await vi.advanceTimersByTimeAsync(499)
+      expect(mock.starts).toEqual([0])
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(mock.starts).toEqual([0, 500])
+    },
+  )
 
   it('spaces concurrent raw, JSON and per-call override requests', async () => {
     const mock = transport()
