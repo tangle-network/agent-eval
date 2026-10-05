@@ -52,6 +52,7 @@ export {
   fromCodexSession,
   fromKimiCodeSession,
   fromOpenCodeSession,
+  fromPiGraphSession,
   fromPiSession,
   observeCodeAgentSession,
   type ParsedCodeAgentJsonl,

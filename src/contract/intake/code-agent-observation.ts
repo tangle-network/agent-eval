@@ -1,4 +1,17 @@
-export type CodeAgentSessionSource = 'codex' | 'claude-code' | 'opencode' | 'kimi-code' | 'pi'
+/**
+ * Where a session came from. `pi` is a native Pi session (`~/.pi/agent/sessions/*.jsonl`), read
+ * through @tangle-network/harness-sessions; `pi-graph` is the graph IR a Pi graph run exports
+ * (`nodes[].ir.kind`), which is not a Pi session.
+ */
+import { readSessionInput } from '@tangle-network/harness-sessions'
+
+export type CodeAgentSessionSource =
+  | 'codex'
+  | 'claude-code'
+  | 'opencode'
+  | 'kimi-code'
+  | 'pi'
+  | 'pi-graph'
 
 export type CodeAgentSessionTerminalStatus = 'completed' | 'failed' | 'unknown'
 
@@ -94,7 +107,9 @@ function projectionFor(
     case 'kimi-code':
       return kimiProjection(entries)
     case 'pi':
-      return piProjection(entries)
+      return piSessionProjection(entries)
+    case 'pi-graph':
+      return piGraphProjection(entries)
   }
 }
 
@@ -504,7 +519,52 @@ function kimiProjection(entries: Record<string, unknown>[]): SessionProjection {
   return { finalText, terminal, explicitTerminal, actions }
 }
 
-function piProjection(entries: Record<string, unknown>[]): SessionProjection {
+/** A native Pi session, folded by the shared reader: one action per tool call, the last answer, the ending. */
+function piSessionProjection(entries: Record<string, unknown>[]): SessionProjection {
+  const session = readSessionInput('pi', { records: entries })
+  const actions = session.toolCalls.map((call, index) =>
+    actionFor({
+      id: call.id,
+      stepIndex: index,
+      kind: 'tool',
+      surface: surfaceForTool(call.name),
+      name: call.name,
+      status:
+        call.status === 'completed'
+          ? 'completed'
+          : call.status === 'error'
+            ? 'failed'
+            : call.status === 'pending'
+              ? 'started'
+              : 'unknown',
+      timestampMs: timestamp(call.startedAt),
+      metadata: { sourceEventType: 'pi-tool-call' },
+    }),
+  )
+  const answer = [...session.messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === 'assistant' && m.actor === 'agent' && m.parts.some((p) => p.type === 'text'),
+    )
+  const finalText = answer
+    ? answer.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('\n')
+    : null
+  const status = session.ending.status
+  return {
+    finalText,
+    terminal:
+      status === 'completed'
+        ? 'completed'
+        : status === 'error' || status === 'aborted'
+          ? 'failed'
+          : 'unknown',
+    explicitTerminal: status !== 'open',
+    actions,
+  }
+}
+
+function piGraphProjection(entries: Record<string, unknown>[]): SessionProjection {
   const actions: CodeAgentSessionAction[] = []
   let terminal: CodeAgentSessionTerminalStatus = 'unknown'
   let explicitTerminal = false
@@ -844,6 +904,10 @@ function sessionIdFromEntries(
   entries: Record<string, unknown>[],
 ): string | undefined {
   for (const entry of entries) {
+    if (source === 'pi' && entry.type === 'session') {
+      const id = stringField(entry, 'id')
+      if (id) return id
+    }
     if (source === 'codex') {
       const threadId = stringField(entry, 'thread_id')
       if (threadId) return threadId
