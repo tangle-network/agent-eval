@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.208.1] — 2026-10-06
+
+- fix(external-optimizer): give the bridge its interpreter's loader path, and name a killing signal (#944)
+
 ## [0.208.0] — 2026-10-06
 
 - feat(search): searchClaimDecision returns the paired decision a claim made for a tested finalist (#942)
