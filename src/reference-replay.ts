@@ -7,10 +7,6 @@
  * across train/dev/test/holdout splits.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { Mutex } from './concurrency'
-
 export type ReferenceReplaySplit = 'train' | 'dev' | 'test' | 'holdout'
 export type ReferenceReplayMatchStrategy = 'reference-order' | 'global-greedy'
 
@@ -208,161 +204,6 @@ export interface ReferenceReplayRunStore<Input = unknown> {
 
 const DEFAULT_MATCH_THRESHOLD = 0.55
 const ALL_SPLITS: ReferenceReplaySplit[] = ['train', 'dev', 'test', 'holdout']
-
-export async function runReferenceReplay<Input = unknown>(
-  cases: ReferenceReplayCase<Input>[],
-  options: ReferenceReplayRunOptions<Input>,
-): Promise<ReferenceReplayRun<Input>> {
-  const now = options.now ?? Date.now
-  const startedAt = now()
-  const runId = options.runId ?? `${options.variantId ?? 'reference-replay'}-${startedAt}`
-  const allowedSplits = new Set(options.splits ?? ALL_SPLITS)
-  const caseRuns: ReferenceReplayCaseRun<Input>[] = []
-
-  for (const [caseIndex, replayCase] of cases.entries()) {
-    const split = replayCase.split ?? 'train'
-    if (split === 'holdout' && !options.includeHoldout) continue
-    if (!allowedSplits.has(split)) continue
-
-    const caseStart = now()
-    const executionScenario: ReferenceReplayExecutionScenario<Input> = {
-      id: replayCase.id,
-      split,
-      input: replayCase.input,
-      ...(replayCase.metadata !== undefined ? { metadata: replayCase.metadata } : {}),
-    }
-
-    let candidates: ReferenceReplayCandidate[] = []
-    let error: string | undefined
-    try {
-      throwIfAborted(options.abortSignal)
-      candidates = await runAdapter(options.adapter, executionScenario, {
-        runId,
-        caseIndex,
-        abortSignal: options.abortSignal,
-      })
-      throwIfAborted(options.abortSignal)
-    } catch (cause) {
-      if (options.abortSignal?.aborted) throw cause
-      if (!options.continueOnError) throw cause
-      error = cause instanceof Error ? cause.message : String(cause)
-    }
-
-    const scenario: ReferenceReplayScenario = {
-      id: replayCase.id,
-      split,
-      references: replayCase.references,
-      candidates,
-      ...(replayCase.metadata !== undefined ? { metadata: replayCase.metadata } : {}),
-    }
-    const scoreOptions: ReferenceReplayScoreOptions = {
-      matcher: options.matcher,
-      matchThreshold: options.matchThreshold,
-      matchStrategy: options.matchStrategy,
-      includeHoldout: true,
-    }
-    const scenarioScore = scoreReferenceReplay([scenario], scoreOptions).scenarios[0]!
-    caseRuns.push({
-      caseId: replayCase.id,
-      split,
-      input: replayCase.input,
-      references: replayCase.references,
-      candidates,
-      score: scenarioScore,
-      durationMs: Math.max(0, now() - caseStart),
-      ...(replayCase.metadata !== undefined ? { metadata: replayCase.metadata } : {}),
-      ...(error !== undefined ? { error } : {}),
-    })
-  }
-
-  const completedAt = now()
-  const scoreOptions: ReferenceReplayScoreOptions = {
-    matcher: options.matcher,
-    matchThreshold: options.matchThreshold,
-    matchStrategy: options.matchStrategy,
-    includeHoldout: true,
-  }
-  const run: ReferenceReplayRun<Input> = {
-    id: runId,
-    startedAt,
-    completedAt,
-    durationMs: Math.max(0, completedAt - startedAt),
-    cases: caseRuns,
-    score: scoreReferenceReplay(
-      caseRuns.map((caseRun) => ({
-        id: caseRun.caseId,
-        split: caseRun.split,
-        references: caseRun.references,
-        candidates: caseRun.candidates,
-        ...(caseRun.metadata !== undefined ? { metadata: caseRun.metadata } : {}),
-      })),
-      scoreOptions,
-    ),
-    ...(options.variantId !== undefined ? { variantId: options.variantId } : {}),
-    ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
-  }
-
-  await options.store?.save(run)
-  return run
-}
-
-export function decideReferenceReplayRunPromotion(
-  baseline: ReferenceReplayRun,
-  candidate: ReferenceReplayRun,
-  policy: ReferenceReplayPromotionPolicy = {},
-): ReferenceReplayPromotionDecision {
-  return decideReferenceReplayPromotion(baseline.score, candidate.score, policy)
-}
-
-export function inMemoryReferenceReplayStore<Input = unknown>(
-  initial: ReferenceReplayRun<Input>[] = [],
-): ReferenceReplayRunStore<Input> {
-  const runs = [...initial]
-  return {
-    async save(run) {
-      runs.push(run)
-    },
-    async list() {
-      return [...runs]
-    },
-  }
-}
-
-// Per-path Mutex registry. `appendFileSync` on POSIX is only atomic up to
-// PIPE_BUF (~4KB) — and a `ReferenceReplayRun` line routinely exceeds that.
-// Concurrent in-process writers without a lock produce torn lines that
-// break `list()` on parse. Cross-process safety still requires file
-// locking (fcntl/flock); we don't take that on here because every current
-// agent-eval flow is single-process.
-const jsonlStoreLocks = new Map<string, Mutex>()
-function getJsonlStoreLock(path: string): Mutex {
-  let m = jsonlStoreLocks.get(path)
-  if (!m) {
-    m = new Mutex()
-    jsonlStoreLocks.set(path, m)
-  }
-  return m
-}
-
-export function jsonlReferenceReplayStore<Input = unknown>(
-  path: string,
-): ReferenceReplayRunStore<Input> {
-  const lock = getJsonlStoreLock(path)
-  return {
-    async save(run) {
-      await lock.runExclusive(() => {
-        mkdirSync(dirname(path), { recursive: true })
-        appendFileSync(path, `${JSON.stringify(run)}\n`)
-      })
-    },
-    async list() {
-      return lock.runExclusive(() => {
-        if (!existsSync(path)) return []
-        return readJsonl(path)
-      })
-    },
-  }
-}
 
 export function scoreReferenceReplay(
   scenarios: ReferenceReplayScenario[],
@@ -861,31 +702,6 @@ function formatPct(value: number): string {
 
 function bySplitOrder(a: ReferenceReplaySplit, b: ReferenceReplaySplit): number {
   return ALL_SPLITS.indexOf(a) - ALL_SPLITS.indexOf(b)
-}
-
-function runAdapter<Input>(
-  adapter: ReferenceReplayAdapterLike<Input>,
-  scenario: ReferenceReplayExecutionScenario<Input>,
-  context: ReferenceReplayRunContext,
-): Promise<ReferenceReplayCandidate[]> {
-  return typeof adapter === 'function' ? adapter(scenario, context) : adapter.run(scenario, context)
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (!signal?.aborted) return
-  if (signal.reason instanceof Error) throw signal.reason
-  throw new Error(signal.reason ? String(signal.reason) : 'reference replay aborted')
-}
-
-function readJsonl<Input>(path: string): ReferenceReplayRun<Input>[] {
-  const raw = readFileSync(path, 'utf8')
-  const out: ReferenceReplayRun<Input>[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    out.push(JSON.parse(trimmed) as ReferenceReplayRun<Input>)
-  }
-  return out
 }
 
 const STOP_WORDS = new Set([

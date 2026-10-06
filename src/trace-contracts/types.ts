@@ -171,8 +171,6 @@ export type ContractRule =
       writes?: RetryWrite[]
     }
 
-export type ContractRuleKind = ContractRule['kind']
-
 /** One legitimate alternate path. The contract passes only when the base
  *  rules pass and at least one alternative passes completely. */
 export interface ContractAlternative {

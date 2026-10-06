@@ -123,30 +123,6 @@ export function trainingReward(record: Scored): { reward: number | null; gated: 
 }
 
 /**
- * A reward the CALLER computed, with the gate applied on top.
- *
- * Several published exporters accept a `rewardOf` hook so a consumer can drive
- * training off a verifiable signal instead of the headline judge score. That is
- * a real feature and the gate does not remove it — but a reward derived from a
- * gamed run is a gamed reward whatever its source, so it falls to 0 exactly
- * like the score it replaced.
- *
- * It lives here because the same hook exists under the same name in two
- * modules, and for a while only one of them gated it: `rl/exporters.toGrpoRows`
- * forced a gated run to 0 while `rl/preferences.extractPreferences` handed the
- * caller's number straight through, which put a gamed run on the CHOSEN side of
- * every DPO pair against its honest sibling. Two same-named hooks with
- * different gating behaviour was the defect; one implementation is the fix.
- *
- * `null` means "no reward" and is preserved: a non-finite or absent value is a
- * gap, and a gap is not a zero.
- */
-export function trainingRewardOverride(record: Scored, value: number | null): number | null {
-  if (value === null || !Number.isFinite(value)) return null
-  return isRealnessGated(record) ? 0 : value
-}
-
-/**
  * The two fields a rollout line's `outcome` has to state TOGETHER — the reward
  * and whether the authenticity gate fired on it.
  *
