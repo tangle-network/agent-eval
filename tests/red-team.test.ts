@@ -5,7 +5,6 @@ import {
   redTeamDataset,
   redTeamReport,
   scoreRedTeamOutput,
-  toolNamesForRun,
 } from '../src/red-team'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
@@ -360,21 +359,10 @@ describe('redTeamReport', () => {
   })
 })
 
-describe('redTeamDataset + toolNamesForRun', () => {
+describe('redTeamDataset', () => {
   it('default corpus has coverage across all categories', () => {
     const ds = redTeamDataset()
     const categories = new Set(ds.all().map((c) => (c.payload as { category: string }).category))
     expect(categories.size).toBeGreaterThanOrEqual(6)
-  })
-
-  it('toolNamesForRun walks tool spans', async () => {
-    const store = new InMemoryTraceStore()
-    const e = new TraceEmitter(store)
-    await e.startRun({ scenarioId: 's' })
-    const a = await e.tool({ name: 'search', toolName: 'search', args: {} })
-    await a.end()
-    const b = await e.tool({ name: 'write', toolName: 'write', args: {} })
-    await b.end()
-    expect(await toolNamesForRun(store, e.runId)).toEqual(['search', 'write'])
   })
 })

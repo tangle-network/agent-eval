@@ -140,46 +140,5 @@ function applyMutation(step: TrajectoryStep, mutation: CounterfactualMutation): 
   return step
 }
 
-/**
- * Aggregate a batch of counterfactuals into a simple attribution table:
- * which mutation kinds move outcomes most? (Useful when you run a grid
- * over the same trajectory — swap-model at every llm span, swap-tool
- * at every tool span — and want a ranked summary.)
- */
-export function attributeCounterfactuals(results: CounterfactualResult[]): Array<{
-  mutationKind: CounterfactualMutation['kind']
-  n: number
-  meanAbsDelta: number
-  meanSignedDelta: number
-}> {
-  const grouped = new Map<string, CounterfactualResult[]>()
-  for (const r of results) {
-    const arr = grouped.get(r.mutation.kind) ?? []
-    arr.push(r)
-    grouped.set(r.mutation.kind, arr)
-  }
-  const out: Array<{
-    mutationKind: CounterfactualMutation['kind']
-    n: number
-    meanAbsDelta: number
-    meanSignedDelta: number
-  }> = []
-  for (const [kind, items] of grouped) {
-    const deltas = items
-      .map((i) => i.delta.deltaScore)
-      .filter((d): d is number => typeof d === 'number')
-    if (deltas.length === 0) continue
-    const meanAbs = deltas.reduce((a, b) => a + Math.abs(b), 0) / deltas.length
-    const meanSigned = deltas.reduce((a, b) => a + b, 0) / deltas.length
-    out.push({
-      mutationKind: kind as CounterfactualMutation['kind'],
-      n: deltas.length,
-      meanAbsDelta: meanAbs,
-      meanSignedDelta: meanSigned,
-    })
-  }
-  return out.sort((a, b) => b.meanAbsDelta - a.meanAbsDelta)
-}
-
 // Re-export Span type for consumer ergonomics.
 export type { Span }

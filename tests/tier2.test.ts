@@ -1,10 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import {
-  attributeCounterfactuals,
-  type CounterfactualRunner,
-  runCounterfactual,
-} from '../src/counterfactual'
+import { type CounterfactualRunner, runCounterfactual } from '../src/counterfactual'
 import {
   evaluateHypothesis,
   type HypothesisManifest,
@@ -107,33 +103,6 @@ describe('runCounterfactual', () => {
         },
       ),
     ).rejects.toThrow(/out of range/)
-  })
-
-  it('attributeCounterfactuals ranks mutations by mean absolute delta', () => {
-    const rows = [
-      {
-        counterfactualRunId: 'a',
-        originalRunId: 'o',
-        mutation: { kind: 'swap-model', at: 0, newModel: 'x' } as const,
-        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.8, deltaScore: 0.3 },
-      },
-      {
-        counterfactualRunId: 'b',
-        originalRunId: 'o',
-        mutation: { kind: 'swap-tool-result', at: 1, newResult: 'x' } as const,
-        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.52, deltaScore: 0.02 },
-      },
-      {
-        counterfactualRunId: 'c',
-        originalRunId: 'o',
-        mutation: { kind: 'swap-model', at: 2, newModel: 'y' } as const,
-        delta: { originalOutcomeScore: 0.5, counterfactualOutcomeScore: 0.7, deltaScore: 0.2 },
-      },
-    ]
-    const rank = attributeCounterfactuals(rows)
-    expect(rank[0].mutationKind).toBe('swap-model')
-    expect(rank[0].n).toBe(2)
-    expect(rank[0].meanAbsDelta).toBeCloseTo(0.25)
   })
 })
 
