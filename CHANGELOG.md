@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.209.1] — 2026-10-06
+
+- fix(deps): move to agent-interface 3 so a consumer installs one copy (#952)
+- test(gate): give the whole-repository collation scan a 60 s timeout (#951)
+
 ## [0.209.0] — 2026-10-06
 
 - refactor!: stop publishing 34 exports no consumer uses (#949)
