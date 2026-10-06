@@ -79,9 +79,7 @@ export async function buildAgentProfileCell(
   return { ...material, cellId }
 }
 
-export function agentProfileCellHashMaterial(
-  cell: AgentProfileCell,
-): Omit<AgentProfileCell, 'cellId'> {
+function agentProfileCellHashMaterial(cell: AgentProfileCell): Omit<AgentProfileCell, 'cellId'> {
   const { cellId: _cellId, ...material } = cell
   void _cellId
   return normalizeAgentProfileCell(material)
