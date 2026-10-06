@@ -16,7 +16,7 @@ export type {
   DiagnosisResult,
   DiagnosisUsage,
 } from './engine'
-export { DEFAULT_MAX_MODEL_TRACES, diagnoseSpans } from './engine'
+export { diagnoseSpans } from './engine'
 export type {
   DiagnosisCapability,
   DiagnosisConfidence,
@@ -35,7 +35,7 @@ export type {
   FirstFailureNone,
   FirstFailureStage,
 } from './first-failure'
-export { MAX_FIRST_FAILURE_IDS, rankFirstFailure } from './first-failure'
+export { rankFirstFailure } from './first-failure'
 export type {
   DiagnosisModelOptions,
   ModelQuestion,

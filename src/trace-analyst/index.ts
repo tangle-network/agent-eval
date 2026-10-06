@@ -78,7 +78,6 @@ export {
   type OtlpToRunRecordsOptions,
   type OtlpTraceRunRecord,
   otlpRowsToRunRecords,
-  otlpRowsToTraceRunRecords,
   otlpToRunRecords,
   otlpToTraceRunRecords,
   type TraceAggregate,
@@ -112,7 +111,6 @@ export type {
 export {
   buildTraceAnalysisToolDescriptors,
   TRACE_ANALYST_TOOL_NAMESPACE,
-  traceAnalystFunctionGroup,
   UNTRUSTED_TRACE_TEXT,
 } from './tools'
 

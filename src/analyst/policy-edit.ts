@@ -225,15 +225,6 @@ export function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCan
   }
 }
 
-export function isPolicyEdit(input: unknown): input is PolicyEdit {
-  try {
-    validatePolicyEdit(input)
-    return true
-  } catch {
-    return false
-  }
-}
-
 export function policyEditsFromFindings(
   findings: ReadonlyArray<AnalystFinding>,
   opts: FindingToPolicyEditOptions = {},

@@ -124,7 +124,7 @@ export const RUN_METRICS = [
 
 export type RunMetric = (typeof RUN_METRICS)[number]
 
-export function isRunMetric(metric: string): metric is RunMetric {
+function isRunMetric(metric: string): metric is RunMetric {
   return (RUN_METRICS as readonly string[]).includes(metric)
 }
 

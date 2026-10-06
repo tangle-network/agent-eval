@@ -35,7 +35,6 @@ export {
   type HarborGradeOutcome,
   type HarborTaskItem,
   type HarborTaskPayload,
-  readHarborTask,
 } from './harbor'
 export * as routing from './routing/index'
 export {

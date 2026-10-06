@@ -43,7 +43,6 @@ export {
   checkInterventionBudget,
   classifyActionPayload,
   type InterventionBudget,
-  NO_OP_ACTIONS,
   normalizeActionForComparison,
   SCAFFOLD_INTERVENTION_BUDGET,
   scanShellAction,

@@ -17,8 +17,6 @@
  */
 
 export {
-  EDIT_CREDIT_ESTIMATOR,
-  EDIT_CREDIT_SIGNAL,
   type EditCreditData,
   type EditCreditOptions,
   type EditCreditResult,
@@ -49,16 +47,12 @@ export {
   landscape,
   lineageEdits,
   lineEditDistance,
-  nearestNeighbours,
-  profileTextLines,
-  surfaceDigestEdits,
   surfaceTextEdits,
   vectorEmbedding,
 } from './landscape'
 export {
   type BestPolicyConfiguration,
   META_SEARCH_SCORE_SOURCE,
-  META_SEARCH_SIGNAL,
   type MetaSearchConfiguration,
   type MetaSearchConfigurationEstimate,
   type MetaSearchData,
