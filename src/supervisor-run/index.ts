@@ -46,7 +46,6 @@ export {
 export {
   analyzeSupervisorRun,
   findSupervisorRunDirs,
-  reportSupervisorRound,
   type WriteSupervisorRunOptions,
   writeSupervisorRunReport,
   writeSupervisorRunReportSafe,

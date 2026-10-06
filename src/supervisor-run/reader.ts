@@ -7,20 +7,11 @@
  */
 
 import { appendFile, mkdir, readdir, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
-import { analyzeSupervisorRunSources, rollupSupervisorRuns } from './analyze'
-import {
-  renderSupervisorRollupMarkdown,
-  renderSupervisorRunHeadline,
-  renderSupervisorRunMarkdown,
-} from './render'
+import { join } from 'node:path'
+import { analyzeSupervisorRunSources } from './analyze'
+import { renderSupervisorRunHeadline, renderSupervisorRunMarkdown } from './render'
 import { isRuntimeSupervisorRunDir, readRuntimeSupervisorRun } from './runtime-reader'
-import type {
-  SupervisorRunReader,
-  SupervisorRunReport,
-  SupervisorRunRollup,
-  SupervisorRunSources,
-} from './types'
+import type { SupervisorRunReader, SupervisorRunReport, SupervisorRunSources } from './types'
 
 /**
  * Analyze a supervisor run. Accepts a Runtime run directory, any
@@ -115,39 +106,6 @@ export async function writeSupervisorRunReportSafe(
     )
     return null
   }
-}
-
-/**
- * Report every run under an experiment `outDir` (any depth of
- * `runs/<iid>/<arm>`), write each run's report, and write the rollup at
- * `<outDir>/run-report-round.{json,md}`.
- */
-export async function reportSupervisorRound(
-  outDir: string,
-  opts: WriteSupervisorRunOptions & { title?: string } = {},
-): Promise<SupervisorRunRollup> {
-  const runDirs = await findSupervisorRunDirs(outDir)
-  const reports: SupervisorRunReport[] = []
-  for (const runDir of runDirs) {
-    const r = await writeSupervisorRunReportSafe(runDir, { ...opts, echo: opts.echo ?? false })
-    if (r !== null) reports.push(r)
-  }
-  const rollup = rollupSupervisorRuns(reports)
-  const md = renderSupervisorRollupMarkdown(
-    rollup,
-    opts.title ?? `Round rollup — ${basename(outDir)}`,
-  )
-  const dest = opts.reportDir ?? outDir
-  if (opts.reportDir !== undefined) await mkdir(opts.reportDir, { recursive: true }).catch(() => {})
-  await writeFile(join(dest, 'run-report-round.json'), JSON.stringify(rollup, null, 1)).catch(
-    () => {},
-  )
-  await writeFile(join(dest, 'run-report-round.md'), md).catch(() => {})
-  if (opts.appendHeadlineTo !== undefined) {
-    await appendFile(opts.appendHeadlineTo, `${md}\n`).catch(() => {})
-  }
-  if (opts.echo !== false) console.log(md)
-  return rollup
 }
 
 /**

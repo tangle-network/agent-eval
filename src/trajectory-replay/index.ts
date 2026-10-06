@@ -26,7 +26,6 @@ export {
   type ReplayBatchFixResult,
   type ReplayBatchOptions,
   type ReplayBatchReport,
-  renderBatchReport,
   runReplayBatch,
   seededSample,
 } from './batch'
@@ -42,7 +41,6 @@ export {
   type ReplayableCase,
   type ReplayExclusionReason,
   type ResourceResolution,
-  readLabelEntries,
   resolveCaseResources,
 } from './corpus'
 export {

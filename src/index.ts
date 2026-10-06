@@ -30,7 +30,6 @@ export type {
 } from './agent-profile-cell'
 export {
   AGENT_PROFILE_KINDS,
-  agentProfileCellHashMaterial,
   agentProfileCellKey,
   buildAgentProfileCell,
   groupRunsByAgentProfileCell,
@@ -214,8 +213,6 @@ export {
   modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
-  roundTripRunRecord,
-  runCostFloorUsd,
   runTaskScore,
   searchCellRunId,
   UNKNOWN_MODEL,
@@ -377,7 +374,7 @@ export type {
   ImprovementThresholds,
   ImprovementVerdictResult,
 } from './improvement-verdict'
-export { computeExperimentStats, improvementVerdict } from './improvement-verdict'
+export { improvementVerdict } from './improvement-verdict'
 
 export { hashJson, manifestContentDigest } from './pre-registration'
 
@@ -494,16 +491,11 @@ export {
   admitPolicyEdit,
   applyPolicyEditToSurface,
   computePolicyEditId,
-  isPolicyEdit,
   makePolicyEdit,
   makePolicyEditCandidateRecord,
-  POLICY_EDIT_AXES,
   POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
-  POLICY_EDIT_TARGET_SURFACES,
   PolicyEditValidationError,
-  policyEditFromFinding,
   policyEditsFromFindings,
-  scorePolicyEditReadiness,
   validatePolicyEdit,
   validatePolicyEditCandidateRecord,
 } from './analyst/policy-edit'
@@ -706,14 +698,11 @@ export {
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
   DECISION_PAIRED_DELTA_STATISTIC,
-  DEFAULT_PERMUTATIONS,
   eProcess,
   holm,
   interpretCliffs,
   interRaterReliability,
   isBinaryOutcomeVector,
-  MANN_WHITNEY_EXACT_MAX_STATES,
-  MANN_WHITNEY_EXACT_MAX_WORK,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
@@ -737,7 +726,6 @@ export {
   requiredSampleSize,
   spearmanR,
   summarizeNumberSeries,
-  WILCOXON_EXACT_MAX_N,
   weightedComposite,
   weightedMean,
   wilcoxonSignedRank,

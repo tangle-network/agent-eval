@@ -487,7 +487,7 @@ export function checkerReadSignal(
 }
 
 /** What the referee and the System One model read about a claim: the source and the claim's parameters, never its prose. */
-export function claimBrief(claim: IntegrityClaim, scope: SourceScope) {
+function claimBrief(claim: IntegrityClaim, scope: SourceScope) {
   const parameters = Object.fromEntries(
     Object.entries(claim.parameters).map(([name, value]) => [
       name,
@@ -509,7 +509,7 @@ export function claimBrief(claim: IntegrityClaim, scope: SourceScope) {
   }
 }
 
-export const REFEREE_VERDICTS = ['holds', 'excluded', 'trivial', 'known', 'unclear'] as const
+const REFEREE_VERDICTS = ['holds', 'excluded', 'trivial', 'known', 'unclear'] as const
 export type RefereeVerdict = (typeof REFEREE_VERDICTS)[number]
 
 const REFEREE_SYSTEM = [
@@ -655,7 +655,7 @@ export function refereeSignal(
  * System One typed questions over the same brief the referee reads. Each names a way the claim can be true of
  * the checker and not of the statement; `true` supports that hypothesis, except `inScope`.
  */
-export const claimIntegritySystemOneQuestions = {
+const claimIntegritySystemOneQuestions = {
   excludedBySource: {
     type: 'noul',
     instructions:

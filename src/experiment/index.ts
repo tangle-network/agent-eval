@@ -186,14 +186,12 @@ export {
 export {
   type CreateEvidenceReceiptInput,
   createEvidenceReceipt,
-  EVIDENCE_AUTHORITY_KINDS,
   EVIDENCE_RECEIPT_VERSION,
   type EvidenceAuthority,
   type EvidenceAuthorityKind,
   type EvidenceBinding,
   type EvidenceReceipt,
   type EvidenceReceiptVerification,
-  INDEPENDENT_EVIDENCE_AUTHORITY_KINDS,
   isIndependentEvidence,
   verifyEvidenceReceipt,
 } from './evidence-receipt'
