@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -376,8 +376,7 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
   })
 
   it('the corpus minScore filter drops it from the publishable bundle', async () => {
-    const dir = join(tmpdir(), 'agent-eval-reward-gate-test')
-    rmSync(dir, { recursive: true, force: true })
+    const dir = mkdtempSync(join(tmpdir(), 'agent-eval-reward-gate-test-'))
     const corpus = join(dir, 'corpus.jsonl')
     appendToCorpus(
       [
