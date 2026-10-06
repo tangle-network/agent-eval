@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.208.2] — 2026-10-06
+
+- fix(analyst): re-pin the benchmark implementation digest after the bridge environment fix (#946)
+
 ## [0.208.1] — 2026-10-06
 
 - fix(external-optimizer): give the bridge its interpreter's loader path, and name a killing signal (#944)
