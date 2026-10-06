@@ -15,7 +15,6 @@ import {
   type CorrectnessChecker,
   completionVerdict,
   createLlmCorrectnessChecker,
-  createTokenRecallChecker,
   type ProducedState,
   parseCorrectnessResponse,
   type RequirementCheck,
@@ -439,15 +438,6 @@ describe('verifyCompletion — anti-game: structural match is not completion', (
     expect(r.correct).toBe(false)
     expect(r.satisfied).toBe(false)
   })
-
-  it('the lexical token-recall checker is polarity-blind on the same negation (why produced-state defaults to semantic)', async () => {
-    // The deterministic checker keys on token recall, which a negation satisfies.
-    // Run directly to pin the property — this is the documented reason a
-    // produced-state dispatch must inject a semantic checker, not this one.
-    const lexical = createTokenRecallChecker()
-    const verdict = await lexical(SWAP_REQ, NEGATION)
-    expect(verdict.correct).toBe(true) // FALSE POSITIVE — caught only by the semantic checker above
-  })
 })
 
 describe('parseCorrectnessResponse', () => {
@@ -636,63 +626,6 @@ describe('verifyCompletion — unmeasured propagation', () => {
   })
 })
 
-describe('createTokenRecallChecker — deterministic content checker', () => {
-  const check = createTokenRecallChecker()
-
-  it('rejects content too thin to be the deliverable', async () => {
-    const r = await check(DISPUTE_REQ, 'too short')
-    expect(r.correct).toBe(false)
-    expect(r.reason).toMatch(/too thin/)
-  })
-
-  it('passes when content recalls enough requirement tokens', async () => {
-    const body = `This working capital adjustment dispute notice contests the peg. ${LONG}`
-    const r = await check(DISPUTE_REQ, body)
-    expect(r.correct).toBe(true)
-    expect(r.reason).toMatch(/recalls \d+\/\d+ requirement tokens/)
-  })
-
-  it('fails substantive-but-off-topic content (low recall)', async () => {
-    const r = await check(
-      DISPUTE_REQ,
-      `Completely unrelated prose about something else entirely. ${LONG}`,
-    )
-    expect(r.correct).toBe(false)
-    expect(r.reason).toMatch(/recalls only/)
-  })
-
-  it('accepts structurally when the title has no significant tokens', async () => {
-    const r = await check({ reqId: 'r', title: 'Review the new update' }, LONG)
-    expect(r.correct).toBe(true)
-    expect(r.reason).toMatch(/no significant tokens/)
-  })
-
-  it('respects a custom minRecall threshold', async () => {
-    const strict = createTokenRecallChecker({ minRecall: 1 })
-    // recalls 'working' + 'capital' but not 'adjustment'/'dispute'/'notice' → < 1.0
-    const r = await strict(DISPUTE_REQ, `working capital only. ${LONG}`)
-    expect(r.correct).toBe(false)
-  })
-
-  it('plugs into verifyCompletion as the checker', async () => {
-    const v = await verifyCompletion(
-      gold([DISPUTE_REQ]),
-      {
-        artifacts: [
-          artifact(
-            'vault/working-capital-dispute-notice.md',
-            `Working Capital Adjustment Dispute Notice — formal objection to the peg. ${LONG}`,
-          ),
-        ],
-        proposals: [],
-        toolCalls: [],
-      },
-      check,
-    )
-    expect(v.fullyComplete).toBe(true)
-  })
-})
-
 describe('completionVerdict — spine derivation', () => {
   const check = (reqId: string, satisfied: boolean): RequirementCheck => ({
     reqId,
@@ -825,10 +758,6 @@ describe('completion verdict certification', () => {
       name: 'llm-correctness-checker',
       version: 'glm-5.2',
     })
-
-    const recall = createTokenRecallChecker()
-    expect(recall.attestation?.strategy).toBe('schema')
-    expect(recall.attestation?.assumptions.join(' ')).toContain('polarity-blind')
   })
 
   it('completionVerdict passes an explicit certification through for external assemblers', () => {

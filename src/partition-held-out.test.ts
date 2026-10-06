@@ -1,35 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  assignHeldOutTag,
-  hashToUnit,
-  partitionHeldOut,
-  partitionTrainSelectionTest,
-} from './partition-held-out'
-
-describe('assignHeldOutTag', () => {
-  it('is deterministic for the same (id, seed)', () => {
-    const a = assignHeldOutTag('scenario-1')
-    const b = assignHeldOutTag('scenario-1')
-    expect(a).toBe(b)
-  })
-
-  it('a different seed can reshuffle assignment', () => {
-    const ids = Array.from({ length: 200 }, (_, i) => `s${i}`)
-    const v1 = ids.map((id) => assignHeldOutTag(id, { seed: 'v1' }))
-    const v2 = ids.map((id) => assignHeldOutTag(id, { seed: 'v2' }))
-    expect(v1).not.toEqual(v2)
-  })
-
-  it('holdoutFraction shifts the holdout share monotonically', () => {
-    const ids = Array.from({ length: 1000 }, (_, i) => `s${i}`)
-    const share = (f: number) =>
-      ids.filter((id) => assignHeldOutTag(id, { holdoutFraction: f }) === 'holdout').length /
-      ids.length
-    expect(share(0.2)).toBeLessThan(share(0.8))
-    expect(share(0.5)).toBeGreaterThan(0.4)
-    expect(share(0.5)).toBeLessThan(0.6)
-  })
-})
+import { hashToUnit, partitionHeldOut, partitionTrainSelectionTest } from './partition-held-out'
 
 describe('hashToUnit', () => {
   it('stays in [0, 1) and is stable across calls', () => {

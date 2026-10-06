@@ -33,7 +33,6 @@ import {
   costReceiptFromLlmError,
   maximumChargeForLlmRequest,
 } from './llm-client'
-import { packageVersion } from './package-version'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 import {
   certificationEvidenceDigest,
@@ -671,86 +670,6 @@ export function createLlmCorrectnessChecker(
     assumptions: [
       'served-model identity is accepted when the transport reports none (assertServedModel allowUnreported)',
     ],
-  }
-  return checker
-}
-
-/** Stopwords for requirement-title tokenization — drops the imperative verbs
- *  ('review', 'update', …) common to deliverable titles so recall keys on the
- *  substantive nouns, not the boilerplate ask. */
-const TITLE_STOPWORDS = new Set([
-  'the',
-  'a',
-  'an',
-  'and',
-  'or',
-  'for',
-  'to',
-  'of',
-  'in',
-  'on',
-  'with',
-  'review',
-  'update',
-  'new',
-  'proposed',
-])
-
-/**
- * Deterministic `CorrectnessChecker` — the no-LLM counterpart to
- * `createLlmCorrectnessChecker`. A produced item fulfils a requirement when its
- * content is substantive (≥ `minContentLength` chars) AND recalls ≥ `minRecall`
- * of the requirement title's significant tokens. No network.
- *
- * Polarity-blind: token recall credits a negation that contains the
- * requirement's tokens ("I will NOT produce the comparison" recalls every token
- * of "produce the comparison"). The structural match stage is ALSO lexical, so
- * pairing the two collapses to a single gameable gate. Use this only as an
- * opt-in structural pre-filter or for tasks whose requirements have no polarity
- * to invert; for produced-state grading the correctness checker MUST be semantic
- * (`createLlmCorrectnessChecker`). See the anti-game fixtures in the test suite.
- */
-export function createTokenRecallChecker(
-  opts: { minRecall?: number; minContentLength?: number } = {},
-): CorrectnessChecker {
-  const minRecall = opts.minRecall ?? 0.5
-  const minLen = opts.minContentLength ?? 120
-  const checker: CorrectnessChecker = async (requirement, content) => {
-    const body = content.trim()
-    if (body.length < minLen)
-      return {
-        correct: false,
-        reason: `content too thin (${body.length} chars) to be the deliverable`,
-      }
-    const titleTokens = requirement.title
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 2 && !TITLE_STOPWORDS.has(t))
-    if (titleTokens.length === 0)
-      return {
-        correct: true,
-        reason: 'requirement title has no significant tokens — structural match accepted',
-      }
-    const lower = body.toLowerCase()
-    const hits = titleTokens.filter((t) => lower.includes(t)).length
-    const recall = hits / titleTokens.length
-    return recall >= minRecall
-      ? {
-          correct: true,
-          reason: `content recalls ${hits}/${titleTokens.length} requirement tokens`,
-        }
-      : {
-          correct: false,
-          reason: `content recalls only ${hits}/${titleTokens.length} requirement tokens`,
-        }
-  }
-  // 'schema': token recall checks shape, not meaning — the member whose
-  // documented failure mode ("a well-formed wrong answer passes") is
-  // exactly this checker's polarity blindness.
-  checker.attestation = {
-    strategy: 'schema',
-    checker: { name: 'token-recall-checker', version: packageVersion() },
-    assumptions: ['polarity-blind: a negation that recalls the requirement tokens passes'],
   }
   return checker
 }

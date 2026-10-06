@@ -19,12 +19,9 @@ import {
   feedbackTrajectoriesToOptimizerRows,
   feedbackTrajectoryToOptimizerRow,
   InMemoryFeedbackTrajectoryStore,
-  parseFeedbackTrajectoriesJsonl,
   renderPreferenceMemoryMarkdown,
   replayFeedbackTrajectory,
-  serializeFeedbackTrajectoriesJsonl,
   summarizePreferenceMemory,
-  withAssignedFeedbackSplit,
 } from './feedback-trajectory'
 
 describe('feedback trajectories', () => {
@@ -546,25 +543,6 @@ describe('feedback trajectories', () => {
     expect(updated.attempts[0]!.feedback).toEqual([label])
     expect(entries).toHaveLength(1)
     expect(renderPreferenceMemoryMarkdown(entries)).toContain('make the rollout steps concrete')
-  })
-
-  it('round-trips deterministic JSONL and assigns stable dataset splits', () => {
-    const trajectory = withAssignedFeedbackSplit(
-      createFeedbackTrajectory({
-        id: 'feedback-2',
-        projectId: 'project-2',
-        scenarioId: 'scenario-2',
-        task: { intent: 'fix checkout' },
-        createdAt: '2026-01-01T00:00:00.000Z',
-        tags: { product: 'checkout' },
-      }),
-    )
-
-    const jsonl = serializeFeedbackTrajectoriesJsonl([trajectory])
-    const parsed = parseFeedbackTrajectoriesJsonl(jsonl)
-
-    expect(parsed).toEqual([trajectory])
-    expect(parsed[0]!.split).toBe(trajectory.split)
   })
 
   it('persists trajectories and skips corrupt JSONL records without losing valid data', async () => {

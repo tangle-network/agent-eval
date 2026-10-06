@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunRecord } from './run-record'
 import type { ToolSpan } from './trace/schema'
-import type { TraceAnalystSpan } from './trace-analyst/types'
 import {
-  classifyTreatment,
   gateTreatmentApplied,
-  gateTreatmentFromSpans,
   gateTreatmentFromToolSpans,
   type ToolMatcher,
 } from './treatment-gate'
@@ -75,35 +71,6 @@ describe('gateTreatmentApplied', () => {
   })
 })
 
-describe('gateTreatmentFromSpans', () => {
-  it('derives the histogram via computeTraceMetrics, then gates', () => {
-    const span = (spanId: string, toolName: string, t: string): TraceAnalystSpan => ({
-      trace_id: 't',
-      span_id: spanId,
-      parent_span_id: null,
-      name: 'tool',
-      kind: 'TOOL',
-      start_time: t,
-      end_time: t,
-      duration_ms: 1,
-      status: 'OK',
-      service_name: null,
-      agent_name: null,
-      model_name: null,
-      tool_name: toolName,
-      attributes: {},
-    })
-    const spans: TraceAnalystSpan[] = [
-      span('s1', 'browser_navigate', '2026-01-01T00:00:00.000Z'),
-      span('s2', 'Read', '2026-01-01T00:00:02.000Z'),
-    ]
-    const g = gateTreatmentFromSpans(spans, matchesBrowser)
-    expect(g.applied).toBe(true)
-    expect(g.matchedCalls).toBe(1)
-    expect(g.observedTools).toBe(2)
-  })
-})
-
 describe('gateTreatmentFromToolSpans', () => {
   it('counts canonical ToolSpan.toolName without OTLP extraction', () => {
     const spans: ToolSpan[] = [
@@ -130,24 +97,5 @@ describe('gateTreatmentFromToolSpans', () => {
     expect(g.gated).toBe(true)
     expect(g.observedTools).toBe(2)
     expect(g.matchedCalls).toBe(0)
-  })
-})
-
-describe('classifyTreatment', () => {
-  const record = { runId: 'r1' } as unknown as RunRecord
-
-  it('maps applied → measurable, gated → treatment-not-applied (no new enum)', () => {
-    expect(
-      classifyTreatment(
-        record,
-        gateTreatmentApplied({ toolHistogram: { browser_navigate: 1 }, matches: matchesBrowser }),
-      ),
-    ).toBe('measurable')
-    expect(
-      classifyTreatment(
-        record,
-        gateTreatmentApplied({ toolHistogram: { Read: 1 }, matches: matchesBrowser }),
-      ),
-    ).toBe('treatment-not-applied')
   })
 })

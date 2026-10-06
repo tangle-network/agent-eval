@@ -74,26 +74,6 @@ export function checkBehavioralCanary(
 }
 
 /**
- * Behavioral canary over many (scenario, output) pairs. Sibling to
- * {@link import('./canary').runCanaries | runCanaries} — same idea
- * (run-many → report) but the question being answered is "did the
- * AGENT misbehave?" rather than "did the EVAL grep fire?".
- *
- * Returns one `CanaryLeak` per pair where the agent's output
- * contained its scenario's `forbiddenPattern` (or `canary` fallback).
- */
-export function runBehavioralCanaries(
-  cases: Array<{ scenario: DatasetScenario; output: string; runId?: string }>,
-): CanaryLeak[] {
-  const leaks: CanaryLeak[] = []
-  for (const c of cases) {
-    const leak = checkBehavioralCanary(c.output, c.scenario)
-    if (leak) leaks.push({ ...leak, runId: c.runId ?? leak.runId })
-  }
-  return leaks
-}
-
-/**
  * Resolve a forbidden-pattern string to the matched substring inside
  * `output`. `/body/flags` notation is interpreted as a regex; anything
  * else is a literal substring.

@@ -70,23 +70,6 @@ export interface HeldOutPartition {
 }
 
 /**
- * Assign a single id to `'search'` or `'holdout'` deterministically. Same
- * `(id, seed)` always returns the same tag — the invariant the gate relies on.
- * Use this in a `splitTag:` field literal when stamping records one at a time;
- * use `partitionHeldOut` when you have the whole id list up front and want the
- * validated disjoint split.
- */
-export function assignHeldOutTag(
-  id: string,
-  options: { seed?: string; holdoutFraction?: number } = {},
-): 'search' | 'holdout' {
-  const seed = options.seed ?? 'held-out-v1'
-  const holdoutFraction = options.holdoutFraction ?? 0.5
-  assertFraction(holdoutFraction)
-  return hashToUnit(id, seed) < holdoutFraction ? 'holdout' : 'search'
-}
-
-/**
  * Partition a list of stable ids into disjoint `search` / `holdout` sets by a
  * deterministic hash. Fail-loud:
  *   - empty input throws,

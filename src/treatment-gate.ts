@@ -38,11 +38,8 @@
  * fail-closed for harnesses where tool capture is guaranteed.
  */
 
-import type { RunRecord } from './run-record'
 import type { ToolSpan } from './trace/schema'
 import type { BehavioralMetrics } from './trace-analyst/behavioral-metrics'
-import { computeTraceMetrics } from './trace-analyst/behavioral-metrics'
-import type { TraceAnalystSpan } from './trace-analyst/types'
 
 /** A tool-name matcher: does this tool name belong to the treatment under test?
  *  The caller supplies it — the substrate ships no `search` (or any) literal. */
@@ -142,19 +139,6 @@ export function gateTreatmentFromMetrics(
 }
 
 /**
- * Convenience: gate directly from analyst spans, reusing the substrate's
- * deterministic histogram builder. For callers holding the trace store's typed
- * `ToolSpan[]` instead, see {@link gateTreatmentFromToolSpans}.
- */
-export function gateTreatmentFromSpans(
-  spans: readonly TraceAnalystSpan[],
-  matches: ToolMatcher,
-  opts?: TreatmentGateOptions,
-): TreatmentGate {
-  return gateTreatmentFromMetrics(computeTraceMetrics(spans), matches, opts)
-}
-
-/**
  * Convenience: gate from the trace store's canonical `ToolSpan[]` (e.g. the
  * result of `toolSpans(store, runId)`). Counts by `toolName` — the typed
  * tool-call field — so it needs no OTLP attribute extraction.
@@ -176,15 +160,3 @@ export function gateTreatmentFromToolSpans(
  *  partition over the existing exclusion-flag pattern — it adds no new
  *  classification enum. */
 export type TreatmentClass = 'measurable' | 'treatment-not-applied'
-
-/**
- * Map a gate verdict onto a single measurable-vs-excluded label keyed on a
- * `RunRecord`, so consumers (paired A/B filters, reporters) read the partition
- * in one place instead of re-implementing the fail-open guard inline. The
- * `RunRecord` is accepted so callers key on the canonical run row, mirroring
- * how `outcome.realness.gated` rides along on the record; the verdict itself is
- * the gate's, not re-derived here.
- */
-export function classifyTreatment(_record: RunRecord, gate: TreatmentGate): TreatmentClass {
-  return gate.gated ? 'treatment-not-applied' : 'measurable'
-}

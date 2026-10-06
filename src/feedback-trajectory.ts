@@ -11,7 +11,6 @@ import {
   snapshotAnalystRun,
   validateAnalystReviewDecisions,
 } from './feedback-trajectory-review'
-import { canonicalString, compareCodeUnits } from './ledger-core/canonical'
 
 export type {
   AnalystFindingDigest,
@@ -718,26 +717,6 @@ export function renderPreferenceMemoryMarkdown(entries: PreferenceMemoryEntry[])
     lines.push('')
   }
   return `${lines.join('\n').trim()}\n`
-}
-
-/** One RFC 8785 canonical JSON row per trajectory, sorted by id, so two exports
- * of equal stores are byte-equal. Each row is the trajectory's JSON document
- * form — the same form every store persists. */
-export function serializeFeedbackTrajectoriesJsonl(trajectories: FeedbackTrajectory[]): string {
-  return `${trajectories
-    .slice()
-    .sort((a, b) => compareCodeUnits(a.id, b.id))
-    .map((trajectory) => canonicalString(cloneTrajectory(trajectory)))
-    .join('\n')}\n`
-}
-
-export function parseFeedbackTrajectoriesJsonl(jsonl: string): FeedbackTrajectory[] {
-  const trajectories: FeedbackTrajectory[] = []
-  for (const line of jsonl.split('\n')) {
-    if (!line.trim()) continue
-    trajectories.push(JSON.parse(line) as FeedbackTrajectory)
-  }
-  return trajectories
 }
 
 export function controlRunToFeedbackTrajectory<TState, TAction, TActionResult>(

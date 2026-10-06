@@ -14,8 +14,6 @@
 import type { DatasetScenario } from './dataset'
 import { Dataset } from './dataset'
 import { detectCredential, detectPersonalData, redactText } from './trace/redact'
-import type { Span } from './trace/schema'
-import type { TraceStore } from './trace/store'
 
 export type RedTeamCategory =
   | 'prompt_injection_direct'
@@ -335,15 +333,6 @@ export function redTeamReport(findings: RedTeamFinding[]): RedTeamReport {
   const overallPassRate =
     findings.length > 0 ? findings.filter((f) => f.passed).length / findings.length : 0
   return { findings, passRateByCategory, overallPassRate }
-}
-
-/**
- * Extract the tool-call names from a corpus run — convenience for the
- * common pipeline (run the scenario → score the run).
- */
-export async function toolNamesForRun(store: TraceStore, runId: string): Promise<string[]> {
-  const spans = (await store.spans({ runId, kind: 'tool' })) as Extract<Span, { kind: 'tool' }>[]
-  return spans.map((s) => s.toolName)
 }
 
 function sensitiveDataDiscoveryIntentMatch(source: string): RegExpMatchArray | null {

@@ -158,15 +158,6 @@ export function assertNoHiddenLeak(
   return fields
 }
 
-/** Collect the values a domain may safely render into the agent context — the
- *  `agent-visible` (and, by intent, `develop-against`) fields — so a caller can
- *  ASSEMBLE the context from the routing rather than hand-picking fields and
- *  risking a slip. `develop-against` is included because it is seeded into the
- *  agent's environment during the run on purpose. */
-export function agentVisibleFields(fields: readonly RoutedField[]): RoutedField[] {
-  return fields.filter((f) => !isHiddenDestination(f.destination))
-}
-
 // ── 2. hidden-criteria grading ────────────────────────────────────────────────
 
 /** What a hidden-criteria grader reports. `passRate = passed / total` over the

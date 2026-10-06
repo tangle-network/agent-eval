@@ -18,27 +18,7 @@
 // a back-channel for J and the loop Goodharts realness exactly as it would
 // Goodhart pass-rate.
 
-import type { AnalystFinding, EvidenceRef } from './types'
-
-/** Evidence grounded in the agent's OWN execution: OTLP trace elements
- *  (`span`/`event`) or the artifact it produced (`artifact`). */
-const OBSERVABLE_KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<EvidenceRef['kind']>([
-  'span',
-  'event',
-  'artifact',
-])
-
-/** DESCRIPTIVE predicate: does the finding cite at least one observable
- *  (span/event/artifact) evidence ref. Useful for ranking evidence quality or
- *  rendering — it is NOT the steer gate. Evidence presence is the WRONG
- *  discriminator for steering: a legitimate trace-analyst observation may cite
- *  nothing (it would be wrongly rejected), and a judge verdict may cite an
- *  artifact (it would be wrongly admitted). Use `assertNoJudgeVerdict` to gate
- *  steering; use this only where "is this grounded in observable evidence" is the
- *  literal question. */
-export function isTraceObservable(finding: AnalystFinding): boolean {
-  return finding.evidence_refs.some((ref) => OBSERVABLE_KINDS.has(ref.kind))
-}
+import type { AnalystFinding } from './types'
 
 /** True iff the finding is a JUDGE VERDICT (an acceptance score lifted into a
  *  finding), identified by provenance set at the lift site — independent of
