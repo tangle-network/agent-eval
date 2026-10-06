@@ -679,17 +679,6 @@ export async function replayFeedbackTrajectory(
   }
 }
 
-export async function replayFeedbackTrajectories(
-  trajectories: FeedbackTrajectory[],
-  adapter: FeedbackReplayAdapter,
-): Promise<FeedbackReplayResult[]> {
-  const results: FeedbackReplayResult[] = []
-  for (const trajectory of trajectories) {
-    results.push(await replayFeedbackTrajectory(trajectory, adapter))
-  }
-  return results
-}
-
 export function summarizePreferenceMemory(
   trajectories: FeedbackTrajectory[],
   options: { maxEntries?: number } = {},

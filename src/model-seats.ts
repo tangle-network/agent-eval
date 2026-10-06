@@ -41,8 +41,6 @@ export interface ModelSeats {
 
 export type SeatName = keyof ModelSeats
 
-export type SeatPresetName = keyof typeof seatPresets
-
 /**
  * Tier presets — plain data, swap or spread freely.
  *

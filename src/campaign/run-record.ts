@@ -324,20 +324,6 @@ export function projectCampaignCellQuality<TArtifact>(
   }
 }
 
-/** Read the canonical task score without recomputing cell quality. */
-export function campaignCellTaskScore<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
-): number | undefined {
-  return projectCampaignCellQuality(cell).score
-}
-
-/** Read canonical successful judge dimensions without recomputing cell quality. */
-export function campaignCellJudgeDimensions<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
-): Record<string, Record<string, number>> {
-  return projectCampaignCellQuality(cell).judgeScores?.perJudge ?? {}
-}
-
 function finiteMetrics(metrics: Record<string, number> | undefined): Record<string, number> {
   const finite: Record<string, number> = {}
   for (const [key, value] of Object.entries(metrics ?? {})) {

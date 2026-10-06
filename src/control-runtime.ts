@@ -852,20 +852,6 @@ export async function runAgentControlLoop<
   }
 }
 
-export function stopOnNoProgress<TState, TAction>(
-  maxNoProgressSteps: number,
-  options: Omit<ControlStopPolicies<TState, TAction>, 'maxNoProgressSteps'> = {},
-): ControlStopPolicies<TState, TAction> {
-  return { ...options, maxNoProgressSteps }
-}
-
-export function stopOnRepeatedAction<TState, TAction>(
-  maxRepeatedActions: number,
-  options: Omit<ControlStopPolicies<TState, TAction>, 'maxRepeatedActions'> = {},
-): ControlStopPolicies<TState, TAction> {
-  return { ...options, maxRepeatedActions }
-}
-
 export function objectiveEval(input: Omit<ControlEvalResult, 'objective'>): ControlEvalResult {
   return { ...input, objective: true }
 }
