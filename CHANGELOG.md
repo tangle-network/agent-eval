@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.208.0] — 2026-10-06
+
+- feat(search): searchClaimDecision returns the paired decision a claim made for a tested finalist (#942)
+- test: give corpus and dataset tests unique temp directories (#941)
+- ci: run workflows on self-hosted runners; publish only new versions from hosted (#940)
+- docs: complete external agent campaign quickstart and RL import coverage (#939)
+
 ## [0.207.4] — 2026-10-05
 
 - fix(llm): honor full retry delays and pace campaign calls (#934)
