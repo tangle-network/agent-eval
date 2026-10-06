@@ -187,14 +187,15 @@ function runProcess(args: {
     child.on('error', (error) => {
       finish(new Error(`${args.label} could not start: ${error.message}`))
     })
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       if (code === 0) {
         finish()
         return
       }
+      const exit = code === null && signal !== null ? `on signal ${signal}` : String(code)
       finish(
         new Error(
-          `${args.label} exited ${String(code)}. stderr=${summarizeProcessOutput(stderr)} stdout=${summarizeProcessOutput(stdout)}`,
+          `${args.label} exited ${exit}. stderr=${summarizeProcessOutput(stderr)} stdout=${summarizeProcessOutput(stdout)}`,
         ),
       )
     })
@@ -211,9 +212,16 @@ function abortReason(signal: AbortSignal, label: string): Error {
     : new Error(`${label} aborted`, { cause: signal.reason })
 }
 
+/**
+ * What the optimizer process inherits: no credentials, only what locates and runs its
+ * interpreter. `LD_LIBRARY_PATH` is part of that: a shared-library Python such as the one
+ * actions/setup-python installs finds its own libpython through it, and without it binds the
+ * system's, whose other patch release crashes the bridge on its first extension module.
+ */
 function safeProcessEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     'PATH',
+    'LD_LIBRARY_PATH',
     'HOME',
     'USER',
     'LOGNAME',
