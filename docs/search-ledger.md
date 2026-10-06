@@ -477,6 +477,9 @@ The finalists are the nodes decided `finalist`, in decision order; whether the b
 It returns `verified`, `mismatch` with the differences, or `unknown` for a claim another rule revision made.
 The projector checks the claim's structure (every finalist named, the Bonferroni confidence of each test, a ship's held-out units and pinned judge) but not its numbers, so a store keeps what `verifySearchClaim` derives, never the producer's claim as written.
 `runSearch` runs it on every close and on every rerun of a closed ledger, throws on `mismatch`, and returns it as `SearchRunResult.claimVerification`.
+`searchClaimDecision(state, nodeId)` returns the `PairedPromotionDecision` the claim made for one tested finalist, made again from the closed ledger: the root as control, the improvement as `delta`, at the finalist's Bonferroni confidence, with the claim's estimator, resamples and seed.
+It throws unless the result reproduces the claim's recorded test for that finalist, and returns null for a node the claim did not test.
+A consumer that promotes the selected finalist cites this decision with the claim, rather than deciding again from the same cells at another confidence or seed.
 A judge change is a changed `search-opened` header, which `SearchRecorder.open` refuses; it starts a derived search instead of mixing verdicts.
 
 `compareOptimizationMethods` keeps its own held-out comparison for black-box methods such as GEPA, which return one winner and never see the test split.
@@ -555,7 +558,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/search/lenses/edit-credit.ts`: `editCredit` and `editCreditText`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
-- `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim` and `searchClaimReserveUsd`.
+- `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim`, `searchClaimDecision` and `searchClaimReserveUsd`.
 - `src/search/lenses/landscape.ts`, `plateau.ts` and `skill-manifold.ts`: the geometry lenses, the plateau score and the unit extension.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent`, `incumbentWithOperatorBandit`, `crowdedFrontierParent`, `aide` and `beam`.
 - `src/campaign/allocation.ts`: `SearchAllocator`, `uniform` and `asha`.
