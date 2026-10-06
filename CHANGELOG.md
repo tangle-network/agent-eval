@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.209.0] — 2026-10-06
+
+- refactor!: stop publishing 34 exports no consumer uses (#949)
+- refactor: delete code that no entry point, module, test, or consumer reaches (#948)
+
 ## [0.208.2] — 2026-10-06
 
 - fix(analyst): re-pin the benchmark implementation digest after the bridge environment fix (#946)
