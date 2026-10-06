@@ -97,7 +97,9 @@ describe('the allowlist', () => {
 })
 
 describe('the shipped repository', () => {
+  // Parses every source file in the repository; it took 6.8 s on a loaded
+  // self-hosted publish runner (agent-eval v0.209.0), past Vitest's 5 s default.
   test('passes its own gate', () => {
     expect(checkCollationOrdering()).toEqual({ offences: [], unusedWaivers: [] })
-  })
+  }, 60_000)
 })
