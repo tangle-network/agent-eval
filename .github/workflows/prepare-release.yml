@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
