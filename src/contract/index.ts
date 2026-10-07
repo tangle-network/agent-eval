@@ -318,6 +318,7 @@ export {
   fromKimiCodeSession,
   fromOpenCodeSession,
   fromOtelSpans,
+  fromPiGraphSession,
   fromPiSession,
   fromRunRecordDir,
   observeCodeAgentSession,

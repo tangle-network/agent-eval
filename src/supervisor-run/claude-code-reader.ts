@@ -20,7 +20,7 @@
  * | worker spend| `message.usage` inside `<session>/subagents/agent-<id>.jsonl` |
  * | depth      | a child transcript that itself contains `Agent` tool_use lines |
  *
- * Every one of those is read through `parseClaudeEntries` — the SAME line
+ * Every one of those is read from the normalized session of @tangle-network/harness-sessions — the SAME
  * parser `src/rollout/readers/claude-jsonl.ts` uses for solo rollouts. There
  * is no second transcript parser.
  *
@@ -60,10 +60,11 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
-  type ClaudeEntry,
-  parseClaudeEntries,
-  transcriptFromEntries,
-} from '../rollout/readers/claude-jsonl'
+  claudeCodeReader,
+  claudeCodeRefForFile,
+  type HarnessSession,
+} from '@tangle-network/harness-sessions'
+import { type ClaudeTranscript, transcriptFromSession } from '../rollout/readers/claude-jsonl'
 import type { SupervisorRunReader, SupervisorRunSources, WorkerLogSource } from './types'
 
 /** Tool names that spawn a child agent. `Task` is the older name for `Agent`. */
@@ -132,16 +133,6 @@ interface TaskNotification {
   readonly at: string | null
 }
 
-function blockText(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  const parts: string[] = []
-  for (const b of content) {
-    if (isRecord(b) && b.type === 'text' && typeof b.text === 'string') parts.push(b.text)
-  }
-  return parts.join('\n')
-}
-
 const tag = (xml: string, name: string): string | null => {
   const m = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
   return m === null ? null : (m[1] as string)
@@ -170,56 +161,34 @@ function parseNotifications(text: string, at: string | null): TaskNotification[]
   return out
 }
 
-/** Project entries of ONE thread (main or a single sidechain) into tool traffic. */
-function threadCalls(entries: readonly ClaudeEntry[]): ThreadCalls {
+/** Project ONE thread's session (main or a single subagent) into tool traffic. */
+function threadCalls(session: HarnessSession): ThreadCalls {
   const uses: ToolUse[] = []
   const results = new Map<string, ToolResult>()
   const notifications: TaskNotification[] = []
-  let firstAt: string | null = null
-  let lastAt: string | null = null
-
-  for (const entry of entries) {
-    if (entry.timestamp !== null) {
-      if (firstAt === null) firstAt = entry.timestamp
-      lastAt = entry.timestamp
-    }
-    const content = entry.message.content
-    if (entry.type === 'assistant') {
-      if (!Array.isArray(content)) continue
-      for (const block of content) {
-        if (!isRecord(block) || block.type !== 'tool_use') continue
-        const id = str(block.id)
-        const name = str(block.name)
-        if (id === null || name === null) continue
-        uses.push({
-          id,
-          name,
-          input: isRecord(block.input) ? block.input : {},
-          at: entry.timestamp,
-        })
-      }
-      continue
-    }
-    if (typeof content === 'string') {
-      notifications.push(...parseNotifications(content, entry.timestamp))
-      continue
-    }
-    if (!Array.isArray(content)) continue
-    for (const block of content) {
-      if (!isRecord(block)) continue
-      if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-        results.set(block.tool_use_id, {
-          id: block.tool_use_id,
-          at: entry.timestamp,
-          structured: entry.toolUseResult,
-          text: blockText(block.content),
-        })
-      } else if (block.type === 'text' && typeof block.text === 'string') {
-        notifications.push(...parseNotifications(block.text, entry.timestamp))
-      }
+  for (const call of session.toolCalls) {
+    uses.push({
+      id: call.id,
+      name: call.name,
+      input: isRecord(call.input) ? call.input : {},
+      at: call.startedAt,
+    })
+    if (call.result !== null) {
+      results.set(call.id, {
+        id: call.id,
+        at: call.result.at,
+        structured: call.result.details,
+        text: call.result.text ?? '',
+      })
     }
   }
-  return { uses, results, notifications, firstAt, lastAt }
+  for (const message of session.messages) {
+    if (message.role !== 'user') continue
+    for (const part of message.parts) {
+      if (part.type === 'text') notifications.push(...parseNotifications(part.text, message.at))
+    }
+  }
+  return { uses, results, notifications, firstAt: session.startedAt, lastAt: session.endedAt }
 }
 
 /**
@@ -242,7 +211,7 @@ interface ChildTranscript {
   readonly description: string | null
   readonly spawnToolUseId: string | null
   readonly spawnDepth: number | null
-  readonly entries: ClaudeEntry[]
+  readonly session: HarnessSession
   readonly tokensIn: number | null
   readonly tokensOut: number | null
   readonly cacheRead: number | null
@@ -264,13 +233,12 @@ async function readChildren(dir: string): Promise<ChildTranscript[]> {
   const out: ChildTranscript[] = []
   for (const name of names.filter((n) => n.endsWith('.jsonl')).sort()) {
     const path = join(dir, name)
-    const raw = await readFile(path, 'utf8').catch(() => null)
-    if (raw === null) continue
-    const sourceGaps: string[] = []
-    const entries = parseClaudeEntries(raw, (gap) => sourceGaps.push(gap))
-    // A subagent transcript is sidechain end to end — that flag is what marks it
-    // a separate invocation rather than a turn of the parent.
-    const projected = transcriptFromEntries(entries, { includeSidechain: true, sourceGaps })
+    // A subagent transcript is sidechain end to end: read it as the subagent's own session.
+    const session = await claudeCodeReader
+      .read(claudeCodeRefForFile(path, 'parent'))
+      .catch(() => null)
+    if (session === null) continue
+    const projected: ClaudeTranscript = transcriptFromSession(session)
     const metaRaw = await readFile(path.replace(/\.jsonl$/, '.meta.json'), 'utf8').catch(() => null)
     let meta: Record<string, unknown> = {}
     if (metaRaw !== null) {
@@ -281,16 +249,15 @@ async function readChildren(dir: string): Promise<ChildTranscript[]> {
         meta = {}
       }
     }
-    const agentId =
-      entries.find((e) => e.agentId !== null)?.agentId ??
-      name.replace(/^agent-/, '').replace(/\.jsonl$/, '')
+    // The records name the agent; the file name is the fallback for a transcript that does not.
+    const agentId = session.nativeSessionId
     out.push({
       agentId,
       path,
       description: str(meta.description),
       spawnToolUseId: str(meta.toolUseId),
       spawnDepth: typeof meta.spawnDepth === 'number' ? meta.spawnDepth : null,
-      entries,
+      session,
       tokensIn: projected.usage.tokensIn,
       tokensOut: projected.usage.tokensOut,
       cacheRead: projected.usage.cacheRead,
@@ -330,7 +297,9 @@ export async function readClaudeCodeSupervisorRun(
   const steerTools = new Set(opts.steerTools ?? DEFAULT_STEER_TOOLS)
   const cancelTools = new Set(opts.cancelTools ?? DEFAULT_CANCEL_TOOLS)
 
-  const raw = await readFile(opts.transcriptPath, 'utf8').catch(() => null)
+  const mainSession = await claudeCodeReader
+    .read(claudeCodeRefForFile(opts.transcriptPath))
+    .catch(() => null)
   const sessionId = basename(opts.transcriptPath).replace(/\.jsonl$/, '')
   const runRef = opts.runRef ?? opts.transcriptPath
   const limits = {
@@ -342,7 +311,7 @@ export async function readClaudeCodeSupervisorRun(
   }
   const traceCommand = `npx --yes @tangle-network/traces@latest analyze --harness claude-code --session ${sessionId}`
 
-  if (raw === null) {
+  if (mainSession === null) {
     return {
       runRef,
       instanceId: opts.instanceId ?? sessionId,
@@ -371,10 +340,8 @@ export async function readClaudeCodeSupervisorRun(
     }
   }
 
-  const mainSourceGaps: string[] = []
-  const allEntries = parseClaudeEntries(raw, (gap) => mainSourceGaps.push(gap))
-  const main = threadCalls(allEntries.filter((e) => !e.isSidechain))
-  const mainTranscript = transcriptFromEntries(allEntries, { sourceGaps: mainSourceGaps })
+  const main = threadCalls(mainSession)
+  const mainTranscript = transcriptFromSession(mainSession)
 
   const subagentsDir =
     opts.subagentsDir === undefined
@@ -390,7 +357,7 @@ export async function readClaudeCodeSupervisorRun(
   // (a child that calls the spawn tool is a second delegation level).
   const threads: Array<{ id: string; calls: ThreadCalls }> = [{ id: sessionId, calls: main }]
   for (const child of children) {
-    threads.push({ id: child.agentId, calls: threadCalls(child.entries) })
+    threads.push({ id: child.agentId, calls: threadCalls(child.session) })
   }
 
   const spawns: SpawnFact[] = []

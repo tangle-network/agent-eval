@@ -10,6 +10,7 @@ import {
   fromCodexSession,
   fromKimiCodeSession,
   fromOpenCodeSession,
+  fromPiGraphSession,
   fromPiSession,
   parseCodeAgentJsonl,
   parseCodeAgentJsonlFile,
@@ -1084,7 +1085,7 @@ describe('code-agent session intake', () => {
   })
 
   it('projects PiGraph graph and reliability artifacts into a process-scored RunRecord', () => {
-    const { runs, diagnostics, metrics } = fromPiSession({
+    const { runs, diagnostics, metrics } = fromPiGraphSession({
       entries: [
         {
           session_id: 'pi-session-1',
@@ -1117,8 +1118,8 @@ describe('code-agent session intake', () => {
     })
 
     const run = validateRunRecord(runs[0])
-    expect(run.runId).toBe('pi:pi-session-1')
-    expect(run.model).toBe('pi@observed-local')
+    expect(run.runId).toBe('pi-graph:pi-session-1')
+    expect(run.model).toBe('pi-graph@observed-local')
     expect(run.costUsd).toBeNull()
     expect(run.outcome.holdoutScore).toBeUndefined()
     expect(run.outcome.raw.process_score).toBe(0.91)

@@ -1,20 +1,26 @@
 /**
- * Backfill reader over Claude Code project transcripts
- * (~/.claude/projects/<cwd-slug>/<sessionId>.jsonl) → canonical
+ * Claude Code project transcripts (~/.claude/projects/<cwd-slug>/<sessionId>.jsonl) as canonical
  * chat-with-tools messages plus per-session token usage.
  *
- * Transcript lines consumed: type:"user" (string content or content blocks —
- * text + tool_result) and type:"assistant" (content blocks — thinking, text,
- * tool_use; message.usage carries tokens). Sidechain lines (isSidechain=true,
- * subagent threads) are separate invocations and are excluded from the main
- * transcript. Everything else (queue-operation, attachment, last-prompt…) is
- * transport metadata, not conversation.
+ * The transcript is read by @tangle-network/harness-sessions, the one reader of harness sessions
+ * shared with Discovery, agent-record, traces and the blog: one model call per API response
+ * (`message.id`, its usage counted once), the served model from the response, tool calls with
+ * their results. This module only projects that session. Sidechain lines (subagent threads in the
+ * main file) are separate invocations and are excluded unless `includeSidechain` asks for a
+ * subagent's own transcript.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ChatMessage, ChatToolCall } from '../schema'
+import {
+  claudeCodeReader,
+  claudeCodeRefForFile,
+  type HarnessSession,
+  readSessionInput,
+  toChatMessages,
+} from '@tangle-network/harness-sessions'
+import type { ChatMessage } from '../schema'
 
 export const DEFAULT_CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
@@ -51,254 +57,95 @@ export interface ClaudeUsageTotals {
 export interface ClaudeTranscript {
   messages: ChatMessage[]
   usage: ClaudeUsageTotals
-  /** Timestamp of the first conversation line; null = empty transcript. */
+  /** Timestamp of the first conversation record; null = empty transcript. */
   startedAt: string | null
   endedAt: string | null
+  /** The model that answered the last response (never Claude Code's `<synthetic>` error turn). */
   model: string | null
   /** Every parse or usage gap retained beside this semantic projection. */
   gaps: string[]
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
-
-/**
- * One conversation line of a transcript, still in Claude Code's own shape.
- *
- * This is the single line-level parse of the format. `readClaudeTranscript`
- * projects it to canonical messages + usage; the supervision-tree reader
- * (`src/supervisor-run/claude-code-reader.ts`) projects the SAME entries to
- * spawn/settle/steer instants. Two projections, one parser — a second
- * transcript parser is how the two views silently disagree.
- */
-export interface ClaudeEntry {
-  readonly type: 'user' | 'assistant'
-  /** ISO instant of the line; null when the line carried none. */
-  readonly timestamp: string | null
-  /** The Anthropic message body (`role`, `content`, `model`, `usage`). */
-  readonly message: Record<string, unknown>
-  /** Claude Code's structured tool result, when the line carries one. */
-  readonly toolUseResult: unknown
-  /** True on subagent threads — a separate invocation, not this transcript's turn. */
-  readonly isSidechain: boolean
-  /** Subagent id Claude Code stamps on sidechain lines; null on main-thread lines. */
-  readonly agentId: string | null
-}
-
-/** Parse transcript jsonl text into conversation lines. Non-conversation lines are dropped. */
-export function parseClaudeEntries(raw: string, onGap?: (gap: string) => void): ClaudeEntry[] {
-  const out: ClaudeEntry[] = []
-  for (const [index, line] of raw.split('\n').entries()) {
-    if (!line.trim()) continue
-    const gap = (reason: string): void => {
-      const detail = `line ${index + 1}: ${reason}`
-      if (onGap) onGap(detail)
-      else throw new Error(`Claude transcript ${detail}`)
-    }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(line)
-    } catch {
-      gap('malformed JSON')
-      continue
-    }
-    if (!isRecord(parsed)) {
-      gap('JSON value is not an object')
-      continue
-    }
-    const entry = parsed
-    if (entry.type !== 'user' && entry.type !== 'assistant') continue
-    const message = entry.message
-    if (!isRecord(message)) {
-      gap('conversation message is missing')
-      continue
-    }
-    out.push({
-      type: entry.type,
-      timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : null,
-      message,
-      toolUseResult: entry.toolUseResult,
-      isSidechain: entry.isSidechain === true,
-      agentId: typeof entry.agentId === 'string' ? entry.agentId : null,
-    })
-  }
-  return out
-}
-
 export interface ReadClaudeTranscriptOptions {
   /**
-   * Read the sidechain (subagent) thread instead of skipping it. Subagent
-   * transcripts under `<session>/subagents/agent-<id>.jsonl` are sidechain
-   * lines end to end, so their usage is invisible without this.
+   * Read a subagent's own transcript (`<session>/subagents/agent-<id>.jsonl`), whose records are
+   * sidechain end to end, instead of skipping sidechain records.
    */
   readonly includeSidechain?: boolean
-  /** Parser diagnostics from the retained source; used by the shared reader. */
-  readonly sourceGaps?: readonly string[]
 }
 
-function blockText(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter(
-      (b): b is Record<string, unknown> =>
-        isRecord(b) && b.type === 'text' && typeof b.text === 'string',
-    )
-    .map((b) => b.text as string)
-    .join('\n')
+const USAGE_FIELDS = [
+  ['tokensIn', 'input'],
+  ['tokensOut', 'output'],
+  ['cacheRead', 'cacheRead'],
+  ['cacheWrite', 'cacheWrite'],
+] as const
+
+/**
+ * The messages+usage projection of a normalized session. A usage field is null when any answered
+ * model call did not report it, so a partial sum is never mistaken for the session's usage.
+ */
+export function transcriptFromSession(session: HarnessSession): ClaudeTranscript {
+  const gaps = session.integrity.gaps.filter((gap) =>
+    /is not a JSON record|still being written/u.test(gap),
+  )
+  const answered = session.modelCalls.filter((call) => call.error === null)
+  const usage: ClaudeUsageTotals = {
+    tokensIn: null,
+    tokensOut: null,
+    cacheRead: null,
+    cacheWrite: null,
+  }
+  if (answered.length > 0) {
+    for (const [target, field] of USAGE_FIELDS) {
+      let total: number | null = 0
+      for (const call of answered) {
+        const value = call.usage?.[field] ?? null
+        if (value === null) {
+          total = null
+          gaps.push(`model call ${call.id}: ${field} usage unavailable`)
+          break
+        }
+        total += value
+      }
+      usage[target] = total
+    }
+  }
+  const model =
+    [...answered].reverse().find((call) => call.servedModel !== null)?.servedModel ?? null
+  return {
+    messages: toChatMessages(session),
+    usage,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    model,
+    gaps,
+  }
 }
 
-/** Read one transcript file through the same parser used for retained source text. */
+/** Read one transcript file. */
 export async function readClaudeTranscript(
   path: string,
   options: ReadClaudeTranscriptOptions = {},
 ): Promise<ClaudeTranscript> {
-  return parseClaudeTranscript(await readFile(path, 'utf8'), options)
+  const session = await claudeCodeReader.read(
+    claudeCodeRefForFile(path, options.includeSidechain === true ? 'parent' : null),
+  )
+  return transcriptFromSession(session)
 }
 
-/** Parse retained JSONL without another file or store; source gaps remain explicit. */
+/** Parse retained JSONL text without another file or store; source gaps remain explicit. */
 export function parseClaudeTranscript(
   raw: string,
   options: ReadClaudeTranscriptOptions = {},
 ): ClaudeTranscript {
-  const gaps: string[] = []
-  const entries = parseClaudeEntries(raw, (gap) => gaps.push(gap))
-  return transcriptFromEntries(entries, { ...options, sourceGaps: gaps })
-}
-
-/** The messages+usage projection of already-parsed entries. */
-export function transcriptFromEntries(
-  entries: readonly ClaudeEntry[],
-  options: ReadClaudeTranscriptOptions = {},
-): ClaudeTranscript {
-  const wantSidechain = options.includeSidechain === true
-  const messages: ChatMessage[] = []
-  const usage: ClaudeUsageTotals = { tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 }
-  const gaps = [...(options.sourceGaps ?? [])]
-  let usageObserved = false
-  let startedAt: string | null = null
-  let endedAt: string | null = null
-  let model: string | null = null
-  // Claude Code writes one jsonl line PER CONTENT BLOCK of an API message,
-  // repeating message.id and usage on each — merge blocks into one canonical
-  // assistant turn and count usage once per API message id.
-  let lastAssistantApiId: string | null = null
-  let lastAssistantIndex = -1
-
-  for (const entry of entries) {
-    if (entry.isSidechain !== wantSidechain) continue
-    const message = entry.message
-    if (entry.timestamp !== null) {
-      if (startedAt === null) startedAt = entry.timestamp
-      endedAt = entry.timestamp
-    }
-
-    if (entry.type === 'user') {
-      lastAssistantApiId = null
-      lastAssistantIndex = -1
-      const content = message.content
-      if (typeof content === 'string') {
-        messages.push({ role: 'user', content })
-        continue
-      }
-      if (!Array.isArray(content)) continue
-      // A user line may interleave tool_result blocks (answers to the prior
-      // assistant tool_use) with plain text; preserve order.
-      let userText = ''
-      for (const block of content) {
-        if (!isRecord(block)) continue
-        if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-          messages.push({
-            role: 'tool',
-            tool_call_id: block.tool_use_id,
-            content:
-              blockText(block.content) || (typeof block.content === 'string' ? block.content : ''),
-          })
-        } else if (block.type === 'text' && typeof block.text === 'string') {
-          userText += (userText.length > 0 ? '\n' : '') + block.text
-        }
-      }
-      if (userText.length > 0) messages.push({ role: 'user', content: userText })
-      continue
-    }
-
-    // assistant
-    if (typeof message.model === 'string') model = message.model
-    const apiId = typeof message.id === 'string' ? message.id : null
-    const continuesTurn = apiId !== null && apiId === lastAssistantApiId && lastAssistantIndex >= 0
-    const msgUsage = message.usage
-    if (!continuesTurn) {
-      usageObserved = true
-      const fields = [
-        ['tokensIn', 'input_tokens'],
-        ['tokensOut', 'output_tokens'],
-        ['cacheRead', 'cache_read_input_tokens'],
-        ['cacheWrite', 'cache_creation_input_tokens'],
-      ] as const
-      for (const [target, source] of fields) {
-        const value = isRecord(msgUsage) ? msgUsage[source] : undefined
-        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-          usage[target] = null
-          gaps.push(`assistant ${apiId ?? 'without id'}: ${source} unavailable`)
-        } else if (usage[target] !== null) {
-          usage[target] += value
-        }
-      }
-    }
-    const content = message.content
-    if (!Array.isArray(content)) continue
-    let reasoning = ''
-    let text = ''
-    const toolCalls: ChatToolCall[] = []
-    for (const block of content) {
-      if (!isRecord(block)) continue
-      if (
-        block.type === 'thinking' &&
-        typeof block.thinking === 'string' &&
-        block.thinking.length > 0
-      ) {
-        reasoning += (reasoning.length > 0 ? '\n' : '') + block.thinking
-      } else if (block.type === 'text' && typeof block.text === 'string') {
-        text += (text.length > 0 ? '\n' : '') + block.text
-      } else if (block.type === 'tool_use' && typeof block.id === 'string') {
-        toolCalls.push({
-          id: block.id,
-          type: 'function',
-          function: {
-            name: typeof block.name === 'string' ? block.name : 'unknown',
-            arguments: JSON.stringify(block.input ?? {}),
-          },
-        })
-      }
-    }
-    if (reasoning.length === 0 && text.length === 0 && toolCalls.length === 0) continue
-    if (continuesTurn) {
-      const prev = messages[lastAssistantIndex]!
-      if (text.length > 0) prev.content = prev.content === null ? text : `${prev.content}\n${text}`
-      if (reasoning.length > 0) {
-        prev.reasoning_content =
-          prev.reasoning_content === undefined
-            ? reasoning
-            : `${prev.reasoning_content}\n${reasoning}`
-      }
-      if (toolCalls.length > 0) prev.tool_calls = [...(prev.tool_calls ?? []), ...toolCalls]
-      continue
-    }
-    messages.push({
-      role: 'assistant',
-      content: text.length > 0 ? text : null,
-      ...(reasoning.length > 0 ? { reasoning_content: reasoning } : {}),
-      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-    })
-    lastAssistantApiId = apiId
-    lastAssistantIndex = messages.length - 1
-  }
-
-  if (!usageObserved) {
-    usage.tokensIn = null
-    usage.tokensOut = null
-    usage.cacheRead = null
-    usage.cacheWrite = null
-  }
-  return { messages, usage, startedAt, endedAt, model, gaps }
+  const session = readSessionInput(
+    'claude-code',
+    { text: raw },
+    {
+      parentNativeSessionId: options.includeSidechain === true ? 'parent' : null,
+      label: 'retained transcript',
+    },
+  )
+  return transcriptFromSession(session)
 }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
+import { readSessionInput, summarizeSessionInput } from '@tangle-network/harness-sessions'
 import { hashCanonical } from '../../ledger-core/canonical'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type {
@@ -227,10 +228,18 @@ export function fromKimiCodeSession(
   return fromCodeAgentSession('kimi-code', options)
 }
 
+/** A native Pi session (`~/.pi/agent/sessions/<cwd>/<ts>_<id>.jsonl`), parsed entries in order. */
 export function fromPiSession(
   options: CodeAgentSessionIntakeOptions,
 ): CodeAgentSessionIntakeResult {
   return fromCodeAgentSession('pi', options)
+}
+
+/** The graph IR a Pi graph run exports (`nodes[].ir`), which is not a Pi session. */
+export function fromPiGraphSession(
+  options: CodeAgentSessionIntakeOptions,
+): CodeAgentSessionIntakeResult {
+  return fromCodeAgentSession('pi-graph', options)
 }
 
 function fromCodeAgentSession(
@@ -443,7 +452,9 @@ function metricsFor(
     case 'kimi-code':
       return kimiCodeMetrics(entries)
     case 'pi':
-      return piMetrics(entries)
+      return piSessionMetrics(entries)
+    case 'pi-graph':
+      return piGraphMetrics(entries)
   }
 }
 
@@ -643,7 +654,6 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
     if (type === 'file-history-snapshot') metrics.fileSnapshots += 1
 
     const message = record(entry.message)
-    if (message) addUsage(metrics, record(message.usage))
     const content = Array.isArray(message?.content) ? message.content : []
     for (const item of content) {
       const part = record(item)
@@ -658,6 +668,14 @@ function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSession
     }
   }
 
+  // Claude Code writes one record per content block of a response, each repeating the response's
+  // usage; the shared session reader counts each response once.
+  const usage = summarizeSessionInput('claude-code', { records: entries }).usage
+  metrics.inputTokens = usage?.input ?? 0
+  metrics.outputTokens = usage?.output ?? 0
+  metrics.reasoningTokens = usage?.reasoning ?? 0
+  metrics.cachedTokens = usage?.cacheRead ?? 0
+  metrics.cacheWriteTokens = usage?.cacheWrite ?? 0
   if (startedAt !== undefined && completedAt !== undefined)
     metrics.wallMs = Math.max(0, completedAt - startedAt)
   metrics.processScore = claudeProcessScore(metrics)
@@ -792,7 +810,43 @@ function kimiCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMe
   return metrics
 }
 
-function piMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
+/** A native Pi session's metrics, from the shared reader's fold. */
+function piSessionMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
+  const metrics = emptyMetrics(entries.length)
+  const session = readSessionInput('pi', { records: entries })
+  metrics.userMessages = session.messages.filter(
+    (m) => m.role === 'user' && m.actor === 'human',
+  ).length
+  metrics.assistantMessages = session.messages.filter(
+    (m) => m.role === 'assistant' && m.actor === 'agent',
+  ).length
+  metrics.reasoningItems = session.messages.reduce(
+    (n, m) => n + m.parts.filter((p) => p.type === 'reasoning').length,
+    0,
+  )
+  metrics.toolCalls = session.toolCalls.length
+  metrics.toolOutputs = session.toolCalls.filter((c) => c.result !== null).length
+  metrics.toolErrors = session.toolCalls.filter((c) => c.result?.isError === true).length
+  metrics.unclassifiedErrors = session.modelCalls.filter((c) => c.error !== null).length
+  metrics.turnsStarted = metrics.userMessages
+  if (session.ending.status === 'completed') metrics.turnsCompleted = 1
+  if (session.ending.status === 'aborted' || session.ending.status === 'error')
+    metrics.turnsAborted = 1
+  metrics.inputTokens = session.usage?.input ?? 0
+  metrics.outputTokens = session.usage?.output ?? 0
+  metrics.reasoningTokens = session.usage?.reasoning ?? 0
+  metrics.cachedTokens = session.usage?.cacheRead ?? 0
+  metrics.cacheWriteTokens = session.usage?.cacheWrite ?? 0
+  const costs = session.modelCalls.flatMap((c) => (c.costUsd === null ? [] : [c.costUsd]))
+  metrics.observedCostUsd = costs.reduce((a, b) => a + b, 0)
+  metrics.observedCostCaptured = costs.length > 0
+  if (session.startedAt !== null && session.endedAt !== null)
+    metrics.wallMs = Math.max(0, Date.parse(session.endedAt) - Date.parse(session.startedAt))
+  metrics.processScore = terminalProcessScore(metrics)
+  return metrics
+}
+
+function piGraphMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
   let bestReliabilityScore: number | undefined
 
@@ -1064,6 +1118,10 @@ function sessionIdFromEntries(
   entries: Record<string, unknown>[],
 ): string | undefined {
   for (const entry of entries) {
+    if (source === 'pi' && entry.type === 'session') {
+      const id = stringField(entry, 'id')
+      if (id) return id
+    }
     if (source === 'codex') {
       const threadId = stringField(entry, 'thread_id')
       if (threadId) return threadId
@@ -1087,6 +1145,9 @@ function modelFromEntries(
   source: CodeAgentSessionSource,
   entries: Record<string, unknown>[],
 ): string | undefined {
+  // A native Pi session records the provider and model of each answered call.
+  if (source === 'pi')
+    return summarizeSessionInput('pi', { records: entries }).lastServedModel ?? undefined
   let providerModel: string | undefined
   for (const entry of entries) {
     if (source === 'codex') {
