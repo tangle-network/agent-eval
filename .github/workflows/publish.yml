@@ -10,10 +10,7 @@ jobs:
   # Verify both packages build and pass tests, in lockstep.
   # If either fails, neither publishes.
   verify:
-    runs-on: [self-hosted, ci-public]
-    outputs:
-      npm: ${{ steps.registry.outputs.npm }}
-      pypi: ${{ steps.registry.outputs.pypi }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -72,26 +69,6 @@ jobs:
             fi
           fi
           echo "Versions locked: $NPM_VERSION"
-
-      # npm and PyPI trusted publishing run on GitHub-hosted runners, so each
-      # hosted publish job starts only when its registry lacks this version.
-      - name: Decide which registries need this version
-        id: registry
-        run: |
-          NAME=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
-            echo "$NAME@$VERSION is already on npm"
-            echo "npm=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "npm=true" >> "$GITHUB_OUTPUT"
-          fi
-          if curl -sf "https://pypi.org/pypi/agent-eval-rpc/$VERSION/json" >/dev/null; then
-            echo "agent-eval-rpc==$VERSION is already on PyPI"
-            echo "pypi=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "pypi=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Install Python client
         working-directory: clients/python
@@ -170,7 +147,7 @@ jobs:
     # Actions: org tangle-network, repo agent-eval, workflow publish.yml, no
     # environment) mints a short-lived credential from the id-token — no
     # NPM_TOKEN, nothing to rotate, plus a provenance attestation.
-    if: needs.verify.outputs.npm == 'true'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -242,14 +219,10 @@ jobs:
 
   publish-pypi:
     # PyPI must not publish a version npm failed to publish. The npm job is
-    # skipped when the version is already on npm, so reruns can still repair a
-    # missing PyPI artifact without creating skew.
+    # idempotent and succeeds when the version is already on the registry, so
+    # reruns can still repair a missing PyPI artifact without creating skew.
     needs: [verify, publish-npm]
-    if: >-
-      always() &&
-      needs.verify.result == 'success' &&
-      needs.verify.outputs.pypi == 'true' &&
-      (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
