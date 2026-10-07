@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -20,7 +20,7 @@ import {
 // case — the three failure modes that make an execution-verified dataset
 // worthless.
 
-const DIR = join(tmpdir(), 'agent-eval-verified-findings-test')
+const DIR = mkdtempSync(join(tmpdir(), 'agent-eval-verified-findings-test-'))
 
 function makeCase(overrides: Partial<ReplayBatchCase> = {}): ReplayBatchCase {
   return {

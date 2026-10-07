@@ -20,7 +20,6 @@
  */
 
 import type { EvidenceRef } from './analyst/types'
-import { iqr } from './baseline'
 import { ValidationError } from './errors'
 
 /** Verdict for one candidate relative to its parent. ITERATE is the neutral
@@ -112,70 +111,6 @@ function resolveThresholds(t: ImprovementThresholds | undefined): Required<Impro
     )
   }
   return r
-}
-
-function median(sorted: number[]): number {
-  const n = sorted.length
-  if (n === 0) return 0
-  const mid = Math.floor(n / 2)
-  return n % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
-}
-
-/** Population standard deviation (÷n). 0 for fewer than 2 values. */
-function stddev(values: number[], mean: number): number {
-  if (values.length < 2) return 0
-  const variance = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / values.length
-  return Math.sqrt(variance)
-}
-
-/**
- * Compute the N-rep statistics for a set of reps. Pure — no I/O. The `stable`
- * flag is the trust gate the verdict depends on: a sample whose spread exceeds
- * the configured bounds can't distinguish a real delta from run-to-run noise.
- */
-export function computeExperimentStats(
-  reps: ExperimentRep[],
-  thresholds?: ImprovementThresholds,
-): ExperimentStats {
-  const t = resolveThresholds(thresholds)
-  const n = reps.length
-  if (n === 0) {
-    return {
-      median: 0,
-      mean: 0,
-      min: 0,
-      max: 0,
-      iqr: 0,
-      stddev: 0,
-      passRate: null,
-      n: 0,
-      stable: false,
-    }
-  }
-  const scores = reps.map((r) => {
-    if (!Number.isFinite(r.score)) {
-      throw new ValidationError(`improvement-verdict: rep ${r.rep} has non-finite score ${r.score}`)
-    }
-    return r.score
-  })
-  const sorted = [...scores].sort((a, b) => a - b)
-  const mean = scores.reduce((s, v) => s + v, 0) / n
-  const sd = stddev(scores, mean)
-  const spread = iqr(scores)
-  const rated = reps.filter((r) => typeof r.passed === 'boolean')
-  const passRate = rated.length === 0 ? null : rated.filter((r) => r.passed).length / rated.length
-  const stable = spread < t.iqrUnstableAbove && sd < t.stddevUnstableAbove
-  return {
-    median: median(sorted),
-    mean,
-    min: sorted[0]!,
-    max: sorted[n - 1]!,
-    iqr: spread,
-    stddev: sd,
-    passRate,
-    n,
-    stable,
-  }
 }
 
 /**

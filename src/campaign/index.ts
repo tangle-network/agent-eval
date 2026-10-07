@@ -401,6 +401,7 @@ export {
   type SearchClaimDecision,
   type SearchClaimPlan,
   type SearchClaimVerification,
+  searchClaimDecision,
   searchClaimReserveUsd,
   verifySearchClaim,
 } from './search-claim'

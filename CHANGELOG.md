@@ -4,6 +4,31 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.209.1] — 2026-10-06
+
+- fix(deps): move to agent-interface 3 so a consumer installs one copy (#952)
+- test(gate): give the whole-repository collation scan a 60 s timeout (#951)
+
+## [0.209.0] — 2026-10-06
+
+- refactor!: stop publishing 34 exports no consumer uses (#949)
+- refactor: delete code that no entry point, module, test, or consumer reaches (#948)
+
+## [0.208.2] — 2026-10-06
+
+- fix(analyst): re-pin the benchmark implementation digest after the bridge environment fix (#946)
+
+## [0.208.1] — 2026-10-06
+
+- fix(external-optimizer): give the bridge its interpreter's loader path, and name a killing signal (#944)
+
+## [0.208.0] — 2026-10-06
+
+- feat(search): searchClaimDecision returns the paired decision a claim made for a tested finalist (#942)
+- test: give corpus and dataset tests unique temp directories (#941)
+- ci: run workflows on self-hosted runners; publish only new versions from hosted (#940)
+- docs: complete external agent campaign quickstart and RL import coverage (#939)
+
 ## [0.207.4] — 2026-10-05
 
 - fix(llm): honor full retry delays and pace campaign calls (#934)

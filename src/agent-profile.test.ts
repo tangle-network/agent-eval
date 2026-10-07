@@ -191,14 +191,20 @@ describe('CODING_HARNESSES', () => {
 describe('expandProfileAxes', () => {
   const axisBase: AgentProfile = { name: 'agent', model: { default: 'deepseek-v4-flash' } }
 
-  it('defaults to CODING_HARNESSES × the base model — one compatible cell per harness', () => {
+  it('defaults to CODING_HARNESSES × the base model — one cell per harness', () => {
     const profiles = expandProfileAxes({ base: axisBase })
-    // An unprefixed model id is compatible with every harness → one cell each.
+    // agent-interface resolves the bare catalog id through its provider family
+    // (2.20.0), so only the universal harness runs deepseek-v4-flash; each
+    // vendor-locked harness snaps to its native model instead of being dropped.
     expect(profiles).toHaveLength(CODING_HARNESSES.length)
-    expect(profiles.map((p) => harnessAxisOf(p)?.harness).sort()).toEqual(
-      [...CODING_HARNESSES].sort(),
-    )
-    for (const p of profiles) expect(p.model?.default).toBe('deepseek-v4-flash')
+    expect(
+      Object.fromEntries(profiles.map((p) => [harnessAxisOf(p)?.harness, harnessAxisOf(p)?.model])),
+    ).toEqual({
+      opencode: 'deepseek-v4-flash',
+      'claude-code': HARNESS_NATIVE_MODEL,
+      codex: HARNESS_NATIVE_MODEL,
+      'kimi-code': HARNESS_NATIVE_MODEL,
+    })
   })
 
   it('crosses harnesses × models with a distinct id per cell (no collapse)', () => {

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { JudgeScore } from './campaign/types'
 import { ValidationError } from './errors'
 import {
-  agentVisibleFields,
   assertNoHiddenLeak,
   blendHeldout,
   defaultBlendWeights,
@@ -54,12 +53,6 @@ describe('field routing by destination', () => {
         string
       >),
     ).toThrow(ValidationError)
-  })
-
-  it('agentVisibleFields keeps only the non-hidden fields', () => {
-    const visible = agentVisibleFields(routeFields(legalRouting, legalValues))
-    const names = visible.map((f) => f.name).sort()
-    expect(names).toEqual(['question', 'sampleCitation'])
   })
 })
 

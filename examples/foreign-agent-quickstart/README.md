@@ -4,6 +4,10 @@ Your agent does not need Tangle's runtime or sandbox.
 Adapt its input and output to the `agent` callback of `defineAgentEval()`.
 The [complete example](./index.ts) wraps a local support-agent fixture and compares two prompts.
 
+For an empty-directory `npm install` path using `dispatch`, `runCampaign()`, and
+`runImprovementLoop()`, see the [external agent quickstart](../../docs/quickstart-external.md).
+It includes public `/rl` outcome storage and an opt-in OpenAI-compatible reference adapter.
+
 ## Run the example
 
 From the repository root, with Node.js 20.19 or newer and pnpm installed:

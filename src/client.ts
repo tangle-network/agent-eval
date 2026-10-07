@@ -1,5 +1,5 @@
 import { warnDeprecatedOnce } from './deprecation'
-import type { CheckResult, ProductClientConfig, RouteMap, TestResult } from './types'
+import type { ProductClientConfig, RouteMap } from './types'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
@@ -248,40 +248,5 @@ export class ProductClient {
   /** Generic PATCH for custom routes */
   async patch(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.request('PATCH', path, body)
-  }
-}
-
-/**
- * Run a full e2e workflow test against a live product.
- *
- * The `workflow` callback receives a ProductClient and returns CheckResults.
- * This is the generic harness — each agent defines its own workflow steps.
- */
-export async function runE2EWorkflow(
-  client: ProductClient,
-  name: string,
-  workflow: (client: ProductClient) => Promise<CheckResult[]>,
-): Promise<TestResult> {
-  const start = Date.now()
-  const checks: CheckResult[] = []
-
-  try {
-    const results = await workflow(client)
-    checks.push(...results)
-  } catch (err) {
-    checks.push({
-      name: 'fatal_error',
-      passed: false,
-      expected: 'no crash',
-      actual: err instanceof Error ? err.message : String(err),
-    })
-  }
-
-  return {
-    name,
-    passed: checks.every((c) => c.passed),
-    duration: Date.now() - start,
-    detail: `${checks.filter((c) => c.passed).length}/${checks.length} checks passed`,
-    checks,
   }
 }

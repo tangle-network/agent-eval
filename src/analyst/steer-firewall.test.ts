@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertNoJudgeVerdict, isJudgeVerdict, isTraceObservable } from './steer-firewall'
+import { assertNoJudgeVerdict, isJudgeVerdict } from './steer-firewall'
 import type { AnalystFinding, EvidenceRef } from './types'
 
 // The gap-4 firewall keys on PROVENANCE, not evidence. A realness signal may
@@ -36,7 +36,6 @@ describe('steer firewall — provenance is the discriminator (the cases evidence
       judge: true,
       refs: [{ kind: 'artifact', uri: 'inline:evidence', excerpt: 'looks templated' }],
     })
-    expect(isTraceObservable(verdict)).toBe(true) // evidence gate would ADMIT — wrong
     expect(isJudgeVerdict(verdict)).toBe(true)
     expect(() => assertNoJudgeVerdict([verdict])).toThrow(/judge verdict cannot be admitted/)
   })

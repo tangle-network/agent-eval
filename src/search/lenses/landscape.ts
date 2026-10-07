@@ -87,29 +87,6 @@ export function lineageEdits(): LandscapeEmbedding {
   }
 }
 
-/** Surfaces whose content digests differ: the edit distance between two
- * profiles at the granularity of their declared surfaces. */
-export function surfaceDigestEdits(): LandscapeEmbedding {
-  return {
-    kind: 'distance',
-    name: 'surface-digest-edits',
-    method: 'declared surfaces whose content digests differ (a surface only one node has counts)',
-    distance(a, b) {
-      const left = new Map(
-        a.surfaces.map((surface) => [surface.surfaceId, surface.artifact.sha256]),
-      )
-      let count = 0
-      const seen = new Set<string>()
-      for (const surface of b.surfaces) {
-        seen.add(surface.surfaceId)
-        if (left.get(surface.surfaceId) !== surface.artifact.sha256) count += 1
-      }
-      for (const surfaceId of left.keys()) if (!seen.has(surfaceId)) count += 1
-      return count
-    },
-  }
-}
-
 /**
  * Line edits between the surfaces' texts: for each declared surface, the
  * fewest line insertions and deletions that turn one text into the other

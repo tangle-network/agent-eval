@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CostReceipt } from '../src/cost-ledger'
 import {
-  assertRealAgentReceipts,
   assertRealBackend,
   BackendIntegrityError,
   summarizeAgentReceiptIntegrity,
@@ -169,21 +168,6 @@ describe('backend-integrity', () => {
         totalOutputTokens: 2_200,
         totalCostUsd: 0.022,
       })
-    })
-
-    it('rejects mixed agent receipts when every call must be real', () => {
-      expect(() =>
-        assertRealAgentReceipts(
-          [makeReceipt('agent', 500, 1_000, 0.01), makeReceipt('agent', 0, 0, 0)],
-          { allowMixed: false },
-        ),
-      ).toThrow(BackendIntegrityError)
-    })
-
-    it('rejects ledgers that contain no agent execution', () => {
-      expect(() => assertRealAgentReceipts([makeReceipt('judge', 500, 1_000, 0.01)])).toThrow(
-        BackendIntegrityError,
-      )
     })
   })
 })

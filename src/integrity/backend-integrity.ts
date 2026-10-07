@@ -195,15 +195,6 @@ export function assertRealBackend(
   return assertBackendReport(report, opts)
 }
 
-/** Reject a cost ledger with no real agent call or a partial stub run. */
-export function assertRealAgentReceipts(
-  receipts: ReadonlyArray<CostReceipt>,
-  opts: { allowMixed?: boolean } = {},
-): BackendIntegrityReport {
-  const report = summarizeAgentReceiptIntegrity(receipts)
-  return assertBackendReport(report, opts)
-}
-
 function assertBackendReport(
   report: BackendIntegrityReport,
   opts: { allowMixed?: boolean },

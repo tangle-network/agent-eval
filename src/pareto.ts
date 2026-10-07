@@ -70,48 +70,6 @@ export function paretoFrontier<T>(candidates: T[], objectives: Objective<T>[]): 
 }
 
 /**
- * Weighted-sum scalarisation. Use as a tie-break / single-winner selector
- * when callers don't want to consume a frontier. Each objective contributes
- * its normalised value (0..1 via min-max across the candidate pool) times
- * its weight; missing weights default to 1/N.
- *
- * Direction is honoured automatically — `minimize` axes have their values
- * inverted before scaling so "higher scalar = better" always holds.
- */
-export function scalarScore<T>(
-  candidates: T[],
-  objectives: Objective<T>[],
-  options: { weights?: Partial<Record<string, number>> } = {},
-): Array<{ candidate: T; score: number }> {
-  if (candidates.length === 0) return []
-  const weights = options.weights ?? {}
-  const totalWeight = objectives.reduce((s, o) => s + (weights[o.name] ?? 1), 0)
-
-  // Pre-compute min/max per objective for normalisation.
-  const ranges = objectives.map((obj) => {
-    const values = candidates.map((c) => obj.value(c)).filter((v) => Number.isFinite(v))
-    if (values.length === 0) return { min: 0, max: 1 }
-    const min = Math.min(...values)
-    const max = Math.max(...values)
-    return { min, max: max === min ? min + 1 : max }
-  })
-
-  return candidates.map((c) => {
-    let score = 0
-    objectives.forEach((obj, i) => {
-      const v = obj.value(c)
-      if (!Number.isFinite(v)) return
-      const { min, max } = ranges[i]!
-      const normalised = (v - min) / (max - min)
-      const directional = obj.direction === 'maximize' ? normalised : 1 - normalised
-      const weight = (weights[obj.name] ?? 1) / totalWeight
-      score += directional * weight
-    })
-    return { candidate: c, score }
-  })
-}
-
-/**
  * NSGA-II crowding distance — secondary sort for ties on the frontier.
  *
  * When the Pareto front collapses to a single point (or many candidates tie

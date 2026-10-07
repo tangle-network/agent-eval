@@ -468,6 +468,58 @@ export function verifySearchClaim(state: SearchStateView): SearchClaimVerificati
   return differences.length === 0 ? { status: 'verified' } : { status: 'mismatch', differences }
 }
 
+/**
+ * The paired decision a closed search's claim made for one finalist it
+ * tested: `decidePairedPromotion` on per-unit test means with the root as
+ * control, in the objective's direction (its `delta` is the improvement), at
+ * the finalist's Bonferroni confidence, with the claim's estimator, resamples
+ * and seed. A consumer cites it with the claim as the evidence that promoted
+ * the finalist, instead of deciding a second time from the same cells.
+ *
+ * It is made again from the ledger alone and must reproduce the claim's
+ * recorded test for the finalist byte for byte; it throws when it does not,
+ * when the search is open, and when the claim names a rule revision this code
+ * does not implement. Returns null when the claim tested no such finalist.
+ */
+export function searchClaimDecision(
+  state: SearchStateView,
+  nodeId: string,
+): PairedPromotionDecision | null {
+  const closed = state.closed
+  if (!closed) {
+    throw new Error(`search ${state.searchId} is open; its claim is made when it closes`)
+  }
+  const claim = closed.claim
+  if (claim === null) return null
+  if (claim.rule.revision !== SEARCH_CLAIM_RULE.revision) {
+    throw new Error(
+      `the claim of search ${state.searchId} names rule revision ${claim.rule.revision}; this code implements ${SEARCH_CLAIM_RULE.revision}`,
+    )
+  }
+  const finalist = claim.finalists.find((entry) => entry.nodeId === nodeId)
+  if (finalist === undefined || finalist.test === null || !('adequate' in claim.power)) {
+    return null
+  }
+  const header = requireHeader(state)
+  const root = state.rootNodeId!
+  const estimate = estimateNode(state, nodeId, { against: root, split: 'test' })
+  const tested = pairedTest({
+    root: state.unitScores(root, 'test'),
+    node: state.unitScores(nodeId, 'test'),
+    testUnits: unitIds(header.splits.test.tasks),
+    confidence: bonferroni(claim.finalists.length),
+    estimator: claim.power.estimator,
+    maximize: header.objective.direction === 'maximize',
+    seed: seedFromDigest(estimate.cellSetDigest),
+  })
+  if (tested.decision === null || canonicalString(tested.test) !== canonicalString(finalist.test)) {
+    throw new Error(
+      `search ${state.searchId}: the ledger does not reproduce the claim's test of ${nodeId}; verify the claim with verifySearchClaim`,
+    )
+  }
+  return tested.decision
+}
+
 /** Per-finalist confidence for `k` finalists. */
 function bonferroni(k: number): number {
   return 1 - (1 - FAMILY_CONFIDENCE) / k
@@ -651,7 +703,13 @@ function pairedTest(input: {
   estimator: SearchClaimEstimator
   maximize: boolean
   seed: number
-}): { test: SearchClaimTest | null; promote: boolean; improvement: number | null; why: string } {
+}): {
+  test: SearchClaimTest | null
+  decision: PairedPromotionDecision | null
+  promote: boolean
+  improvement: number | null
+  why: string
+} {
   const rootMeans = new Map(input.root.map((unit) => [unit.unitId, unit.mean]))
   const before: number[] = []
   const after: number[] = []
@@ -666,6 +724,7 @@ function pairedTest(input: {
   if (pairs === 0) {
     return {
       test: null,
+      decision: null,
       promote: false,
       improvement: null,
       why: 'no test unit was scored by both it and the root',
@@ -678,6 +737,7 @@ function pairedTest(input: {
   ) {
     return {
       test: null,
+      decision: null,
       promote: false,
       improvement: null,
       why: `a test score left the two-point scale {0, ${estimator.scale}} the claim fixed before the test`,
@@ -713,7 +773,7 @@ function pairedTest(input: {
           : decision.exactTestVetoes
             ? "McNemar's exact test vetoes the improvement"
             : `its improvement interval [${round(decision.low)}, ${round(decision.high)}] at confidence ${round(input.confidence)} does not exclude 0`
-  return { test, promote, improvement: decision.delta, why }
+  return { test, decision, promote, improvement: decision.delta, why }
 }
 
 function requireHeader(state: SearchStateView) {

@@ -113,12 +113,6 @@ export function searchCellRunId(search: Pick<RunSearchCoordinates, 'cellId' | 'a
   return `${search.cellId}:${search.attempt}`
 }
 
-/** The run's proven spend: its total when known, its floor when only a floor is proven, else 0. */
-export function runCostFloorUsd(record: Pick<RunRecord, 'costUsd' | 'costProvenance'>): number {
-  if (record.costProvenance.kind === 'lower-bound') return record.costProvenance.knownLowerBoundUsd
-  return record.costUsd ?? 0
-}
-
 export interface RunJudgeMetadata {
   model: string
   promptVersion: string
@@ -671,12 +665,6 @@ export function parseRunRecordSafe(
     if (e instanceof RunRecordValidationError) return { ok: false, error: e }
     throw e
   }
-}
-
-/** Round-trip helper — `JSON.parse(JSON.stringify(record))` then validate. */
-export function roundTripRunRecord(record: RunRecord): RunRecord {
-  const json = JSON.stringify(record)
-  return validateRunRecord(JSON.parse(json))
 }
 
 // ── Internals ────────────────────────────────────────────────────────

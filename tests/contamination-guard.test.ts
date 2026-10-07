@@ -104,31 +104,6 @@ describe('checkBehavioralCanary', () => {
   })
 })
 
-describe('runBehavioralCanaries', () => {
-  it('aggregates leaks across (scenario, output) pairs and propagates runId', () => {
-    const cases = [
-      {
-        scenario: { id: 'a', payload: {}, forbiddenPattern: 'bad' },
-        output: 'totally bad',
-        runId: 'r1',
-      },
-      {
-        scenario: { id: 'b', payload: {}, forbiddenPattern: 'bad' },
-        output: 'all good',
-        runId: 'r2',
-      },
-      {
-        scenario: { id: 'c', payload: {}, forbiddenPattern: 'oof' },
-        output: 'oof oof',
-        runId: 'r3',
-      },
-    ]
-    const leaks = runBehavioralCanaries(cases)
-    expect(leaks.map((l) => l.scenarioId).sort()).toEqual(['a', 'c'])
-    expect(leaks.find((l) => l.scenarioId === 'a')?.runId).toBe('r1')
-  })
-})
-
 describe('HoldoutAuditor', () => {
   it('rejects bogus purpose — regression: accidental reads into training pipelines must fail loudly', () => {
     const audit = new HoldoutAuditor([{ id: 'a', payload: {} }])

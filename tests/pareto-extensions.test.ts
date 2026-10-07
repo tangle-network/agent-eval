@@ -18,43 +18,6 @@ const objs: Objective<Candidate>[] = [
   { name: 'cost', direction: 'minimize', value: (c) => c.cost },
 ]
 
-describe('scalarScore', () => {
-  it('honours direction (minimize axes get inverted)', () => {
-    const candidates: Candidate[] = [
-      { id: 'a', recall: 1.0, cost: 1000 },
-      { id: 'b', recall: 0.5, cost: 100 },
-    ]
-    const scored = scalarScore(candidates, objs)
-    // a wins on recall, b wins on cost — equal weights → roughly tied
-    const aScore = scored.find((s) => s.candidate.id === 'a')!.score
-    const bScore = scored.find((s) => s.candidate.id === 'b')!.score
-    // Both should be ~0.5 with min-max norm
-    expect(aScore).toBeCloseTo(0.5, 1)
-    expect(bScore).toBeCloseTo(0.5, 1)
-  })
-
-  it('weights bias the result', () => {
-    const candidates: Candidate[] = [
-      { id: 'a', recall: 1.0, cost: 1000 },
-      { id: 'b', recall: 0.5, cost: 100 },
-    ]
-    const scored = scalarScore(candidates, objs, { weights: { recall: 9, cost: 1 } })
-    const aScore = scored.find((s) => s.candidate.id === 'a')!.score
-    const bScore = scored.find((s) => s.candidate.id === 'b')!.score
-    expect(aScore).toBeGreaterThan(bScore)
-  })
-
-  it('returns [] for empty candidates', () => {
-    expect(scalarScore([], objs)).toEqual([])
-  })
-
-  it('handles single-candidate (no normalisation crash)', () => {
-    const scored = scalarScore([{ id: 'only', recall: 0.7, cost: 500 }], objs)
-    expect(scored).toHaveLength(1)
-    expect(Number.isFinite(scored[0]!.score)).toBe(true)
-  })
-})
-
 describe('crowdingDistance', () => {
   it('boundary points get infinity', () => {
     const candidates: Candidate[] = [

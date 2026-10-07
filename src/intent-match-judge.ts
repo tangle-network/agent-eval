@@ -237,12 +237,3 @@ export async function runIntentMatchJudge(
     }
   }
 }
-
-/**
- * Factory: pin the transport and options once, return a closure.
- */
-export function createIntentMatchJudge(
-  options: IntentMatchOptions,
-): (input: IntentMatchInput) => Promise<IntentMatchResult> {
-  return (input) => runIntentMatchJudge(input, options)
-}

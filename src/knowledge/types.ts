@@ -108,9 +108,3 @@ export interface DataAcquisitionPlan {
   questions?: UserQuestion[]
   metadata?: Record<string, unknown>
 }
-
-export type KnowledgeResponsibleSurface =
-  | 'knowledge-requirements'
-  | 'data-acquisition'
-  | 'retrieval-policy'
-  | 'user-question-policy'

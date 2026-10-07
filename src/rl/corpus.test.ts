@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -11,7 +11,7 @@ import type { RlDatasetConfig } from './dataset'
 // regression here means the dataset silently stops accumulating (lost free
 // exhaust) or harvests records with no trajectory (untrainable rows).
 
-const DIR = join(tmpdir(), 'agent-eval-corpus-test')
+const DIR = mkdtempSync(join(tmpdir(), 'agent-eval-corpus-test-'))
 
 function rec(
   runId: string,

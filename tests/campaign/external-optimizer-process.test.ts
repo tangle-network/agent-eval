@@ -443,16 +443,20 @@ describe('external optimizer process', () => {
 
   it('passes only safe inherited variables plus explicit runner environment', async () => {
     process.env.AGENT_EVAL_TEST_SECRET = 'must-not-leak'
+    const loaderPath = process.env.LD_LIBRARY_PATH
+    // A shared-library interpreter needs its loader path to bind its own libpython.
+    process.env.LD_LIBRARY_PATH = '/opt/python/3.12.15/lib'
     const script = [
       "const { writeFileSync } = require('node:fs')",
       "const output = process.argv[process.argv.indexOf('--output') + 1]",
-      'writeFileSync(output, JSON.stringify({ inherited: process.env.AGENT_EVAL_TEST_SECRET ?? null, explicit: process.env.EXPLICIT_VALUE }))',
+      'writeFileSync(output, JSON.stringify({ inherited: process.env.AGENT_EVAL_TEST_SECRET ?? null, explicit: process.env.EXPLICIT_VALUE, loader: process.env.LD_LIBRARY_PATH ?? null }))',
     ].join(';')
 
     try {
       const result = await runExternalOptimizerProcess<{
         inherited: string | null
         explicit: string
+        loader: string | null
       }>({
         label: 'isolated optimizer',
         tempPrefix: 'agent-eval-isolated-env-',
@@ -465,10 +469,33 @@ describe('external optimizer process', () => {
         },
         timeoutMs: 5_000,
       })
-      expect(result).toEqual({ inherited: null, explicit: 'present' })
+      expect(result).toEqual({
+        inherited: null,
+        explicit: 'present',
+        loader: '/opt/python/3.12.15/lib',
+      })
     } finally {
       delete process.env.AGENT_EVAL_TEST_SECRET
+      if (loaderPath === undefined) delete process.env.LD_LIBRARY_PATH
+      else process.env.LD_LIBRARY_PATH = loaderPath
     }
+  })
+
+  it('names the signal that ended the process', async () => {
+    const error = await runExternalOptimizerProcess({
+      label: 'signalled optimizer',
+      tempPrefix: 'agent-eval-signalled-',
+      module: 'unused',
+      input: {},
+      runner: {
+        command: process.execPath,
+        args: ['-e', "process.kill(process.pid, 'SIGSEGV')", '--'],
+      },
+      timeoutMs: 5_000,
+    }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      message: expect.stringMatching(/^signalled optimizer exited on signal SIGSEGV\./),
+    })
   })
 
   it('resolves a path-like runner command before entering the private working directory', async () => {
