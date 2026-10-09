@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.209.2] — 2026-10-09
+
+- fix(dspy): use the pinned RLM constructor and verify real startup (#959)
+- feat(readers): read Claude Code and OpenCode sessions through @tangle-network/harness-sessions (#938)
+- ci: run workflows on GitHub-hosted runners again (#955)
+- refactor: delete functions only their own tests call (#954)
+
 ## [0.209.1] — 2026-10-06
 
 - fix(deps): move to agent-interface 3 so a consumer installs one copy (#952)
