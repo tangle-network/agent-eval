@@ -17,7 +17,6 @@ from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -469,7 +468,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 f"taskInputs.taskStatement must be a string, got {type(statement).__name__}"
             )
-    with _probed_interpreter(dspy) as (_, deno_command):
+    with _probed_interpreter(dspy) as (interpreter, deno_command):
         runtime = _runtime_identity(deno_command)
         lm = dspy.LM(
             f"openai/{model_proxy['model']}",
@@ -486,7 +485,10 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             extra_body={"thinking": {"type": "disabled"}},
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
-        interpreter_factory = partial(dspy.PythonInterpreter, deno_command=deno_command)
+
+        def interpreter_factory() -> Any:
+            return interpreter
+
         interpreter_factory.execution_instructions = getattr(
             dspy.PythonInterpreter, "execution_instructions", ""
         )
@@ -497,8 +499,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             max_output_chars=limits["maxOutputChars"],
             tools=tools,
             sub_lm=lm,
-            # DSPy owns a fresh interpreter per execution. Keep the pre-model
-            # startup probe separate, and preserve its sandbox command/import map.
+            # This program runs once: hand DSPy the same per-analysis sandbox
+            # that passed the startup probe. The outer context also cleans up
+            # if construction fails before DSPy takes ownership.
             interpreter_factory=interpreter_factory,
         )
 

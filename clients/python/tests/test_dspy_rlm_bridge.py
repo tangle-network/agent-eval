@@ -185,6 +185,7 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
     assert calls["rlm"]["max_iters"] == 4
     assert calls["rlm"]["max_llm_calls"] == 6
     assert calls["rlm"]["max_output_chars"] == 8_000
+    assert calls["rlm"]["interpreter_factory"]() is calls["interpreter"]
     assert [tool.name for tool in calls["rlm"]["tools"]] == ["viewTrace"]
     tool = calls["rlm"]["tools"][0]
     assert tool.desc == "Read one trace."
@@ -947,37 +948,86 @@ def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
     assert error is not None and "provider refused" in error
 
 
-def test_analyze_constructs_pinned_dspy_rlm_without_inference(
+@pytest.mark.parametrize("fail_execution", [False, True])
+def test_analyze_with_installed_dspy_rlm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fail_execution: bool,
+) -> None:
+    """Exercise the pinned constructor and forward lifecycle without model or Deno calls."""
+    dspy = pytest.importorskip("dspy")
+    from dspy.primitives.code_interpreter import CodeInterpreterError, FinalOutput
+    from dspy.utils import DummyLM
+
+    interpreters: list[Any] = []
+
+    class Interpreter:
+        def __init__(self, *, deno_command: list[str]) -> None:
+            assert deno_command == DENO_COMMAND
+            self.tools: dict[str, Any] = {}
+            self.codes: list[str] = []
+            self.closed = False
+            interpreters.append(self)
+
+        def start(self) -> None:
+            pass
+
+        def execute(self, code: str, variables: Any = None) -> Any:
+            assert not self.closed
+            self.codes.append(code)
+            if code == "print(1+1)":
+                return "2\n"
+            assert "viewTrace" in self.tools
+            assert "llm_query" in self.tools
+            if fail_execution:
+                raise CodeInterpreterError("test sandbox failure")
+            return FinalOutput(
+                {"answer": dspy_rlm_bridge._SAFE_FIELD_DEFAULTS["answer"], "findings_json": "[]"}
+            )
+
+        def shutdown(self) -> None:
+            self.closed = True
+
+    lm = DummyLM([{"reasoning": "Submit the result.", "code": "SUBMIT()"}])
+    monkeypatch.setattr(dspy, "LM", lambda *args, **kwargs: lm)
+    monkeypatch.setattr(dspy, "PythonInterpreter", Interpreter)
+
+    if fail_execution:
+        with pytest.raises(CodeInterpreterError, match="test sandbox failure"):
+            _run_analyze_main(monkeypatch, tmp_path, dspy)
+    else:
+        output = _run_analyze_main(monkeypatch, tmp_path, dspy)
+        assert output["answer"] == dspy_rlm_bridge._SAFE_FIELD_DEFAULTS["answer"]
+        assert output["findings"] == []
+        assert output["modelCalls"] == 1
+    assert len(interpreters) == 1
+    assert interpreters[0].codes == ["print(1+1)", "SUBMIT()"]
+    assert interpreters[0].closed
+
+
+def test_analyze_preserves_installed_dspy_execution_instructions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     dspy = pytest.importorskip("dspy")
+    interpreter = dspy.PythonInterpreter(deno_command=DENO_COMMAND)
 
     @contextmanager
     def probed_interpreter(_dspy: Any) -> Any:
-        yield None, DENO_COMMAND
+        try:
+            yield interpreter, DENO_COMMAND
+        finally:
+            interpreter.shutdown()
 
     class ConstructedWithoutInference(Exception):
         pass
 
     def stop_before_inference(program: Any, **_inputs: Any) -> Any:
         assert (
-            program._initial_execution_instructions == dspy.PythonInterpreter.execution_instructions
+            dspy.PythonInterpreter.execution_instructions
+            in program.generate_action.signature.instructions
         )
-        assert program.max_iters == 4
-        assert program.max_llm_calls == 6
-        assert program.max_output_chars == 8_000
-        # The factory must create independent sandboxes, not reuse the probe.
-        first = program._interpreter_factory()
-        second = program._interpreter_factory()
-        try:
-            assert isinstance(first, dspy.PythonInterpreter)
-            assert first is not second
-            assert first.deno_command == DENO_COMMAND
-            assert second.deno_command == DENO_COMMAND
-        finally:
-            first.shutdown()
-            second.shutdown()
+        assert program._interpreter_factory() is interpreter
         raise ConstructedWithoutInference
 
     monkeypatch.setattr(dspy_rlm_bridge, "_probed_interpreter", probed_interpreter)

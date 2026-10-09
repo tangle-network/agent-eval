@@ -388,7 +388,7 @@ uv sync --frozen --extra dev --group skillopt-source --group gepa-source
 uv run --frozen --extra dev --group skillopt-source --group gepa-source pytest
 
 uv sync --frozen --extra dev --extra dspy
-uv run --frozen --extra dev --extra dspy pytest tests/test_dspy_metric.py
+uv run --frozen --extra dev --extra dspy pytest tests/test_dspy_metric.py tests/test_dspy_rlm_bridge*.py
 ```
 
 Keep the same extras and groups on `uv sync` and `uv run`.

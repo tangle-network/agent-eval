@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.209.1",
+  "version": "0.209.2",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -216,9 +216,9 @@
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
     "verify:package": "pnpm check:analyst-benchmark && pnpm run check:skill && pnpm run check:model-ids && pnpm run check:canonical-json && pnpm run check:collation-ordering && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run contract:finding:check && pnpm run evidence:check",
     "contract:finding": "tsx scripts/emit-finding-contract.ts",
-    "contract:finding:check": "tsx scripts/emit-finding-contract.ts --check",
+    "contract:finding:check": "node --import tsx scripts/emit-finding-contract.ts --check",
     "evidence:render": "tsx scripts/render-evidence-index.ts",
-    "evidence:check": "tsx scripts/render-evidence-index.ts --check",
+    "evidence:check": "node --import tsx scripts/render-evidence-index.ts --check",
     "redaction:corpus": "tsx scripts/redaction-corpus.ts"
   },
   "dependencies": {
