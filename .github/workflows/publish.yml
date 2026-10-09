@@ -112,7 +112,7 @@ jobs:
 
       - name: Test DSPy metric adapter
         working-directory: clients/python
-        run: uv run --frozen --extra dev --extra dspy pytest -v tests/test_dspy_metric.py
+        run: uv run --frozen --extra dev --extra dspy pytest -v tests/test_dspy_metric.py tests/test_dspy_rlm_bridge.py
 
       - name: Verify publishable Python distributions
         working-directory: clients/python

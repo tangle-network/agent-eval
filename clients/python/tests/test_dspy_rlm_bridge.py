@@ -182,10 +182,9 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
     }
     assert calls["context_lm"] is calls["lm_instance"]
     assert calls["rlm"]["sub_lm"] is calls["lm_instance"]
-    assert calls["rlm"]["max_iterations"] == 4
+    assert calls["rlm"]["max_iters"] == 4
     assert calls["rlm"]["max_llm_calls"] == 6
     assert calls["rlm"]["max_output_chars"] == 8_000
-    assert calls["rlm"]["interpreter"] is calls["interpreter"]
     assert [tool.name for tool in calls["rlm"]["tools"]] == ["viewTrace"]
     tool = calls["rlm"]["tools"][0]
     assert tool.desc == "Read one trace."
@@ -946,3 +945,42 @@ def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
     assert accepted == []
     assert rejected == []
     assert error is not None and "provider refused" in error
+
+
+def test_analyze_constructs_pinned_dspy_rlm_without_inference(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dspy = pytest.importorskip("dspy")
+
+    @contextmanager
+    def probed_interpreter(_dspy: Any) -> Any:
+        yield None, DENO_COMMAND
+
+    class ConstructedWithoutInference(Exception):
+        pass
+
+    def stop_before_inference(program: Any, **_inputs: Any) -> Any:
+        assert program._initial_execution_instructions == dspy.PythonInterpreter.execution_instructions
+        assert program.max_iters == 4
+        assert program.max_llm_calls == 6
+        assert program.max_output_chars == 8_000
+        # The factory must create independent sandboxes, not reuse the probe.
+        first = program._interpreter_factory()
+        second = program._interpreter_factory()
+        try:
+            assert isinstance(first, dspy.PythonInterpreter)
+            assert first is not second
+            assert first.deno_command == DENO_COMMAND
+            assert second.deno_command == DENO_COMMAND
+        finally:
+            first.shutdown()
+            second.shutdown()
+        raise ConstructedWithoutInference
+
+    monkeypatch.setattr(dspy_rlm_bridge, "_probed_interpreter", probed_interpreter)
+    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
+    monkeypatch.setattr(dspy.RLM, "forward", stop_before_inference)
+    input_path, _ = _write_analyze_input(tmp_path)
+    with pytest.raises(ConstructedWithoutInference):
+        dspy_rlm_bridge._analyze(json.loads(input_path.read_text()))

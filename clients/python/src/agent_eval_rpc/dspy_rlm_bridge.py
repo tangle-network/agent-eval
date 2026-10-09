@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -468,7 +469,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 f"taskInputs.taskStatement must be a string, got {type(statement).__name__}"
             )
-    with _probed_interpreter(dspy) as (interpreter, deno_command):
+    with _probed_interpreter(dspy) as (_, deno_command):
         runtime = _runtime_identity(deno_command)
         lm = dspy.LM(
             f"openai/{model_proxy['model']}",
@@ -485,14 +486,20 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             extra_body={"thinking": {"type": "disabled"}},
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
+        interpreter_factory = partial(dspy.PythonInterpreter, deno_command=deno_command)
+        interpreter_factory.execution_instructions = getattr(
+            dspy.PythonInterpreter, "execution_instructions", ""
+        )
         program = dspy.RLM(
             _build_signature_for(dspy, task_kind),
-            max_iterations=limits["maxIterations"],
+            max_iters=limits["maxIterations"],
             max_llm_calls=limits["maxLlmCalls"],
             max_output_chars=limits["maxOutputChars"],
             tools=tools,
             sub_lm=lm,
-            interpreter=interpreter,
+            # DSPy owns a fresh interpreter per execution. Keep the pre-model
+            # startup probe separate, and preserve its sandbox command/import map.
+            interpreter_factory=interpreter_factory,
         )
 
         history_before = _lm_history_length(lm)

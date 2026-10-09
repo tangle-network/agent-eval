@@ -39,6 +39,9 @@ python -m venv .venv
 ```
 
 The Python extra pins the tested stable DSPy and Deno versions.
+The bridge uses DSPy 3.4’s interpreter factory: every RLM execution owns a fresh
+sandbox with the same restricted Deno command and pinned import map as the
+startup probe. The probe runs before any model call.
 
 ## Build An Engine Without Python
 
