@@ -961,7 +961,9 @@ def test_analyze_constructs_pinned_dspy_rlm_without_inference(
         pass
 
     def stop_before_inference(program: Any, **_inputs: Any) -> Any:
-        assert program._initial_execution_instructions == dspy.PythonInterpreter.execution_instructions
+        assert (
+            program._initial_execution_instructions == dspy.PythonInterpreter.execution_instructions
+        )
         assert program.max_iters == 4
         assert program.max_llm_calls == 6
         assert program.max_output_chars == 8_000
