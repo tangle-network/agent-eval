@@ -1,6 +1,27 @@
-import { createServer, type IncomingMessage, type Server } from 'node:http'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import {
+  type ClientRequest,
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type RequestOptions,
+  type Server,
+} from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { nodeHttpPrimeBridgeTransport } from './prime-bridge-transport'
+
+vi.mock('node:http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:http')>()
+  return { ...actual, request: vi.fn(actual.request) }
+})
+
+vi.mock('node:https', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:https')>()
+  return { ...actual, request: vi.fn() }
+})
+
+afterEach(() => vi.resetAllMocks())
 
 interface RecordedRequest {
   method: string | undefined
@@ -110,15 +131,49 @@ describe('nodeHttpPrimeBridgeTransport', () => {
       }),
     ).toThrow(/bridge URL must be http: or https:, got ftp:/)
 
-    // An https URL reaches the request, so the only way out is the abort — a
-    // scheme rejection would have thrown synchronously instead.
+    // Intercept the network boundary: scheme admission must not depend on DNS
+    // or a TLS peer. The other tests exercise the real local HTTP transport.
     const controller = new AbortController()
+    const request = new EventEmitter() as ClientRequest
+    request.end = vi.fn(() => request)
+    const abortError = new Error('request aborted')
+    vi.mocked(httpRequest).mockImplementationOnce(() => {
+      throw new Error('HTTPS incorrectly selected the HTTP transport')
+    })
+    vi.mocked(httpsRequest).mockImplementationOnce((options) => {
+      if (typeof options === 'string' || options instanceof URL) {
+        throw new Error('expected request options')
+      }
+      const requestOptions = options as unknown as RequestOptions
+      requestOptions.signal?.addEventListener('abort', () => request.emit('error', abortError), {
+        once: true,
+      })
+      return request
+    })
+    const body = { model: 'm', messages: [{ role: 'user' as const, content: 'hi' }] }
+    const encoded = JSON.stringify(body)
     const pending = transport({
-      url: 'https://bridge.invalid/v1/chat/completions',
-      body: { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
+      url: 'https://bridge.invalid/v1/chat/completions?tenant=acme',
+      body,
       signal: controller.signal,
     })
+    expect(httpsRequest).toHaveBeenCalledExactlyOnceWith(
+      {
+        hostname: 'bridge.invalid',
+        port: '',
+        path: '/v1/chat/completions?tenant=acme',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(encoded),
+        },
+        signal: controller.signal,
+      },
+      expect.any(Function),
+    )
+    expect(httpRequest).not.toHaveBeenCalled()
+    expect(request.end).toHaveBeenCalledExactlyOnceWith(encoded)
     controller.abort()
-    await expect(pending).rejects.toThrow()
+    await expect(pending).rejects.toBe(abortError)
   })
 })
