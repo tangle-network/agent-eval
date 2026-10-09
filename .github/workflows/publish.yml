@@ -110,9 +110,9 @@ jobs:
         working-directory: clients/python
         run: uv sync --frozen --extra dev --extra dspy
 
-      - name: Test DSPy metric adapter
+      - name: Test DSPy metric and RLM compatibility
         working-directory: clients/python
-        run: uv run --frozen --extra dev --extra dspy pytest -v tests/test_dspy_metric.py
+        run: uv run --frozen --extra dev --extra dspy pytest -v tests/test_dspy_metric.py tests/test_dspy_rlm_bridge.py tests/test_dspy_rlm_bridge_codetrace.py tests/test_dspy_rlm_bridge_repair.py
 
       - name: Verify publishable Python distributions
         working-directory: clients/python

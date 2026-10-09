@@ -487,12 +487,15 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
         program = dspy.RLM(
             _build_signature_for(dspy, task_kind),
-            max_iterations=limits["maxIterations"],
+            max_iters=limits["maxIterations"],
             max_llm_calls=limits["maxLlmCalls"],
             max_output_chars=limits["maxOutputChars"],
             tools=tools,
             sub_lm=lm,
-            interpreter=interpreter,
+            # This program runs once: hand DSPy the same per-analysis sandbox
+            # that passed the startup probe. The outer context also cleans up
+            # if construction fails before DSPy takes ownership.
+            interpreter_factory=lambda: interpreter,
         )
 
         history_before = _lm_history_length(lm)

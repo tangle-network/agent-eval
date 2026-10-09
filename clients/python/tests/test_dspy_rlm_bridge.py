@@ -182,10 +182,10 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
     }
     assert calls["context_lm"] is calls["lm_instance"]
     assert calls["rlm"]["sub_lm"] is calls["lm_instance"]
-    assert calls["rlm"]["max_iterations"] == 4
+    assert calls["rlm"]["max_iters"] == 4
     assert calls["rlm"]["max_llm_calls"] == 6
     assert calls["rlm"]["max_output_chars"] == 8_000
-    assert calls["rlm"]["interpreter"] is calls["interpreter"]
+    assert calls["rlm"]["interpreter_factory"]() is calls["interpreter"]
     assert [tool.name for tool in calls["rlm"]["tools"]] == ["viewTrace"]
     tool = calls["rlm"]["tools"][0]
     assert tool.desc == "Read one trace."
@@ -946,3 +946,60 @@ def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
     assert accepted == []
     assert rejected == []
     assert error is not None and "provider refused" in error
+
+
+@pytest.mark.parametrize("fail_execution", [False, True])
+def test_analyze_with_installed_dspy_rlm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fail_execution: bool,
+) -> None:
+    """Exercise the pinned constructor and forward lifecycle without model or Deno calls."""
+    dspy = pytest.importorskip("dspy")
+    from dspy.primitives.code_interpreter import CodeInterpreterError, FinalOutput
+    from dspy.utils import DummyLM
+
+    interpreters: list[Any] = []
+
+    class Interpreter:
+        def __init__(self, *, deno_command: list[str]) -> None:
+            assert deno_command == DENO_COMMAND
+            self.tools: dict[str, Any] = {}
+            self.codes: list[str] = []
+            self.closed = False
+            interpreters.append(self)
+
+        def start(self) -> None:
+            pass
+
+        def execute(self, code: str, variables: Any = None) -> Any:
+            assert not self.closed
+            self.codes.append(code)
+            if code == "print(1+1)":
+                return "2\n"
+            assert "viewTrace" in self.tools
+            assert "llm_query" in self.tools
+            if fail_execution:
+                raise CodeInterpreterError("test sandbox failure")
+            return FinalOutput(
+                {"answer": dspy_rlm_bridge._SAFE_FIELD_DEFAULTS["answer"], "findings_json": "[]"}
+            )
+
+        def shutdown(self) -> None:
+            self.closed = True
+
+    lm = DummyLM([{"reasoning": "Submit the result.", "code": "SUBMIT()"}])
+    monkeypatch.setattr(dspy, "LM", lambda *args, **kwargs: lm)
+    monkeypatch.setattr(dspy, "PythonInterpreter", Interpreter)
+
+    if fail_execution:
+        with pytest.raises(CodeInterpreterError, match="test sandbox failure"):
+            _run_analyze_main(monkeypatch, tmp_path, dspy)
+    else:
+        output = _run_analyze_main(monkeypatch, tmp_path, dspy)
+        assert output["answer"] == dspy_rlm_bridge._SAFE_FIELD_DEFAULTS["answer"]
+        assert output["findings"] == []
+        assert output["modelCalls"] == 1
+    assert len(interpreters) == 1
+    assert interpreters[0].codes == ["print(1+1)", "SUBMIT()"]
+    assert interpreters[0].closed
