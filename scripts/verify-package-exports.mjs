@@ -1435,6 +1435,16 @@ function readDependencyCohort(names) {
   return cohort
 }
 
+/** `>=a.b.c <x.y.z`, the bounded form a maintenance line may declare. */
+function boundedAdmits(range, version) {
+  const match = /^>=(\d+)\.(\d+)\.(\d+) <(\d+)\.(\d+)\.(\d+)$/.exec(range)
+  const installed = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+  if (!match || !installed) return false
+  const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+  const at = installed.slice(1).map(Number)
+  return compare(at, match.slice(1, 4).map(Number)) >= 0 && compare(at, match.slice(4, 7).map(Number)) < 0
+}
+
 function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
   writeFileSync(
     join(appDir, 'package.json'),
@@ -1484,7 +1494,7 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
     // schema round-trip below. Exact equality would reject a valid release
     // inside the declared range.
     const installedVersion = JSON.parse(readFileSync(manifests[0], 'utf8')).version
-    if (!caretAdmits(expectedRange, installedVersion)) {
+    if (!caretAdmits(expectedRange, installedVersion) && !boundedAdmits(expectedRange, installedVersion)) {
       throw new Error(
         `packed consumer installed ${name} ${installedVersion}, outside the declared range ${expectedRange}`,
       )
