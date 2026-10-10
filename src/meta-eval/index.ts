@@ -36,6 +36,7 @@ export {
   type ProbabilityPolicyAuditReport,
   planEvaluatorAudit,
 } from './evaluator-admission'
+export * from './judge-gate'
 export type { CorrelationInterval, OutcomeReduction } from './outcome-observations'
 export * from './outcome-store'
 export * from './plants'
