@@ -10,7 +10,12 @@
  * moves between runs and between samples, and where it disagreed.
  *
  * `judgeGateDecision` turns that report into the one decision a consumer acts
- * on. It refuses when the judge has no measured agreement, too few decided
+ * on. A judge either decides (`decides: 'verdict'`, the default: it passes and
+ * blocks, so it must reach the owner's verdict) or only vetoes
+ * (`decides: 'veto'`: a necessary-condition check such as a copy or policy
+ * check, which blocks but never passes work on its own; owners also reject
+ * for reasons it does not cover, so its error is blocking what they approved).
+ * It refuses when the judge has no measured agreement, too few decided
  * items of either verdict, a report measured on a different model or rubric
  * than the one the judge now runs, a report older than the policy allows,
  * agreement below the policy floors, or an alarmed drift history. A refused
@@ -247,6 +252,10 @@ export interface JudgeAgreement extends JudgeRunMeta {
    * no runs, or both sides used a single verdict.
    */
   kappa: number | null
+  /** Runs that failed what the owner passed, over runs on owner passes; null with none. A veto judge is held to this. */
+  falseFailRate: number | null
+  /** Runs that failed what the owner failed, over runs on owner fails; null with none. */
+  catchRate: number | null
   confusion: JudgeConfusion
   variance: {
     /** Mean over judged examples of p(1 − p), p the example's run pass rate. 0 = no run changed its mind. */
@@ -376,6 +385,14 @@ export function measureJudgeAgreement(
             ),
           },
     kappa: binaryKappa(confusion),
+    falseFailRate:
+      confusion.truePass + confusion.falseFail === 0
+        ? null
+        : confusion.falseFail / (confusion.truePass + confusion.falseFail),
+    catchRate:
+      confusion.trueFail + confusion.falsePass === 0
+        ? null
+        : confusion.trueFail / (confusion.trueFail + confusion.falsePass),
     confusion,
     variance: {
       betweenRuns: mean(perExample.map((example) => example.passRate * (1 - example.passRate))),
@@ -392,7 +409,12 @@ export function measureJudgeAgreement(
 }
 
 export interface JudgeGatePolicy {
-  /** Judged examples required before the judge may gate. */
+  /**
+   * `verdict`: the judge passes and blocks, so accuracy and κ must hold.
+   * `veto`: it only blocks, so its false-fail rate on owner passes must hold.
+   */
+  decides: 'verdict' | 'veto'
+  /** Judged examples required before the judge may gate; for a veto judge, owner passes. */
   minExamples: number
   /** Judged examples required of each owner verdict, so κ is defined. */
   minPerVerdict: number
@@ -400,6 +422,8 @@ export interface JudgeGatePolicy {
   minAccuracy: number
   /** Floor on Cohen's κ. */
   minKappa: number
+  /** Ceiling on a veto judge's false-fail rate. */
+  maxFalseFailRate: number
   /** A report older than this (days, vs `asOf`) no longer calibrates the judge. */
   maxAgeDays: number
   /** Drift thresholds forwarded to `judgeSentinelReport` over the history. */
@@ -407,10 +431,12 @@ export interface JudgeGatePolicy {
 }
 
 export const DEFAULT_JUDGE_GATE_POLICY: Readonly<JudgeGatePolicy> = Object.freeze({
+  decides: 'verdict',
   minExamples: 10,
   minPerVerdict: 1,
   minAccuracy: 0.9,
   minKappa: 0.6,
+  maxFalseFailRate: 0.1,
   maxAgeDays: 30,
 })
 
@@ -455,7 +481,17 @@ export function judgeGateDecision(input: JudgeGateInput): JudgeGateDecision {
   const judgeModel = requireText(input.judgeModel, 'judgeModel')
   const rubricVersion = requireText(input.rubricVersion, 'rubricVersion')
   const asOf = parseIso(input.asOf, 'asOf')
-  const policy: JudgeGatePolicy = { ...DEFAULT_JUDGE_GATE_POLICY, ...input.policy }
+  const policy: JudgeGatePolicy = {
+    ...DEFAULT_JUDGE_GATE_POLICY,
+    ...Object.fromEntries(
+      Object.entries(input.policy ?? {}).filter(([, value]) => value !== undefined),
+    ),
+  }
+  if (policy.decides !== 'verdict' && policy.decides !== 'veto') {
+    throw new ValidationError(
+      `judge-gate: policy.decides must be 'verdict' or 'veto', got ${JSON.stringify(policy.decides)}`,
+    )
+  }
   const agreement = input.agreement
   const decide = (status: JudgeGateStatus, reasons: string[]): JudgeGateDecision => ({
     judgeId,
@@ -490,27 +526,45 @@ export function judgeGateDecision(input: JudgeGateInput): JudgeGateDecision {
   if (ageDays > policy.maxAgeDays) {
     uncalibrated.push(`agreement is ${ageDays.toFixed(1)} days old (limit ${policy.maxAgeDays})`)
   }
-  if (agreement.judged < policy.minExamples) {
-    uncalibrated.push(
-      `${agreement.judged} judged ${agreement.judged === 1 ? 'example' : 'examples'}; at least ${policy.minExamples} required`,
-    )
-  }
-  for (const verdict of ['pass', 'fail'] as const) {
-    if (agreement.judgedByVerdict[verdict] < policy.minPerVerdict) {
+  if (policy.decides === 'veto') {
+    // Only owner passes can show a veto judge blocking what it should not.
+    if (agreement.judgedByVerdict.pass < policy.minExamples) {
       uncalibrated.push(
-        `${agreement.judgedByVerdict[verdict]} judged examples the owner marked ${verdict}; at least ${policy.minPerVerdict} required`,
+        `${agreement.judgedByVerdict.pass} judged examples the owner marked pass; a veto judge needs at least ${policy.minExamples}`,
       )
+    }
+  } else {
+    if (agreement.judged < policy.minExamples) {
+      uncalibrated.push(
+        `${agreement.judged} judged ${agreement.judged === 1 ? 'example' : 'examples'}; at least ${policy.minExamples} required`,
+      )
+    }
+    for (const verdict of ['pass', 'fail'] as const) {
+      if (agreement.judgedByVerdict[verdict] < policy.minPerVerdict) {
+        uncalibrated.push(
+          `${agreement.judgedByVerdict[verdict]} judged examples the owner marked ${verdict}; at least ${policy.minPerVerdict} required`,
+        )
+      }
     }
   }
   if (uncalibrated.length > 0) return decide('uncalibrated', uncalibrated)
 
   const below: string[] = []
-  if (agreement.accuracy === null || agreement.accuracy < policy.minAccuracy) {
+  if (policy.decides === 'veto') {
+    if (agreement.falseFailRate === null || agreement.falseFailRate > policy.maxFalseFailRate) {
+      below.push(
+        `it fails ${agreement.falseFailRate === null ? 'an unmeasured share' : percent(agreement.falseFailRate)} of what the owner passed (limit ${percent(policy.maxFalseFailRate)})`,
+      )
+    }
+  } else if (agreement.accuracy === null || agreement.accuracy < policy.minAccuracy) {
     below.push(
       `accuracy ${agreement.accuracy === null ? 'unmeasured' : percent(agreement.accuracy)} is below ${percent(policy.minAccuracy)}`,
     )
   }
-  if (agreement.kappa === null || agreement.kappa < policy.minKappa) {
+  if (
+    policy.decides === 'verdict' &&
+    (agreement.kappa === null || agreement.kappa < policy.minKappa)
+  ) {
     below.push(
       `kappa ${agreement.kappa === null ? 'undefined' : agreement.kappa.toFixed(2)} is below ${policy.minKappa}`,
     )
@@ -546,14 +600,25 @@ export function assertJudgeMayGate(decision: JudgeGateDecision): void {
 }
 
 /**
- * The sentinel snapshot for one calibration run: accuracy as
- * `sentinelPassRate`, κ as `calibrationKappa` when it is defined. Append it to
- * the judge's `SentinelStore`; the gate reads drift from that history.
+ * The sentinel snapshot for one calibration run. A deciding judge records
+ * accuracy as `sentinelPassRate` and κ as `calibrationKappa` when it is
+ * defined; a veto judge records the share of owner passes it let through as
+ * `sentinelPassRate`. Append it to the judge's `SentinelStore`; the gate reads
+ * drift from that history.
  */
-export function snapshotFromJudgeAgreement(agreement: JudgeAgreement): SentinelSnapshot {
-  if (agreement.accuracy === null) {
+export function snapshotFromJudgeAgreement(
+  agreement: JudgeAgreement,
+  options: { decides?: JudgeGatePolicy['decides'] } = {},
+): SentinelSnapshot {
+  const veto = options.decides === 'veto'
+  const rate = veto
+    ? agreement.falseFailRate === null
+      ? null
+      : 1 - agreement.falseFailRate
+    : agreement.accuracy
+  if (rate === null) {
     throw new ValidationError(
-      `snapshotFromJudgeAgreement: judge "${agreement.judgeId}" has no runs to snapshot`,
+      `snapshotFromJudgeAgreement: judge "${agreement.judgeId}" has no ${veto ? 'runs on owner passes' : 'runs'} to snapshot`,
     )
   }
   const snapshot: SentinelSnapshot = {
@@ -561,8 +626,8 @@ export function snapshotFromJudgeAgreement(agreement: JudgeAgreement): SentinelS
     judgeId: agreement.judgeId,
     judgeModel: agreement.judgeModel,
     metrics: {
-      sentinelPassRate: agreement.accuracy,
-      ...(agreement.kappa === null ? {} : { calibrationKappa: agreement.kappa }),
+      sentinelPassRate: rate,
+      ...(veto || agreement.kappa === null ? {} : { calibrationKappa: agreement.kappa }),
     },
   }
   validateSentinelSnapshot(snapshot)

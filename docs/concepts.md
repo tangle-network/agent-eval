@@ -362,7 +362,8 @@ The `/meta-eval` gate contract (also exported from the package root) provides it
    It reports accuracy over runs, Cohen's κ for the pass/fail pair (null when one side used a single verdict), the confusion table, an exact 95% interval over examples, variance between runs and between a run's samples, and every disagreement.
 3. **Decide whether it may gate.** `judgeGateDecision({ judgeId, judgeModel, rubricVersion, agreement, asOf, history })` refuses with named reasons when the judge was never measured, was measured on another model or rubric, has fewer judged examples than the policy requires (by default 10, and at least one of each verdict), has a report older than 30 days, falls below 90% accuracy or κ 0.6, or has an alarmed drift history.
    `assertJudgeMayGate(decision)` throws `JudgeGateRefusedError`; a refused judge's verdict is advisory.
-4. **Record drift.** `snapshotFromJudgeAgreement(agreement)` stores accuracy as `sentinelPassRate` and κ as `calibrationKappa` in the judge sentinel, so each calibration run appends one snapshot and `judgeSentinelReport` alarms on decay, a silent model change or staleness.
+   A judge that only blocks, such as a copy or policy check that never passes work on its own, takes `policy: { decides: 'veto' }`: owners reject for reasons it does not cover, so it is held instead to its false-fail rate on owner passes (at most 10%, over at least 10 owner passes), and its catch rate is reported.
+4. **Record drift.** `snapshotFromJudgeAgreement(agreement, { decides })` stores accuracy (for a veto judge, the share of owner passes it let through) as `sentinelPassRate` and κ as `calibrationKappa` in the judge sentinel, so each calibration run appends one snapshot and `judgeSentinelReport` alarms on decay, a silent model change or staleness.
 
 | Probe | Input | Observation |
 |---|---|---|
