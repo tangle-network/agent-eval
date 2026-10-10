@@ -19,6 +19,14 @@ Use Node.js 20.19 or newer.
 pnpm add @tangle-network/agent-eval
 ```
 
+## Contents
+
+- [Quickstart](#quickstart) — score your first change in 30 seconds
+- [Choose a workflow](#choose-a-workflow) — which API for which job
+- [Automated improvement](#make-automated-improvement-accountable) — the held-out gate
+- [Configure model calls](#configure-model-calls) — transports and pricing
+- [Public imports](#public-imports-and-evidence) — what you can rely on
+
 ## Quickstart
 
 This complete example runs offline.
@@ -87,6 +95,15 @@ The [runnable example](./examples/evaluate-a-change/) uses the same evaluation.
 The [existing-agent example](./examples/foreign-agent-quickstart/) shows how to connect your agent and record model usage.
 
 ## Choose a workflow
+
+| Goal | Start with |
+|---|---|
+| Score one change on the same cases | `defineAgentEval` — see the Quickstart above |
+| Compare two candidates on paired cases | `runComparison` — [example](./examples/evaluate-a-change/) |
+| Apply a release rule without search | `createHeldOutGate` — [example](./examples/held-out-gate/) |
+| Improve a prompt surface | `optimize` — [example](./examples/agent-engine-optimizer/) |
+| Analyze what happened | `analyzeRuns` — [docs](./docs/analyze-runs.md) |
+| Trace analysts (RLM) | [`@tangle-network/agent-runtime` — analysts guide](https://github.com/tangle-network/agent-runtime/blob/main/docs/analysts.md) |
 
 | Intent | Start with | Result |
 |---|---|---|
