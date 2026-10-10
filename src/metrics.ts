@@ -15,6 +15,10 @@ export const MODEL_PRICING: Record<string, TokenPrice> = {
   // 2026-08-15. Keep this exact row ahead of the deliberately coarse family
   // fallback so glm-5.3 campaign costs are not understated by ~2.5x.
   'glm-5.3': { input: 0.00168, output: 0.00528 },
+  // Tangle Router's published rate (`GET /v1/models`) on 2026-10-09:
+  // $0.10 / $0.50 per Mtok. Exact, because the coarse gpt-5 family row would
+  // overstate it 12x on input and 20x on output.
+  'gpt-6-luna': { input: 0.0001, output: 0.0005 },
 }
 
 /** Family-level pricing fallbacks (per-1K), matched against a normalized id
