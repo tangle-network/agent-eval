@@ -1003,3 +1003,36 @@ def test_analyze_with_installed_dspy_rlm(
     assert len(interpreters) == 1
     assert interpreters[0].codes == ["print(1+1)", "SUBMIT()"]
     assert interpreters[0].closed
+
+
+def test_analyze_preserves_installed_dspy_execution_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dspy = pytest.importorskip("dspy")
+    interpreter = dspy.PythonInterpreter(deno_command=DENO_COMMAND)
+
+    @contextmanager
+    def probed_interpreter(_dspy: Any) -> Any:
+        try:
+            yield interpreter, DENO_COMMAND
+        finally:
+            interpreter.shutdown()
+
+    class ConstructedWithoutInference(Exception):
+        pass
+
+    def stop_before_inference(program: Any, **_inputs: Any) -> Any:
+        assert (
+            dspy.PythonInterpreter.execution_instructions
+            in program.generate_action.signature.instructions
+        )
+        assert program._interpreter_factory() is interpreter
+        raise ConstructedWithoutInference
+
+    monkeypatch.setattr(dspy_rlm_bridge, "_probed_interpreter", probed_interpreter)
+    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
+    monkeypatch.setattr(dspy.RLM, "forward", stop_before_inference)
+    input_path, _ = _write_analyze_input(tmp_path)
+    with pytest.raises(ConstructedWithoutInference):
+        dspy_rlm_bridge._analyze(json.loads(input_path.read_text()))

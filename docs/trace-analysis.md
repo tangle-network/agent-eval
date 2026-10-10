@@ -39,6 +39,9 @@ python -m venv .venv
 ```
 
 The Python extra pins the tested stable DSPy and Deno versions.
+The bridge passes its already-probed per-analysis sandbox through DSPy’s
+interpreter factory, retaining the PythonInterpreter execution instructions
+that describe its Pyodide environment and permission limits.
 
 ## Build An Engine Without Python
 

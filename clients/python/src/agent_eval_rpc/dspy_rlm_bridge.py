@@ -485,6 +485,13 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             extra_body={"thinking": {"type": "disabled"}},
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
+
+        def interpreter_factory() -> Any:
+            return interpreter
+
+        interpreter_factory.execution_instructions = getattr(
+            dspy.PythonInterpreter, "execution_instructions", ""
+        )
         program = dspy.RLM(
             _build_signature_for(dspy, task_kind),
             max_iters=limits["maxIterations"],
@@ -495,7 +502,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             # This program runs once: hand DSPy the same per-analysis sandbox
             # that passed the startup probe. The outer context also cleans up
             # if construction fails before DSPy takes ownership.
-            interpreter_factory=lambda: interpreter,
+            interpreter_factory=interpreter_factory,
         )
 
         history_before = _lm_history_length(lm)
