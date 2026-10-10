@@ -33,6 +33,13 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
     expect(isModelPriced('union-alpha')).toBe(false)
   })
 
+  it('prices gpt-6-luna at the router rate, harness-qualified or not', () => {
+    for (const id of ['gpt-6-luna', 'openai-compat/gpt-6-luna', 'opencode/gpt-6-luna']) {
+      expect(resolveModelPricing(id)).toEqual({ input: 0.0001, output: 0.0005 })
+    }
+    expect(estimateCost(1_000_000, 1_000_000, 'gpt-6-luna')).toBeCloseTo(0.6, 6)
+  })
+
   it('still prices the exact legacy table entries', () => {
     expect(estimateCost(1000, 1000, 'gpt-4o')).toBeCloseTo(0.0125, 6)
   })
