@@ -4,7 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.210.0] — 2026-10-10
+
+- feat(meta-eval): gate judges on measured agreement with owner verdicts (#961)
+- fix(statistics): leave full support open for empty binary samples (#958)
+- fix(python): honor the pinned DSPy 3.4 RLM constructor (#957)
+- test: make validation scripts and HTTPS admission portable (#957)
+
 ## [0.209.2] — 2026-10-09
+
+Prepared but never published; 0.210.0 is the first release that carries these changes.
 
 - fix(dspy): use the pinned RLM constructor and verify real startup (#959)
 - feat(readers): read Claude Code and OpenCode sessions through @tangle-network/harness-sessions (#938)
