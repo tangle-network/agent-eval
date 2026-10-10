@@ -283,6 +283,78 @@ describe('judgeGateDecision', () => {
   })
 })
 
+describe('veto judges', () => {
+  // Owners reject for reasons a copy check never sees, so its misses are expected; blocking what they approved is not.
+  const owner = {
+    judgeId: 'copy-check',
+    owner: 'o',
+    examples: [
+      ...Array.from({ length: 12 }, (_, i) => example(`p${i}`, 'pass')),
+      ...Array.from({ length: 8 }, (_, i) => example(`f${i}`, 'fail')),
+    ],
+  }
+  const vetoMeta = { ...meta, judgeId: 'copy-check', judgeModel: 'deterministic' }
+  const vetoGate = {
+    judgeId: 'copy-check',
+    judgeModel: 'deterministic',
+    rubricVersion: 'r2',
+    asOf: AT,
+    policy: { decides: 'veto' as const },
+  }
+
+  it('may gate while it blocks little of what the owner passed, however many owner rejections it misses', () => {
+    const runs: JudgeRun[] = [
+      ...Array.from(
+        { length: 12 },
+        (_, i) => ({ exampleId: `p${i}`, verdict: i === 0 ? 'fail' : 'pass' }) as const,
+      ),
+      ...Array.from(
+        { length: 8 },
+        (_, i) => ({ exampleId: `f${i}`, verdict: i < 2 ? 'fail' : 'pass' }) as const,
+      ),
+    ]
+    const agreement = measureJudgeAgreement(owner, runs, vetoMeta)
+    expect(agreement.falseFailRate).toBeCloseTo(1 / 12, 10)
+    expect(agreement.catchRate).toBeCloseTo(2 / 8, 10)
+    expect(agreement.accuracy).toBeCloseTo(13 / 20, 10)
+    expect(judgeGateDecision({ ...vetoGate, agreement })).toMatchObject({
+      mayGate: true,
+      status: 'calibrated',
+    })
+    // The same table fails a deciding judge, which must reach the owner's verdict.
+    expect(judgeGateDecision({ ...vetoGate, policy: {}, agreement }).status).toBe('below-threshold')
+    expect(snapshotFromJudgeAgreement(agreement, { decides: 'veto' }).metrics).toEqual({
+      sentinelPassRate: 11 / 12,
+    })
+  })
+
+  it('needs owner passes to be measured, and refuses one that blocks them', () => {
+    const rejectionsOnly = measureJudgeAgreement(
+      owner,
+      Array.from({ length: 8 }, (_, i) => ({ exampleId: `f${i}`, verdict: 'pass' as const })),
+      vetoMeta,
+    )
+    expect(judgeGateDecision({ ...vetoGate, agreement: rejectionsOnly }).reasons).toEqual([
+      '0 judged examples the owner marked pass; a veto judge needs at least 10',
+    ])
+    expect(() => snapshotFromJudgeAgreement(rejectionsOnly, { decides: 'veto' })).toThrow(
+      /no runs on owner passes/,
+    )
+    const blocking = measureJudgeAgreement(
+      owner,
+      Array.from(
+        { length: 12 },
+        (_, i) => ({ exampleId: `p${i}`, verdict: i < 3 ? 'fail' : 'pass' }) as const,
+      ),
+      vetoMeta,
+    )
+    expect(judgeGateDecision({ ...vetoGate, agreement: blocking })).toMatchObject({
+      status: 'below-threshold',
+      reasons: ['it fails 25.0% of what the owner passed (limit 10.0%)'],
+    })
+  })
+})
+
 describe('snapshotFromJudgeAgreement', () => {
   it('records accuracy and κ, and omits an undefined κ', () => {
     const agreement = measureJudgeAgreement(critic, everyRunAgrees(1), meta)
