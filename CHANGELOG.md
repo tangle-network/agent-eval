@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.203.3] — 2026-10-10
+
+- feat(meta-eval): backport the judge gate to the 0.203 line, and tag maintenance releases
+
 ## [0.203.2] — 2026-10-01
 
 - fix(campaign): preserve artifacts and traces for every attempt (#908)
