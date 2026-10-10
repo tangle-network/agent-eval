@@ -182,7 +182,7 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
       '@tangle-network/harness-sessions':
-        specifier: 0.1.0
+        specifier: '>=0.1.0 <0.2.0'
         version: 0.1.0
       hono:
         specifier: ^4.13.9
