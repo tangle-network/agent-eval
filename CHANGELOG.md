@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.211.2] — 2026-10-10
+
+- fix(analyst): re-pin the benchmark implementation after the gpt-6-luna price (#967)
+
 ## [0.211.1] — 2026-10-10
 
 - fix(metrics): price gpt-6-luna at the Tangle Router rate (#965)
