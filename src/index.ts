@@ -957,6 +957,31 @@ export { runKeywordCoverageJudge, runKeywordCoverageJudgeUrl } from './keyword-c
 
 export type { LlmJudgeOptions } from './llm-judge'
 export { llmJudge } from './llm-judge'
+export type {
+  CalibrationExample,
+  CalibrationMerge,
+  JudgeAgreement,
+  JudgeCalibrationSet,
+  JudgeConfusion,
+  JudgeExampleAgreement,
+  JudgeGateDecision,
+  JudgeGateInput,
+  JudgeGatePolicy,
+  JudgeGateStatus,
+  JudgeRun,
+  JudgeRunMeta,
+  OwnerVerdict,
+} from './meta-eval/judge-gate'
+export {
+  addCalibrationVerdicts,
+  assertJudgeMayGate,
+  DEFAULT_JUDGE_GATE_POLICY,
+  JudgeGateRefusedError,
+  judgeGateDecision,
+  measureJudgeAgreement,
+  registerCalibrationSet,
+  snapshotFromJudgeAgreement,
+} from './meta-eval/judge-gate'
 
 export type {
   Layer,
