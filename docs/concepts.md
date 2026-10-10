@@ -351,6 +351,19 @@ Pearson, Spearman, and MAE are point estimates in these reports.
 
 Import calibration and bias functions from `/meta-eval`.
 
+### Gate only on a calibrated judge
+
+A judge that passes or blocks anything (a model judge or a deterministic grader) needs measured agreement with the person it stands in for.
+The `/meta-eval` gate contract (also exported from the package root) provides it:
+
+1. **Register the owner's verdicts.** `registerCalibrationSet({ judgeId, owner, examples })` validates labelled items; every verdict names who gave it, when, and the record it came from (`source`).
+   `addCalibrationVerdicts(set, verdicts)` joins verdicts as the owner gives them: rerunning the same source changes nothing, and a later verdict on an item replaces an earlier one.
+2. **Measure agreement.** Replay the judge on the set, once or several times, and pass its decisions to `measureJudgeAgreement(set, runs, { judgeId, judgeModel, rubricVersion, measuredAt })`.
+   It reports accuracy over runs, Cohen's κ for the pass/fail pair (null when one side used a single verdict), the confusion table, an exact 95% interval over examples, variance between runs and between a run's samples, and every disagreement.
+3. **Decide whether it may gate.** `judgeGateDecision({ judgeId, judgeModel, rubricVersion, agreement, asOf, history })` refuses with named reasons when the judge was never measured, was measured on another model or rubric, has fewer judged examples than the policy requires (by default 10, and at least one of each verdict), has a report older than 30 days, falls below 90% accuracy or κ 0.6, or has an alarmed drift history.
+   `assertJudgeMayGate(decision)` throws `JudgeGateRefusedError`; a refused judge's verdict is advisory.
+4. **Record drift.** `snapshotFromJudgeAgreement(agreement)` stores accuracy as `sentinelPassRate` and κ as `calibrationKappa` in the judge sentinel, so each calibration run appends one snapshot and `judgeSentinelReport` alarms on decay, a silent model change or staleness.
+
 | Probe | Input | Observation |
 |---|---|---|
 | `positionalBias()` | The same items judged with their presentation order swapped. | Mean paired score difference by position. |

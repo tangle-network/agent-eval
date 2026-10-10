@@ -922,19 +922,14 @@ export {
   continuousAgreement,
   verbosityBias,
 } from './judge-calibration'
-
 export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
 export { aggregateJudgeVerdicts } from './judge-ensemble'
-
 export type { AssertCrossFamilyOptions, JudgeFamily } from './judge-families'
 export { assertCrossFamily, CrossFamilyError, judgeFamily } from './judge-families'
-
 export type { EnsembleJudgeOptions } from './judge-panel'
 export { ensembleJudge } from './judge-panel'
-
 export type { JudgeRetryOutcome, JudgeRetryPolicy } from './judge-retry'
 export { withJudgeRetry } from './judge-retry'
-
 export type {
   KeywordConceptSpec,
   KeywordCoverageFinding,
@@ -942,9 +937,33 @@ export type {
   KeywordCoverageResult,
 } from './keyword-coverage-judge'
 export { runKeywordCoverageJudge, runKeywordCoverageJudgeUrl } from './keyword-coverage-judge'
-
 export type { LlmJudgeOptions } from './llm-judge'
 export { llmJudge } from './llm-judge'
+export type {
+  CalibrationExample,
+  CalibrationMerge,
+  JudgeAgreement,
+  JudgeCalibrationSet,
+  JudgeConfusion,
+  JudgeExampleAgreement,
+  JudgeGateDecision,
+  JudgeGateInput,
+  JudgeGatePolicy,
+  JudgeGateStatus,
+  JudgeRun,
+  JudgeRunMeta,
+  OwnerVerdict,
+} from './meta-eval/judge-gate'
+export {
+  addCalibrationVerdicts,
+  assertJudgeMayGate,
+  DEFAULT_JUDGE_GATE_POLICY,
+  JudgeGateRefusedError,
+  judgeGateDecision,
+  measureJudgeAgreement,
+  registerCalibrationSet,
+  snapshotFromJudgeAgreement,
+} from './meta-eval/judge-gate'
 
 export type {
   Layer,

@@ -94,7 +94,7 @@ The [existing-agent example](./examples/foreign-agent-quickstart/) shows how to 
 | Search for a better surface | [`selfImprove()`](./examples/selfimprove-quickstart/) from `/contract` | A selected surface, final comparison, and `gateDecision`. |
 | Compare search methods | [`compareOptimizationMethods()`](./examples/compare-optimization-methods/) from `/campaign` | Paired final comparisons, uncertainty, coverage, and costs under declared budgets. |
 | Register evidence and decision rules | [`defineEvaluationClaim()` and `sealExperiment()`](./docs/evaluation-integrity.md) from `/experiment` | A declared population, independent unit, optional practical effect, and sealed rules. |
-| Check the evaluator | [`auditEvaluator()`](./docs/evaluation-integrity.md) and [calibration tools](./docs/outcome-validity.md) from `/meta-eval` | Error rates, admission evidence, bias diagnostics, and outcome associations. |
+| Check the evaluator | [`auditEvaluator()`](./docs/evaluation-integrity.md), [calibration tools](./docs/outcome-validity.md) and the [judge gate](./docs/concepts.md#gate-only-on-a-calibrated-judge) from `/meta-eval` | Error rates, admission evidence, agreement with owner verdicts, drift, bias diagnostics, and outcome associations. |
 | Analyze completed work | [`analyzeRuns()`](./examples/analyze-existing-runs/) from `/contract`; [trace analysts](./docs/trace-analysis.md) from `/analyst` | Comparisons and findings with links to recorded evidence. |
 | Gate on the path a run took | A [trace contract](./docs/trace-contracts.md) (`compileTraceContractSpec()` from the root), or `traces check` in CI | `pass`, `fail`, or `error` per rule, with the spans that broke it. |
 
