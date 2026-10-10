@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.211.0] — 2026-10-10
+
+- feat(meta-eval): hold veto judges to their false-fail rate on owner passes (#963)
+
 ## [0.210.0] — 2026-10-10
 
 - feat(meta-eval): gate judges on measured agreement with owner verdicts (#961)
