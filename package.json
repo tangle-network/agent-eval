@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.203.3",
+  "version": "0.203.4",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -224,7 +224,7 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@hono/node-server": "^2.1.1",
-    "@tangle-network/agent-core": "^0.10.2",
+    "@tangle-network/agent-core": ">=0.10.2 <0.10.3",
     "@tangle-network/agent-interface": "^2.13.1",
     "@tangle-network/agent-trace-contract": "^2.0.0",
     "hono": "^4.13.9",

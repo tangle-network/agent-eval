@@ -4,7 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.203.4] — 2026-10-10
+
+- fix(deps): resolve agent-core 0.10.2 for the 0.203 line
+- fix(deps): hold agent-core to its interface-2 release on the 0.203 line
+
 ## [0.203.3] — 2026-10-10
+
+Tagged but not published: its packed-consumer check found two agent-interface copies, because agent-core 0.10.3 moved to agent-interface 3. 0.203.4 carries these changes.
 
 - feat(meta-eval): backport the judge gate to the 0.203 line, and tag maintenance releases
 
