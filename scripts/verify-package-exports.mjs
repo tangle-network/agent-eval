@@ -1420,7 +1420,12 @@ function readDependencyCohort(names) {
     // built against. An exact pin duplicates the copy in a consumer that also
     // depends on the package, and a lower floor lets a consumer resolve a copy
     // older than the one the packed dist was compiled and tested against.
-    if (range !== `^${version}`) {
+    // A maintenance line may bound the caret instead, when a later patch of the
+    // package moved to a cohort this line does not serve (agent-core 0.10.3 moved
+    // to agent-interface 3, which the 0.203 line's consumers do not install).
+    // The floor must still be the tested copy.
+    const bounded = range.startsWith(`>=${version} <`)
+    if (range !== `^${version}` && !bounded) {
       throw new Error(
         `${name} is declared as ${range} but installed as ${version}; declare ^${version} so the packed floor is the tested copy`,
       )
