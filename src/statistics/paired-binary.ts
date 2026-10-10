@@ -15,7 +15,7 @@ import { binomialSignTwoSided, zQuantile } from './internal'
 
 /** A binomial proportion estimate with a confidence interval. */
 export interface ProportionInterval {
-  /** Point estimate successes / n (0 when n = 0). */
+  /** Point estimate successes / n; 0 is a compatibility placeholder when n = 0. */
   estimate: number
   /** Lower bound, clamped to [0, 1]. */
   lower: number
@@ -29,7 +29,9 @@ export interface ProportionInterval {
  * understates coverage. Use this for any pass-rate / hit-rate / realness-rate
  * CI — the continuous `confidenceInterval` assumes the wrong distribution for a
  * proportion. Counts must be finite nonnegative integers, successes cannot exceed
- * n, and confidence must lie strictly between zero and one. `n = 0 ⇒ {0, 0, 0}`.
+ * n, and confidence must lie strictly between zero and one. With n = 0 the
+ * interval is the full [0, 1] support: no rate is ruled out. The estimate stays
+ * 0 for compatibility, not as a measured failure rate; retain n alongside it.
  */
 export function wilson(successes: number, n: number, confidence = 0.95): ProportionInterval {
   if (!Number.isSafeInteger(n) || n < 0) {
@@ -41,7 +43,7 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
   if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
     throw new Error('wilson: confidence must be between zero and one')
   }
-  if (n === 0) return { estimate: 0, lower: 0, upper: 0 }
+  if (n === 0) return { estimate: 0, lower: 0, upper: 1 }
   const z = zQuantile(1 - (1 - confidence) / 2)
   const p = successes / n
   const z2 = z * z
@@ -146,7 +148,7 @@ export interface RiskDifferenceResult {
   b: number
   /** Discordant pairs: control-win count. */
   c: number
-  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  /** Paired risk difference (b − c) / n; 0 is a placeholder when n = 0. */
   riskDifference: number
   /** Lower bound of the CI, clamped to [-1, 1]. */
   lower: number
@@ -162,7 +164,8 @@ export interface RiskDifferenceResult {
  * paired binary data equals (b − c) / n. The CI uses the paired variance from
  * the discordant counts, not the independent-samples formula (which overstates
  * the interval by ignoring the pairing). Inputs are paired 0/1 (or boolean)
- * arrays, control first. Throws on unequal lengths.
+ * arrays, control first. Throws on unequal lengths. With no pairs, returns the
+ * full [-1, 1] support and a compatibility point estimate of 0, not equivalence.
  *
  * REPORTING ONLY — do NOT decide a promotion on this interval. The CI is a Wald
  * normal approximation, which badly UNDERCOVERS when only a handful of pairs are
@@ -182,7 +185,7 @@ export function pairedRiskDifference(
     )
   }
   const n = control.length
-  if (n === 0) return { n: 0, b: 0, c: 0, riskDifference: 0, lower: 0, upper: 0, confidence }
+  if (n === 0) return { n: 0, b: 0, c: 0, riskDifference: 0, lower: -1, upper: 1, confidence }
   let b = 0
   let c = 0
   for (let i = 0; i < n; i++) {
@@ -218,11 +221,11 @@ export interface ExactRiskDifferenceResult {
   c: number
   /** Discordant pairs (b + c) — the only ones carrying information. */
   nDiscordant: number
-  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  /** Paired risk difference (b − c) / n; 0 is a placeholder when n = 0. */
   riskDifference: number
-  /** Exact conditional CI lower bound. 0 when there are no discordant pairs. */
+  /** Exact conditional CI lower bound: -1 with no pairs; 0 with only concordant pairs. */
   lower: number
-  /** Exact conditional CI upper bound. 0 when there are no discordant pairs. */
+  /** Exact conditional CI upper bound: 1 with no pairs; 0 with only concordant pairs. */
   upper: number
   /** Confidence level used. */
   confidence: number
@@ -252,7 +255,8 @@ export interface ExactRiskDifferenceResult {
  * discards the concordant pairs' information about m itself). That is the
  * correct direction for a promotion gate: it refuses more often, never less.
  *
- * With m = 0 there are no discordant pairs and π is not identified: the result
+ * With n = 0, returns the full [-1, 1] support, p = 1, and a compatibility
+ * point estimate of 0. With n > 0 and m = 0, π is not identified: the result
  * is the degenerate [0, 0] with p = 1. That is NOT evidence of equivalence —
  * callers must treat a zero-width interval as "cannot decide", not as "no
  * difference". Inputs are paired 0/1 (or boolean) arrays, control first.
@@ -279,8 +283,8 @@ export function pairedRiskDifferenceExact(
       c: 0,
       nDiscordant: 0,
       riskDifference: 0,
-      lower: 0,
-      upper: 0,
+      lower: -1,
+      upper: 1,
       confidence,
       pValue: 1,
     }
@@ -344,7 +348,7 @@ export interface ScoreRiskDifferenceResult {
   c: number
   /** Discordant pairs (b + c). */
   nDiscordant: number
-  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  /** Paired risk difference (b − c) / n; 0 is a placeholder when n = 0. */
   riskDifference: number
   /** Score-interval lower bound on the population risk difference. */
   lower: number

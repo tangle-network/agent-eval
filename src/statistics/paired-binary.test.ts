@@ -6,6 +6,7 @@ import {
   pairedBootstrap,
   pairedRiskDifference,
   pairedRiskDifferenceExact,
+  pairedRiskDifferenceScore,
   passAtK,
   wilson,
 } from './index'
@@ -34,8 +35,15 @@ describe('wilson — binomial proportion CI', () => {
     expect(upper).toBeLessThan(1)
   })
 
-  it('n = 0 ⇒ degenerate zeros (no division by zero)', () => {
-    expect(wilson(0, 0)).toEqual({ estimate: 0, lower: 0, upper: 0 })
+  it('cannot separate an arm with no fair attempts from an observed arm', () => {
+    const empty = wilson(0, 0)
+    expect(empty).toEqual({ estimate: 0, lower: 0, upper: 1 })
+    // #758: a quarantined arm has no evidence, even against one successful trial.
+    for (const observed of [wilson(1, 1), wilson(0, 1), wilson(8, 10)]) {
+      const separable = empty.upper < observed.lower || observed.upper < empty.lower
+      expect(separable).toBe(false)
+    }
+    expect(wilson(0, 10).upper).toBeLessThan(empty.upper)
   })
 
   it('refuses invalid counts before returning an empty interval', () => {
@@ -52,7 +60,7 @@ describe('wilson — binomial proportion CI', () => {
       expect(() => wilson(0, 0, confidence)).toThrow(/confidence/)
       expect(() => wilson(8, 10, confidence)).toThrow(/confidence/)
     }
-    expect(wilson(0, 0, 0.8)).toEqual({ estimate: 0, lower: 0, upper: 0 })
+    expect(wilson(0, 0, 0.8)).toEqual({ estimate: 0, lower: 0, upper: 1 })
   })
   it('a wider interval at smaller n for the same proportion', () => {
     const small = wilson(4, 5)
@@ -149,11 +157,6 @@ describe('pairedRiskDifference — paired-binary effect size + CI', () => {
     expect(r.riskDifference).toBe(1)
     expect(r.lower).toBe(1)
     expect(r.upper).toBe(1)
-  })
-
-  it('n = 0 ⇒ degenerate zeros', () => {
-    const r = pairedRiskDifference([], [])
-    expect(r).toMatchObject({ n: 0, b: 0, c: 0, riskDifference: 0, lower: 0, upper: 0 })
   })
 
   it('throws on unequal lengths', () => {
@@ -325,3 +328,20 @@ describe('pairedBinaryScale — two-point outcomes on ANY encoding', () => {
     expect(pairedBinaryScale([], [])).toBeNull()
   })
 })
+
+// Empty samples cannot establish equivalence, improvement, or regression.
+it.each([pairedRiskDifference, pairedRiskDifferenceExact, pairedRiskDifferenceScore])(
+  '%s leaves the full risk-difference support open when no pairs exist',
+  (estimate) => {
+    expect(estimate([], [])).toMatchObject({
+      n: 0,
+      b: 0,
+      c: 0,
+      riskDifference: 0,
+      lower: -1,
+      upper: 1,
+      confidence: 0.95,
+    })
+    expect(mcnemar([], []).pValue).toBe(1)
+  },
+)

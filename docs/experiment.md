@@ -292,3 +292,13 @@ The final receipt retains caller authority, including `candidate-self-report`, w
 
 The [charter](./charter.md) describes current package ownership and host responsibilities.
 Use [evaluation claims and final evidence](./evaluation-integrity.md) when connecting a registration to an automated improvement workflow.
+
+### Empty binary evidence
+
+`wilson(0, 0)` returns `[0, 1]`: without trials, no success rate is ruled out.
+`pairedRiskDifference`, `pairedRiskDifferenceExact`, and `pairedRiskDifferenceScore`
+return `[-1, 1]` when both paired arrays are empty. These bounds cannot establish
+separation or equivalence. Their numeric point estimates remain `0` for compatibility;
+this is a placeholder, not a measured zero. Retain the trial count with Wilson
+results, and use the returned `n` for paired results, before displaying an estimate.
+Nonempty-sample estimators retain their existing semantics and limitations.
