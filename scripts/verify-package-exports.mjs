@@ -1491,7 +1491,7 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
   )
   run(
     'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
+    ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
     appDir,
     { timeout: 180_000 },
   )
