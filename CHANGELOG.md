@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.212.0] — 2026-10-12
+
+- fix(cohort): adopt Interface 4 and Core 0.11 (#975)
+- docs: README restructured — ToC added, workflow chooser table made scannable
+
 ## [0.211.3] — 2026-10-10
 
 - fix(deps): depend on harness-sessions by range, not an exact pin (#972)
