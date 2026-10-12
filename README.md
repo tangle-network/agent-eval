@@ -14,7 +14,8 @@ It records outputs, failures, costs, and evidence for each comparison.
 ## Install
 
 Use Node.js 20.19 or newer.
-This release line requires Interface 4 and Core 0.11.
+This release line requires Interface 5 and Core 0.12.
+Eval 0.212 remains the release line for Interface 4 and Core 0.11.
 Eval 0.211 remains the release line for Interface 3.
 
 ```sh
