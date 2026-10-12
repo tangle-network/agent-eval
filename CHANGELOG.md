@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.213.0] — 2026-10-12
+
+- fix: resolve published Interface 5 cohort
+- fix: adopt Interface 5 dependency cohort
+
 ## [0.212.0] — 2026-10-12
 
 - fix(cohort): adopt Interface 4 and Core 0.11 (#975)
