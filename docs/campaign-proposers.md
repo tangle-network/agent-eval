@@ -127,6 +127,9 @@ Pass `context.evaluate` to the optimizer so every candidate is executed and scor
 Unknown case IDs and calls beyond `maxEvaluations` are rejected.
 
 Optimizer-owned model or service calls must use `context.cost.runPaidCall()`.
+Admission derives unresolved calls, reserved amounts, conservative settled spend, and maximum breaches in one record-order pass without constructing reporting summaries.
+Unknown settled costs retain any reserved maximum in the admission total, and unresolved pending calls block new paid work.
+
 The example below assumes the upstream package enforces `maxCostUsd` for the complete run and returns aggregate usage.
 If the package exposes a model callback instead, wrap each model call separately with the same cost ledger and phase.
 
