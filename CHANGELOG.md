@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.214.0] — 2026-10-15
+
+- feat(ledger-core): RFC 9162 Merkle inclusion and consistency proofs (#982)
+- chore: rename agent-dev-container references to agent-container (#980)
+
 ## [0.213.0] — 2026-10-12
 
 - fix: resolve published Interface 5 cohort
