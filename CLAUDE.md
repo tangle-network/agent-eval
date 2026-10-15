@@ -2,6 +2,14 @@
 
 This package owns evaluation data, scoring, experiment decisions, and release evidence.
 
+## Source delivery
+
+Work on a feature branch, run relevant checks while developing, and report what actually ran. Source integration into `main` does not require CI, local signoff, release metadata, published dependencies or a queue label. Post-merge CI verifies landed revisions and does not block unrelated source work. Missing, skipped and failed checks are not successful checks.
+
+After the companion tooling is installed, use `tangle-ops merge`. During rollout, the ordinary GitHub merge endpoint with the exact intended head SHA is the immediate source-only path. Drafts, explicit holds, external-contribution review and native repository restrictions still apply. Do not forge statuses, remove a hold or use an administrator bypass. Retiring obsolete required-check settings is a separate administrator rollout.
+
+Package preparation and npm/Python publication remain separate, explicitly authorized operations with their existing qualification and credential controls. A merge is not a package release or a production result. The evaluation verdicts and experiment promotion contracts below are product behavior, not Git merge gates; this source policy does not weaken them.
+
 ## Read for the task
 
 - For orientation, read [concepts.md](docs/concepts.md), [README.md](README.md), and the [charter](docs/charter.md).
