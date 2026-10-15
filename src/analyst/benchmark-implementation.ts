@@ -106,6 +106,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/index.ts',
   'src/ledger-core/journal-file.ts',
   'src/ledger-core/journal.ts',
+  'src/ledger-core/merkle.ts',
   'src/ledger-core/projector-snapshot.ts',
   'src/ledger-core/trusted-head.ts',
   'src/llm-client.ts',
@@ -148,7 +149,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '11b9a5effdd8e9488f13d936335392eefa0a527248529c1099563b30ea5a9e92'
+  '96c33bbdd657602fc105b36b6dbd8f5d94ce7e24d016f924dd8a030e145f332a'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
