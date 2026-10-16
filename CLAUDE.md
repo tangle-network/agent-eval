@@ -4,11 +4,11 @@ This package owns evaluation data, scoring, experiment decisions, and release ev
 
 ## Source delivery
 
-Work on a feature branch, run relevant checks while developing, and report what actually ran. Source integration into `main` does not require CI, local signoff, release metadata, published dependencies or a queue label. Post-merge CI verifies landed revisions and does not block unrelated source work. Missing, skipped and failed checks are not successful checks.
+Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>` using the writer-authenticated CLI. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting completion. No additional merge wrapper or host installation is required.
 
-After the companion tooling is installed, use `tangle-ops merge`. During rollout, the ordinary GitHub merge endpoint with the exact intended head SHA is the immediate source-only path. Drafts, explicit holds, external-contribution review and native repository restrictions still apply. Do not forge statuses, remove a hold or use an administrator bypass. Retiring obsolete required-check settings is a separate administrator rollout.
+Ordinary internal source PRs do not wait for CI, local signoff, version bumps or publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use administrator bypasses or fabricate test results. A skipped job is not a test pass.
 
-Package preparation and npm/Python publication remain separate, explicitly authorized operations with their existing qualification and credential controls. A merge is not a package release or a production result. The evaluation verdicts and experiment promotion contracts below are product behavior, not Git merge gates; this source policy does not weaken them.
+Package preparation and npm/Python publication are separate authorized operations with their existing qualification and credential controls. Evaluation verdicts and experiment promotion below are product behavior, not Git merge gates; their validation remains mandatory.
 
 ## Read for the task
 
