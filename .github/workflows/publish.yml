@@ -214,7 +214,7 @@ jobs:
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public --registry=https://registry.npmjs.org
+            npm publish --provenance --access public --tag compat-0.213 --registry=https://registry.npmjs.org
           fi
 
   publish-pypi:
