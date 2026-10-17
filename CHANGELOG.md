@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.214.1] — 2026-10-17
+
+- feat(systemone): add grounded domain matching
+
 ## [0.214.0] — 2026-10-15
 
 - feat(ledger-core): RFC 9162 Merkle inclusion and consistency proofs (#982)
