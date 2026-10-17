@@ -11,6 +11,43 @@ GEPA_VERSION = "0.1.4"
 GEPA_REVISION = "d771eb21b5dd3228bc3f567293d2ccfc423fc900"
 
 
+class GepaEvaluationBudgetExhausted(BaseException):
+    """Stop search without turning an unevaluated example into a zero score.
+
+    GEPA's evaluator wrapper can convert ordinary Exceptions to measured zeroes
+    when raise_on_exception=False. Budget exhaustion is control flow instead.
+    """
+
+
+@dataclass
+class GepaBudgetObserver:
+    """Retain official in-process state without loading a pickle on exhaustion."""
+
+    state: Any = None
+
+    def on_iteration_start(self, event: Any) -> None:
+        self.state = event["state"]
+
+    def on_iteration_end(self, event: Any) -> None:
+        self.state = event["state"]
+
+    def result(self, *, run_dir: str, seed: int, text_candidate: bool) -> Any:
+        from gepa.core.result import GEPAResult
+
+        if self.state is None:
+            raise RuntimeError(
+                "GEPA evaluation budget exhausted before a candidate completed selection"
+            )
+        if not self.state.is_consistent():
+            raise RuntimeError("GEPA evaluation budget exhausted with inconsistent candidate state")
+        return GEPAResult.from_state(
+            self.state,
+            run_dir=run_dir,
+            seed=seed,
+            str_candidate_key="current_candidate" if text_candidate else None,
+        )
+
+
 @dataclass
 class GepaRestoreObserver:
     state_dir: Path

@@ -364,18 +364,18 @@ export class CostLedger {
               error: new CostCallConflictError(`CostLedger: callId '${callId}' already exists`),
             }
           }
-          const summary = this.summary()
-          if (summary.unresolvedCalls > 0) {
+          const admission = this.admissionState()
+          if (admission.unresolvedCalls > 0) {
             return {
               succeeded: false,
               callId,
               error: new CostAccountingIncompleteError(
-                `CostLedger: ${summary.unresolvedCalls} unresolved call(s) must be reconciled before new paid work`,
+                `CostLedger: ${admission.unresolvedCalls} unresolved call(s) must be reconciled before new paid work`,
               ),
             }
           }
           if (this.costCeilingUsd === undefined) break
-          if (this.hasBudgetBreachingSettledCall()) {
+          if (admission.budgetBreached) {
             return {
               succeeded: false,
               callId,
@@ -388,7 +388,7 @@ export class CostLedger {
           // reserved maximum here, so the ceiling is enforced against a real
           // upper bound and one under-reported response cannot let later calls
           // silently exceed the budget — while still permitting them.
-          const committedCostUsd = this.conservativeSettledCostUsd()
+          const { committedCostUsd } = admission
           if (committedCostUsd + maximumCostUsd! > this.costCeilingUsd) {
             return {
               succeeded: false,
@@ -402,7 +402,7 @@ export class CostLedger {
               ),
             }
           }
-          if (committedCostUsd + summary.reservedCostUsd + maximumCostUsd! <= this.costCeilingUsd) {
+          if (committedCostUsd + admission.reservedCostUsd + maximumCostUsd! <= this.costCeilingUsd) {
             break
           }
           await this.waitForReservationRelease(input.signal)
@@ -467,11 +467,10 @@ export class CostLedger {
     observed: CostReceiptInput,
     options: { failed?: boolean; error?: string } = {},
   ): CostReceipt {
-    const pending = [...this.records.values()].find(
-      (record): record is PendingCostCall =>
-        record.callId === callId && record.status === 'pending',
-    )
-    if (!pending) throw new CostCallConflictError(`CostLedger: no pending call '${callId}'`)
+    const pending = this.records.get(callId)
+    if (pending?.status !== 'pending') {
+      throw new CostCallConflictError(`CostLedger: no pending call '${callId}'`)
+    }
     if (this.activeCallIds.has(callId)) {
       throw new CostCallConflictError(`CostLedger: call '${callId}' is still active`)
     }
@@ -801,27 +800,29 @@ export class CostLedger {
     return priced.costUsd
   }
 
-  private hasBudgetBreachingSettledCall(): boolean {
-    return [...this.records.values()].some(
-      (record) =>
-        record.status === 'settled' &&
-        record.maximumCostUsd !== undefined &&
-        record.costUsd > record.maximumCostUsd,
-    )
-  }
-
-  /**
-   * Total settled cost with each unknown-cost call charged its reserved
-   * maximum. A provider that omits a call's cost cannot make the ceiling check
-   * under-count: the call is bounded by what it was allowed to spend.
-   */
-  private conservativeSettledCostUsd(): number {
-    let total = 0
+  /** Compute admission totals in record order without building reporting rollups. */
+  private admissionState() {
+    let unresolvedCalls = 0
+    let reservedCostUsd = 0
+    let committedCostUsd = 0
+    let budgetBreached = false
     for (const record of this.records.values()) {
-      if (record.status !== 'settled') continue
-      total += record.costUnknown ? (record.maximumCostUsd ?? record.costUsd) : record.costUsd
+      if (record.status === 'pending') {
+        if (!this.activeCallIds.has(record.callId) || this.lateCallIds.has(record.callId)) {
+          unresolvedCalls += 1
+        }
+        reservedCostUsd += record.maximumCostUsd ?? 0
+      } else {
+        if (record.maximumCostUsd !== undefined && record.costUsd > record.maximumCostUsd) {
+          budgetBreached = true
+        }
+        // Unknown settled costs consume their reserved maximum for admission.
+        committedCostUsd += record.costUnknown
+          ? (record.maximumCostUsd ?? record.costUsd)
+          : record.costUsd
+      }
     }
-    return total
+    return { unresolvedCalls, reservedCostUsd, committedCostUsd, budgetBreached }
   }
 
   private appendRecord(record: CostLedgerRecord): void {

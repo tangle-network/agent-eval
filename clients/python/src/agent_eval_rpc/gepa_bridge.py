@@ -12,6 +12,7 @@ import copy
 import hashlib
 import math
 import os
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from agent_eval_rpc.gepa_bridge_contract import (
     _validate_selected_candidate as _validate_selected_candidate,
 )
 from agent_eval_rpc.gepa_compat_0_1_4 import (
+    GepaBudgetObserver,
+    GepaEvaluationBudgetExhausted,
     GepaRestoreObserver,
     load_restore_observer,
 )
@@ -108,7 +111,10 @@ def _main() -> None:
             # used to bound the bridge process, in milliseconds.
             timeout=input_value["timeoutMs"] / 1000.0,
         )
-        response.raise_for_status()
+        if api.config_shape == "launcher":
+            _raise_for_callback_status(response)
+        else:
+            response.raise_for_status()
         evaluation_count += 1
         payload = response.json()
         score = payload.get("score")
@@ -322,6 +328,17 @@ def _main() -> None:
         proxy_usage.close()
 
 
+def _raise_for_callback_status(response: httpx.Response) -> None:
+    if response.status_code == 429:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if payload == {"error": "evaluation limit reached"}:
+            raise GepaEvaluationBudgetExhausted("GEPA evaluation limit reached")
+    response.raise_for_status()
+
+
 def _run_recipe(
     *,
     recipe: dict[str, Any],
@@ -362,11 +379,38 @@ def _run_recipe(
         )
 
     if recipe["kind"] == "engine":
-        result = api.optimize_anything(
-            seed_candidate,
-            **task,
-            config=engine_config(recipe["run"], output_dir / "engine"),
-        )
+        config = engine_config(recipe["run"], output_dir / "engine")
+        # The published launcher lacks the source engine's BudgetExhausted
+        # recovery. Observe its official state; the callback remains the cap.
+        observer = GepaBudgetObserver() if api.config_shape == "launcher" else None
+        callback_failures: list[Exception] = []
+        if observer is not None:
+            config.callbacks = [*(config.callbacks or []), observer]
+
+            @wraps(evaluator)
+            def observe_evaluation(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return evaluator(*args, **kwargs)
+                except Exception as error:
+                    # GEPA waits for its evaluation pool but surfaces only the
+                    # first failed future. Retain real failures even when a
+                    # faster budget-stop signal is the one it propagates.
+                    callback_failures.append(error)
+                    raise
+
+            task["evaluator"] = observe_evaluation
+        try:
+            result = api.optimize_anything(seed_candidate, **task, config=config)
+        except GepaEvaluationBudgetExhausted:
+            if observer is None:
+                raise
+            if callback_failures:
+                raise callback_failures[0]
+            result = observer.result(
+                run_dir=config.engine.run_dir,
+                seed=seed,
+                text_candidate=isinstance(seed_candidate, str),
+            )
         return result, [result]
 
     if recipe["kind"] == "sequential":

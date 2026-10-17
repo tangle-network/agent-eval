@@ -62,6 +62,26 @@ def test_upstream_evaluation_limit_reserves_concurrent_overshoot() -> None:
         gepa_bridge._upstream_evaluation_limit(4, 4)
 
 
+def test_only_exact_callback_budget_refusal_stops_search() -> None:
+    from agent_eval_rpc.gepa_compat_0_1_4 import GepaEvaluationBudgetExhausted
+
+    request = httpx.Request("POST", "http://127.0.0.1:9/evaluate")
+    with pytest.raises(GepaEvaluationBudgetExhausted):
+        gepa_bridge._raise_for_callback_status(
+            httpx.Response(429, json={"error": "evaluation limit reached"}, request=request)
+        )
+    for status, content in [
+        (401, b'{"error":"evaluation limit reached"}'),
+        (500, b'{"error":"evaluation limit reached"}'),
+        (429, b'{"error":"rate limited"}'),
+        (429, b'not json'),
+    ]:
+        with pytest.raises(httpx.HTTPStatusError):
+            gepa_bridge._raise_for_callback_status(
+                httpx.Response(status, content=content, request=request)
+            )
+
+
 def test_published_gepa_config_maps_budgets_and_result_fields(
     monkeypatch,
     tmp_path: Path,

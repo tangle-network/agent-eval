@@ -208,6 +208,9 @@ It does not include final cases or large rollout outputs.
 
 Every engine run requires an evaluation limit and an optimizer-model dollar limit.
 Agent Eval enforces callback counts before executing an agent or judge.
+When the published GEPA engine reaches that limit, the bridge returns its best completed selection candidate.
+Accepted evaluations from the interrupted iteration still count toward `totalEvaluations`; unevaluated examples receive no score.
+Recovery uses the current process's official GEPA state and does not load a resume checkpoint.
 For standard GEPA engines, the TypeScript `optimizer` option routes reflection through Agent Eval's local model proxy.
 The proxy enforces whole-run request and dollar limits, keeps the provider key out of Python, and records exact provider usage in the shared cost log.
 With `optimizer.anthropicEndpoint: true`, the AutoResearch and Meta Harness agent engines run fully metered too: the proxy serves an Anthropic Messages route, and every `claude` CLI call is admitted, receipted, and budget-enforced.
