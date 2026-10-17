@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.213.2] — 2026-10-17
+
+- chore(release): publish 0.213 with a compatibility dist-tag
+- chore(release): 0.213.1
+- feat(systemone): add grounded domain matching
+
 ## [0.213.1] — 2026-10-17
 
 - feat(systemone): add grounded domain matching
