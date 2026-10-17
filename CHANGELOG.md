@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.213.1] — 2026-10-17
+
+- feat(systemone): add grounded domain matching
+
 ## [0.213.0] — 2026-10-12
 
 - fix: resolve published Interface 5 cohort
