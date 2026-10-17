@@ -16,6 +16,7 @@ asJudge and asAnalyst adapt the same operation to existing consumers.
 | Next verification | Choose a test, retrieval or review that resolves uncertainty | Existing graph checkpoints and awaited boundaries, not new permissions. |
 | Candidate selection | Choose among generated plans or artifacts | Existing matrix/graph, exact checks first, semantic assessment second. |
 | Configuration experiments | Compare questions, context, models and thresholds | examples/systemone-decision-benchmark.ts using runAgentMatrix and cost receipts. |
+| Domain classification | Match bounded evidence to a product intent and caller-owned categories | prepareSystemOneDomainMatch plus assessSystemOneDomainMatch; positive matches require a qualified category and exact source. |
 
 These are compositions, not ten new frameworks. Product triage and the benchmark recipe are concrete
 adoption work; other rows reuse existing APIs or identify application policies to configure. An API
