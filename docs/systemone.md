@@ -62,6 +62,40 @@ add their own limits: Clef requires non-null `instructions`, 1–64 questions wi
 exact answer names and choice-label unions. Runtime JSON must be validated; its
 labels cannot become compile-time literals automatically.
 
+## DomainMatch
+
+`prepareSystemOneDomainMatch` builds a frozen three-question classification for products that need
+relevance, a caller-owned category, and an exact source segment. `assessSystemOneDomainMatch`
+revalidates the retained answer and returns `match`, `no_match`, or `uncertain` without another
+model call. It does not choose a domain taxonomy, threshold, credential, endpoint, or effect.
+
+```ts
+const prepared = prepareSystemOneDomainMatch({
+  version: 'health-v1',
+  model: selectedModel,
+  intent: 'Find personal health correspondence, not general wellness marketing.',
+  categories: { lab_result: 'A medical laboratory result', appointment: 'An appointment' },
+  evidence: [{ id: 'email-1', text: emailText }],
+  coverage: 'complete',
+  thresholds: {
+    matchAtLeast: 0.8,
+    noMatchAtLeast: 0.8,
+    categoryAtLeast: 0.7,
+    sourceAtLeast: 0.7,
+    minimumMargin: 0.2,
+  },
+})
+const observation = await evaluate(prepared.request, { signal, idempotencyKey })
+const decision = assessSystemOneDomainMatch(prepared, observation.value)
+```
+
+A positive match requires the match, category, and source questions to pass their thresholds and
+margins. Missing evidence stays unresolved; partial evidence can support a match but cannot refute
+one. The report retains native probabilities and an exact host-supplied evidence segment. Those
+probabilities are not calibrated domain confidence, and a result never authorizes storage, hiding,
+sending, deletion, or another effect. Re-assessing the same prepared input and retained answer is
+an offline replay, not new inference.
+
 ## Providers, rounding and confidence
 
 The wire format is the same for every provider; how each reports its numbers is not. A

@@ -20,6 +20,7 @@ import {
 import { contentHash } from './verdict-cache'
 
 export * from './evaluation'
+export * from './systemone-domain-match'
 export * from './systemone-protocol'
 export * from './systemone-review'
 
