@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.215.0] — 2026-10-17
+
+- feat(systemone): add grounded domain matching
+- docs(delivery): make native exact-head merging the complete source path
+- fix(analyst): pin ledger-core merkle.ts in the benchmark implementation manifest (#984)
+- ci: preserve Eval release checks without qualifying internal feature PRs
+- docs: separate Eval source landing from evaluation and release decisions
+- ci: move Eval verification after merge and retire PR-only release bookkeeping
+
 ## [0.214.0] — 2026-10-15
 
 - feat(ledger-core): RFC 9162 Merkle inclusion and consistency proofs (#982)
