@@ -3,7 +3,9 @@
  *
  * Generic append-only journal machinery: RFC 8785 canonical-JSON SHA-256 hash
  * chain, idempotent append, chain verification, trusted-head pinning,
- * replay-to-projection, cross-process locking, and fsync discipline. Domain
+ * replay-to-projection, cross-process locking, and fsync discipline, plus
+ * RFC 9162 Merkle inclusion and consistency proofs that check one entry or one
+ * checkpoint without reading the rest of a log. Domain
  * vocabulary (entry schemas, error taxonomy, state machine) is supplied by each
  * consumer's codec — see `src/campaign/search-ledger.ts` for the campaign
  * binding.
@@ -51,6 +53,19 @@ export {
   withLedgerFileLock,
   writeLedgerFileAtomically,
 } from './journal-file'
+export {
+  MERKLE_EMPTY_ROOT,
+  type MerkleConsistencyProof,
+  type MerkleInclusionProof,
+  type MerkleVerification,
+  merkleConsistencyProof,
+  merkleInclusionProof,
+  merkleLeafHash,
+  merkleRoot,
+  merkleSalt,
+  verifyMerkleConsistency,
+  verifyMerkleInclusion,
+} from './merkle'
 export {
   type LedgerProjectorSnapshot,
   projectorSnapshotPathFor,

@@ -2,6 +2,14 @@
 
 This package owns evaluation data, scoring, experiment decisions, and release evidence.
 
+## Source delivery
+
+Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>` using the writer-authenticated CLI. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting completion. No additional merge wrapper or host installation is required.
+
+Ordinary internal source PRs do not wait for CI, local signoff, version bumps or publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use administrator bypasses or fabricate test results. A skipped job is not a test pass.
+
+Package preparation and npm/Python publication are separate authorized operations with their existing qualification and credential controls. Evaluation verdicts and experiment promotion below are product behavior, not Git merge gates; their validation remains mandatory.
+
 ## Read for the task
 
 - For orientation, read [concepts.md](docs/concepts.md), [README.md](README.md), and the [charter](docs/charter.md).

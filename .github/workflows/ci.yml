@@ -1,12 +1,28 @@
 name: CI
 
+# Ordinary internal source PRs allocate no qualification runner. Release PRs,
+# outside contributions, landed revisions and explicit verification retain it.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   ci:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -103,6 +119,11 @@ jobs:
           python scripts/verify_publishable_dist.py dist
 
   gepa-release:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

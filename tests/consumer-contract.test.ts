@@ -80,10 +80,10 @@ const ROOT_RUNTIME_SYMBOLS = [
   'readProductBenchmarkManifest',
   // Budget guard (creative-agent scripts/evals/run-driver-soak.ts)
   'BudgetGuard',
-  // Paired statistics (gtm-agent eval/matrix/report.ts, agent-dev-container intelligence)
+  // Paired statistics (gtm-agent eval/matrix/report.ts, agent-container intelligence)
   'pairedDeltaTest',
   'pairRunRecords',
-  // Runtime trajectory + knowledge readiness (agent-dev-container platform/intelligence)
+  // Runtime trajectory + knowledge readiness (agent-container platform/intelligence)
   'projectRuntimeTrajectoryEvidence',
   'knowledgeReadinessTracePayload',
   // Substrate primitives
@@ -168,7 +168,7 @@ describe('public-surface contract for consumers', () => {
     expect(outcome.judgeScores?.composite).toBe(0.75)
   })
 
-  it('exposes the trace-analysis types agent-dev-container imports from the root', () => {
+  it('exposes the trace-analysis types agent-container imports from the root', () => {
     // Documents the consumed shape; the packed-tarball consumer typecheck is
     // the compile-time guard (tests/ are outside tsc's include).
     const cluster: ErrorCluster = {
