@@ -405,7 +405,8 @@ def _run_recipe(
             if observer is None:
                 raise
             if callback_failures:
-                raise callback_failures[0]
+                # The evaluator's own error is the failure; the budget exhaustion only followed it.
+                raise callback_failures[0] from None
             result = observer.result(
                 run_dir=config.engine.run_dir,
                 seed=seed,

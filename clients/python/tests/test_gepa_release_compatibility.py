@@ -107,9 +107,9 @@ def _run_budgeted_bridge(
     concurrent_failure: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     from gepa.core.state import GEPAState
+    from test_gepa_bridge import RUNTIME_IDENTITY, _valid_input
 
     from agent_eval_rpc import gepa_bridge
-    from test_gepa_bridge import RUNTIME_IDENTITY, _valid_input
 
     class Model:
         calls = 0
