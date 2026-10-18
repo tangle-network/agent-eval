@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.215.1] — 2026-10-18
+
+- fix(gepa): preserve completed candidates at evaluation budget (#979)
+
 ## [0.215.0] — 2026-10-17
 
 - feat(systemone): add grounded domain matching
