@@ -33,7 +33,10 @@ describe('CostLedger admission', () => {
     const records = (ledger as unknown as { records: Map<string, CostLedgerRecord> }).records
     const values = records.values.bind(records)
     let visits = 0
-    vi.spyOn(records, 'values').mockImplementation(function* (): Generator<CostLedgerRecord, undefined> {
+    vi.spyOn(records, 'values').mockImplementation(function* (): Generator<
+      CostLedgerRecord,
+      undefined
+    > {
       for (const record of values()) {
         visits += 1
         yield record

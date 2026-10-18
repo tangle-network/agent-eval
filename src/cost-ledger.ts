@@ -402,7 +402,10 @@ export class CostLedger {
               ),
             }
           }
-          if (committedCostUsd + admission.reservedCostUsd + maximumCostUsd! <= this.costCeilingUsd) {
+          if (
+            committedCostUsd + admission.reservedCostUsd + maximumCostUsd! <=
+            this.costCeilingUsd
+          ) {
             break
           }
           await this.waitForReservationRelease(input.signal)
