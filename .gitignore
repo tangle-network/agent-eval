@@ -29,3 +29,7 @@ coverage/
 # Throwaway working files. Never a deliverable.
 .scratch/
 scratchpad/
+
+# SQLite opens the committed opencode.db fixture in WAL mode and leaves these beside it after a test run
+tests/fixtures/**/*.db-shm
+tests/fixtures/**/*.db-wal
