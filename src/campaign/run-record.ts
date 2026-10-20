@@ -11,6 +11,7 @@ import type {
   RunTraceRef,
 } from '../run-record'
 import { validateRunRecord } from '../run-record'
+import { mean } from '../statistics/mean'
 import type { CampaignCellResult, JudgeScore } from './types'
 
 export interface CampaignCellRunRecordOptions {
@@ -330,8 +331,4 @@ function finiteMetrics(metrics: Record<string, number> | undefined): Record<stri
     if (Number.isFinite(value)) finite[key] = value
   }
   return finite
-}
-
-function mean(values: number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length
 }

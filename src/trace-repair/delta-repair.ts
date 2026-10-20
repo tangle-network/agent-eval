@@ -24,6 +24,7 @@
 
 import { ValidationError } from '../errors'
 import { BOOTSTRAP_GATE_MIN_N, pairedBootstrap } from '../statistics'
+import { mean } from '../statistics/mean'
 import { countFunnel, type RepairFunnelCounts, type RepairGrade } from './funnel'
 import type { RepairRowResult } from './grade'
 
@@ -243,10 +244,6 @@ function measuredPrefixDivergences(grade: RepairGrade): number {
     return grade.reproduction.prefix.divergences
   }
   return 0
-}
-
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 /** Markdown report: provenance, the funnel, every per-row column, the
