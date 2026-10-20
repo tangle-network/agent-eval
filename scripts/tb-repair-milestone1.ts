@@ -35,9 +35,10 @@
 
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { readTerminalBenchTestSuite } from './terminal-bench-test-suite'
 import {
   type AdmissionCriteria,
   type AdmissionEvidence,
@@ -173,19 +174,7 @@ interface TaskFixture {
 }
 
 function loadSuite(task: string): TestSuiteFile[] {
-  const dir = join(REPO, task, 'tests')
-  const files: TestSuiteFile[] = []
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(dir, rel))) {
-      const relPath = rel ? `${rel}/${entry}` : entry
-      if (statSync(join(dir, relPath)).isDirectory()) walk(relPath)
-      // Harbor uploads `tests/` to `/tests`, so the in-container path is the
-      // suite-relative path under that root.
-      else files.push({ path: `/tests/${relPath}`, contents: readFileSync(join(dir, relPath), 'utf8') })
-    }
-  }
-  walk('')
-  return files
+  return readTerminalBenchTestSuite(join(REPO, task, 'tests'))
 }
 
 async function imageDigest(image: string): Promise<string> {
