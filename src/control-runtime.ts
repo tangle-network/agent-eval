@@ -422,7 +422,27 @@ export async function runAgentControlLoop<
         }
       }
 
-      const finishFailedStep = async (afterState: TState) => {
+      let observationPhase: 'observe' | 'validate' = 'observe'
+      try {
+        state = await config.observe({ history, abortSignal: controller.signal })
+        observationPhase = 'validate'
+        evals = await config.validate({
+          intent: config.intent,
+          state,
+          history,
+          abortSignal: controller.signal,
+        })
+        await recordEvalSpans(
+          emitter,
+          evals,
+          `step-${stepIndex}`,
+          runtimeErrors,
+          stepIndex,
+          stepHandle?.span.spanId,
+        )
+      } catch (err) {
+        runtimeErrors.push(runtimeError(observationPhase, stepIndex, err))
+        const afterState = observationPhase === 'observe' ? beforeState : state
         const step: ControlStep<TState, TAction, TActionResult, TEval> = {
           index: stepIndex,
           decision,
@@ -455,32 +475,6 @@ export async function runAgentControlLoop<
           runtimeErrors,
           stoppedBy: 'runtime-error',
         })
-      }
-
-      try {
-        state = await config.observe({ history, abortSignal: controller.signal })
-      } catch (err) {
-        runtimeErrors.push(runtimeError('observe', stepIndex, err))
-        return finishFailedStep(beforeState)
-      }
-      try {
-        evals = await config.validate({
-          intent: config.intent,
-          state,
-          history,
-          abortSignal: controller.signal,
-        })
-        await recordEvalSpans(
-          emitter,
-          evals,
-          `step-${stepIndex}`,
-          runtimeErrors,
-          stepIndex,
-          stepHandle?.span.spanId,
-        )
-      } catch (err) {
-        runtimeErrors.push(runtimeError('validate', stepIndex, err))
-        return finishFailedStep(state)
       }
       const scoreAfter = averageScore(evals)
       const stateFingerprint = fingerprintState(state, config.stopPolicies)
