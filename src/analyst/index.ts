@@ -240,6 +240,26 @@ export {
   analystDefinitionAsymmetries,
   analystDefinitionProtocolSha256,
 } from './definition'
+export type {
+  DomainTaxonomy,
+  TaxonomyAttachment,
+  TaxonomyNode,
+  TaxonomyNodeLayer,
+  TaxonomyOutcome,
+} from './domain-taxonomy'
+export {
+  attachToTaxonomy,
+  DOMAIN_TAXONOMY_SCHEMA,
+  defineDomainTaxonomy,
+  domainPathOf,
+  LAB_NODE_ID,
+  lowestCommonAncestor,
+  resolveDomainPath,
+  TAXONOMY_NODE_LAYERS,
+  taxonomyAncestry,
+  taxonomyLayerOf,
+  taxonomyParentOf,
+} from './domain-taxonomy'
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
@@ -263,6 +283,48 @@ export type {
   ExactExecutionComponentSnapshot,
 } from './exact-types'
 export type {
+  FailureModeLabel,
+  FailureModeLabelItem,
+  FailureModesAnalystOptions,
+  FailureModesCalibration,
+  FailureModesOutcome,
+} from './failure-modes'
+export {
+  AGENT_RX_FAILURE_MODE_MAP,
+  calibrateFailureModes,
+  createFailureModesAnalyst,
+  FAILURE_MODE_LABELS,
+  FAILURE_MODES_ANALYST_ID,
+  FAILURE_MODES_MIN_KAPPA,
+  FAILURE_MODES_QUESTIONS,
+  FAILURE_MODES_VERSION,
+  failureModeGoldFromAgentRx,
+  parseFailureModeGold,
+} from './failure-modes'
+export type {
+  FindingCalibration,
+  FindingEvidenceUnit,
+  FindingLayer,
+  FindingMeasure,
+  FindingMethod,
+  FindingParseOutcome,
+  FindingReaderLabel,
+  FindingScope,
+  FindingScopeReading,
+} from './finding-scope'
+export {
+  AnalystFindingSchema,
+  FINDING_LAYERS,
+  findingLayerRank,
+  independentUnitCount,
+  lineageRoots,
+  mergeEvidenceUnits,
+  ProposalFindingSchema,
+  parseAnalystFinding,
+  readFindingScope,
+  UNKNOWN_LINEAGE,
+} from './finding-scope'
+export type {
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './finding-signature'
@@ -281,6 +343,15 @@ export {
   parseFindingSubject,
   renderFindingSubject,
 } from './finding-subject'
+export type {
+  FindingsLedger,
+  FindingsLedgerOutcome,
+  FindingsLedgerRead,
+  FindingsQuery,
+  FindingsTimeStep,
+  LedgerFinding,
+} from './findings-ledger'
+export { diffFindingsOverTime, openFindingsLedger, queryFindings } from './findings-ledger'
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './findings-store'
 export { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
 export type {
@@ -343,6 +414,8 @@ export {
   projectPrimeTrajectory,
   runPrimeExchange,
 } from './prime-protocol'
+export type { PromoteOptions, PromotionHold, PromotionResult } from './promote'
+export { PROMOTE_ANALYST_ID, PROMOTE_VERSION, promote } from './promote'
 export { assertProposalFindings, isProposalFinding } from './proposal-findings'
 export type {
   AnalystHooks,
@@ -364,6 +437,24 @@ export type {
   ReplyRowRejection,
 } from './reply-contract'
 export { decodeReplyRows } from './reply-contract'
+export type { RollupInput, RollupOptions, RollupResult } from './rollup'
+export { ROLLUP_ANALYST_ID, ROLLUP_VERSION, rollupAnalyst, rollupFindings } from './rollup'
+export type {
+  TeamShape,
+  TeamShapeClass,
+  TeamShapeEdge,
+  TeamShapeFeatures,
+  TeamShapeInput,
+  TeamShapeOutcome,
+} from './team-shape'
+export {
+  classifyTeamShape,
+  TEAM_SHAPE_ANALYST_ID,
+  TEAM_SHAPE_CLASSES,
+  TEAM_SHAPE_THRESHOLDS,
+  TEAM_SHAPE_VERSION,
+  teamShapeAnalyst,
+} from './team-shape'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {
@@ -378,6 +469,7 @@ export type {
   AnalystContext,
   AnalystCost,
   AnalystFinding,
+  AnalystFindingSchemaVersion,
   AnalystInputKind,
   AnalystRequirements,
   AnalystRunEvent,
@@ -393,4 +485,10 @@ export type {
   ProposalFinding,
   ProposalFindingOrigin,
 } from './types'
-export { computeFindingId, makeFinding, makeProposalFinding } from './types'
+export {
+  ANALYST_FINDING_SCHEMA_VERSIONS,
+  computeFindingId,
+  FINDING_SCOPE_FIELDS,
+  makeFinding,
+  makeProposalFinding,
+} from './types'
