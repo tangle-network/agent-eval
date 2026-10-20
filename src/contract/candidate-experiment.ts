@@ -24,6 +24,7 @@ import {
   verifySelfAddressed,
   verifyStableProfileMaterialization,
 } from './candidate-experiment-evidence'
+import { comparisonEvaluation, comparisonRecomputationInput } from './measured-comparison-record'
 import type {
   CandidateExperimentRun,
   CompareCandidateExperimentOptions,
@@ -196,19 +197,7 @@ export function measuredComparisonFromCandidateExperiment(
       candidateContentHash: experiment.candidate.digest,
     },
     diff,
-    evaluation: {
-      generationsExplored: options.generationsExplored ?? 0,
-      preparation: options.preparation,
-      measurement: {
-        wallDurationMs: options.measurement.wallDurationMs,
-        workDurationMs: evaluation.measurementWorkDurationMs,
-        cost: evaluation.measurementCost,
-      },
-      total: {
-        wallDurationMs: options.preparation.wallDurationMs + options.measurement.wallDurationMs,
-        cost: evaluation.totalCost,
-      },
-    },
+    evaluation: comparisonEvaluation(options, evaluation),
     ...(options.metadata ? { metadata: options.metadata } : {}),
   })
   const { recordDigest: _recordDigest, ...provenance } = provisional.provenance
@@ -226,19 +215,9 @@ export function verifyCandidateExperimentComparison(
   input: unknown,
 ): AgentImprovementMeasuredComparison {
   const comparison = agentImprovementMeasuredComparisonSchema.parse(input)
-  const recomputed = measuredComparisonFromCandidateExperiment({
-    experiment: comparison.experiment,
-    measurements: comparison.measurements,
-    runId: comparison.provenance.runId,
-    ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
-    generationsExplored: comparison.evaluation.generationsExplored,
-    preparation: comparison.evaluation.preparation,
-    measurement: {
-      wallDurationMs: comparison.evaluation.measurement.wallDurationMs,
-      cost: comparison.evaluation.measurement.cost,
-    },
-    ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
-  })
+  const recomputed = measuredComparisonFromCandidateExperiment(
+    comparisonRecomputationInput(comparison),
+  )
   if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
     throw new Error('candidate experiment comparison does not match its Runtime receipts')
   }
