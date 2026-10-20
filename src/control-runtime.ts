@@ -422,15 +422,12 @@ export async function runAgentControlLoop<
         }
       }
 
-      try {
-        state = await config.observe({ history, abortSignal: controller.signal })
-      } catch (err) {
-        runtimeErrors.push(runtimeError('observe', stepIndex, err))
+      const finishFailedStep = async (afterState: TState) => {
         const step: ControlStep<TState, TAction, TActionResult, TEval> = {
           index: stepIndex,
           decision,
           beforeState,
-          afterState: beforeState,
+          afterState,
           evalsBefore,
           evalsAfter: evals,
           actionOutcome,
@@ -449,7 +446,7 @@ export async function runAgentControlLoop<
           reason: runtimeErrors[runtimeErrors.length - 1]!.message,
           score: averageScore(evals),
           steps: history,
-          finalState: beforeState,
+          finalState: afterState,
           finalEvals: evals,
           wallMs: Date.now() - started,
           spentCostUsd,
@@ -458,6 +455,13 @@ export async function runAgentControlLoop<
           runtimeErrors,
           stoppedBy: 'runtime-error',
         })
+      }
+
+      try {
+        state = await config.observe({ history, abortSignal: controller.signal })
+      } catch (err) {
+        runtimeErrors.push(runtimeError('observe', stepIndex, err))
+        return finishFailedStep(beforeState)
       }
       try {
         evals = await config.validate({
@@ -476,38 +480,7 @@ export async function runAgentControlLoop<
         )
       } catch (err) {
         runtimeErrors.push(runtimeError('validate', stepIndex, err))
-        const step: ControlStep<TState, TAction, TActionResult, TEval> = {
-          index: stepIndex,
-          decision,
-          beforeState,
-          afterState: state,
-          evalsBefore,
-          evalsAfter: evals,
-          actionOutcome,
-          startedAt: new Date(actionStarted).toISOString(),
-          endedAt: new Date().toISOString(),
-        }
-        history.push(step)
-        await runTrace(emitter, runtimeErrors, stepIndex, () =>
-          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
-        )
-        await runOnStep(config.onStep, step, runtimeErrors)
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'unknown',
-          runtimeErrors,
-          stoppedBy: 'runtime-error',
-        })
+        return finishFailedStep(state)
       }
       const scoreAfter = averageScore(evals)
       const stateFingerprint = fingerprintState(state, config.stopPolicies)
