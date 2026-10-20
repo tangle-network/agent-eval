@@ -6,6 +6,7 @@
 // framework, so a consumer on vitest, node:test, or a plain script all use the
 // same call.
 
+import { isNonnegativeFiniteNumber as isUsableDuration } from '../../math/nonnegative-number'
 import type { RunMultishotMatrixResult } from '../matrix'
 import { compareJson } from './compare'
 import type { MultishotGoldenEngine, MultishotMatrixGoldenEngine } from './engine'
@@ -208,8 +209,6 @@ export async function assertMultishotMatrixGoldenScenario(opts: {
 }
 
 /** A duration a caller can read: finite and not negative. */
-export function isUsableDuration(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
+export { isNonnegativeFiniteNumber as isUsableDuration } from '../../math/nonnegative-number'
 
 export { multishotGoldenScenarios, multishotMatrixGoldenScenarios }

@@ -253,6 +253,4 @@ export function isNonNegativeSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0
 }
 
-export function isNonNegativeFinite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
+export { isNonnegativeFiniteNumber as isNonNegativeFinite } from '../math/nonnegative-number'

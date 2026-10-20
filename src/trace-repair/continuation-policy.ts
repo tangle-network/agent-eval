@@ -12,7 +12,7 @@
  */
 
 import type { CostProvenance } from '../cost-ledger'
-import { CaptureIntegrityError, ValidationError } from '../errors'
+import { CaptureIntegrityError, errorMessage, ValidationError } from '../errors'
 import type { RunTokenUsage } from '../run-record'
 import { contentHash } from '../verdict-cache'
 import type {
@@ -458,10 +458,6 @@ async function runOneRollout(input: RolloutInput): Promise<ContinuationRollout> 
   } finally {
     await environment.dispose()
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
