@@ -8,6 +8,7 @@ import {
   preparePublicAnalystBenchmark,
 } from '../../src/analyst/benchmark-public-data'
 import { sha256Digest } from '../../src/analyst/benchmark-verification-artifacts'
+import { mulberry32 } from '../../src/statistics/random'
 import type { TraceAnalysisStore } from '../../src/trace-analyst/store'
 import {
   SMOKE,
@@ -29,14 +30,7 @@ import type { GepaAnalystScenario, PoolProvenance } from './contract'
 const storesById = new Map<string, TraceAnalysisStore>()
 
 function seededShuffle<T>(items: readonly T[], seed: number): T[] {
-  let state = seed >>> 0
-  const next = () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+  const next = mulberry32(seed)
   const out = [...items]
   for (let index = out.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(next() * (index + 1))
