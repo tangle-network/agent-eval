@@ -1,3 +1,8 @@
+r="$(git config --global core.hooksPath)/loc-ratchet"
+if [ -x "$r" ]; then
+  "$r" || exit "$?"
+fi
+
 pnpm exec lint-staged
 pnpm typecheck
 node scripts/check-analyst-benchmark-implementation.mjs --source-only
