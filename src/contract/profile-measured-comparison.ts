@@ -22,8 +22,9 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
-import { addFixedSpend } from './fixed-spend'
+import { addFixedSpend, pairedFixedSpendReceipt } from './fixed-spend'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
+import { comparisonEvaluation, comparisonRecomputationInput } from './measured-comparison-record'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
 export interface SealAgentProfileImprovementSuiteOptions {
@@ -226,19 +227,7 @@ export function measuredComparisonFromAgentProfileImprovementExperiment(
       candidateContentHash: experiment.candidate.stateDigest,
     },
     diff: canonicalCandidateJson(experiment.change),
-    evaluation: {
-      generationsExplored: options.generationsExplored ?? 0,
-      preparation: options.preparation,
-      measurement: {
-        wallDurationMs: options.measurement.wallDurationMs,
-        workDurationMs: evaluation.measurementWorkDurationMs,
-        cost: evaluation.measurementCost,
-      },
-      total: {
-        wallDurationMs: options.preparation.wallDurationMs + options.measurement.wallDurationMs,
-        cost: evaluation.totalCost,
-      },
-    },
+    evaluation: comparisonEvaluation(options, evaluation),
     ...(options.metadata ? { metadata: options.metadata } : {}),
   })
   const { recordDigest: _recordDigest, ...provenance } = provisional.provenance
@@ -256,19 +245,9 @@ export function verifyAgentProfileImprovementExperimentComparison(
   input: unknown,
 ): AgentProfileImprovementMeasuredComparison {
   const comparison = agentProfileImprovementMeasuredComparisonSchema.parse(input)
-  const recomputed = measuredComparisonFromAgentProfileImprovementExperiment({
-    experiment: comparison.experiment,
-    measurements: comparison.measurements,
-    runId: comparison.provenance.runId,
-    ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
-    generationsExplored: comparison.evaluation.generationsExplored,
-    preparation: comparison.evaluation.preparation,
-    measurement: {
-      wallDurationMs: comparison.evaluation.measurement.wallDurationMs,
-      cost: comparison.evaluation.measurement.cost,
-    },
-    ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
-  })
+  const recomputed = measuredComparisonFromAgentProfileImprovementExperiment(
+    comparisonRecomputationInput(comparison),
+  )
   if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
     throw new Error('profile improvement comparison does not match its Runtime receipts')
   }
@@ -299,33 +278,7 @@ function profileMeasurementCostReceipt(
   }>,
   model: string,
 ): CostReceiptInput {
-  const usage = measurements.reduce<AgentCandidateFixedSpend>(
-    (sum, measurement) =>
-      addFixedSpend(
-        addFixedSpend(sum, combinedProfileUsage(measurement.baseline)),
-        combinedProfileUsage(measurement.candidate),
-      ),
-    {
-      inputTokens: 0,
-      outputTokens: 0,
-      cachedInputTokens: 0,
-      reasoningTokens: 0,
-      modelCalls: 0,
-      costUsdNanos: 0,
-      costProvenance: 'observed',
-    },
-  )
-  const costUsd = usage.costUsdNanos / 1_000_000_000
-  return {
-    model,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cachedTokens: usage.cachedInputTokens,
-    reasoningTokens: usage.reasoningTokens,
-    ...(usage.costProvenance === 'observed'
-      ? { actualCostUsd: costUsd }
-      : { estimatedCostUsd: costUsd }),
-  }
+  return pairedFixedSpendReceipt(measurements, model, combinedProfileUsage)
 }
 
 function combinedProfileUsage(
