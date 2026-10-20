@@ -18,6 +18,7 @@
  * (Remotion, React) live in consumers; this module only emits strings.
  */
 
+import { escapeHtml } from '../reporting-html'
 import type { Span } from '../trace/schema'
 
 /** What the agent meaningfully did — the compressed vocabulary. */
@@ -584,14 +585,6 @@ function mmss(ms: number): string {
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 /** A short modality tag for the markdown shot list. */
