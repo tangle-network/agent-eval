@@ -1,4 +1,4 @@
-r="$(git config --global core.hooksPath)/loc-ratchet"
+r="$(git config --global core.hooksPath || true)/loc-ratchet"
 if [ -x "$r" ]; then
   "$r" || exit "$?"
 fi

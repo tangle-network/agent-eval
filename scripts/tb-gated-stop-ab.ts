@@ -53,7 +53,7 @@ import { clusteredPower, type EvidenceRecord, openSealedExperiment, sealExperime
 import { WORK, MODEL, SEAT_CONCURRENCY, COST_CEILING_USD, STEP_ALLOTMENT } from './tb-gated-stop/settings'
 import { type EndStateMeasurement, endStateScreen, pilotExposedRowIds } from './tb-gated-stop/corpus'
 import { REGISTERED_EFFECT_GRID, POWER_TARGET, POWER_SIM, SETTLING_EFFECT, settlingDraw, buildSpec, prepare } from './tb-gated-stop/design'
-import { run, type TaskFixture, loadTask } from './tb-gated-stop/container'
+import { type TaskFixture, loadTask } from './tb-gated-stop/container'
 import { callModel } from './tb-gated-stop/model'
 import { type RowRun, runRow } from './tb-gated-stop/row'
 import { logger } from './tb-gated-stop/log'

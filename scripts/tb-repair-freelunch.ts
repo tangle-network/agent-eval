@@ -26,7 +26,7 @@
 
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -51,6 +51,7 @@ import {
 } from '../src/trace-repair'
 import type { RecordedTrajectoryStep } from '../src/trajectory-replay/steps'
 import { routerContinuationModel } from './tb-repair-freelunch-model'
+import { readTerminalBenchTestSuite } from './terminal-bench-test-suite'
 
 const run = promisify(execFile)
 
@@ -136,21 +137,7 @@ function recordedReturncode(observation: string | null): number | null {
 }
 
 function loadSuite(task: string): TestSuiteFile[] {
-  const dir = join(REPO, task, 'tests')
-  const files: TestSuiteFile[] = []
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(dir, rel))) {
-      const relPath = rel ? `${rel}/${entry}` : entry
-      if (statSync(join(dir, relPath)).isDirectory()) walk(relPath)
-      else
-        files.push({
-          path: `/tests/${relPath}`,
-          contents: readFileSync(join(dir, relPath), 'utf8'),
-        })
-    }
-  }
-  walk('')
-  return files
+  return readTerminalBenchTestSuite(join(REPO, task, 'tests'))
 }
 
 async function loadTask(name: string): Promise<TaskFixture> {
