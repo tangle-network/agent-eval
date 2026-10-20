@@ -127,6 +127,12 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/projector-snapshot.ts',
   'src/ledger-core/trusted-head.ts',
   'src/llm-client.ts',
+  'src/llm-client/accounting.ts',
+  'src/llm-client/errors.ts',
+  'src/llm-client/json.ts',
+  'src/llm-client/request.ts',
+  'src/llm-client/resilience.ts',
+  'src/llm-client/wire.ts',
   'src/math/nonnegative-number.ts',
   'src/math/normal.ts',
   'src/math/quantile.ts',
@@ -168,7 +174,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'b493e8b4369a21eea8bbec85340ae05d8803b5dea2c3a41e2f3589de736bf175'
+  '190438b92a26dfb2971a71e9d178f1522ce59ba8f663e0e4c9fc7b20d6a66337'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
