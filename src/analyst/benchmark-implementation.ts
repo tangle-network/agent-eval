@@ -77,6 +77,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/equal-terms.ts',
   'src/analyst/exact-types.ts',
   'src/analyst/finding-codec.ts',
+  'src/analyst/finding-scope.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',
   'src/analyst/kind-factory.ts',
@@ -181,7 +182,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'c3e2dba58fa14af3cdcb65c02c33a58d87ed6f1b8a20f2b9254e1e9326e7bcb9'
+  '44c77eb6e467a0e1ee76e02f2a1aad3e67cd79670980bef38ffdf102364860a1'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
