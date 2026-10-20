@@ -1,0 +1,242 @@
+{"at": 1792221184495, "type": "tool-outcome", "owner": "b9c668cd59aa"}
+{"at": 1792221405816, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792221480671, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792221496531, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792222557604, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": false}
+{"at": 1792222557963, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": false}
+{"at": 1792222558491, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "delivered": true}
+{"at": 1792223283105, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792223421934, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792223422033, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792223422038, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792223422058, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792223422156, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792223422611, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792223423386, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792223423664, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792223423897, "type": "lead-message", "owner": "658e5c0ca6f5", "interrupt": false}
+{"at": 1792223423897, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792223424066, "type": "lead-message", "owner": "a4a0b5a52cc8", "interrupt": false}
+{"at": 1792223424066, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s1", "delivered": true}
+{"at": 1792223424484, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s3", "delivered": true}
+{"at": 1792223424664, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s2", "delivered": true}
+{"at": 1792223432373, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792223667974, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792223668081, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792223668121, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792223679406, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792223679936, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792223680185, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "delivered": true}
+{"at": 1792224006817, "type": "question", "owner": "449d9b7d158d", "from": "other"}
+{"at": 1792224012670, "type": "escalation", "owner": "449d9b7d158d", "from": "other"}
+{"at": 1792224033700, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "interrupt": false}
+{"at": 1792224035249, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "interrupt": false}
+{"at": 1792224035633, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "delivered": true}
+{"at": 1792224938501, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792224939548, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792224939992, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "delivered": true}
+{"at": 1792224950070, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792224950370, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792224951023, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792225050039, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "interrupt": false}
+{"at": 1792225050160, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": false}
+{"at": 1792225050502, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "interrupt": false}
+{"at": 1792225050831, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": false}
+{"at": 1792225051051, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "delivered": true}
+{"at": 1792225051414, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "delivered": true}
+{"at": 1792225092257, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792225312766, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792225313026, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792225316634, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792225317015, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792225317285, "type": "lead-message", "owner": "a4a0b5a52cc8", "interrupt": false}
+{"at": 1792225317285, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s1", "delivered": true}
+{"at": 1792225317618, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s2", "delivered": true}
+{"at": 1792225364506, "type": "instruction", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792225368468, "type": "delivery-attempt", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792225368836, "type": "steer", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "delivered": true}
+{"at": 1792225426650, "type": "instruction", "owner": "3d928a4630d8", "toWorker": "R:s3:s2", "interrupt": false}
+{"at": 1792225427053, "type": "delivery-attempt", "owner": "3d928a4630d8", "toWorker": "R:s3:s2", "interrupt": false}
+{"at": 1792225427676, "type": "steer", "owner": "3d928a4630d8", "toWorker": "R:s3:s2", "delivered": true}
+{"at": 1792225429376, "type": "question", "owner": "3a40bede87cf", "from": "other"}
+{"at": 1792225430350, "type": "escalation", "owner": "3a40bede87cf", "from": "other"}
+{"at": 1792225435913, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792225670402, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792225673417, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792225673792, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "delivered": true}
+{"at": 1792225685998, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792225687755, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792225688229, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792225732353, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": false}
+{"at": 1792225735934, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": false}
+{"at": 1792225739756, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "delivered": true}
+{"at": 1792226024209, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "interrupt": true}
+{"at": 1792226024321, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": true}
+{"at": 1792226024821, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "interrupt": true}
+{"at": 1792226025092, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "interrupt": true}
+{"at": 1792226025735, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s0", "delivered": true}
+{"at": 1792226026043, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s1", "delivered": true}
+{"at": 1792226277716, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792226484114, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792226552588, "type": "question", "owner": "6d2f5ae1dc9c", "from": "other"}
+{"at": 1792226552719, "type": "escalation", "owner": "6d2f5ae1dc9c", "from": "other"}
+{"at": 1792226883487, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792226898106, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792226933021, "type": "question", "owner": "3a40bede87cf", "from": "other"}
+{"at": 1792226933161, "type": "escalation", "owner": "3a40bede87cf", "from": "other"}
+{"at": 1792226957441, "type": "question", "owner": "97a09e9b743a", "from": "other"}
+{"at": 1792226957548, "type": "escalation", "owner": "97a09e9b743a", "from": "other"}
+{"at": 1792226973798, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792226974120, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792226975790, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "delivered": true}
+{"at": 1792227414849, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "interrupt": false}
+{"at": 1792227415569, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "interrupt": false}
+{"at": 1792227416129, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "delivered": true}
+{"at": 1792227875993, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792227876054, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792227876103, "type": "lead-message", "owner": "a4a0b5a52cc8", "interrupt": false}
+{"at": 1792227876103, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s1", "delivered": true}
+{"at": 1792227925065, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": false}
+{"at": 1792227925121, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": false}
+{"at": 1792227925151, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "delivered": true}
+{"at": 1792227933666, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792227933751, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "interrupt": false}
+{"at": 1792227933877, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s1", "delivered": false}
+{"at": 1792227937459, "type": "instruction", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792227937727, "type": "delivery-attempt", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792227938247, "type": "steer", "owner": "3d928a4630d8", "toWorker": "R:s3:s0", "delivered": true}
+{"at": 1792228028089, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792228028328, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792228028500, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792228060513, "type": "acknowledgement", "owner": "a4a0b5a52cc8", "by": "other"}
+{"at": 1792228075055, "type": "acknowledgement", "owner": "a4a0b5a52cc8", "by": "other"}
+{"at": 1792228227610, "type": "question", "owner": "3d928a4630d8", "from": "other"}
+{"at": 1792228230471, "type": "escalation", "owner": "3d928a4630d8", "from": "other"}
+{"at": 1792228385451, "type": "acknowledgement", "owner": "3d928a4630d8", "by": "other"}
+{"at": 1792228623892, "type": "acknowledgement", "owner": "a4a0b5a52cc8", "by": "other"}
+{"at": 1792228681040, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792228699220, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792228967449, "type": "question", "owner": "a2c91c71ce38", "from": "other"}
+{"at": 1792228967483, "type": "escalation", "owner": "a2c91c71ce38", "from": "other"}
+{"at": 1792229551394, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": true}
+{"at": 1792229552455, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "interrupt": true}
+{"at": 1792229553331, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s0", "delivered": true}
+{"at": 1792229589315, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "interrupt": false}
+{"at": 1792229589408, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "interrupt": false}
+{"at": 1792229600465, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "interrupt": false}
+{"at": 1792229602973, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "interrupt": false}
+{"at": 1792229605556, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s2", "delivered": true}
+{"at": 1792229612902, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s3", "delivered": true}
+{"at": 1792230494482, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792236006094, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792236208475, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792236210940, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792236212874, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792236235017, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792236319567, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792236328483, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": false}
+{"at": 1792236328783, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792236328880, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792236484194, "type": "acknowledgement", "owner": "a4a0b5a52cc8", "by": "other"}
+{"at": 1792236567878, "type": "tool-outcome", "owner": "a4a0b5a52cc8"}
+{"at": 1792236584362, "type": "tool-outcome", "owner": "e613ea7ef127"}
+{"at": 1792236603055, "type": "acknowledgement", "owner": "a4a0b5a52cc8", "by": "other"}
+{"at": 1792236767299, "type": "acknowledgement", "owner": "e613ea7ef127", "by": "other"}
+{"at": 1792236903364, "type": "tool-outcome", "owner": "a2c91c71ce38"}
+{"at": 1792236944477, "type": "tool-outcome", "owner": "658e5c0ca6f5"}
+{"at": 1792236959815, "type": "tool-outcome", "owner": "449d9b7d158d"}
+{"at": 1792236998891, "type": "acknowledgement", "owner": "a2c91c71ce38", "by": "other"}
+{"at": 1792237098388, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792237650797, "type": "acknowledgement", "owner": "3d928a4630d8", "by": "other"}
+{"at": 1792237812832, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792237851251, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792238032406, "type": "question", "owner": "658e5c0ca6f5", "from": "other"}
+{"at": 1792238032601, "type": "escalation", "owner": "658e5c0ca6f5", "from": "other"}
+{"at": 1792238307422, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s5", "interrupt": false}
+{"at": 1792238307853, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s5", "interrupt": false}
+{"at": 1792238308055, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s5", "delivered": false}
+{"at": 1792239607619, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792239628171, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792240433616, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s4", "interrupt": false}
+{"at": 1792240434087, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s4", "interrupt": false}
+{"at": 1792240434654, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s4", "delivered": true}
+{"at": 1792241412133, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792241444813, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792242799033, "type": "instruction", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": true}
+{"at": 1792242804186, "type": "delivery-attempt", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "interrupt": true}
+{"at": 1792242805162, "type": "steer", "owner": "a4a0b5a52cc8", "toWorker": "R:s1:s3", "delivered": true}
+{"at": 1792243554238, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792252740548, "type": "lead-message", "owner": "c6121f38ba6f", "interrupt": false}
+{"at": 1792253215878, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792253215967, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792253215998, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792253216000, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792253216061, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792253216092, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s3", "delivered": true}
+{"at": 1792253279816, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792253353221, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792253378299, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792253457107, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792253712425, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792255152597, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792255176830, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792255661671, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792255661718, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792255661749, "type": "lead-message", "owner": "658e5c0ca6f5", "interrupt": false}
+{"at": 1792255661749, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792255670305, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792256951450, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792256972702, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792258750791, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792258774784, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792260550868, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792260569538, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792261493819, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s8", "interrupt": false}
+{"at": 1792261494743, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s8", "interrupt": false}
+{"at": 1792261495528, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s8", "delivered": true}
+{"at": 1792261508770, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792261508820, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792261508863, "type": "lead-message", "owner": "658e5c0ca6f5", "interrupt": false}
+{"at": 1792261508863, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792261580513, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "interrupt": false}
+{"at": 1792261580610, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "interrupt": false}
+{"at": 1792261580663, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "interrupt": false}
+{"at": 1792261580815, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "interrupt": false}
+{"at": 1792261580991, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "delivered": false}
+{"at": 1792261581166, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "delivered": true}
+{"at": 1792262353964, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792262373986, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792262544792, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792264151480, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792264173029, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792265510415, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792265956691, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792265983258, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792272261509, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792272309746, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792272905885, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "interrupt": false}
+{"at": 1792272906841, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "interrupt": false}
+{"at": 1792272907285, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s7", "delivered": true}
+{"at": 1792273032832, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792273095879, "type": "lead-message", "owner": "b9c668cd59aa", "interrupt": false}
+{"at": 1792273128343, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792273128615, "type": "instruction", "owner": "b9c668cd59aa", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792273129270, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792273130242, "type": "delivery-attempt", "owner": "b9c668cd59aa", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792273131024, "type": "lead-message", "owner": "658e5c0ca6f5", "interrupt": false}
+{"at": 1792273131024, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s0", "delivered": true}
+{"at": 1792273131705, "type": "steer", "owner": "b9c668cd59aa", "toWorker": "R:s4", "delivered": true}
+{"at": 1792273145585, "type": "acknowledgement", "owner": "b9c668cd59aa", "by": "other"}
+{"at": 1792273178841, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "interrupt": false}
+{"at": 1792273178932, "type": "instruction", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s11", "interrupt": false}
+{"at": 1792273180201, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "interrupt": false}
+{"at": 1792273181143, "type": "delivery-attempt", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s11", "interrupt": false}
+{"at": 1792273181647, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s10", "delivered": true}
+{"at": 1792273182091, "type": "steer", "owner": "658e5c0ca6f5", "toWorker": "R:s0:s11", "delivered": false}
+{"at": 1792273284349, "type": "tool-outcome", "owner": "658e5c0ca6f5"}
+{"at": 1792273297512, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792273371997, "type": "tool-outcome", "owner": "27f42e55215d"}
+{"at": 1792273408790, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792273421886, "type": "tool-outcome", "owner": "658e5c0ca6f5"}
+{"at": 1792273462759, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
+{"at": 1792273500243, "type": "acknowledgement", "owner": "658e5c0ca6f5", "by": "other"}
