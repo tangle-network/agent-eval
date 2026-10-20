@@ -816,3 +816,8 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     lastEventAt,
   }
 }
+
+/** A recorded non-empty string; whitespace is retained as source evidence. */
+export function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
