@@ -47,6 +47,7 @@ import {
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
+const COORDINATION_FILE = 'coordination-log.jsonl'
 const OBSERVER_FILE = 'observer.jsonl'
 const ROOT_STREAM_FILE = 'root-stream.jsonl'
 const BLOB_DIR = 'blobs'
@@ -972,6 +973,7 @@ export async function readRuntimeSupervisorRun(
     judgeSource: null,
     patch: null,
     driverLog: null,
+    coordinationLog: await readMaybe(join(runDir, COORDINATION_FILE)),
     harnessWorkerTokens: null,
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),

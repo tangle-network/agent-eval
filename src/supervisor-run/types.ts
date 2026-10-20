@@ -223,6 +223,12 @@ export interface SupervisorRunSources {
   /** Outer-driver log (used for the driver's steer verbs + deadline evidence). */
   readonly driverLog: string | null
   /**
+   * Runtime `coordination-log.jsonl` (JSONL of `{ runId, seq, at, event }`):
+   * questions, steers, answers and peer mail between nodes. Absent for stores
+   * that keep no coordination log; null when the Runtime run dir has none.
+   */
+  readonly coordinationLog?: string | null
+  /**
    * Worker tokens recovered from a harness session store; null = store unavailable.
    * `store` names the store in the report's provenance line (e.g. `opencode`).
    */

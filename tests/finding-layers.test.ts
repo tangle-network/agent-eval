@@ -9,7 +9,7 @@
  * that format, not copied from a production run.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -23,13 +23,11 @@ import {
   defineDomainTaxonomy,
   diffFindingsOverTime,
   FAILURE_MODES_MIN_KAPPA,
-  type FailureModeLabelItem,
   type FindingEvidenceUnit,
-  failureModeGoldFromAgentRx,
+  loadFailureModeGold,
   makeFinding,
   openFindingsLedger,
   parseAnalystFinding,
-  parseFailureModeGold,
   promote,
   queryFindings,
   readFindingScope,
@@ -192,18 +190,63 @@ describe('team-shape classifies recorded-format spawn journals', () => {
     expect(finding?.claim).toBe('Team shape is hive depth 2')
   })
 
-  it('reads peer messages from the coordination log as a swarm', async () => {
-    const sources = await readRuntimeSupervisorRun(join(FIXTURES, 'flat-star'), { strict: true })
-    const peers = Array.from({ length: 17 }, (_, i) =>
-      JSON.stringify({
-        kind: 'message',
-        from: `magnetar-flat-r1:s${i}`,
-        to: `magnetar-flat-r1:s${i + 1}`,
-      }),
-    ).join('\n')
-    const shape = ok(classifyTeamShape({ sources, coordination: peers }))
-    expect(shape.class).toBe('swarm')
-    expect(shape.features.peerMessageShare).toBe(1)
+  it('reads delivered peer mail in the Runtime coordination log as a swarm', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'team-shape-swarm-'))
+    try {
+      cpSync(join(FIXTURES, 'flat-star'), dir, { recursive: true })
+      // Runtime `FileCoordinationLog` rows: peer mail between siblings, one
+      // refused attempt that must not count, and a delivered root steer.
+      const mail = (i: number, delivered: boolean) => ({
+        type: 'mail',
+        mail: {
+          envelope: {
+            mailId: `m${i}`,
+            threadId: `t${i}`,
+            depth: 0,
+            from: `magnetar-flat-r1:s${i}`,
+            to: `magnetar-flat-r1:s${i + 1}`,
+            subject: 'interface',
+            body: 'shared field layout',
+            evidenceRefs: [],
+            at: Date.parse(WINDOW.from) + i,
+          },
+          delivered,
+          outcome: delivered ? 'delivered' : 'inbox-full',
+          bodyDigest: `digest-${i}`,
+        },
+      })
+      const events = [
+        ...Array.from({ length: 17 }, (_, i) => mail(i, true)),
+        mail(0, false),
+        {
+          type: 'steer',
+          down: {
+            receiptId: 'r1',
+            toWorker: 'magnetar-flat-r1:s0',
+            instruction: 'narrow the scope',
+            instructionDigest: 'd1',
+            delivered: true,
+            outcome: 'delivered',
+          },
+        },
+      ]
+      writeFileSync(
+        join(dir, 'coordination-log.jsonl'),
+        events
+          .map((event, seq) =>
+            JSON.stringify({ runId: 'magnetar-flat-r1', seq, at: seq, priority: 0, event }),
+          )
+          .join('\n'),
+      )
+      const sources = await readRuntimeSupervisorRun(dir, { strict: true })
+      const shape = ok(classifyTeamShape({ sources }))
+      expect(shape.communicationSource).toBe('coordination-log')
+      expect(shape.invalidRows.coordination).toBe(0)
+      expect(shape.features.peerMessageShare).toBe(17 / 18)
+      expect(shape.class).toBe('swarm')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -400,34 +443,16 @@ describe('findings ledger', () => {
 })
 
 describe('failure-modes calibration gate', () => {
-  const agentRx = failureModeGoldFromAgentRx([
-    {
-      trajectory_id: 'rx-1',
-      root_cause_failure_id: 'f1',
-      failures: [
-        {
-          failure_id: 'f1',
-          step_number: 3,
-          step_reason: 'r',
-          failure_category: 'Invalid Invocation',
-        },
-      ],
-    },
-    {
-      trajectory_id: 'rx-2',
-      root_cause_failure_id: 'f1',
-      failures: [
-        {
-          failure_id: 'f1',
-          step_number: 2,
-          step_reason: 'r',
-          failure_category: 'Guardrails Triggered',
-        },
-      ],
-    },
-  ])
-  const callerGold = ok(
-    parseFailureModeGold([
+  // The public AgentRx label file is not stored in this repository; the
+  // benchmark reads it from `--labels`. Point AGENT_EVAL_AGENTRX_LABELS at
+  // that file to calibrate against it here.
+  const agentRxLabelsPath = process.env.AGENT_EVAL_AGENTRX_LABELS
+  const dir = mkdtempSync(join(tmpdir(), 'failure-modes-gold-'))
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  const goldPath = join(dir, 'gold.json')
+  writeFileSync(
+    goldPath,
+    JSON.stringify([
       { id: 'gold-1', label: 'premature-termination' },
       { id: 'gold-2', label: 'no-or-incomplete-verification' },
       { id: 'gold-3', label: 'task-derailment' },
@@ -435,7 +460,6 @@ describe('failure-modes calibration gate', () => {
       { id: 'gold-5', label: 'none' },
     ]),
   )
-  const gold: FailureModeLabelItem[] = [...agentRx.gold, ...callerGold]
   const options = {
     model: 'judge-model',
     layer: 'run' as const,
@@ -446,24 +470,35 @@ describe('failure-modes calibration gate', () => {
     scope: () => ({ population: ['run-1'], n: 1, window: WINDOW }),
   }
 
-  it('maps AgentRx root causes onto the label set and skips categories it has no label for', () => {
-    expect(agentRx.gold).toEqual([{ id: 'agentrx:rx-1', label: 'invalid-tool-invocation' }])
-    expect(agentRx.unmapped).toEqual([{ id: 'agentrx:rx-2', category: 'guardrails-triggered' }])
+  it.skipIf(!agentRxLabelsPath)(
+    'maps every public AgentRx row onto the label set or the unmapped list (needs AGENT_EVAL_AGENTRX_LABELS)',
+    async () => {
+      const loaded = ok(await loadFailureModeGold({ agentRxLabelsPath }))
+      expect(loaded.agentRxRows).toBeGreaterThan(0)
+      expect(loaded.gold.length + loaded.unmapped.length).toBe(loaded.agentRxRows)
+      expect(loaded.gold.length).toBeGreaterThan(0)
+    },
+  )
+
+  it('refuses a calibration with no gold source', async () => {
+    expect(await loadFailureModeGold({})).toMatchObject({ succeeded: false })
   })
 
-  it(`refuses to report a rubric whose kappa is below ${FAILURE_MODES_MIN_KAPPA}`, () => {
+  it(`refuses to report a rubric whose kappa is below ${FAILURE_MODES_MIN_KAPPA}`, async () => {
+    const { gold } = ok(await loadFailureModeGold({ goldPath }))
     const careless = gold.map((item) => ({ id: item.id, label: 'premature-termination' as const }))
     const calibration = calibrateFailureModes(gold, careless)
-    expect(calibration.gold_n).toBe(6)
+    expect(calibration.gold_n).toBe(5)
     expect(calibration.kappa).toBeLessThan(FAILURE_MODES_MIN_KAPPA)
     const refused = createFailureModesAnalyst({ ...options, calibration })
     expect(refused).toMatchObject({ succeeded: false, error: { kind: 'uncalibrated' } })
   })
 
-  it('builds the analyst once the rubric agrees with its gold set', () => {
+  it('builds the analyst once the rubric agrees with its gold set', async () => {
+    const { gold } = ok(await loadFailureModeGold({ goldPath }))
     const calibration = calibrateFailureModes(
       gold,
-      gold.slice(0, 5).concat({ id: 'gold-5', label: 'task-derailment' }),
+      gold.slice(0, 4).concat({ id: 'gold-5', label: 'task-derailment' }),
     )
     expect(calibration.kappa).toBeGreaterThanOrEqual(FAILURE_MODES_MIN_KAPPA)
     const built = createFailureModesAnalyst({ ...options, calibration })

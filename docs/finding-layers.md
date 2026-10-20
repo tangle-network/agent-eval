@@ -31,7 +31,7 @@ All are optional on the type, and `makeFinding` writes 1.1.0 only when one is se
 
 `readFindingScope` labels a finding `anecdote` when n < 2, `uncalibrated` when it was judged without calibration, `lineage-unknown` when a unit's lineage was not recorded, and `unscoped` for 1.0.0.
 
-`scope.population` takes explicit unit ids only. A query form was proposed but never specified; resolve a query before writing the finding.
+`scope.population` stores resolved unit ids, never a query: `n`, `evidence_units` and promotion's lineage check compare against those ids, and a query re-run later can select a different set. Select a population with `queryFindings` and store the ids it returned.
 
 ## Lineage
 
@@ -64,6 +64,6 @@ Event, turn, agent, team and meta findings are never placed on the ladder.
 
 ## Analysts
 
-- `team-shape` (computed, `team`) reads a spawn journal through the supervisor-run readers plus an optional coordination log, builds command, governance and communication edges, and classifies the tree by ordered rules: single, partition, swarm, hive, flat star, fleet. The thresholds are `TEAM_SHAPE_THRESHOLDS`; recalibrate them against the 2026-10-20 class definitions before reading a fleet or swarm boundary as settled.
-- `failure-modes` (judged, `agent`, `team` or `run`) asks fixed-choice questions through `systemOneAnalyst`: a MAST-adapted failure mode, delegation-brief completeness and steer handling. `createFailureModesAnalyst` refuses a rubric whose calibration κ is below `FAILURE_MODES_MIN_KAPPA`. Calibrate with `calibrateFailureModes` against `failureModeGoldFromAgentRx` rows plus a gold file read by `parseFailureModeGold`.
+- `team-shape` (computed, `team`) reads only `SupervisorRunSources`: the spawn journal and, for a Runtime run, the `coordination-log.jsonl` that `readRuntimeSupervisorRun` loads beside it. Command edges come from spawns, governance edges from settlements, and communication edges from delivered peer mail, steers, answers and questions (worker-log steers and questions for stores without a coordination log). It classifies the tree by ordered rules: single, partition, swarm, hive, flat star, fleet. The rules and `TEAM_SHAPE_THRESHOLDS` are provisional until the 2026-10-20 class definitions are recorded; with governance taken from settlements, a depth-1 team always has root integration share 1, so `fleet` is not reachable from Runtime records.
+- `failure-modes` (judged, `agent`, `team` or `run`) asks fixed-choice questions through `systemOneAnalyst`: a MAST-adapted failure mode, delegation-brief completeness and steer handling. `createFailureModesAnalyst` refuses a rubric whose calibration κ is below `FAILURE_MODES_MIN_KAPPA`. `loadFailureModeGold` reads the public AgentRx label file through the benchmark's `loadPublicBenchmarkRows` (the file `analyst-benchmark --dataset agentrx --labels` takes) plus the caller's gold file; `calibrateFailureModes` scores the judge against that set. The AgentRx file is not stored in this repository; set `AGENT_EVAL_AGENTRX_LABELS` to run its integration test.
 - `rollup` (computed) pools run findings per play with a lineage-clustered bootstrap, then lets `promote` decide what climbs. Each lifted finding gets the pooled interval over every run beneath it and its observation and cluster counts.

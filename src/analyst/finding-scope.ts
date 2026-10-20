@@ -56,9 +56,11 @@ export function findingLayerRank(layer: FindingLayer): number | null {
 
 export interface FindingScope {
   /**
-   * Ids of the measured units. The issue's query form of a population was
-   * never specified, so only explicit ids are accepted; a caller with a query
-   * resolves it before writing the finding.
+   * Ids of the measured units. A population is stored resolved, never as a
+   * query: the ids are what `n`, `evidence_units` and promotion's lineage
+   * check are compared against, and a query re-run later can select a
+   * different set. Select populations with `queryFindings` (layer, subject,
+   * domain path, analyst) and store the ids it returned.
    */
   population: string[]
   /** Units measured. Below 2, readers label the finding an anecdote. */
@@ -106,7 +108,9 @@ export interface FindingEvidenceUnit {
   derived_from?: string | null
 }
 
-const nonEmpty = z.string().min(1)
+const nonEmpty = z.string().refine((value) => value.trim().length > 0, {
+  message: 'must be a non-empty string',
+})
 const timestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)), {
   message: 'must be a valid timestamp',
 })
@@ -167,7 +171,7 @@ const findingObject = z
     schema_version: z.enum(['1.0.0', '1.1.0']),
     finding_id: nonEmpty,
     analyst_id: nonEmpty,
-    produced_at: nonEmpty,
+    produced_at: timestamp,
     severity: z.enum(ANALYST_SEVERITIES),
     area: nonEmpty,
     claim: nonEmpty,

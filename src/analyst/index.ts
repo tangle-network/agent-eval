@@ -283,6 +283,8 @@ export type {
   ExactExecutionComponentSnapshot,
 } from './exact-types'
 export type {
+  FailureModeGold,
+  FailureModeGoldSources,
   FailureModeLabel,
   FailureModeLabelItem,
   FailureModesAnalystOptions,
@@ -298,7 +300,7 @@ export {
   FAILURE_MODES_MIN_KAPPA,
   FAILURE_MODES_QUESTIONS,
   FAILURE_MODES_VERSION,
-  failureModeGoldFromAgentRx,
+  loadFailureModeGold,
   parseFailureModeGold,
 } from './failure-modes'
 export type {

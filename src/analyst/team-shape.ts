@@ -1,14 +1,17 @@
 /**
  * team-shape — classify how a supervision tree was organized, from the
- * Runtime spawn journal plus an optional coordination log.
+ * sources the supervisor-run readers return: the spawn journal and, for a
+ * Runtime run, its `coordination-log.jsonl`.
  *
  * The tree becomes three edge sets over the same nodes:
  *   - E, command: parent spawned child (the spawn journal).
- *   - G, governance: one node judged or integrated another's output. Taken
- *     from `integrate` rows in the coordination log when it has any, else
- *     from the journal: a parent that settled its child governed it.
- *   - C, communication: messages. Coordination-log `message` rows, plus the
- *     steers (parent → worker) and questions (worker → parent) in worker logs.
+ *   - G, governance: a parent that settled its child governed it (journal
+ *     settlements). No Runtime record names an integrator other than the
+ *     parent, so a depth-1 team always has root integration share 1.
+ *   - C, communication: delivered peer mail (worker → sibling), delivered
+ *     steers and answers (parent → worker) and questions (worker → parent).
+ *     Taken from the coordination log when the store keeps one, else from the
+ *     steers and questions in worker logs.
  *
  * Classes are decided by ordered rules, so no graph gets two:
  *   1. single     — no node besides the root.
@@ -53,12 +56,6 @@ export const TEAM_SHAPE_THRESHOLDS = {
 
 export interface TeamShapeInput {
   sources: SupervisorRunSources
-  /**
-   * Coordination log (JSONL), or null when none was kept. Rows:
-   *   {"kind":"message","from":"<node id>","to":"<node id>"}
-   *   {"kind":"integrate","from":"<integrator id>","to":"<node whose output it took>"}
-   */
-  coordination?: string | null
 }
 
 export interface TeamShapeEdge {
@@ -97,8 +94,8 @@ export interface TeamShape {
   rootId: string
   features: TeamShapeFeatures
   graph: { command: TeamShapeEdge[]; governance: TeamShapeEdge[]; communication: TeamShapeEdge[] }
-  /** Where governance edges came from. */
-  governanceSource: 'coordination-log' | 'journal-settlements'
+  /** Where communication edges came from. */
+  communicationSource: 'coordination-log' | 'worker-logs'
   /** Journal and coordination rows that could not be read. */
   invalidRows: { journal: number; spawns: number; coordination: number }
   window: { from: string; to: string } | null
@@ -161,42 +158,38 @@ export function classifyTeamShape(input: TeamShapeInput): TeamShapeOutcome {
     depth = Math.max(depth, hops)
   }
 
-  const coordination = parseJsonl(input.coordination ?? null)
-  const coordinationLines = (input.coordination ?? '')
-    .split('\n')
-    .filter((line) => line.trim()).length
-  let coordinationInvalid = coordinationLines - coordination.length
   const communication = new Map<string, TeamShapeEdge>()
-  const explicitGovernance = new Map<string, TeamShapeEdge>()
-  for (const row of coordination) {
-    const from = typeof row.from === 'string' && ids.has(row.from) ? row.from : null
-    const to = typeof row.to === 'string' && ids.has(row.to) ? row.to : null
-    if (from === null || to === null || (row.kind !== 'message' && row.kind !== 'integrate')) {
-      coordinationInvalid += 1
-      continue
+  let coordinationInvalid = 0
+  const communicationSource: TeamShape['communicationSource'] =
+    typeof sources.coordinationLog === 'string' ? 'coordination-log' : 'worker-logs'
+  if (typeof sources.coordinationLog === 'string') {
+    const rows = sources.coordinationLog.split('\n').filter((line) => line.trim())
+    const records = parseJsonl(sources.coordinationLog)
+    coordinationInvalid = rows.length - records.length
+    for (const record of records) {
+      const edge = coordinationEdge(record.event, parentOf)
+      if (edge === 'unread') coordinationInvalid += 1
+      else if (edge !== null && ids.has(edge.from) && ids.has(edge.to)) {
+        addEdge(communication, edge.from, edge.to)
+      }
     }
-    addEdge(row.kind === 'message' ? communication : explicitGovernance, from, to)
-  }
-  const spawnByLabel = new Map(spawns.map((spawn) => [spawn.label, spawn.id]))
-  for (const log of tree.workerLogRows) {
-    const node =
-      log.workerId !== null && ids.has(log.workerId) ? log.workerId : spawnByLabel.get(log.label)
-    const parent = node === undefined ? null : (parentOf.get(node) ?? null)
-    if (node === undefined || parent === null) continue
-    for (let i = 0; i < log.steerRequests.length; i += 1) addEdge(communication, parent, node)
-    for (let i = 0; i < log.questions; i += 1) addEdge(communication, node, parent)
+  } else {
+    const spawnByLabel = new Map(spawns.map((spawn) => [spawn.label, spawn.id]))
+    for (const log of tree.workerLogRows) {
+      const node =
+        log.workerId !== null && ids.has(log.workerId) ? log.workerId : spawnByLabel.get(log.label)
+      const parent = node === undefined ? null : (parentOf.get(node) ?? null)
+      if (node === undefined || parent === null) continue
+      for (let i = 0; i < log.steerRequests.length; i += 1) addEdge(communication, parent, node)
+      for (let i = 0; i < log.questions; i += 1) addEdge(communication, node, parent)
+    }
   }
 
-  let governance = explicitGovernance
-  let governanceSource: TeamShape['governanceSource'] = 'coordination-log'
-  if (explicitGovernance.size === 0) {
-    governanceSource = 'journal-settlements'
-    governance = new Map()
-    for (const close of tree.closes) {
-      if (close.kind !== 'settled') continue
-      const parent = parentOf.get(close.id)
-      if (parent !== null && parent !== undefined) addEdge(governance, parent, close.id)
-    }
+  const governance = new Map<string, TeamShapeEdge>()
+  for (const close of tree.closes) {
+    if (close.kind !== 'settled') continue
+    const parent = parentOf.get(close.id)
+    if (parent !== null && parent !== undefined) addEdge(governance, parent, close.id)
   }
 
   const tasks = spawns.length - roots.length
@@ -235,7 +228,7 @@ export function classifyTeamShape(input: TeamShapeInput): TeamShapeOutcome {
         governance: [...governance.values()],
         communication: [...communication.values()],
       },
-      governanceSource,
+      communicationSource,
       invalidRows: {
         journal: tree.journalInvalidRows,
         spawns: tree.spawns.length - spawns.length,
@@ -269,6 +262,50 @@ function classOf(features: TeamShapeFeatures): TeamShapeClass {
     return 'fleet'
   }
   return 'flat-star'
+}
+
+/**
+ * The communication edge one Runtime `CoordinationEvent` records, null for
+ * kinds that carry no message between nodes, and `unread` for a message kind
+ * whose sender or recipient is not a string. Undelivered mail and steers are
+ * refused attempts, not communication.
+ */
+function coordinationEdge(
+  event: unknown,
+  parentOf: ReadonlyMap<string, string | null>,
+): { from: string; to: string } | null | 'unread' {
+  if (typeof event !== 'object' || event === null) return 'unread'
+  const row = event as Record<string, unknown>
+  const field = (value: unknown, key: string): unknown =>
+    typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : undefined
+  const toParent = (child: unknown) => {
+    if (typeof child !== 'string') return 'unread' as const
+    const parent = parentOf.get(child)
+    return parent ? { from: child, to: parent } : null
+  }
+  const fromParent = (child: unknown) => {
+    const edge = toParent(child)
+    return edge === null || edge === 'unread' ? edge : { from: edge.to, to: edge.from }
+  }
+  switch (row.type) {
+    case 'mail': {
+      const mail = row.mail
+      const envelope = field(mail, 'envelope')
+      const from = field(envelope, 'from')
+      const to = field(envelope, 'to')
+      if (typeof from !== 'string' || typeof to !== 'string') return 'unread'
+      return field(mail, 'delivered') === true ? { from, to } : null
+    }
+    case 'steer':
+    case 'answer':
+      return field(row.down, 'delivered') === true ? fromParent(field(row.down, 'toWorker')) : null
+    case 'question':
+      return toParent(field(row.question, 'from'))
+    default:
+      return null
+  }
 }
 
 function addEdge(edges: Map<string, TeamShapeEdge>, from: string, to: string): void {
@@ -328,7 +365,7 @@ export function teamShapeAnalyst(): Analyst<TeamShapeInput> {
               governance: shape.graph.governance.length,
               communication: shape.graph.communication.length,
             },
-            governance_source: shape.governanceSource,
+            communication_source: shape.communicationSource,
             invalid_rows: { ...shape.invalidRows },
           },
         }),

@@ -15,11 +15,13 @@
  * gold set has nothing to report, so it reports nothing.
  */
 
+import { readFile } from 'node:fs/promises'
 import { nominalAgreement } from '../statistics/agreement-irr'
 import { type SystemOneEvaluatorOptions, systemOneAnalyst } from '../systemone'
 import type { SystemOneQuestions, SystemOneState } from '../systemone-protocol'
 import { normalizeAgentRxCategory } from './benchmark-dataset-agentrx'
 import type { AgentRxRow } from './benchmark-dataset-types'
+import { loadPublicBenchmarkRows } from './benchmark-public-data'
 import type { FindingCalibration, FindingScope } from './finding-scope'
 import { type Analyst, type AnalystContext, type AnalystFinding, makeFinding } from './types'
 
@@ -122,7 +124,7 @@ function isLabel(value: unknown): value is FailureModeLabel {
 }
 
 /** Gold labels from AgentRx rows: each trajectory's root-cause category, mapped onto this set. */
-export function failureModeGoldFromAgentRx(rows: readonly AgentRxRow[]): {
+function failureModeGoldFromAgentRx(rows: readonly AgentRxRow[]): {
   gold: FailureModeLabelItem[]
   unmapped: Array<{ id: string; category: string }>
 } {
@@ -175,10 +177,62 @@ export function parseFailureModeGold(raw: unknown): FailureModesOutcome<FailureM
   return { succeeded: true, value: items }
 }
 
+export interface FailureModeGoldSources {
+  /** The public AgentRx label file, the same file `analyst-benchmark --dataset agentrx --labels` reads. */
+  agentRxLabelsPath?: string
+  /** The caller's gold file: a JSON array of `{ id, label }`. */
+  goldPath?: string
+}
+
+export interface FailureModeGold {
+  gold: FailureModeLabelItem[]
+  /** AgentRx rows read from `agentRxLabelsPath`; every one is either in `gold` or in `unmapped`. */
+  agentRxRows: number
+  unmapped: Array<{ id: string; category: string }>
+}
+
 /**
- * Score the judge's labels against gold labels for the same items. Gold
- * sources (AgentRx, a caller's file) are concatenated by the caller; ids must
- * be unique across them.
+ * Load the calibration gold set from the public AgentRx labels and the
+ * caller's gold file, through the analyst module's public-dataset loader.
+ * Ids must be unique across both sources. No source, or no gold item, is a
+ * failure: an empty gold set would calibrate to an undefined κ.
+ */
+export async function loadFailureModeGold(
+  sources: FailureModeGoldSources,
+): Promise<FailureModesOutcome<FailureModeGold>> {
+  const invalid = (message: string) =>
+    ({ succeeded: false, error: { kind: 'invalid', message } }) as const
+  const gold: FailureModeLabelItem[] = []
+  let agentRxRows = 0
+  let unmapped: FailureModeGold['unmapped'] = []
+  try {
+    if (sources.agentRxLabelsPath !== undefined) {
+      const rows = await loadPublicBenchmarkRows(sources.agentRxLabelsPath)
+      agentRxRows = rows.length
+      const mapped = failureModeGoldFromAgentRx(rows as unknown as AgentRxRow[])
+      gold.push(...mapped.gold)
+      unmapped = mapped.unmapped
+    }
+    if (sources.goldPath !== undefined) {
+      const parsed = parseFailureModeGold(JSON.parse(await readFile(sources.goldPath, 'utf8')))
+      if (!parsed.succeeded) return parsed
+      gold.push(...parsed.value)
+    }
+  } catch (error) {
+    return invalid(error instanceof Error ? error.message : String(error))
+  }
+  if (gold.length === 0) return invalid('failure-modes calibration needs at least one gold item')
+  const ids = new Set<string>()
+  for (const item of gold) {
+    if (ids.has(item.id)) return invalid(`gold id '${item.id}' repeats across sources`)
+    ids.add(item.id)
+  }
+  return { succeeded: true, value: { gold, agentRxRows, unmapped } }
+}
+
+/**
+ * Score the judge's labels against gold labels for the same items, usually
+ * the set `loadFailureModeGold` returns.
  */
 export function calibrateFailureModes(
   gold: readonly FailureModeLabelItem[],
