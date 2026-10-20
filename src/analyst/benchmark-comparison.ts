@@ -1,4 +1,5 @@
 import { pairedBootstrap } from '../statistics'
+import { mean } from '../statistics/mean'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 
 /**
@@ -335,10 +336,6 @@ function metricValue(
   if (metric === 'cacheWriteTokens') return observation.usage?.tokens?.cacheWrite ?? null
   if (observation.usage?.cost.kind === 'uncaptured') return null
   return observation.usage?.cost.usd ?? null
-}
-
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 function assertComparisonControls(confidence: number, resamples: number): void {

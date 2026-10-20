@@ -129,6 +129,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/statistics/index.ts',
   'src/statistics/inference.ts',
   'src/statistics/internal.ts',
+  'src/statistics/mean.ts',
   'src/statistics/multiplicity.ts',
   'src/statistics/paired-binary.ts',
   'src/statistics/paired-tests.ts',
@@ -156,7 +157,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '1167d2aff02b3452ee664cc2aceead7e1872e3580b1ec70bb01f9c07b29c82b2'
+  '15fc42b077e6c55cf5134eb68082932f741f22c159aa8297ee32dc566a320d86'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
