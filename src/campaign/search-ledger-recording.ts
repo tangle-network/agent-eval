@@ -26,6 +26,7 @@ import { type RunRecord, searchCellRunId } from '../run-record'
 import { REDACTION_VERSION, redactText } from '../trace/redact'
 import { createSearchHistoryReceipt, type SearchHistoryReceipt } from './search-history-receipt'
 import { type SearchLedger, validateSearchLedgerEvent } from './search-ledger'
+import { MAX_LABEL_CHARS } from './search-ledger-constraints'
 import type {
   NodeEstimate,
   SearchArtifactRef,
@@ -63,8 +64,6 @@ import {
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 import { renderSurfaceDiff, surfaceContentHash } from './surface-identity'
 import type { MutableSurface } from './types'
-
-const MAX_LABEL_CHARS = 200
 
 /** Identities the ledger needs and a loop cannot infer. */
 export interface SearchRunIdentity {
