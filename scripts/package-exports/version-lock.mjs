@@ -46,4 +46,3 @@ function matchVersion(source, pattern, path) {
   if (!match?.[1]) throw new Error(`could not read release version from ${path}`)
   return match[1]
 }
-
