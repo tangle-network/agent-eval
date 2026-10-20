@@ -178,4 +178,3 @@ function collectDtsExportNames(dtsPath, seenFiles = new Set()) {
   }
   return names
 }
-

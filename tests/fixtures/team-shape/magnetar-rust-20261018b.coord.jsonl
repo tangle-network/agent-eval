@@ -1,0 +1,121 @@
+{"at": 1792287663830, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792287665026, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792287666523, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s0", "delivered": true}
+{"at": 1792287675982, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792287677309, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792287678444, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792287683888, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792287685204, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792287685539, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s2", "delivered": true}
+{"at": 1792287689855, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792287690951, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792287695883, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s3", "delivered": true}
+{"at": 1792289076067, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792289076705, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792289077143, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s0", "delivered": true}
+{"at": 1792289080355, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792289080737, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792289080896, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792289083360, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792289084183, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792289086845, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s2", "delivered": true}
+{"at": 1792289088480, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792289088759, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792289089113, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s3", "delivered": true}
+{"at": 1792289615930, "type": "instruction", "owner": "a0436b53cece", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792289616594, "type": "delivery-attempt", "owner": "a0436b53cece", "toWorker": "R:s3:s0", "interrupt": false}
+{"at": 1792289617027, "type": "steer", "owner": "a0436b53cece", "toWorker": "R:s3:s0", "delivered": true}
+{"at": 1792290046289, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792290046754, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792290046992, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792290071108, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792290071207, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792290071558, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792290071847, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792290072114, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792290072358, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s0", "delivered": true}
+{"at": 1792290091128, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792290091234, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792290091363, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792290091628, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792290092359, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s2", "delivered": true}
+{"at": 1792290092938, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s3", "delivered": true}
+{"at": 1792290113855, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792290116140, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792290117228, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s4", "delivered": false}
+{"at": 1792291996970, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792291998127, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792291998847, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s0", "delivered": true}
+{"at": 1792292005221, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792292006382, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792292006814, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792292009843, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792292010688, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792292011324, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s2", "delivered": true}
+{"at": 1792292014289, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792292014635, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792292014936, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s3", "delivered": true}
+{"at": 1792295883876, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792295888776, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s0", "interrupt": false}
+{"at": 1792295892386, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s0", "delivered": true}
+{"at": 1792295900631, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792295901672, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792295902749, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792295911679, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792295913060, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s2", "interrupt": false}
+{"at": 1792295914156, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s2", "delivered": true}
+{"at": 1792295919151, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792295919962, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s3", "interrupt": false}
+{"at": 1792295920700, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s3", "delivered": true}
+{"at": 1792297289244, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792297295818, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792297296668, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792299168860, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792299359453, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792299360829, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s1", "interrupt": false}
+{"at": 1792299361607, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s1", "delivered": true}
+{"at": 1792299405966, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792300365428, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792300372308, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s4", "interrupt": false}
+{"at": 1792300374524, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s4", "delivered": true}
+{"at": 1792301962647, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792302425202, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792308403458, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792316902130, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792317555285, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792318669799, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792329813433, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s10", "interrupt": false}
+{"at": 1792329814534, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s10", "interrupt": false}
+{"at": 1792329814722, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s10", "delivered": true}
+{"at": 1792340358182, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s11", "interrupt": false}
+{"at": 1792340364354, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s11", "interrupt": false}
+{"at": 1792340365547, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s11", "delivered": true}
+{"at": 1792340392286, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792345659599, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792348012319, "type": "lead-message", "owner": "472210a31a13", "interrupt": false}
+{"at": 1792348077027, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792348078962, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792348079477, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792348778154, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792349795401, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792349797770, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792349798155, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792351490406, "type": "lead-message", "owner": "472210a31a13", "interrupt": false}
+{"at": 1792353524972, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792353525723, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792353526315, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792356740605, "type": "lead-message", "owner": "472210a31a13", "interrupt": false}
+{"at": 1792356823847, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792356825431, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792356826918, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792356867940, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792357316429, "type": "lead-message", "owner": "472210a31a13", "interrupt": false}
+{"at": 1792357524377, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792357526324, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792357528877, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792357582198, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
+{"at": 1792363621953, "type": "lead-message", "owner": "472210a31a13", "interrupt": false}
+{"at": 1792363708144, "type": "instruction", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792363711153, "type": "delivery-attempt", "owner": "472210a31a13", "toWorker": "R:s12", "interrupt": false}
+{"at": 1792363713367, "type": "steer", "owner": "472210a31a13", "toWorker": "R:s12", "delivered": true}
+{"at": 1792363738821, "type": "acknowledgement", "owner": "472210a31a13", "by": "other"}
