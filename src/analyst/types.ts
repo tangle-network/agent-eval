@@ -21,13 +21,26 @@ import type { RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
 import type { ChatClient } from './chat-client'
+import type {
+  FindingEvidenceUnit,
+  FindingLayer,
+  FindingMeasure,
+  FindingMethod,
+  FindingScope,
+} from './finding-scope'
 
 /**
  * Unified envelope every analyst emits. Schema-versioned so renderers
  * and time-series diffs survive future field additions.
+ *
+ * 1.1.0 adds what a finding is about and what it was measured on: `layer`,
+ * `scope`, `method`, `measure`, `confounders`, `valid_for`, `claim_id` and
+ * `evidence_units`. They are all optional, and a 1.0.0 finding carries none of
+ * them; `readFindingScope` reads such a finding as layer and n unknown.
+ * `parseAnalystFinding` (finding-scope.ts) is the one validator for both.
  */
 export interface AnalystFinding {
-  schema_version: '1.0.0'
+  schema_version: AnalystFindingSchemaVersion
   /**
    * Stable hash over identity-defining fields (analyst_id + canonical
    * claim + area + optional subject). Two findings from two runs that
@@ -64,7 +77,34 @@ export interface AnalystFinding {
   derived_from_judge?: boolean
   /** Analyst-private extras; renderers ignore unless they know the analyst. */
   metadata?: Record<string, unknown>
+  /** 1.1.0: the level the claim is about, from one event up to the whole lab. */
+  layer?: FindingLayer
+  /** 1.1.0: the population the claim was measured on. */
+  scope?: FindingScope
+  /** 1.1.0: how the claim was produced, and the judge's calibration when judged. */
+  method?: FindingMethod
+  /** 1.1.0: the number behind the claim, when it has one. */
+  measure?: FindingMeasure
+  /** 1.1.0: known differences between the compared units besides the treatment. */
+  confounders?: string[]
+  /** 1.1.0: the conditions the claim was measured under, in words. */
+  valid_for?: string
+  /**
+   * 1.1.0: stable key for the claim across subjects and layers. `promote`
+   * groups children by it; a finding without one never lifts.
+   */
+  claim_id?: string
+  /**
+   * 1.1.0: the measured units with their lineage. When present, `scope.n` and
+   * `scope.population` must match them and no unit may sit above `layer`.
+   */
+  evidence_units?: FindingEvidenceUnit[]
 }
+
+/** Every finding schema this package reads. Writers emit 1.1.0 only when a 1.1.0 field is set. */
+export const ANALYST_FINDING_SCHEMA_VERSIONS = ['1.0.0', '1.1.0'] as const
+
+export type AnalystFindingSchemaVersion = (typeof ANALYST_FINDING_SCHEMA_VERSIONS)[number]
 
 /** Finding severity. `AnalystSeverity` derives from this array, so the type
  *  and the schema that validates a finding cannot name different levels. */
@@ -320,6 +360,18 @@ function normalizeClaim(c: string): string {
     .trim()
 }
 
+/** Fields that exist only in schema 1.1.0. */
+export const FINDING_SCOPE_FIELDS = [
+  'layer',
+  'scope',
+  'method',
+  'measure',
+  'confounders',
+  'valid_for',
+  'claim_id',
+  'evidence_units',
+] as const satisfies ReadonlyArray<keyof AnalystFinding>
+
 /**
  * Convenience factory: produce a fully-formed AnalystFinding with the
  * id computed automatically. Analyst code stays terse.
@@ -332,7 +384,9 @@ export function makeFinding(
 ): AnalystFinding {
   const { id_basis, produced_at, ...rest } = init
   return {
-    schema_version: '1.0.0',
+    schema_version: FINDING_SCOPE_FIELDS.some((field) => rest[field] !== undefined)
+      ? '1.1.0'
+      : '1.0.0',
     finding_id: computeFindingId({
       analyst_id: rest.analyst_id,
       area: rest.area,
