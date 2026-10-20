@@ -177,6 +177,39 @@ describe('analyst benchmark artifact reader', () => {
 
     await expect(readAnalystBenchmarkArtifact(path)).rejects.toThrow(/must be a real file/)
   })
+
+  it('accepts a schema 1.1.0 finding with its layer and population', async () => {
+    const path = await completedResultPath('agentrx')
+    const artifact = record(JSON.parse(await readFile(path, 'utf8')))
+    const observation = firstRecord(object(artifact, 'result'), 'observations')
+    observation.findings = [
+      {
+        schema_version: '1.1.0',
+        finding_id: 'finding-1',
+        analyst_id: 'dspy-rlm',
+        produced_at: '2026-10-20T00:00:00.000Z',
+        severity: 'high',
+        area: 'tool-use',
+        claim: 'The tool call failed.',
+        evidence_refs: [{ kind: 'span', uri: 'trace://rx-1/span/step-1' }],
+        confidence: 0.9,
+        layer: 'run',
+        scope: {
+          population: ['rx-1'],
+          n: 1,
+          window: { from: '2026-10-20T00:00:00.000Z', to: '2026-10-20T00:00:00.000Z' },
+        },
+        method: { kind: 'judged', name: 'dspy-rlm', version: '1' },
+      },
+    ]
+    await writeFile(path, `${JSON.stringify(artifact)}\n`)
+
+    const read = await readAnalystBenchmarkArtifact(path)
+    expect(read.result.observations[0]?.findings[0]).toMatchObject({
+      schema_version: '1.1.0',
+      layer: 'run',
+    })
+  })
 })
 
 async function completedResultPath(dataset: 'agentrx' | 'codetracebench'): Promise<string> {
