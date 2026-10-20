@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { nonEmptyString } from './source-facts'
 import type { SourceLimits } from './types'
 
@@ -13,20 +13,6 @@ export const BLOB_DIR = 'blobs'
 export const RESULT_FILE = 'result.json'
 
 export const FAILURE_FILE = 'failure.json'
-
-export async function readMaybe(path: string): Promise<string | null> {
-  return readFile(path, 'utf8').catch((error: unknown) => {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: unknown }).code === 'ENOENT'
-    ) {
-      return null
-    }
-    throw error
-  })
-}
 
 export function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

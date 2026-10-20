@@ -35,6 +35,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { readCoordinationLog, readMaybe } from './coordination-reader'
 import {
   assertFailureRecord,
   assertResultMatchesJournal,
@@ -45,7 +46,6 @@ import {
   parseOptionalRecord,
   RESULT_FILE,
   ROOT_STREAM_FILE,
-  readMaybe,
   record,
   runtimeBeginState,
   sourceLimits,
@@ -231,6 +231,7 @@ export async function readRuntimeSupervisorRun(
     judgeSource: null,
     patch: null,
     driverLog: null,
+    coordinationLog: await readCoordinationLog(runDir),
     harnessWorkerTokens: null,
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
