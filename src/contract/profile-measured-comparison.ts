@@ -22,7 +22,7 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
-import { addFixedSpend } from './fixed-spend'
+import { addFixedSpend, pairedFixedSpendReceipt } from './fixed-spend'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
@@ -299,33 +299,7 @@ function profileMeasurementCostReceipt(
   }>,
   model: string,
 ): CostReceiptInput {
-  const usage = measurements.reduce<AgentCandidateFixedSpend>(
-    (sum, measurement) =>
-      addFixedSpend(
-        addFixedSpend(sum, combinedProfileUsage(measurement.baseline)),
-        combinedProfileUsage(measurement.candidate),
-      ),
-    {
-      inputTokens: 0,
-      outputTokens: 0,
-      cachedInputTokens: 0,
-      reasoningTokens: 0,
-      modelCalls: 0,
-      costUsdNanos: 0,
-      costProvenance: 'observed',
-    },
-  )
-  const costUsd = usage.costUsdNanos / 1_000_000_000
-  return {
-    model,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cachedTokens: usage.cachedInputTokens,
-    reasoningTokens: usage.reasoningTokens,
-    ...(usage.costProvenance === 'observed'
-      ? { actualCostUsd: costUsd }
-      : { estimatedCostUsd: costUsd }),
-  }
+  return pairedFixedSpendReceipt(measurements, model, combinedProfileUsage)
 }
 
 function combinedProfileUsage(
