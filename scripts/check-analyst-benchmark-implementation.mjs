@@ -17,6 +17,12 @@ const DEPENDENCY_LOCK_DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/depen
 const DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-canonical-file-manifest-without-own-version'
 const NON_TYPESCRIPT_IMPLEMENTATION_FILES = [
   'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_codetrace.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_output.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_repair.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_sandbox.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_tools.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_validation.py',
   'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
 ]
 const UTF8 = new TextDecoder('utf-8', { fatal: true })

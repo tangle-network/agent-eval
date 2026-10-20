@@ -32,6 +32,12 @@ export const ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256 =
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_codetrace.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_output.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_repair.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_sandbox.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_tools.py',
+  'clients/python/src/agent_eval_rpc/dspy_rlm_validation.py',
   'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
   'src/abort-signal.ts',
   'src/analyst/benchmark-agentrx-calibration.ts',
@@ -149,7 +155,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'c67b7fefc6cd47a034d53305186b2a17b1b550bac5d12dd529b6a2f805435384'
+  '832018ae4e5d5ab6790d1c507d5bc775efd64478de6f7bacb069c47b099265c3'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
