@@ -48,6 +48,11 @@
  * surface and plateau on each, which calibrates the lens against a known
  * flat truth.
  *
+ * A nonempty test split requires --min-effect before the search starts.
+ * For a bounded adaptive held-out check:
+ *   node --import tsx scripts/search-sim.ts adaptive --seeds 2 --skills 3 --pool-gap 0.05 \
+ *     --selection 12 --test 12 --min-effect 0.05 --expansions 6 --delay-ms 0
+ *
  * Options: --seed N (1), --train N (2), --selection N (6), --test N (0),
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
  * --max-usd X (none), --claim-usd X (0), --cell-usd X (0.05), --cost-cap
