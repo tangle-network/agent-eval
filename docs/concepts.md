@@ -418,6 +418,7 @@ release decision.
 - **Need the feature map?** Read [feature-guide.md](./feature-guide.md) for integration patterns and operational limits.
 - **Scoring a string from another language?** Read [wire-protocol.md](./wire-protocol.md) for the HTTP/RPC interface.
 - **Diagnosing failures across a batch of runs?** Read [trace-analysis.md](./trace-analysis.md) for the recursive DSPy-RLM analyst and the public benchmark it's calibrated against.
+- **Stating what a finding holds for?** Read [finding-layers.md](./finding-layers.md) for layers, scope, lineage, promotion and the findings ledger.
 - **Building a driver and worker loop?** Read [control-runtime.md](./control-runtime.md) for coding, browser, computer-use, and research patterns.
 - **Turning review feedback into reusable data?** Read [feedback-trajectories.md](./feedback-trajectories.md) for dataset, optimization, and preference-memory examples.
 - **Building a code-generator eval?** → Start with `BuilderSession`, `SandboxHarness`, and `MultiLayerVerifier`.

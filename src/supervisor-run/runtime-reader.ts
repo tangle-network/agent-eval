@@ -37,6 +37,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
 import type { RolloutWorkspaceCapture } from '../rollout/schema'
+import { readCoordinationLog, readMaybe } from './coordination-reader'
 import {
   NO_SOURCE_LIMITS,
   type SourceLimits,
@@ -85,20 +86,6 @@ interface NormalizedRuntimeJournal {
   readonly startedAt: string
   readonly journal: string
   readonly events: readonly Record<string, unknown>[]
-}
-
-async function readMaybe(path: string): Promise<string | null> {
-  return readFile(path, 'utf8').catch((error: unknown) => {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: unknown }).code === 'ENOENT'
-    ) {
-      return null
-    }
-    throw error
-  })
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -972,6 +959,7 @@ export async function readRuntimeSupervisorRun(
     judgeSource: null,
     patch: null,
     driverLog: null,
+    coordinationLog: await readCoordinationLog(runDir),
     harnessWorkerTokens: null,
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
