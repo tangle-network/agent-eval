@@ -24,6 +24,7 @@ import {
   type PairedPromotionPowerCall,
   pairedPromotionPower,
 } from '../paired-promotion-power'
+import { normalizeSignedZero as plain } from '../statistics/normalize-signed-zero'
 import { estimateNode, searchPosterior, seedFromDigest } from './estimate-node'
 import type {
   NodeEstimate,
@@ -795,9 +796,4 @@ function mean(values: readonly number[]): number {
 
 function round(value: number): number {
   return Math.round(value * 1e4) / 1e4
-}
-
-/** Canonical JSON has one zero; never hand it a negative one. */
-function plain(value: number): number {
-  return value === 0 ? 0 : value
 }
