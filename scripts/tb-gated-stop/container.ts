@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { type RepairSession, type TestSuiteFile, testSuiteDigest } from '../../src/trace-repair'
+import { readTerminalBenchTestSuite } from '../terminal-bench-test-suite'
 import { TB2 } from './settings'
 
 export const run = promisify(execFile)
@@ -20,17 +21,7 @@ export interface TaskFixture {
 }
 
 function loadSuite(task: string): TestSuiteFile[] {
-  const dir = join(TB2, task, 'tests')
-  const files: TestSuiteFile[] = []
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(dir, rel))) {
-      const relPath = rel ? `${rel}/${entry}` : entry
-      if (statSync(join(dir, relPath)).isDirectory()) walk(relPath)
-      else files.push({ path: `/tests/${relPath}`, contents: readFileSync(join(dir, relPath), 'utf8') })
-    }
-  }
-  walk('')
-  return files
+  return readTerminalBenchTestSuite(join(TB2, task, 'tests'))
 }
 
 export async function loadTask(name: string): Promise<TaskFixture> {
