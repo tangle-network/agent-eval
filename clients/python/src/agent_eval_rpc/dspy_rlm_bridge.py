@@ -11,6 +11,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+from agent_eval_rpc.optimizer_bridge_common import module_source_sha256
+
 # Preserve the original bridge import surface while each responsibility has one owner.
 from agent_eval_rpc.dspy_rlm_codetrace import (  # noqa: F401
     _CODETRACE_ANALYSIS_PROMPT,
@@ -575,6 +577,7 @@ def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
         },
         "bridge": {
             "sourceSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "packageSourceSha256": module_source_sha256("agent_eval_rpc"),
         },
         "sandbox": {
             # The startup probe already raised unless it returned exactly "2".
