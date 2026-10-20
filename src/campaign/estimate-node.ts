@@ -17,6 +17,7 @@
 import { compareCodeUnits, hashCanonical } from '../ledger-core/canonical'
 import { minimumPairsForPairedDeltaTest, pairedDeltaTest } from '../paired-delta-test'
 import { BOOTSTRAP_GATE_MIN_N, DECISION_PAIRED_DELTA_STATISTIC } from '../statistics'
+import { normalizeSignedZero as plain } from '../statistics/normalize-signed-zero'
 import { SearchLedgerError } from './search-ledger-errors'
 import type {
   NodeEstimate,
@@ -333,9 +334,4 @@ function sum(values: readonly number[]): number {
   let total = 0
   for (const value of values) total += value
   return total
-}
-
-/** Canonical JSON has one zero; never hand it a negative one. */
-function plain(value: number): number {
-  return value === 0 ? 0 : value
 }
