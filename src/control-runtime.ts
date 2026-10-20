@@ -10,225 +10,56 @@
  * are all just actions chosen by the control policy.
  */
 
+import {
+  abortReason,
+  fingerprintAction,
+  fingerprintState,
+  makeContext,
+  runtimeError,
+} from './control-runtime/context'
+import type {
+  ControlActionOutcome,
+  ControlDecision,
+  ControlEvalResult,
+  ControlRunResult,
+  ControlRuntimeConfig,
+  ControlRuntimeError,
+  ControlStep,
+  StopDecision,
+} from './control-runtime/contract'
+import {
+  finish,
+  recordCostBudget,
+  recordEvalSpans,
+  runOnStep,
+  runTrace,
+} from './control-runtime/evidence'
+import {
+  averageScore,
+  budgetStopDecision,
+  defaultStopDecision,
+  normalizeActionCostUsd,
+  normalizeBudget,
+} from './control-runtime/policy'
 import { noProgressDetector, repeatedActionDetector } from './detectors'
-import { canonicalString } from './ledger-core/canonical'
-import { type SpanHandle, TraceEmitter } from './trace/emitter'
-import type { FailureClass } from './trace/schema'
-import type { TraceStore } from './trace/store'
+import { TraceEmitter } from './trace/emitter'
 
-export type ControlSeverity = 'info' | 'warning' | 'error' | 'critical'
-export type ControlActionFailureMode = 'continue' | 'stop'
-
-export interface ControlEvalResult {
-  /** Stable validator or judge id. */
-  id: string
-  /** Whether this check passed. */
-  passed: boolean
-  /** Optional normalized score. 1 = best, 0 = worst. */
-  score?: number
-  /** Objective validators should usually be "error" or "critical" when failed. */
-  severity?: ControlSeverity
-  /** Human-readable result. */
-  detail?: string
-  /** Small evidence string or pointer. Avoid large payloads. */
-  evidence?: string
-  /** True when the result came from deterministic state, not LLM judgment. */
-  objective?: boolean
-  /** Structured details for downstream control policies and reports. */
-  metadata?: Record<string, unknown>
-}
-
-export interface ControlBudget {
-  maxSteps: number
-  maxWallMs?: number
-  maxCostUsd?: number
-}
-
-export interface ControlStopPolicies<TState, TAction> {
-  /**
-   * Stop after N consecutive steps with no state fingerprint change and
-   * less than `minScoreDelta` score movement. Disabled when omitted.
-   */
-  maxNoProgressSteps?: number
-  /**
-   * Stop after the same action fingerprint is selected N consecutive
-   * times. Disabled when omitted.
-   */
-  maxRepeatedActions?: number
-  /** Minimum score movement that counts as progress. Default 0.001. */
-  minScoreDelta?: number
-  /** Override the default JSON/string fingerprint for state comparisons. */
-  stateFingerprint?: (state: TState) => string
-  /** Override the default JSON/string fingerprint for repeated-action checks. */
-  actionFingerprint?: (action: TAction) => string
-}
-
-export interface ControlContext<
-  TState,
-  TAction,
-  TActionResult,
-  TEval extends ControlEvalResult = ControlEvalResult,
-> {
-  intent: string
-  state: TState
-  evals: TEval[]
-  history: ControlStep<TState, TAction, TActionResult, TEval>[]
-  budget: ControlBudget
-  stepIndex: number
-  wallMs: number
-  spentCostUsd: number
-  remainingCostUsd?: number
-  abortSignal: AbortSignal
-  emitter?: TraceEmitter
-}
-
-export type ControlDecision<TAction> =
-  | {
-      type: 'continue'
-      action: TAction
-      reason?: string
-    }
-  | {
-      type: 'stop'
-      reason: string
-      pass?: boolean
-      score?: number
-      /** Canonical task-failure class when this stop represents a failed task. */
-      failureClass?: FailureClass
-    }
-
-export interface StopDecision {
-  stop: boolean
-  pass: boolean
-  reason: string
-  score?: number
-  failureClass?: FailureClass
-}
-
-export interface ControlActionOutcome<TActionResult> {
-  ok: boolean
-  result?: TActionResult
-  error?: string
-  costUsd?: number
-  durationMs: number
-}
-
-export interface ControlRuntimeError {
-  phase: 'observe' | 'validate' | 'decide' | 'act' | 'stop-policy' | 'on-step' | 'trace'
-  stepIndex: number
-  message: string
-}
-
-export interface ControlStep<
-  TState,
-  TAction,
-  TActionResult,
-  TEval extends ControlEvalResult = ControlEvalResult,
-> {
-  index: number
-  decision: ControlDecision<TAction>
-  beforeState: TState
-  afterState: TState
-  evalsBefore: TEval[]
-  evalsAfter: TEval[]
-  actionOutcome?: ControlActionOutcome<TActionResult>
-  startedAt: string
-  endedAt: string
-}
-
-export interface ControlRunResult<
-  TState,
-  TAction,
-  TActionResult,
-  TEval extends ControlEvalResult = ControlEvalResult,
-> {
-  intent: string
-  pass: boolean
-  completed: boolean
-  reason: string
-  score?: number
-  steps: ControlStep<TState, TAction, TActionResult, TEval>[]
-  finalState: TState | undefined
-  finalEvals: TEval[]
-  wallMs: number
-  spentCostUsd: number
-  /** null when the run executed without a TraceEmitter wired (no run record was persisted). */
-  runId: string | null
-  failureClass?: FailureClass
-  runtimeErrors: ControlRuntimeError[]
-  stoppedBy: 'policy' | 'stop-policy' | 'budget' | 'abort' | 'runtime-error'
-}
-
-export interface ControlRuntimeConfig<
-  TState,
-  TAction,
-  TActionResult,
-  TEval extends ControlEvalResult = ControlEvalResult,
-> {
-  intent: string
-  budget?: Partial<ControlBudget>
-  signal?: AbortSignal
-  /** Defaults to `continue`: action failures are recorded, then the policy gets another chance. */
-  actionFailure?: ControlActionFailureMode
-  /**
-   * Extract cost from an action result. Used for `maxCostUsd` budget
-   * enforcement and trace budget ledger emission.
-   */
-  getActionCostUsd?: (ctx: {
-    action: TAction
-    result: TActionResult
-    state: TState
-    evals: TEval[]
-    history: ControlStep<TState, TAction, TActionResult, TEval>[]
-  }) => number | undefined
-
-  /** Read typed task/product state. Prefer structured state over transcript-only context. */
-  observe: (ctx: {
-    history: ControlStep<TState, TAction, TActionResult, TEval>[]
-    abortSignal: AbortSignal
-  }) => Promise<TState> | TState
-
-  /** Objective validators first, subjective judges only where objective state is insufficient. */
-  validate: (ctx: {
-    intent: string
-    state: TState
-    history: ControlStep<TState, TAction, TActionResult, TEval>[]
-    abortSignal: AbortSignal
-  }) => Promise<TEval[]> | TEval[]
-
-  /** Choose the next control action. Can call a worker, ask user, run critic, inspect state, or stop. */
-  decide: (
-    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
-  ) => Promise<ControlDecision<TAction>> | ControlDecision<TAction>
-
-  /** Execute the action selected by the policy. */
-  act: (
-    action: TAction,
-    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
-  ) => Promise<TActionResult> | TActionResult
-
-  /** Final stopping policy. Called before decide and after each action. */
-  shouldStop?: (
-    ctx: ControlContext<TState, TAction, TActionResult, TEval>,
-  ) => Promise<StopDecision> | StopDecision
-
-  /** Optional hook for tracing or live progress updates. */
-  onStep?: (step: ControlStep<TState, TAction, TActionResult, TEval>) => Promise<void> | void
-
-  /** Optional generic stuck-loop policies. Custom `shouldStop` still runs first. */
-  stopPolicies?: ControlStopPolicies<TState, TAction>
-
-  /** Optional trace sink. Emits one run plus one span per control step. */
-  store?: TraceStore
-  scenarioId?: string
-  projectId?: string
-  variantId?: string
-}
-
-const DEFAULT_BUDGET: ControlBudget = {
-  maxSteps: 8,
-  maxWallMs: 5 * 60 * 1000,
-}
+export type {
+  ControlActionFailureMode,
+  ControlActionOutcome,
+  ControlBudget,
+  ControlContext,
+  ControlDecision,
+  ControlEvalResult,
+  ControlRunResult,
+  ControlRuntimeConfig,
+  ControlRuntimeError,
+  ControlSeverity,
+  ControlStep,
+  ControlStopPolicies,
+  StopDecision,
+} from './control-runtime/contract'
+export { allCriticalPassed, objectiveEval, subjectiveEval } from './control-runtime/policy'
 
 export async function runAgentControlLoop<
   TState,
@@ -850,280 +681,4 @@ export async function runAgentControlLoop<
     if (wallTimer) clearTimeout(wallTimer)
     if (config.signal) config.signal.removeEventListener('abort', upstreamAbort)
   }
-}
-
-export function objectiveEval(input: Omit<ControlEvalResult, 'objective'>): ControlEvalResult {
-  return { ...input, objective: true }
-}
-
-export function subjectiveEval(input: Omit<ControlEvalResult, 'objective'>): ControlEvalResult {
-  return { ...input, objective: false }
-}
-
-function normalizeBudget(input: Partial<ControlBudget> | undefined): ControlBudget {
-  const raw = { ...DEFAULT_BUDGET, ...input } as Record<string, unknown>
-  if (!Number.isInteger(raw.maxSteps) || (raw.maxSteps as number) < 1) {
-    throw new RangeError(
-      `ControlRuntime budget.maxSteps must be an integer >= 1, got ${String(raw.maxSteps)}`,
-    )
-  }
-  const budget: ControlBudget = { maxSteps: raw.maxSteps as number }
-  if (raw.maxWallMs !== undefined) {
-    if (
-      typeof raw.maxWallMs !== 'number' ||
-      !Number.isFinite(raw.maxWallMs) ||
-      raw.maxWallMs <= 0
-    ) {
-      throw new RangeError(
-        `ControlRuntime budget.maxWallMs must be a positive finite number, got ${String(raw.maxWallMs)}`,
-      )
-    }
-    budget.maxWallMs = raw.maxWallMs
-  }
-  if (raw.maxCostUsd !== undefined) {
-    if (
-      typeof raw.maxCostUsd !== 'number' ||
-      !Number.isFinite(raw.maxCostUsd) ||
-      raw.maxCostUsd < 0
-    ) {
-      throw new RangeError(
-        `ControlRuntime budget.maxCostUsd must be a nonnegative finite number, got ${String(raw.maxCostUsd)}`,
-      )
-    }
-    budget.maxCostUsd = raw.maxCostUsd
-  }
-  return budget
-}
-
-function normalizeActionCostUsd(
-  costUsd: number | undefined,
-  runtimeErrors: ControlRuntimeError[],
-  stepIndex: number,
-): number | undefined {
-  if (costUsd === undefined) return undefined
-  if (!Number.isFinite(costUsd) || costUsd < 0) {
-    runtimeErrors.push(
-      runtimeError('act', stepIndex, new Error(`invalid action costUsd: ${String(costUsd)}`)),
-    )
-    return undefined
-  }
-  return costUsd
-}
-
-export function allCriticalPassed(evals: ControlEvalResult[]): boolean {
-  return evals.every(
-    (result) => result.passed || (result.severity !== 'critical' && result.severity !== 'error'),
-  )
-}
-
-function makeContext<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
-  intent: string,
-  state: TState,
-  evals: TEval[],
-  history: ControlStep<TState, TAction, TActionResult, TEval>[],
-  budget: ControlBudget,
-  stepIndex: number,
-  started: number,
-  spentCostUsd: number,
-  abortSignal: AbortSignal,
-  emitter?: TraceEmitter,
-): ControlContext<TState, TAction, TActionResult, TEval> {
-  return {
-    intent,
-    state,
-    evals,
-    history,
-    budget,
-    stepIndex,
-    wallMs: Date.now() - started,
-    spentCostUsd,
-    remainingCostUsd:
-      budget.maxCostUsd === undefined ? undefined : Math.max(0, budget.maxCostUsd - spentCostUsd),
-    abortSignal,
-    emitter,
-  }
-}
-
-function defaultStopDecision(evals: ControlEvalResult[]): StopDecision {
-  if (!evals.length) return { stop: false, pass: false, reason: 'no evals yet' }
-  const pass = allCriticalPassed(evals)
-  return pass
-    ? { stop: true, pass: true, reason: 'all critical evals passed', score: averageScore(evals) }
-    : {
-        stop: false,
-        pass: false,
-        reason: 'critical evals still failing',
-        score: averageScore(evals),
-      }
-}
-
-function averageScore(evals: ControlEvalResult[]): number | undefined {
-  const scored = evals
-    .map((result) => result.score)
-    .filter((score): score is number => typeof score === 'number')
-  if (!scored.length) return undefined
-  return Math.round((scored.reduce((sum, score) => sum + score, 0) / scored.length) * 1000) / 1000
-}
-
-function budgetStopDecision(
-  budget: ControlBudget,
-  spentCostUsd: number,
-): { stop: boolean; reason: string } {
-  if (budget.maxCostUsd !== undefined && spentCostUsd >= budget.maxCostUsd) {
-    return {
-      stop: true,
-      reason: `budget exhausted: maxCostUsd=${budget.maxCostUsd}`,
-    }
-  }
-  return { stop: false, reason: '' }
-}
-
-async function recordCostBudget(
-  emitter: TraceEmitter | undefined,
-  budget: ControlBudget,
-  spentCostUsd: number,
-  handle: SpanHandle | undefined,
-  runtimeErrors: ControlRuntimeError[],
-  stepIndex: number,
-): Promise<void> {
-  if (!emitter || budget.maxCostUsd === undefined) return
-  const maxCostUsd = budget.maxCostUsd
-  await runTrace(emitter, runtimeErrors, stepIndex, () =>
-    emitter.recordBudget({
-      dimension: 'usd',
-      limit: maxCostUsd,
-      consumed: spentCostUsd,
-      remaining: Math.max(0, maxCostUsd - spentCostUsd),
-      breached: spentCostUsd >= maxCostUsd,
-      spanId: handle?.span.spanId,
-    }),
-  )
-}
-
-async function recordEvalSpans(
-  emitter: TraceEmitter | undefined,
-  evals: ControlEvalResult[],
-  phase: string,
-  runtimeErrors: ControlRuntimeError[],
-  stepIndex: number,
-  targetSpanId?: string,
-): Promise<void> {
-  if (!emitter) return
-  for (const result of evals) {
-    await runTrace(emitter, runtimeErrors, stepIndex, () =>
-      emitter.recordJudge({
-        judgeId: result.objective ? 'objective-validator' : 'subjective-judge',
-        targetSpanId: targetSpanId ?? emitter.runId,
-        name: `control-eval/${result.id}`,
-        dimension: result.id,
-        score: typeof result.score === 'number' ? result.score : result.passed ? 1 : 0,
-        rationale: result.detail,
-        evidence: result.evidence,
-        attributes: {
-          phase,
-          passed: result.passed,
-          severity: result.severity,
-          objective: result.objective,
-        },
-      }),
-    )
-  }
-}
-
-async function runOnStep<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
-  onStep: ControlRuntimeConfig<TState, TAction, TActionResult, TEval>['onStep'] | undefined,
-  step: ControlStep<TState, TAction, TActionResult, TEval>,
-  runtimeErrors: ControlRuntimeError[],
-): Promise<void> {
-  if (!onStep) return
-  try {
-    await onStep(step)
-  } catch (err) {
-    runtimeErrors.push(runtimeError('on-step', step.index, err))
-  }
-}
-
-/**
- * Run trace writes and record a `trace` runtime error when any of them was
- * dropped. The emitter never throws a failed store write; it counts it, so the
- * count is what this reads. A throw from building the write is recorded too.
- */
-async function runTrace<T>(
-  emitter: TraceEmitter | undefined,
-  runtimeErrors: ControlRuntimeError[],
-  stepIndex: number,
-  write: () => Promise<T | undefined> | T | undefined,
-): Promise<T | undefined> {
-  if (!emitter) return undefined
-  const droppedBefore = emitter.captureStats().dropped
-  let value: T | undefined
-  try {
-    value = await write()
-  } catch (err) {
-    runtimeErrors.push(runtimeError('trace', stepIndex, err))
-    return undefined
-  }
-  const after = emitter.captureStats()
-  if (after.dropped > droppedBefore) {
-    runtimeErrors.push(runtimeError('trace', stepIndex, after.lastError ?? 'trace write dropped'))
-  }
-  return value
-}
-
-function fingerprintState<TState, TAction>(
-  state: TState,
-  policies?: ControlStopPolicies<TState, TAction>,
-): string {
-  if (policies?.stateFingerprint) return policies.stateFingerprint(state)
-  return stableFingerprint(state)
-}
-
-function fingerprintAction<TState, TAction>(
-  action: TAction,
-  policies?: ControlStopPolicies<TState, TAction>,
-): string {
-  if (policies?.actionFingerprint) return policies.actionFingerprint(action)
-  return stableFingerprint(action)
-}
-
-/** Default state/action fingerprint: the value itself for a string, `String(value)`
- * for a number, boolean, null or undefined, and RFC 8785 canonical JSON for
- * everything else. A value with no canonical JSON form (an `undefined`-valued
- * field, a non-finite number, a class instance) throws: two states that differ
- * in such a field must not fingerprint alike, and a caller with such state
- * supplies `stopPolicies.stateFingerprint` / `actionFingerprint`. */
-function stableFingerprint(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean' || value == null) return String(value)
-  return canonicalString(value)
-}
-
-function abortReason(signal: AbortSignal): string {
-  const reason = signal.reason
-  if (reason instanceof Error) return reason.message
-  return reason ? String(reason) : 'aborted'
-}
-
-function runtimeError(
-  phase: ControlRuntimeError['phase'],
-  stepIndex: number,
-  err: unknown,
-): ControlRuntimeError {
-  const message = err instanceof Error ? err.message : String(err)
-  return { phase, stepIndex, message }
-}
-
-async function finish<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
-  emitter: TraceEmitter | undefined,
-  result: ControlRunResult<TState, TAction, TActionResult, TEval>,
-): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
-  await runTrace(emitter, result.runtimeErrors, result.steps.length, () =>
-    emitter?.endRun({
-      pass: result.pass,
-      score: result.score ?? averageScore(result.finalEvals),
-      failureClass: result.failureClass,
-      notes: result.reason,
-    }),
-  )
-  return result
 }
