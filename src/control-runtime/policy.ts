@@ -1,3 +1,4 @@
+import { mean } from '../statistics/mean'
 import { runtimeError } from './context'
 import type {
   ControlBudget,
@@ -93,7 +94,7 @@ export function averageScore(evals: ControlEvalResult[]): number | undefined {
     .map((result) => result.score)
     .filter((score): score is number => typeof score === 'number')
   if (!scored.length) return undefined
-  return Math.round((scored.reduce((sum, score) => sum + score, 0) / scored.length) * 1000) / 1000
+  return Math.round(mean(scored) * 1000) / 1000
 }
 
 export function budgetStopDecision(
