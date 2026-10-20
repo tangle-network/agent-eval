@@ -48,6 +48,8 @@
  * surface and plateau on each, which calibrates the lens against a known
  * flat truth.
  *
+ * Calibration can decline small or noisy matrices; exit 1 then includes the
+ * measured insufficiency reason. Preserve that outcome when comparing revisions.
  * A nonempty test split requires --min-effect before the search starts.
  * For a bounded adaptive held-out check:
  *   node --import tsx scripts/search-sim.ts adaptive --seeds 2 --skills 3 --pool-gap 0.05 \
