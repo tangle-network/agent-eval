@@ -309,3 +309,45 @@ export function corpusInterRaterAgreementFromJudgeScores(
   }
   return corpusInterRaterAgreement(records, opts)
 }
+
+/** Agreement between two raters who each assigned one nominal label per item. */
+export interface NominalAgreement {
+  /** Items both raters labeled. */
+  n: number
+  /** Share of items with identical labels. */
+  agreement: number
+  /**
+   * Cohen's κ = (pₒ − pₑ) / (1 − pₑ), with pₑ from each rater's own label
+   * marginals. NaN when n = 0, or when both raters used one identical label
+   * for every item (pₑ = 1): chance and observed agreement are then the same
+   * thing, and no number distinguishes skill from luck.
+   */
+  kappa: number
+}
+
+/**
+ * Unweighted Cohen's κ for paired nominal labels. Labels carry no order, so a
+ * near miss counts as a miss; use `calibrateJudge` for ordinal scores.
+ */
+export function nominalAgreement(
+  pairs: ReadonlyArray<readonly [string, string]>,
+): NominalAgreement {
+  const n = pairs.length
+  if (n === 0) return { n: 0, agreement: Number.NaN, kappa: Number.NaN }
+  const left = new Map<string, number>()
+  const right = new Map<string, number>()
+  let same = 0
+  for (const [a, b] of pairs) {
+    if (typeof a !== 'string' || typeof b !== 'string') {
+      throw new ValidationError('nominalAgreement: every label must be a string')
+    }
+    if (a === b) same += 1
+    left.set(a, (left.get(a) ?? 0) + 1)
+    right.set(b, (right.get(b) ?? 0) + 1)
+  }
+  const observed = same / n
+  let expected = 0
+  for (const [label, count] of left) expected += (count / n) * ((right.get(label) ?? 0) / n)
+  const kappa = expected === 1 ? Number.NaN : (observed - expected) / (1 - expected)
+  return { n, agreement: observed, kappa }
+}

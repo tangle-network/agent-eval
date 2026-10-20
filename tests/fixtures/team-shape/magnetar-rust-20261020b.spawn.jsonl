@@ -1,0 +1,60 @@
+{"kind": "spawned", "journal": "R", "id": "R", "at": "2026-10-20T01:50:47.240Z", "role": "root"}
+{"kind": "spawned", "journal": "R", "id": "R:s0", "at": "2026-10-20T02:30:19.631Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s0", "id": "R:s0", "at": "2026-10-20T02:30:19.631Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s1", "at": "2026-10-20T02:30:50.645Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s1", "id": "R:s1", "at": "2026-10-20T02:30:50.645Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s2", "at": "2026-10-20T02:31:15.787Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s2", "id": "R:s2", "at": "2026-10-20T02:31:15.787Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s0", "at": "2026-10-20T05:09:05.533Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s1", "at": "2026-10-20T06:31:12.196Z", "status": "down", "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s3", "at": "2026-10-20T06:48:11.203Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s3", "id": "R:s3", "at": "2026-10-20T06:48:11.203Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s2", "at": "2026-10-20T06:55:00.877Z", "status": "down", "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s3", "at": "2026-10-20T09:10:59.825Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s4", "at": "2026-10-20T09:34:26.454Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s4", "id": "R:s4", "at": "2026-10-20T09:34:26.454Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s5", "at": "2026-10-20T09:34:47.706Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s5", "id": "R:s5", "at": "2026-10-20T09:34:47.706Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s4", "at": "2026-10-20T10:31:15.532Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s6", "at": "2026-10-20T10:33:35.818Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s6", "id": "R:s6", "at": "2026-10-20T10:33:35.818Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s5", "at": "2026-10-20T11:55:25.495Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s6", "at": "2026-10-20T12:37:01.394Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s7", "at": "2026-10-20T12:50:34.187Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s7", "id": "R:s7", "at": "2026-10-20T12:50:34.187Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s8", "at": "2026-10-20T12:50:55.115Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s8", "id": "R:s8", "at": "2026-10-20T12:50:55.115Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s9", "at": "2026-10-20T12:51:13.193Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s9", "id": "R:s9", "at": "2026-10-20T12:51:13.193Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s10", "at": "2026-10-20T13:07:39.941Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s10", "id": "R:s10", "at": "2026-10-20T13:07:39.941Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s9", "at": "2026-10-20T14:03:58.534Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s7", "at": "2026-10-20T15:06:18.373Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s8", "at": "2026-10-20T15:19:34.272Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s11", "at": "2026-10-20T15:20:58.859Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s11", "id": "R:s11", "at": "2026-10-20T15:20:58.859Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s12", "at": "2026-10-20T15:24:56.392Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s12", "id": "R:s12", "at": "2026-10-20T15:24:56.392Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s13", "at": "2026-10-20T15:25:17.897Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s13", "id": "R:s13", "at": "2026-10-20T15:25:17.897Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s12", "at": "2026-10-20T15:34:11.483Z", "status": "done", "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s14", "at": "2026-10-20T15:35:00.236Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s14", "id": "R:s14", "at": "2026-10-20T15:35:00.236Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s10", "at": "2026-10-20T17:12:24.488Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s11", "at": "2026-10-20T17:27:22.326Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s14", "at": "2026-10-20T17:27:24.464Z", "status": "done", "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s15", "at": "2026-10-20T17:56:39.870Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s15", "id": "R:s15", "at": "2026-10-20T17:56:39.870Z", "role": "task"}
+{"kind": "spawned", "journal": "R", "id": "R:s16", "at": "2026-10-20T18:05:23.650Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s16", "id": "R:s16", "at": "2026-10-20T18:05:23.650Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s13", "at": "2026-10-20T18:06:06.574Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s15", "at": "2026-10-20T18:06:06.965Z", "status": "done", "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s17", "at": "2026-10-20T18:14:48.149Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s17", "id": "R:s17", "at": "2026-10-20T18:14:48.149Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s16", "at": "2026-10-20T18:58:48.871Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s18", "at": "2026-10-20T19:09:29.471Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s18", "id": "R:s18", "at": "2026-10-20T19:09:29.471Z", "role": "task"}
+{"kind": "settled", "journal": "R", "id": "R:s17", "at": "2026-10-20T19:34:42.366Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "settled", "journal": "R", "id": "R:s18", "at": "2026-10-20T19:58:13.657Z", "status": "done", "valid": true, "ms": 0}
+{"kind": "spawned", "journal": "R", "id": "R:s19", "at": "2026-10-20T19:59:25.548Z", "role": "task"}
+{"kind": "spawned", "journal": "R/R:s19", "id": "R:s19", "at": "2026-10-20T19:59:25.548Z", "role": "task"}
