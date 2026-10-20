@@ -20,15 +20,11 @@ export interface TaskFixture {
   instruction: string
 }
 
-function loadSuite(task: string): TestSuiteFile[] {
-  return readTerminalBenchTestSuite(join(TB2, task, 'tests'))
-}
-
 export async function loadTask(name: string): Promise<TaskFixture> {
   const tag = `alexgshaw/${name}:20251031`
   const { stdout: digest } = await run('docker', ['image', 'inspect', tag, '--format', '{{index .RepoDigests 0}}'])
   const { stdout: workdir } = await run('docker', ['image', 'inspect', tag, '--format', '{{.Config.WorkingDir}}'])
-  const suite = loadSuite(name)
+  const suite = readTerminalBenchTestSuite(join(TB2, name, 'tests'))
   return {
     name,
     image: digest.trim(),
