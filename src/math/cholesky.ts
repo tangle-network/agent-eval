@@ -30,20 +30,7 @@ export function choleskySolve(
   lower: readonly (readonly number[])[],
   b: readonly number[],
 ): number[] {
-  const n = lower.length
-  const y = new Array<number>(n).fill(0)
-  for (let i = 0; i < n; i++) {
-    let value = b[i]!
-    for (let k = 0; k < i; k++) value -= lower[i]![k]! * y[k]!
-    y[i] = value / lower[i]![i]!
-  }
-  const x = new Array<number>(n).fill(0)
-  for (let i = n - 1; i >= 0; i--) {
-    let value = y[i]!
-    for (let k = i + 1; k < n; k++) value -= lower[k]![i]! * x[k]!
-    x[i] = value / lower[i]![i]!
-  }
-  return x
+  return choleskyBackward(lower, choleskyForward(lower, b))
 }
 
 /** The inverse of a symmetric positive-definite matrix from its factor. */
@@ -56,4 +43,35 @@ export function choleskyInverse(lower: readonly (readonly number[])[]): number[]
     ),
   )
   return Array.from({ length: n }, (_, i) => columns.map((column) => column[i]!))
+}
+
+/** Solve L z = b for a lower-triangular Cholesky factor L. */
+export function choleskyForward(
+  lower: readonly (readonly number[])[],
+  b: readonly number[],
+): number[] {
+  const n = lower.length
+  const z = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++) {
+    const row = lower[i]!
+    let value = b[i]!
+    for (let k = 0; k < i; k++) value -= row[k]! * z[k]!
+    z[i] = value / row[i]!
+  }
+  return z
+}
+
+/** Solve Lᵀ x = z for a lower-triangular Cholesky factor L. */
+export function choleskyBackward(
+  lower: readonly (readonly number[])[],
+  z: readonly number[],
+): number[] {
+  const n = lower.length
+  const x = new Array<number>(n).fill(0)
+  for (let i = n - 1; i >= 0; i--) {
+    let value = z[i]!
+    for (let k = i + 1; k < n; k++) value -= lower[k]![i]! * x[k]!
+    x[i] = value / lower[i]![i]!
+  }
+  return x
 }
