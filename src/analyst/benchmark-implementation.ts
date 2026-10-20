@@ -92,7 +92,12 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/campaign/external-optimizer-callback.ts',
   'src/campaign/external-optimizer-contracts.ts',
   'src/campaign/external-optimizer-http.ts',
+  'src/campaign/external-optimizer-model-contract.ts',
+  'src/campaign/external-optimizer-model-execution.ts',
+  'src/campaign/external-optimizer-model-handler.ts',
   'src/campaign/external-optimizer-model-proxy.ts',
+  'src/campaign/external-optimizer-model-request.ts',
+  'src/campaign/external-optimizer-model-response.ts',
   'src/campaign/external-optimizer-process.ts',
   'src/campaign/external-optimizer-resources.ts',
   'src/campaign/external-optimizer-subprocess.ts',
@@ -122,6 +127,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/projector-snapshot.ts',
   'src/ledger-core/trusted-head.ts',
   'src/llm-client.ts',
+  'src/math/nonnegative-number.ts',
   'src/math/normal.ts',
   'src/math/quantile.ts',
   'src/math/special-functions.ts',
@@ -162,7 +168,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '79280ccae96a26010fb32afc72afb9f8739ccad8c755d9bbed06504d07563f22'
+  'b493e8b4369a21eea8bbec85340ae05d8803b5dea2c3a41e2f3589de736bf175'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

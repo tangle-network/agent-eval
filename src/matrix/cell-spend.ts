@@ -13,6 +13,8 @@
  * crosses a package or realm boundary still bills.
  */
 
+import { isNonnegativeFiniteNumber as isAmount } from '../math/nonnegative-number'
+
 /** Property key the carrier occupies on a thrown object. Stable across
  *  versions — two copies of this package must agree on it. */
 const CELL_SPEND_KEY = '__agentEvalCellSpend'
@@ -105,9 +107,7 @@ export function readCellSpend(error: unknown): CellSpend | undefined {
 
 /** A number the matrix can add to a running cost or duration: finite and not
  *  negative. Anything else would poison a sum the cost ceiling reads. */
-export function isAmount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
+export { isNonnegativeFiniteNumber as isAmount } from '../math/nonnegative-number'
 
 function assertAmount(value: number, field: string): void {
   if (!isAmount(value)) {

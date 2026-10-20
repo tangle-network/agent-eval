@@ -2,6 +2,8 @@ import { constants as bufferConstants } from 'node:buffer'
 import type { ChatRequest, ChatResponse } from '../analyst/chat-client'
 import type { CustomTokenPricing } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
+import { deepFreezeCanonicalJson as deepFreezeJson } from '../ledger-core/deep-freeze'
+import { canonicalJson } from '../verdict-cache'
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAXIMUM_JSON_BYTES = Math.min(
@@ -453,4 +455,9 @@ function isCredentialKey(key: string): boolean {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function freezeJsonSnapshot(value: unknown, label: string): unknown {
+  assertJsonValue(value, label)
+  return deepFreezeJson(JSON.parse(canonicalJson(value)))
 }

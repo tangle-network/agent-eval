@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { errorMessage } from '../errors'
 
 export type VerificationOutcomeStatus = 'passed' | 'failed' | 'unavailable'
 
@@ -431,8 +432,4 @@ function unsupported(path: string): TypeError {
   return new TypeError(
     `final verification result has no supported outcome field: ${path}; expected is_resolved, resolved, valid, or a SWE-bench instance report`,
   )
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

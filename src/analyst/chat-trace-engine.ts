@@ -33,6 +33,7 @@
 import { z } from 'zod'
 import { paidChat } from '../chat-json-call'
 import type { CustomTokenPricing } from '../cost-ledger'
+import { errorMessage as messageOf } from '../errors'
 import {
   extractJsonPayload,
   type LlmCallRequest,
@@ -553,8 +554,4 @@ function resolveModel(options: ChatTraceEngineOptions): string {
     )
   }
   return model
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

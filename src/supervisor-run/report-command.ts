@@ -11,6 +11,7 @@
 
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { errorMessage } from '../errors'
 import { analyzeSupervisorRun } from './reader'
 import { renderSupervisorRunHeadline, renderSupervisorRunMarkdown } from './render'
 
@@ -74,10 +75,6 @@ function parseReportArgs(argv: readonly string[]): ReportArgs {
   }
   if (runDir === null) throw new Error(SUPERVISOR_RUN_USAGE)
   return { runDir, format }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
