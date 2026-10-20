@@ -9,6 +9,7 @@ import {
 } from '../../experiment/claim'
 import type { EvidenceReceipt } from '../../experiment/evidence-receipt'
 import { decidePairedPromotion } from '../../paired-promotion-decision'
+import { mean as arithmeticMean } from '../../statistics/mean'
 import { assertCompleteCampaign } from '../coverage'
 import {
   assertIndependentEvaluationSplit,
@@ -372,5 +373,5 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
 }
 
 function mean(xs: number[]): number {
-  return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
+  return xs.length === 0 ? 0 : arithmeticMean(xs)
 }
