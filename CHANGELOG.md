@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.216.0] — 2026-10-20
+
+- factory: The pre-commit hook runs where no global hooks path is set (#1003)
+- factory: Every finding says its layer and the population it holds for (#1000)
+- test(python): retire obsolete facade-global sandbox mocks
+- refactor: preserve complete DSPy runtime source identity
+- refactor: separate analyst registry planning and execution
+- refactor: separate DSPy bridge validation and execution
+- refactor: separate search simulation responsibilities
+- fix: enforce shared file size ratchet through Husky
+- chore: ignore SQLite -shm/-wal beside test fixtures (#997)
+
 ## [0.215.1] — 2026-10-18
 
 - fix(gepa): preserve completed candidates at evaluation budget (#979)
