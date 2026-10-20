@@ -1,265 +1,75 @@
-import { z } from 'zod'
+/** Run-wide paid-call admission and durable call state. */
+
+import type {
+  CostLedgerFilter,
+  CostLedgerOptions,
+  CostLedgerPersistence,
+  CostLedgerRecord,
+  CostLedgerSummary,
+  CostLedgerWaitOptions,
+  CostReceipt,
+  CostReceiptInput,
+  MaximumCharge,
+  PaidCallResult,
+  PendingCostCall,
+  PendingCostCallView,
+  RunPaidCallInput,
+} from './cost-ledger/contract'
+import {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+} from './cost-ledger/errors'
+import type { CostCallEvent, CostLedgerEvent } from './cost-ledger/journal'
+import { parseEvents, validateTransition } from './cost-ledger/journal'
+import { costForTokenPricing, costForUsage } from './cost-ledger/pricing'
+import {
+  buildReceipt,
+  clonePendingCall,
+  cloneReceipt,
+  cloneRecord,
+  matches,
+  parseImportedReceipt,
+  validateAttribution,
+} from './cost-ledger/receipts'
+import { summarizeCostLedger } from './cost-ledger/summary'
+import { assertNonNegative, assertString, assertTimeout, toError } from './cost-ledger/validation'
 import { ValidationError } from './errors'
-import { estimateCost, isModelPriced, resolveModelPricing } from './metrics'
 
-export type CostChannel = 'agent' | 'judge' | 'verifier' | 'analyst' | 'driver' | (string & {})
-
-/** How a USD amount was obtained. */
-export type CostProvenance =
-  | { kind: 'observed'; usd: number }
-  | { kind: 'estimated'; usd: number }
-  | { kind: 'uncaptured'; usd: null }
-
-export interface CostUsage {
-  inputTokens: number
-  /** Includes reasoning tokens when the provider bills them as output. */
-  outputTokens: number
-  /** Reasoning-token subset of outputTokens, when reported. */
-  reasoningTokens?: number
-  /** Prompt tokens served from a provider cache. */
-  cachedTokens?: number
-  /** Prompt tokens written into a provider cache. */
-  cacheWriteTokens?: number
-}
-
-interface CostCallBase {
-  callId: string
-  channel: CostChannel
-  phase: string
-  actor: string
-  model: string
-  maximumCostUsd?: number
-  tags?: Record<string, string>
-  timestamp: number
-}
-
-export interface PendingCostCall extends CostCallBase {
-  status: 'pending'
-}
-
-export interface PendingCostCallView extends PendingCostCall {
-  state: 'active' | 'late' | 'interrupted'
-}
-
-export interface CostReceipt extends CostCallBase, CostUsage {
-  status: 'settled'
-  costUsd: number
-  costUnknown: boolean
-  usageUnknown?: boolean
-  /** Rates used to estimate cost locally. Absent when cost is provider-reported or unknown. */
-  pricing?: {
-    inputUsdPerThousand: number
-    cachedInputUsdPerThousand?: number
-    cacheWriteUsdPerThousand?: number
-    outputUsdPerThousand: number
-  }
-  /** Cost reported by the provider, not a local token-price calculation. */
-  actualCostUsd?: number
-  /** Known non-provider amount supplied by an external executor. */
-  estimatedCostUsd?: number
-  /** Why the call failed. `'paid-call-failed'` is the ledger's own value for
-   * recovery settles; a reconciling caller may record its own reason. */
-  error?: string
-}
-
-export type CostLedgerRecord = PendingCostCall | CostReceipt
-
-export interface CostReceiptInput extends CostUsage {
-  model: string
-  /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */
-  customTokenPricing?: CustomTokenPricing
-  actualCostUsd?: number
-  /** A known estimate from an external executor that cannot provide token pricing. */
-  estimatedCostUsd?: number
-  costUnknown?: boolean
-  usageUnknown?: boolean
-}
-
-/** Per-million token rates for a model or endpoint not covered by package pricing. */
-export interface CustomTokenPricing {
-  /** Non-cached input tokens. */
-  inputUsdPerMillion: number
-  /** Cache-read tokens. Falls back to the normal input rate when omitted. */
-  cachedInputUsdPerMillion?: number
-  /** Cache-creation or cache-write tokens. Falls back to the normal input rate when omitted. */
-  cacheWriteUsdPerMillion?: number
-  outputUsdPerMillion: number
-}
-
-export type MaximumCharge =
-  | { externallyEnforcedMaximumUsd: number }
-  | ({
-      customTokenPricing: CustomTokenPricing
-    } & Pick<CostUsage, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheWriteTokens'>)
-  | ({ model: string } & CostUsage)
-
-export interface RunPaidCallInput<T> {
-  callId?: string
-  channel: CostChannel
-  phase: string
-  actor: string
-  /** Used before a provider receipt exists and on failures without one. */
-  model?: string
-  tags?: Record<string, string>
-  signal?: AbortSignal
-  /** Provider-enforced dollar maximum, or maximum token usage with known pricing. Required when capped. */
-  maximumCharge?: MaximumCharge
-  /** `callId` can be forwarded as the provider's idempotency key. */
-  execute(signal: AbortSignal, callId: string): Promise<T>
-  receipt(value: T): CostReceiptInput
-  receiptFromError?(error: Error): CostReceiptInput | undefined
-}
-
-export type PaidCallResult<T> =
-  | { succeeded: true; callId: string; value: T; receipt: CostReceipt }
-  | { succeeded: false; callId?: string; error: Error; receipt?: CostReceipt }
-
-export interface ChannelRollup {
-  channel: CostChannel
-  calls: number
-  inputTokens: number
-  outputTokens: number
-  reasoningTokens?: number
-  cachedTokens: number
-  cacheWriteTokens?: number
-  costUsd: number
-  unpricedCalls: number
-  unknownUsageCalls: number
-}
-
-export interface CostLedgerSummary {
-  totalCalls: number
-  pendingCalls: number
-  unresolvedCalls: number
-  reservedCostUsd: number
-  inputTokens: number
-  outputTokens: number
-  reasoningTokens?: number
-  cachedTokens: number
-  cacheWriteTokens?: number
-  totalCostUsd: number
-  costProvenance: CostProvenance
-  byChannel: ChannelRollup[]
-  unpricedModels: string[]
-  fullyPriced: boolean
-  usageComplete: boolean
-  accountingComplete: boolean
-  incompleteReasons: string[]
-}
-
-export interface CostLedgerFilter {
-  channel?: CostChannel
-  phase?: string
-  tags?: Record<string, string>
-}
-
-export interface CostLedgerWaitOptions {
-  /** Maximum time to wait for active provider calls. Default 5 seconds. */
-  timeoutMs?: number
-  /** Wait only for calls matching this attribution filter. */
-  filter?: CostLedgerFilter
-}
-
-/** Append-only storage. `append` must atomically reject stale revisions. */
-export interface CostLedgerPersistence {
-  read(): { revision: string; events: string }
-  append(expectedRevision: string, event: string): string | undefined
-}
-
-export interface CostLedgerOptions {
-  costCeilingUsd?: number
-  persistence?: CostLedgerPersistence
-  /** Import already-settled receipts without admitting new paid work. */
-  receipts?: readonly CostReceipt[]
-}
-
-export class CostCeilingReachedError extends ValidationError {
-  constructor(
-    ceilingUsd: number,
-    committedUsd: number,
-    requestedUsd: number,
-    phase: string,
-    actor: string,
-  ) {
-    super(
-      `CostLedger: reserving ${requestedUsd} for '${actor}' during '${phase}' would exceed ceiling ${ceilingUsd} with ${committedUsd} already committed`,
-    )
-  }
-}
-
-export class CostAccountingIncompleteError extends ValidationError {}
-
-export class CostReservationExceededError extends ValidationError {
-  constructor(actor: string, actualUsd: number, maximumUsd: number) {
-    super(
-      `CostLedger: '${actor}' charged ${actualUsd}, exceeding its enforced maximum ${maximumUsd}`,
-    )
-  }
-}
-
-export class CostCallConflictError extends ValidationError {
-  readonly callId?: string
-  readonly receipt?: CostReceipt
-
-  constructor(
-    message: string,
-    options: { callId?: string; receipt?: CostReceipt; cause?: unknown } = {},
-  ) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause })
-    this.callId = options.callId
-    this.receipt = options.receipt ? cloneReceipt(options.receipt) : undefined
-  }
-}
-
-export class CostLedgerPersistenceError extends ValidationError {
-  readonly callId?: string
-  readonly receipt?: CostReceipt
-
-  constructor(cause: unknown, callId?: string, receipt?: CostReceipt) {
-    super(
-      `CostLedger: failed to persist${callId ? ` call '${callId}'` : ''}: ${toError(cause).message}`,
-      { cause },
-    )
-    this.callId = callId
-    this.receipt = receipt ? cloneReceipt(receipt) : undefined
-  }
-}
-
-export class CostReceiptCaptureError extends ValidationError {
-  readonly callId: string
-  readonly receipt?: CostReceipt
-  readonly receiptError: Error
-
-  constructor(callId: string, cause: unknown, receiptError: unknown, receipt?: CostReceipt) {
-    super(`CostLedger: could not capture the provider receipt for call '${callId}'`, { cause })
-    this.callId = callId
-    this.receipt = receipt ? cloneReceipt(receipt) : undefined
-    this.receiptError = toError(receiptError)
-  }
-}
-
-interface PendingCostCallEvent {
-  version: 1
-  record: PendingCostCall
-}
-
-interface SettledCostCallEvent {
-  version: 2
-  record: CostReceipt
-}
-
-interface CompletedTasksEvent {
-  version: 1
-  completedTasks: number
-}
-
-interface CostLimitEvent {
-  version: 1
-  costCeilingUsd: number
-}
-
-type CostCallEvent = PendingCostCallEvent | SettledCostCallEvent
-type CostLedgerEvent = CostCallEvent | CompletedTasksEvent | CostLimitEvent
+export type {
+  ChannelRollup,
+  CostChannel,
+  CostLedgerFilter,
+  CostLedgerHandle,
+  CostLedgerOptions,
+  CostLedgerPersistence,
+  CostLedgerRecord,
+  CostLedgerSummary,
+  CostLedgerWaitOptions,
+  CostProvenance,
+  CostReceipt,
+  CostReceiptInput,
+  CostUsage,
+  CustomTokenPricing,
+  MaximumCharge,
+  PaidCallResult,
+  PendingCostCall,
+  PendingCostCallView,
+  RunPaidCallInput,
+} from './cost-ledger/contract'
+export {
+  CostAccountingIncompleteError,
+  CostCallConflictError,
+  CostCeilingReachedError,
+  CostLedgerPersistenceError,
+  CostReceiptCaptureError,
+  CostReservationExceededError,
+} from './cost-ledger/errors'
+export type { CostResult } from './cost-ledger/pricing'
+export { costForTokenPricing, costForUsage, modelPriceKey } from './cost-ledger/pricing'
 
 /** Run-wide paid-call admission, durable call state, receipts, and summaries. */
 export class CostLedger {
@@ -510,86 +320,8 @@ export class CostLedger {
 
   summary(filter?: CostLedgerFilter): CostLedgerSummary {
     const records = [...this.records.values()].filter((record) => matches(record, filter))
-    const pending = records.filter(
-      (record): record is PendingCostCall => record.status === 'pending',
-    )
-    const receipts = records.filter((record): record is CostReceipt => record.status === 'settled')
-    const byChannel = new Map<string, ChannelRollup>()
-    const unpriced = new Set<string>()
-    const incompleteReasons: string[] = pending.map(
-      (record) => `call '${record.callId}' for '${record.actor}' is pending`,
-    )
-    let inputTokens = 0
-    let outputTokens = 0
-    let reasoningTokens = 0
-    let cachedTokens = 0
-    let cacheWriteTokens = 0
-    let totalCostUsd = 0
-
-    for (const receipt of receipts) {
-      inputTokens += receipt.inputTokens
-      outputTokens += receipt.outputTokens
-      reasoningTokens += receipt.reasoningTokens ?? 0
-      cachedTokens += receipt.cachedTokens ?? 0
-      cacheWriteTokens += receipt.cacheWriteTokens ?? 0
-      totalCostUsd += receipt.costUsd
-      if (receipt.costUnknown) {
-        unpriced.add(receipt.model)
-        incompleteReasons.push(
-          receipt.error ?? `cost unknown for '${receipt.actor}' using '${receipt.model}'`,
-        )
-      }
-      if (receipt.usageUnknown) {
-        incompleteReasons.push(
-          `token usage unknown for '${receipt.actor}' using '${receipt.model}'`,
-        )
-      }
-      if (receipt.maximumCostUsd !== undefined && receipt.costUsd > receipt.maximumCostUsd) {
-        incompleteReasons.push(
-          `'${receipt.actor}' charged ${receipt.costUsd}, exceeding its enforced maximum ${receipt.maximumCostUsd}`,
-        )
-      }
-      const rollup = byChannel.get(receipt.channel) ?? emptyRollup(receipt.channel)
-      rollup.calls += 1
-      rollup.inputTokens += receipt.inputTokens
-      rollup.outputTokens += receipt.outputTokens
-      rollup.reasoningTokens = (rollup.reasoningTokens ?? 0) + (receipt.reasoningTokens ?? 0)
-      rollup.cachedTokens += receipt.cachedTokens ?? 0
-      rollup.cacheWriteTokens = (rollup.cacheWriteTokens ?? 0) + (receipt.cacheWriteTokens ?? 0)
-      rollup.costUsd += receipt.costUsd
-      if (receipt.costUnknown) rollup.unpricedCalls += 1
-      if (receipt.usageUnknown) rollup.unknownUsageCalls += 1
-      byChannel.set(receipt.channel, rollup)
-    }
-
-    return {
-      totalCalls: receipts.length,
-      pendingCalls: pending.length,
-      unresolvedCalls: pending.filter(
-        (record) => !this.activeCallIds.has(record.callId) || this.lateCallIds.has(record.callId),
-      ).length,
-      reservedCostUsd: pending.reduce((sum, record) => sum + (record.maximumCostUsd ?? 0), 0),
-      inputTokens,
-      outputTokens,
-      reasoningTokens,
-      cachedTokens,
-      cacheWriteTokens,
-      totalCostUsd,
-      costProvenance:
-        pending.length > 0 || receipts.some((receipt) => receipt.costUnknown)
-          ? { kind: 'uncaptured', usd: null }
-          : receipts.every((receipt) => receipt.actualCostUsd !== undefined)
-            ? { kind: 'observed', usd: totalCostUsd }
-            : { kind: 'estimated', usd: totalCostUsd },
-      byChannel: [...byChannel.values()].sort((a, b) => a.channel.localeCompare(b.channel)),
-      unpricedModels: [...unpriced].sort(),
-      fullyPriced: unpriced.size === 0,
-      usageComplete: pending.length === 0 && receipts.every((receipt) => !receipt.usageUnknown),
-      accountingComplete: incompleteReasons.length === 0,
-      incompleteReasons: [...new Set(incompleteReasons)],
-    }
+    return summarizeCostLedger(records, this.activeCallIds, this.lateCallIds)
   }
-
   markCompleted(count = 1): void {
     if (!Number.isInteger(count) || count < 0) {
       throw new ValidationError(
@@ -866,72 +598,6 @@ export class CostLedger {
   }
 }
 
-/** Public callback surface for a shared cost ledger.
- *
- * Declaration bundles may expose this type through multiple package subpaths.
- * Keeping callback contracts structural lets those subpaths compose while the
- * concrete {@link CostLedger} retains its private durable state.
- */
-export type CostLedgerHandle = Pick<
-  CostLedger,
-  Exclude<keyof CostLedger, 'listPending' | 'waitForIdle'>
-> &
-  Partial<Pick<CostLedger, 'listPending' | 'waitForIdle'>>
-
-/** Return the canonical pricing-table key, or null when the model is unpriced. */
-export function modelPriceKey(model: string): string | null {
-  return isModelPriced(model) ? model : null
-}
-
-export interface CostResult {
-  costUsd: number
-  costUnknown: boolean
-}
-
-export function costForUsage(model: string, usage: CostUsage): CostResult {
-  assertUsage(usage)
-  if (!resolveModelPricing(model)) return { costUsd: 0, costUnknown: true }
-  return {
-    costUsd: estimateCost(
-      usage.inputTokens + (usage.cachedTokens ?? 0) + (usage.cacheWriteTokens ?? 0),
-      usage.outputTokens,
-      model,
-    ),
-    costUnknown: false,
-  }
-}
-
-/** Price token counts with caller-supplied per-million rates. */
-export function costForTokenPricing(
-  pricing: CustomTokenPricing,
-  usage: Pick<CostUsage, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheWriteTokens'>,
-): number {
-  assertTokenCount(usage.inputTokens, 'usage.inputTokens')
-  assertTokenCount(usage.outputTokens, 'usage.outputTokens')
-  if (usage.cachedTokens !== undefined) {
-    assertTokenCount(usage.cachedTokens, 'usage.cachedTokens')
-  }
-  if (usage.cacheWriteTokens !== undefined) {
-    assertTokenCount(usage.cacheWriteTokens, 'usage.cacheWriteTokens')
-  }
-  assertNonNegative(pricing.inputUsdPerMillion, 'pricing.inputUsdPerMillion')
-  if (pricing.cachedInputUsdPerMillion !== undefined) {
-    assertNonNegative(pricing.cachedInputUsdPerMillion, 'pricing.cachedInputUsdPerMillion')
-  }
-  if (pricing.cacheWriteUsdPerMillion !== undefined) {
-    assertNonNegative(pricing.cacheWriteUsdPerMillion, 'pricing.cacheWriteUsdPerMillion')
-  }
-  assertNonNegative(pricing.outputUsdPerMillion, 'pricing.outputUsdPerMillion')
-  const cachedInputRate = pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion
-  const cacheWriteRate = pricing.cacheWriteUsdPerMillion ?? pricing.inputUsdPerMillion
-  return (
-    (usage.inputTokens / 1_000_000) * pricing.inputUsdPerMillion +
-    ((usage.cachedTokens ?? 0) / 1_000_000) * cachedInputRate +
-    ((usage.cacheWriteTokens ?? 0) / 1_000_000) * cacheWriteRate +
-    (usage.outputTokens / 1_000_000) * pricing.outputUsdPerMillion
-  )
-}
-
 type Settled<T> =
   | { kind: 'value'; value: T }
   | { kind: 'error'; error: Error }
@@ -954,444 +620,6 @@ async function settle<T>(promise: Promise<T>, signal: AbortSignal): Promise<Sett
       (error) => finish({ kind: 'error', error: toError(error) }),
     )
   })
-}
-
-function buildReceipt(
-  pending: PendingCostCall,
-  observed: CostReceiptInput,
-  failed = false,
-  error?: string,
-): CostReceipt {
-  assertUsage(observed)
-  assertString(observed.model, 'receipt.model')
-  const suppliedAmounts = [
-    observed.actualCostUsd,
-    observed.estimatedCostUsd,
-    observed.customTokenPricing,
-  ].filter((value) => value !== undefined)
-  if (suppliedAmounts.length > 1) {
-    throw new ValidationError(
-      'CostLedger: a receipt can have only one of actualCostUsd, estimatedCostUsd, or customTokenPricing',
-    )
-  }
-  const customPricingSnapshot =
-    observed.customTokenPricing === undefined
-      ? undefined
-      : pricingSnapshot(observed.customTokenPricing)
-  const estimated = customPricingSnapshot
-    ? {
-        costUsd: costFromPricing(observed, customPricingSnapshot),
-        costUnknown: false,
-      }
-    : costForUsage(observed.model, observed)
-  const hasActual = observed.actualCostUsd !== undefined
-  const hasExternalEstimate = observed.estimatedCostUsd !== undefined
-  if (hasActual && observed.costUnknown === true) {
-    throw new ValidationError(
-      'CostLedger: a receipt cannot have both actualCostUsd and costUnknown=true',
-    )
-  }
-  if (hasActual) assertNonNegative(observed.actualCostUsd!, 'actualCostUsd')
-  if (hasExternalEstimate) assertNonNegative(observed.estimatedCostUsd!, 'estimatedCostUsd')
-  if (hasExternalEstimate && observed.costUnknown === true) {
-    throw new ValidationError(
-      'CostLedger: a receipt cannot have both estimatedCostUsd and costUnknown=true',
-    )
-  }
-  const usageUnknown = observed.usageUnknown === true
-  const costUnknown =
-    observed.costUnknown === true ||
-    (!hasActual && !hasExternalEstimate && (usageUnknown || estimated.costUnknown))
-  const resolvedModelPricing =
-    !customPricingSnapshot && !hasActual && !hasExternalEstimate && !costUnknown
-      ? resolveModelPricing(observed.model)
-      : null
-  const receiptPricing =
-    !hasActual && !hasExternalEstimate && !costUnknown
-      ? (customPricingSnapshot ??
-        (resolvedModelPricing
-          ? {
-              inputUsdPerThousand: resolvedModelPricing.input,
-              outputUsdPerThousand: resolvedModelPricing.output,
-            }
-          : undefined))
-      : undefined
-  return parseReceipt(
-    {
-      status: 'settled',
-      callId: pending.callId,
-      channel: pending.channel,
-      phase: pending.phase,
-      actor: pending.actor,
-      model: observed.model,
-      inputTokens: observed.inputTokens,
-      outputTokens: observed.outputTokens,
-      ...(observed.reasoningTokens === undefined
-        ? {}
-        : { reasoningTokens: observed.reasoningTokens }),
-      ...(observed.cachedTokens === undefined ? {} : { cachedTokens: observed.cachedTokens }),
-      ...(observed.cacheWriteTokens === undefined
-        ? {}
-        : { cacheWriteTokens: observed.cacheWriteTokens }),
-      costUsd: costUnknown
-        ? 0
-        : hasActual
-          ? observed.actualCostUsd!
-          : hasExternalEstimate
-            ? observed.estimatedCostUsd!
-            : estimated.costUsd,
-      costUnknown,
-      usageUnknown,
-      ...(receiptPricing ? { pricing: receiptPricing } : {}),
-      ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
-      ...(hasExternalEstimate ? { estimatedCostUsd: observed.estimatedCostUsd } : {}),
-      ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
-      ...(failed ? { error: error ?? 'paid-call-failed' } : {}),
-      ...(pending.tags ? { tags: { ...pending.tags } } : {}),
-      timestamp: pending.timestamp,
-    },
-    'provider receipt',
-  )
-}
-
-const NonEmptyString = z.string().refine((value) => value.trim().length > 0, 'must be non-empty')
-const TokenCount = z.number().int().nonnegative().finite()
-const NonNegative = z.number().nonnegative().finite()
-const Tags = z.record(NonEmptyString, z.string())
-const CostPricingSchema = z.strictObject({
-  inputUsdPerThousand: NonNegative,
-  cachedInputUsdPerThousand: NonNegative.optional(),
-  cacheWriteUsdPerThousand: NonNegative.optional(),
-  outputUsdPerThousand: NonNegative,
-})
-const CostCallBaseShape = {
-  callId: NonEmptyString,
-  channel: NonEmptyString,
-  phase: NonEmptyString,
-  actor: NonEmptyString,
-  model: NonEmptyString,
-  maximumCostUsd: NonNegative.optional(),
-  tags: Tags.optional(),
-  timestamp: NonNegative,
-}
-const PendingCostCallSchema = z.strictObject({
-  status: z.literal('pending'),
-  ...CostCallBaseShape,
-})
-const CostReceiptBaseShape = {
-  status: z.literal('settled'),
-  ...CostCallBaseShape,
-  inputTokens: TokenCount,
-  outputTokens: TokenCount,
-  cachedTokens: TokenCount.optional(),
-  costUsd: NonNegative,
-  costUnknown: z.boolean(),
-  usageUnknown: z.boolean().default(false),
-  pricing: CostPricingSchema.optional(),
-  actualCostUsd: NonNegative.optional(),
-  estimatedCostUsd: NonNegative.optional(),
-  error: NonEmptyString.optional(),
-}
-const CostReceiptSchema = z
-  .strictObject({
-    ...CostReceiptBaseShape,
-    reasoningTokens: TokenCount.optional(),
-    cacheWriteTokens: TokenCount.optional(),
-  })
-  .superRefine((receipt, ctx) => validateCostReceipt(receipt, ctx))
-
-function validateCostReceipt(
-  receipt: CostUsage & {
-    costUsd: number
-    costUnknown: boolean
-    usageUnknown: boolean
-    pricing?: NonNullable<CostReceipt['pricing']>
-    actualCostUsd?: number
-    estimatedCostUsd?: number
-  },
-  ctx: z.RefinementCtx,
-): void {
-  if (receipt.reasoningTokens !== undefined && receipt.reasoningTokens > receipt.outputTokens) {
-    ctx.addIssue({ code: 'custom', message: 'reasoningTokens must not exceed outputTokens' })
-  }
-
-  if (receipt.actualCostUsd !== undefined && receipt.estimatedCostUsd !== undefined) {
-    ctx.addIssue({
-      code: 'custom',
-      message: 'actual and external estimated costs cannot both be present',
-    })
-  }
-
-  if (receipt.actualCostUsd !== undefined) {
-    if (receipt.costUnknown || receipt.costUsd !== receipt.actualCostUsd) {
-      ctx.addIssue({ code: 'custom', message: 'actual cost must be known and equal costUsd' })
-    }
-    if (receipt.pricing !== undefined) {
-      ctx.addIssue({ code: 'custom', message: 'actual cost must not include estimated pricing' })
-    }
-    return
-  }
-
-  if (receipt.estimatedCostUsd !== undefined) {
-    if (receipt.costUnknown || receipt.costUsd !== receipt.estimatedCostUsd) {
-      ctx.addIssue({ code: 'custom', message: 'external estimate must be known and equal costUsd' })
-    }
-    if (receipt.pricing !== undefined) {
-      ctx.addIssue({ code: 'custom', message: 'external estimate must not include token pricing' })
-    }
-    return
-  }
-
-  if (receipt.costUnknown) {
-    if (receipt.costUsd !== 0) {
-      ctx.addIssue({ code: 'custom', message: 'unknown cost must have costUsd 0' })
-    }
-    if (receipt.pricing !== undefined) {
-      ctx.addIssue({ code: 'custom', message: 'unknown cost must not include estimated pricing' })
-    }
-    return
-  }
-
-  if (receipt.usageUnknown) {
-    ctx.addIssue({ code: 'custom', message: 'known estimated cost requires known usage' })
-  }
-  if (!receipt.pricing) {
-    ctx.addIssue({ code: 'custom', message: 'known estimated cost requires a pricing snapshot' })
-    return
-  }
-
-  const expected = costFromPricing(receipt, receipt.pricing)
-  if (!costAmountsMatch(receipt.costUsd, expected)) {
-    ctx.addIssue({
-      code: 'custom',
-      message: `estimated cost ${receipt.costUsd} does not match pricing snapshot ${expected}`,
-    })
-  }
-}
-
-function costAmountsMatch(left: number, right: number): boolean {
-  const scale = Math.max(1, Math.abs(left), Math.abs(right))
-  return Math.abs(left - right) <= Number.EPSILON * scale * 8
-}
-
-const CostLedgerEventSchema = z.union([
-  z.strictObject({
-    version: z.literal(1),
-    record: PendingCostCallSchema,
-  }),
-  z.strictObject({
-    version: z.literal(2),
-    record: CostReceiptSchema,
-  }),
-  z.strictObject({
-    version: z.literal(1),
-    completedTasks: TokenCount,
-  }),
-  z.strictObject({
-    version: z.literal(1),
-    costCeilingUsd: NonNegative,
-  }),
-])
-
-function parseEvents(serialized: string): {
-  records: CostLedgerRecord[]
-  completedTasks: number
-  costCeilingUsd?: number
-} {
-  const records = new Map<string, CostLedgerRecord>()
-  let completedTasks = 0
-  let costCeilingUsd: number | undefined
-  let lineNumber = 0
-  try {
-    for (const line of completeJournalPrefix(serialized).split('\n')) {
-      if (!line.trim()) continue
-      lineNumber += 1
-      const event = CostLedgerEventSchema.parse(JSON.parse(line)) as CostLedgerEvent
-      if ('record' in event) {
-        const record = event.record
-        validateTransition(records, record)
-        records.set(record.callId, cloneRecord(record))
-      } else if ('completedTasks' in event) {
-        completedTasks += event.completedTasks
-        if (!Number.isSafeInteger(completedTasks)) {
-          throw new ValidationError('CostLedger: completed task count exceeds safe integer range')
-        }
-      } else {
-        if (costCeilingUsd !== undefined) {
-          throw new ValidationError('CostLedger: duplicate persisted cost ceiling')
-        }
-        costCeilingUsd = event.costCeilingUsd
-      }
-    }
-    return {
-      records: [...records.values()],
-      completedTasks,
-      ...(costCeilingUsd === undefined ? {} : { costCeilingUsd }),
-    }
-  } catch (cause) {
-    throw new ValidationError(
-      `CostLedger: invalid persisted event ${lineNumber || 1}: ${validationMessage(cause)}`,
-      { cause },
-    )
-  }
-}
-
-function completeJournalPrefix(serialized: string): string {
-  if (!serialized || serialized.endsWith('\n')) return serialized
-  const finalNewline = serialized.lastIndexOf('\n')
-  const tail = serialized.slice(finalNewline + 1)
-  try {
-    JSON.parse(tail)
-  } catch {
-    return finalNewline < 0 ? '' : serialized.slice(0, finalNewline + 1)
-  }
-  throw new ValidationError(
-    'CostLedger: complete final persisted event is missing its newline terminator',
-  )
-}
-
-function validateTransition(
-  records: ReadonlyMap<string, CostLedgerRecord>,
-  record: CostLedgerRecord,
-): void {
-  const current = records.get(record.callId)
-  if (!current) return
-  if (record.status === 'pending' || current.status === 'settled') {
-    throw new CostCallConflictError(`CostLedger: duplicate callId '${record.callId}'`)
-  }
-  if (!sameAttribution(current, record)) {
-    throw new ValidationError(`CostLedger: receipt attribution changed for call '${record.callId}'`)
-  }
-}
-
-function sameAttribution(before: CostCallBase, after: CostCallBase): boolean {
-  return (
-    before.channel === after.channel &&
-    before.phase === after.phase &&
-    before.actor === after.actor &&
-    before.maximumCostUsd === after.maximumCostUsd &&
-    before.timestamp === after.timestamp &&
-    sameTags(before.tags, after.tags)
-  )
-}
-
-function sameTags(
-  left: Readonly<Record<string, string>> | undefined,
-  right: Readonly<Record<string, string>> | undefined,
-): boolean {
-  const leftEntries = Object.entries(left ?? {}).sort(([a], [b]) => a.localeCompare(b))
-  const rightEntries = Object.entries(right ?? {}).sort(([a], [b]) => a.localeCompare(b))
-  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries)
-}
-
-function parseReceipt(value: unknown, path: string): CostReceipt {
-  try {
-    return CostReceiptSchema.parse(value) as CostReceipt
-  } catch (cause) {
-    throw new ValidationError(`CostLedger: invalid ${path}: ${validationMessage(cause)}`, { cause })
-  }
-}
-
-function parseImportedReceipt(value: unknown, path: string): CostReceipt {
-  if (typeof value !== 'object' || value === null) return parseReceipt(value, path)
-  const candidate = { ...value } as Record<string, unknown>
-  if (
-    candidate.status === 'settled' &&
-    candidate.actualCostUsd === undefined &&
-    candidate.estimatedCostUsd === undefined &&
-    candidate.costUnknown === false &&
-    candidate.pricing === undefined &&
-    typeof candidate.model === 'string'
-  ) {
-    const pricing = resolveModelPricing(candidate.model)
-    if (pricing) {
-      candidate.pricing = {
-        inputUsdPerThousand: pricing.input,
-        outputUsdPerThousand: pricing.output,
-      }
-    }
-  }
-  return parseReceipt(candidate, path)
-}
-
-function validateAttribution(
-  input: Pick<RunPaidCallInput<unknown>, 'channel' | 'phase' | 'actor' | 'model' | 'tags'>,
-): void {
-  assertString(input.channel, 'channel')
-  assertString(input.phase, 'phase')
-  assertString(input.actor, 'actor')
-  if (input.model !== undefined) assertString(input.model, 'model')
-  if (input.tags !== undefined) {
-    const parsed = Tags.safeParse(input.tags)
-    if (!parsed.success)
-      throw new ValidationError(`CostLedger: invalid tags: ${parsed.error.message}`)
-  }
-}
-
-function matches(record: CostCallBase, filter: CostLedgerFilter | undefined): boolean {
-  if (!filter) return true
-  if (filter.channel !== undefined && record.channel !== filter.channel) return false
-  if (filter.phase !== undefined && record.phase !== filter.phase) return false
-  return Object.entries(filter.tags ?? {}).every(([key, value]) => record.tags?.[key] === value)
-}
-
-function cloneRecord(record: CostLedgerRecord): CostLedgerRecord {
-  if (record.status === 'settled') return cloneReceipt(record)
-  return clonePendingCall(record)
-}
-
-function clonePendingCall(record: PendingCostCall): PendingCostCall {
-  const { tags, ...rest } = record
-  return { ...rest, ...(tags ? { tags: { ...tags } } : {}) }
-}
-
-function cloneReceipt(receipt: CostReceipt): CostReceipt {
-  const { pricing, tags, ...rest } = receipt
-  return {
-    ...rest,
-    ...(tags ? { tags: { ...tags } } : {}),
-    ...(pricing ? { pricing: { ...pricing } } : {}),
-  }
-}
-
-function costFromPricing(usage: CostUsage, pricing: NonNullable<CostReceipt['pricing']>): number {
-  const cachedInputRate = pricing.cachedInputUsdPerThousand ?? pricing.inputUsdPerThousand
-  const cacheWriteRate = pricing.cacheWriteUsdPerThousand ?? pricing.inputUsdPerThousand
-  return (
-    (usage.inputTokens / 1000) * pricing.inputUsdPerThousand +
-    ((usage.cachedTokens ?? 0) / 1000) * cachedInputRate +
-    ((usage.cacheWriteTokens ?? 0) / 1000) * cacheWriteRate +
-    (usage.outputTokens / 1000) * pricing.outputUsdPerThousand
-  )
-}
-
-function pricingSnapshot(pricing: CustomTokenPricing): NonNullable<CostReceipt['pricing']> {
-  costForTokenPricing(pricing, { inputTokens: 0, outputTokens: 0 })
-  return {
-    inputUsdPerThousand: pricing.inputUsdPerMillion / 1000,
-    ...(pricing.cachedInputUsdPerMillion === undefined
-      ? {}
-      : { cachedInputUsdPerThousand: pricing.cachedInputUsdPerMillion / 1000 }),
-    ...(pricing.cacheWriteUsdPerMillion === undefined
-      ? {}
-      : { cacheWriteUsdPerThousand: pricing.cacheWriteUsdPerMillion / 1000 }),
-    outputUsdPerThousand: pricing.outputUsdPerMillion / 1000,
-  }
-}
-
-function emptyRollup(channel: CostChannel): ChannelRollup {
-  return {
-    channel,
-    calls: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    reasoningTokens: 0,
-    cachedTokens: 0,
-    cacheWriteTokens: 0,
-    costUsd: 0,
-    unpricedCalls: 0,
-    unknownUsageCalls: 0,
-  }
 }
 
 function pendingModel(input: RunPaidCallInput<unknown>): string {
@@ -1423,69 +651,11 @@ function abortError(signal: AbortSignal): Error {
   return error
 }
 
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value))
-}
-
 function paidFailure<T>(callId: string, error: Error, receipt?: CostReceipt): PaidCallResult<T> {
   return {
     succeeded: false,
     callId,
     error,
     ...(receipt ? { receipt: cloneReceipt(receipt) } : {}),
-  }
-}
-
-function validationMessage(cause: unknown): string {
-  return cause instanceof z.ZodError ? z.prettifyError(cause) : toError(cause).message
-}
-
-function assertUsage(usage: CostUsage): void {
-  assertTokenCount(usage.inputTokens, 'inputTokens')
-  assertTokenCount(usage.outputTokens, 'outputTokens')
-  if (usage.reasoningTokens !== undefined) {
-    assertTokenCount(usage.reasoningTokens, 'reasoningTokens')
-    if (usage.reasoningTokens > usage.outputTokens) {
-      throw new ValidationError('CostLedger: reasoningTokens must not exceed outputTokens')
-    }
-  }
-  if (usage.cachedTokens !== undefined) assertTokenCount(usage.cachedTokens, 'cachedTokens')
-  if (usage.cacheWriteTokens !== undefined) {
-    assertTokenCount(usage.cacheWriteTokens, 'cacheWriteTokens')
-  }
-}
-
-function assertTokenCount(value: unknown, name: string): asserts value is number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new ValidationError(
-      `CostLedger: ${name} must be a non-negative integer, got ${String(value)}`,
-    )
-  }
-}
-
-function assertNonNegative(value: unknown, name: string): asserts value is number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new ValidationError(
-      `CostLedger: ${name} must be a non-negative finite number, got ${String(value)}`,
-    )
-  }
-}
-
-function assertTimeout(value: unknown, name: string): asserts value is number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isSafeInteger(value) ||
-    value < 0 ||
-    value > 2_147_483_647
-  ) {
-    throw new ValidationError(
-      `CostLedger: ${name} must be a non-negative safe integer no greater than 2147483647, got ${String(value)}`,
-    )
-  }
-}
-
-function assertString(value: unknown, name: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new ValidationError(`CostLedger: ${name} must be a non-empty string`)
   }
 }
