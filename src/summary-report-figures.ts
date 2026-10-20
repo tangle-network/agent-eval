@@ -11,6 +11,7 @@ import {
   pairedCohensDz,
   wilcoxonSignedRank,
 } from './statistics'
+import { mean as avg } from './statistics/mean'
 import { medianOfSorted, pairScoresByKey } from './summary-report-evidence'
 
 // ── summaryTable ───────────────────────────────────────────────────────
@@ -382,9 +383,4 @@ export function gainHistogram(
     median,
     ci: { low: ci.low, high: ci.high },
   }
-}
-
-function avg(xs: number[]): number {
-  if (xs.length === 0) return Number.NaN
-  return xs.reduce((s, x) => s + x, 0) / xs.length
 }
