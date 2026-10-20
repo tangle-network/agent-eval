@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AnalystBenchmarkObservation } from './benchmark'
 import type { AnalystBenchmarkArtifact } from './benchmark-command-artifact'
 import { ANALYST_COMPARISON_METRICS } from './benchmark-comparison'
+import { AnalystFindingSchema } from './finding-scope'
 
 const nonEmptyString = z.string().refine((value) => value.trim().length > 0, {
   message: 'must be a non-empty string',
@@ -42,24 +43,6 @@ const evidenceSchema = z.strictObject({
   kind: z.enum(['span', 'event', 'artifact', 'finding', 'metric']),
   uri: nonEmptyString,
   excerpt: z.string().optional(),
-})
-
-const findingSchema = z.strictObject({
-  schema_version: z.literal('1.0.0'),
-  finding_id: nonEmptyString,
-  analyst_id: nonEmptyString,
-  produced_at: timestamp,
-  severity: z.enum(['critical', 'high', 'medium', 'low', 'info']),
-  area: nonEmptyString,
-  claim: nonEmptyString,
-  rationale: z.string().optional(),
-  evidence_refs: z.array(evidenceSchema),
-  recommended_action: z.string().optional(),
-  validation_plan: z.string().optional(),
-  confidence: rate,
-  subject: z.string().optional(),
-  derived_from_judge: z.boolean().optional(),
-  metadata: metadata.optional(),
 })
 
 const tokenUsageSchema = z
@@ -153,7 +136,7 @@ const observationSchema: z.ZodType<AnalystBenchmarkObservation> = z
     executionIndex: nonNegativeInteger,
     latencyMs: nonNegativeNumber.nullable(),
     latencySource: z.enum(['benchmark-clock', 'runner-reported', 'uncaptured']),
-    findings: z.array(findingSchema),
+    findings: z.array(AnalystFindingSchema),
     score: findingScoreSchema,
     evidenceResolution: evidenceResolutionSchema.optional(),
     caseTags: stringArray,
