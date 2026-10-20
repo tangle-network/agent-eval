@@ -24,6 +24,7 @@ import {
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
 import { addFixedSpend, pairedFixedSpendReceipt } from './fixed-spend'
 import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
+import { comparisonEvaluation, comparisonRecomputationInput } from './measured-comparison-record'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
 
 export interface SealAgentProfileImprovementSuiteOptions {
@@ -226,19 +227,7 @@ export function measuredComparisonFromAgentProfileImprovementExperiment(
       candidateContentHash: experiment.candidate.stateDigest,
     },
     diff: canonicalCandidateJson(experiment.change),
-    evaluation: {
-      generationsExplored: options.generationsExplored ?? 0,
-      preparation: options.preparation,
-      measurement: {
-        wallDurationMs: options.measurement.wallDurationMs,
-        workDurationMs: evaluation.measurementWorkDurationMs,
-        cost: evaluation.measurementCost,
-      },
-      total: {
-        wallDurationMs: options.preparation.wallDurationMs + options.measurement.wallDurationMs,
-        cost: evaluation.totalCost,
-      },
-    },
+    evaluation: comparisonEvaluation(options, evaluation),
     ...(options.metadata ? { metadata: options.metadata } : {}),
   })
   const { recordDigest: _recordDigest, ...provenance } = provisional.provenance
@@ -256,19 +245,9 @@ export function verifyAgentProfileImprovementExperimentComparison(
   input: unknown,
 ): AgentProfileImprovementMeasuredComparison {
   const comparison = agentProfileImprovementMeasuredComparisonSchema.parse(input)
-  const recomputed = measuredComparisonFromAgentProfileImprovementExperiment({
-    experiment: comparison.experiment,
-    measurements: comparison.measurements,
-    runId: comparison.provenance.runId,
-    ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
-    generationsExplored: comparison.evaluation.generationsExplored,
-    preparation: comparison.evaluation.preparation,
-    measurement: {
-      wallDurationMs: comparison.evaluation.measurement.wallDurationMs,
-      cost: comparison.evaluation.measurement.cost,
-    },
-    ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
-  })
+  const recomputed = measuredComparisonFromAgentProfileImprovementExperiment(
+    comparisonRecomputationInput(comparison),
+  )
   if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
     throw new Error('profile improvement comparison does not match its Runtime receipts')
   }
