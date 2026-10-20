@@ -3,7 +3,16 @@
  * through @tangle-network/harness-sessions; `pi-graph` is the graph IR a Pi graph run exports
  * (`nodes[].ir.kind`), which is not a Pi session.
  */
+
 import { readSessionInput } from '@tangle-network/harness-sessions'
+import {
+  isRecord,
+  numberField,
+  record,
+  stringField,
+  timestampMs as timestamp,
+} from './code-agent-fields'
+import { sessionIdFromEntries } from './code-agent-identity'
 
 export type CodeAgentSessionSource =
   | 'codex'
@@ -899,34 +908,6 @@ function compactMetadata(input: Record<string, unknown>): Record<string, unknown
   return Object.fromEntries(Object.entries(input).filter((entry) => entry[1] !== undefined))
 }
 
-function sessionIdFromEntries(
-  source: CodeAgentSessionSource,
-  entries: Record<string, unknown>[],
-): string | undefined {
-  for (const entry of entries) {
-    if (source === 'pi' && entry.type === 'session') {
-      const id = stringField(entry, 'id')
-      if (id) return id
-    }
-    if (source === 'codex') {
-      const threadId = stringField(entry, 'thread_id')
-      if (threadId) return threadId
-      const payload = record(entry.payload)
-      const id = payload ? stringField(payload, 'id') : undefined
-      if (id) return id
-    }
-    const message = record(entry.message)
-    const payload = record(message?.payload)
-    const sessionId =
-      stringField(entry, 'sessionID') ??
-      stringField(entry, 'sessionId') ??
-      stringField(entry, 'session_id') ??
-      stringField(payload ?? {}, 'session_id')
-    if (sessionId) return sessionId
-  }
-  return undefined
-}
-
 function fallbackSessionId(source: CodeAgentSessionSource, sourcePath: string | undefined): string {
   return `${source}:${sourcePath ?? 'unknown-session'}`
 }
@@ -943,33 +924,4 @@ function looksLikeError(value: unknown): boolean {
 
 function nonEmpty(value: string | undefined): string | null {
   return value !== undefined && value.length > 0 ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null
-}
-
-function stringField(value: Record<string, unknown>, key: string): string | undefined {
-  const field = value[key]
-  return typeof field === 'string' && field.length > 0 ? field : undefined
-}
-
-function numberField(value: Record<string, unknown>, key: string): number | undefined {
-  const field = value[key]
-  return typeof field === 'number' && Number.isFinite(field) ? field : undefined
-}
-
-function timestamp(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1_000
-  }
-  if (typeof value === 'string' && value.length > 0) {
-    const parsed = Date.parse(value)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
 }
