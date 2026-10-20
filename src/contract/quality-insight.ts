@@ -5,6 +5,7 @@ import { interpolatedQuantile as percentile } from '../math/quantile'
 import { observedSplitScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import { pearsonR, spearmanR } from '../statistics'
+import { mean as arithmeticMean } from '../statistics/mean'
 import type {
   InterRaterInsight,
   JudgeInsight,
@@ -54,7 +55,7 @@ export function distributionOf(
   }
   const sorted = [...values].sort((a, b) => a - b)
   const n = sorted.length
-  const mean = sorted.reduce((s, v) => s + v, 0) / n
+  const mean = arithmeticMean(sorted)
   const variance = sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n
   const stddev = Math.sqrt(variance)
   const tailRuns = withIds
@@ -287,5 +288,5 @@ export function isFiniteNumber(value: unknown): value is number {
 }
 
 export function mean(arr: number[]): number {
-  return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length
+  return arr.length === 0 ? 0 : arithmeticMean(arr)
 }
