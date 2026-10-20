@@ -1,34 +1,5 @@
-import { z } from 'zod'
+import { ProposalFindingSchema } from './finding-scope'
 import type { ProposalFinding } from './types'
-
-const ProposalFindingSchema = z
-  .object({
-    schema_version: z.literal('1.0.0'),
-    finding_id: z.string().min(1),
-    analyst_id: z.string().min(1),
-    produced_at: z.string().min(1),
-    severity: z.enum(['critical', 'high', 'medium', 'low', 'info']),
-    area: z.string().min(1),
-    claim: z.string().min(1),
-    rationale: z.string().optional(),
-    evidence_refs: z.array(
-      z
-        .object({
-          kind: z.enum(['span', 'event', 'artifact', 'finding', 'metric']),
-          uri: z.string().min(1),
-          excerpt: z.string().optional(),
-        })
-        .strict(),
-    ),
-    recommended_action: z.string().optional(),
-    validation_plan: z.string().optional(),
-    confidence: z.number().min(0).max(1),
-    subject: z.string().optional(),
-    derived_from_judge: z.boolean().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    proposal_origin: z.enum(['search', 'production']),
-  })
-  .strict() satisfies z.ZodType<ProposalFinding>
 
 /** True when a finding names a source candidate generation may learn from. */
 export function isProposalFinding(finding: unknown): finding is ProposalFinding {

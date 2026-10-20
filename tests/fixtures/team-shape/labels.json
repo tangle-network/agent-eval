@@ -1,0 +1,10 @@
+{
+  "labelledBy": "the lead (operator), 2026-10-20, from the run records; these are gold labels for team-shape v1",
+  "source": "Discovery run records on drew-gtr-pro: /mnt/traces/discovery-runs/<run>/spawn-journal.jsonl and coordination-log.jsonl, reduced to structure by team_shape_fixture.py (no prompts, briefs, labels beyond root/lead-*, paths or message text)",
+  "runs": {
+    "magnetar-rust-20261017c": {"class": "hive", "depth": 2, "agents": 27, "why": "root commands 5 children; 3 of them (lead s0, s1, s3) delegate further; each specialist settles to its lead, each lead to the root"},
+    "magnetar-rust-20261018b": {"class": "star-with-sub-leads", "depth": 2, "agents": 15, "why": "root commands 13 children; only 1 of them (s3) delegates, once; 13 of 14 settlements go to the root"},
+    "magnetar-rust-20261019f": {"class": "flat-star", "depth": 1, "agents": 7, "why": "root commands 6 workers; none delegates; every settlement goes to the root"},
+    "magnetar-rust-20261020b": {"class": "flat-star", "depth": 1, "agents": 21, "why": "root commands 20 one-task workers; none delegates; 19 of 19 settlements go to the root"}
+  }
+}
