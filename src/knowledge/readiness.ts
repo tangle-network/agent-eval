@@ -1,4 +1,5 @@
-import { type ControlEvalResult, objectiveEval } from '../control-runtime'
+import type { ControlEvalResult } from '../control-runtime/contract'
+import { objectiveEval } from '../control-runtime/policy'
 import type { TraceEmitter } from '../trace/emitter'
 import type {
   DataAcquisitionPlan,
