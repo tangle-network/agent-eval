@@ -9,6 +9,23 @@ export type CostProvenance =
   | { kind: 'estimated'; usd: number }
   | { kind: 'uncaptured'; usd: null }
 
+/** Separate units and evidence for a matrix cell; credits are never USD. */
+export interface CostBreakdown {
+  router: CostProvenance
+  sandbox: CostProvenance
+  /** Standard model credits, before time-of-day discounts or MCP charges. */
+  seatCredits:
+    | { kind: 'estimated'; credits: number }
+    | { kind: 'uncaptured'; credits: null; reason: string }
+  /** Live source snapshots used by the estimates; never a package rate table. */
+  sources: Array<{
+    url: string
+    readAt: string
+    sha256: string
+    rates: Record<string, number>
+  }>
+}
+
 export interface CostUsage {
   inputTokens: number
   /** Includes reasoning tokens when the provider bills them as output. */
@@ -41,6 +58,7 @@ export interface PendingCostCallView extends PendingCostCall {
 }
 
 export interface CostReceipt extends CostCallBase, CostUsage {
+  costBreakdown?: CostBreakdown
   status: 'settled'
   costUsd: number
   costUnknown: boolean
@@ -64,6 +82,7 @@ export interface CostReceipt extends CostCallBase, CostUsage {
 export type CostLedgerRecord = PendingCostCall | CostReceipt
 
 export interface CostReceiptInput extends CostUsage {
+  costBreakdown?: CostBreakdown
   model: string
   /** Caller-supplied rates for a local estimate when the provider does not report billed cost. */
   customTokenPricing?: CustomTokenPricing
@@ -127,6 +146,7 @@ export interface ChannelRollup {
 }
 
 export interface CostLedgerSummary {
+  costBreakdown?: CostBreakdown
   totalCalls: number
   pendingCalls: number
   unresolvedCalls: number

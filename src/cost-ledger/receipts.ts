@@ -39,7 +39,29 @@ export const PendingCostCallSchema = z.strictObject({
   status: z.literal('pending'),
   ...CostCallBaseShape,
 })
+const CostProvenanceSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('observed'), usd: NonNegative }),
+  z.strictObject({ kind: z.literal('estimated'), usd: NonNegative }),
+  z.strictObject({ kind: z.literal('uncaptured'), usd: z.null() }),
+])
+const CostBreakdownSchema = z.strictObject({
+  router: CostProvenanceSchema,
+  sandbox: CostProvenanceSchema,
+  seatCredits: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal('estimated'), credits: NonNegative }),
+    z.strictObject({ kind: z.literal('uncaptured'), credits: z.null(), reason: NonEmptyString }),
+  ]),
+  sources: z.array(
+    z.strictObject({
+      url: z.string().url(),
+      readAt: z.string().datetime(),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+      rates: z.record(NonEmptyString, NonNegative),
+    }),
+  ),
+})
 const CostReceiptBaseShape = {
+  costBreakdown: CostBreakdownSchema.optional(),
   status: z.literal('settled'),
   ...CostCallBaseShape,
   inputTokens: TokenCount,
@@ -66,12 +88,34 @@ function validateCostReceipt(
     costUsd: number
     costUnknown: boolean
     usageUnknown: boolean
+    costBreakdown?: CostReceipt['costBreakdown']
     pricing?: NonNullable<CostReceipt['pricing']>
     actualCostUsd?: number
     estimatedCostUsd?: number
   },
   ctx: z.RefinementCtx,
 ): void {
+  const split = receipt.costBreakdown
+  if (split) {
+    if (
+      split.router.kind === 'estimated' ||
+      (split.router.kind === 'observed' &&
+        (receipt.actualCostUsd === undefined ||
+          !costAmountsMatch(split.router.usd, receipt.actualCostUsd)))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Router breakdown must match the observed USD receipt or remain uncaptured',
+      })
+    }
+    if (split.sandbox.kind === 'observed') {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Sandbox breakdown is an estimate, not observed billing',
+      })
+    }
+  }
+
   if (receipt.reasoningTokens !== undefined && receipt.reasoningTokens > receipt.outputTokens) {
     ctx.addIssue({ code: 'custom', message: 'reasoningTokens must not exceed outputTokens' })
   }
@@ -197,6 +241,7 @@ export function buildReceipt(
       : undefined
   return parseReceipt(
     {
+      ...(observed.costBreakdown ? { costBreakdown: observed.costBreakdown } : {}),
       status: 'settled',
       callId: pending.callId,
       channel: pending.channel,
@@ -295,9 +340,10 @@ export function clonePendingCall(record: PendingCostCall): PendingCostCall {
 }
 
 export function cloneReceipt(receipt: CostReceipt): CostReceipt {
-  const { pricing, tags, ...rest } = receipt
+  const { pricing, tags, costBreakdown, ...rest } = receipt
   return {
     ...rest,
+    ...(costBreakdown ? { costBreakdown: structuredClone(costBreakdown) } : {}),
     ...(tags ? { tags: { ...tags } } : {}),
     ...(pricing ? { pricing: { ...pricing } } : {}),
   }

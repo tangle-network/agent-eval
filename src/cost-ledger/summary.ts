@@ -1,9 +1,11 @@
 /** Derive attribution rollups and accounting completeness from one snapshot of ledger records. */
 import type {
   ChannelRollup,
+  CostBreakdown,
   CostChannel,
   CostLedgerRecord,
   CostLedgerSummary,
+  CostProvenance,
   CostReceipt,
   PendingCostCall,
 } from './contract'
@@ -62,6 +64,9 @@ export function summarizeCostLedger(
   }
 
   return {
+    ...(receipts.some((r) => r.costBreakdown)
+      ? { costBreakdown: summarizeBreakdown(records) }
+      : {}),
     totalCalls: receipts.length,
     pendingCalls: pending.length,
     unresolvedCalls: pending.filter(
@@ -101,5 +106,33 @@ function emptyRollup(channel: CostChannel): ChannelRollup {
     costUsd: 0,
     unpricedCalls: 0,
     unknownUsageCalls: 0,
+  }
+}
+
+function summarizeBreakdown(records: readonly CostLedgerRecord[]): CostBreakdown {
+  const details = records.map((r) => (r.status === 'settled' ? r.costBreakdown : undefined))
+  const money = (key: 'router' | 'sandbox'): CostProvenance => {
+    if (details.some((d) => !d || d[key].kind === 'uncaptured'))
+      return { kind: 'uncaptured', usd: null }
+    const values = details.map((d) => d![key])
+    return {
+      kind: values.every((v) => v.kind === 'observed') ? 'observed' : 'estimated',
+      usd: values.reduce((sum, v) => sum + (v.usd ?? 0), 0),
+    }
+  }
+  return {
+    router: money('router'),
+    sandbox: money('sandbox'),
+    seatCredits: details.some((d) => !d || d.seatCredits.kind === 'uncaptured')
+      ? {
+          kind: 'uncaptured',
+          credits: null,
+          reason: 'One or more calls lack captured standard model credits',
+        }
+      : {
+          kind: 'estimated',
+          credits: details.reduce((sum, d) => sum + (d!.seatCredits.credits ?? 0), 0),
+        },
+    sources: structuredClone(details.flatMap((d) => d?.sources ?? [])),
   }
 }

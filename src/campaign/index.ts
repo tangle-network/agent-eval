@@ -10,7 +10,7 @@ export {
   type ProposalFinding,
   type ProposalFindingOrigin,
 } from '../analyst/types'
-export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
+export type { CostBreakdown, CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
@@ -55,6 +55,7 @@ export {
   type CellScheduleSlot,
   cellCachePath,
 } from './cell-schedule'
+export { measureCampaignCost } from './cost-breakdown'
 export {
   assertCampaignDesign,
   assertCampaignSplitIdentity,

@@ -642,3 +642,19 @@ Running it again on the same run directory continues an interrupted search and r
 - Bridge children inherit a small environment allowlist; pass unproxied provider credentials only through `runner.env`.
 - The metered proxy path replaces provider credentials with a loopback URL and an ephemeral key.
 - Resumed state must match every input that can change the result.
+
+### Creative artifacts in GEPA reflection
+
+`gepaOptimizationMethod` forwards each successful campaign dimension to `info.scores`
+(higher is better), retaining `info.dimensions` for existing consumers. Failed cells
+carry a failed status and no objective scores; their protocol penalty is not evidence.
+Normalize lower-is-better measures such as element count in the owning judge.
+Use the upstream hybrid frontier configuration to retain objective specialists.
+
+`describeArtifact` may include an inline PNG at any depth:
+`{ type: 'image', mimeType: 'image/png', data: pngBytes.toString('base64') }`.
+The Python bridge converts exactly this shape to `gepa.Image` so the upstream
+reflection prompt contains an image part. It never reads a caller path or fetches
+an image URL. Include only train/selection artifacts, keep them in the run record,
+and size `maxEvidenceChars` and callback limits for their base64 payloads.
+The reflection executor must itself support image parts; delivery is not a taste score.
