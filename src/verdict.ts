@@ -11,7 +11,7 @@
  *
  * Repo layering: agent-eval is the substrate (no upward deps). Both
  * agent-runtime and agent-knowledge consume this type FROM agent-eval —
- * never the other way around. See CLAUDE.md "Repo layering" for the rule.
+ * never the other way around. See AGENTS.md "Dependency and evidence boundaries" for the rule.
  */
 
 import { contentHash } from './verdict-cache'

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Mechanically enforces the load-bearing layering invariant from CLAUDE.md:
+ * Mechanically enforces the load-bearing layering invariant from AGENTS.md:
  * agent-eval is the SUBSTRATE — it must have ZERO upward dependency on its
  * consumers (agent-runtime, agent-knowledge). The rule was prose-only; an
  * `import type` from a consumer is the smell that silently inverts the layer.

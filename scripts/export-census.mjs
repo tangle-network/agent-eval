@@ -45,7 +45,7 @@ const PACKAGE_NAME = '@tangle-network/agent-eval'
 
 /** Markdown front doors: a symbol named here is documented surface. */
 const DOC_ROOTS = ['docs', 'examples']
-const DOC_FILES = ['README.md', 'CLAUDE.md', '.claude/skills/agent-eval/SKILL.md', 'clients/python/README.md']
+const DOC_FILES = ['README.md', 'AGENTS.md', '.claude/skills/agent-eval/SKILL.md', 'clients/python/README.md']
 
 /** Production modules inside this package that are not part of the library
  *  barrel: the CLI, the wire server, and the maintenance scripts bind the

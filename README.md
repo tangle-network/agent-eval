@@ -201,7 +201,7 @@ The [benchmark-book review](./docs/design/mlbenchmarks-book-review.md) records t
 
 ## Development
 
-Read [CLAUDE.md](./CLAUDE.md) (or [AGENTS.md](./AGENTS.md)) first: dependency boundaries, ledger canonicalization, and local conventions apply to every change.
+Read [AGENTS.md](./AGENTS.md) first: dependency boundaries, ledger canonicalization, and local conventions apply to every change.
 
 ```sh
 pnpm install
