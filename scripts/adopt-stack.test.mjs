@@ -95,6 +95,12 @@ describe('adopt-stack --dry-run against npm', () => {
 // `pr list --json number,body` fields the script reads (checked against
 // `gh pr list --help`), so this proves the script's model of the GitHub API,
 // not GitHub itself.
+// The repository requires a review: a new pull request starts REVIEW_REQUIRED,
+// and a merge before approval is refused with gh's policy message (recorded
+// from agent-knowledge#268). When `state.bot` is on, the approval bot approves
+// right after the script first reads the decision. `state.refusal` makes every
+// merge fail with that message instead.
+const POLICY_REFUSAL = 'X Pull request tangle-network/agent-knowledge#268 is not mergeable: the base branch policy prohibits the merge.\nTo have the pull request merged after all the requirements have been met, add the `--auto` flag.\nTo use administrator privileges to immediately merge the pull request, add the `--admin` flag.'
 const GH_STUB = `#!/usr/bin/env node
 const fs = require('node:fs')
 const file = process.env.GH_STUB_STATE
@@ -102,22 +108,33 @@ const state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : 
 const [, sub, ...rest] = process.argv.slice(2)
 const flag = (name) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
 const pr = state.prs.find((entry) => String(entry.number) === rest[0])
+let refused = null
 if (sub === 'list') {
   const open = state.prs.filter((entry) => entry.state === 'open' && entry.head === flag('--head') && entry.base === flag('--base'))
   const fields = flag('--json').split(',')
   console.log(JSON.stringify(open.map((entry) => Object.fromEntries(fields.map((field) => [field, entry[field]])))))
 } else if (sub === 'create') {
   const number = state.prs.length + 1
-  state.prs.push({ number, state: 'open', head: flag('--head'), base: flag('--base'), title: flag('--title'), body: fs.readFileSync(flag('--body-file'), 'utf8'), comments: [] })
+  state.prs.push({ number, state: 'open', head: flag('--head'), base: flag('--base'), title: flag('--title'), body: fs.readFileSync(flag('--body-file'), 'utf8'), comments: [], reviewDecision: 'REVIEW_REQUIRED', merges: 0, views: 0 })
   console.log('https://github.com/example/caller/pull/' + number)
 } else if (sub === 'edit') {
   if (flag('--title')) pr.title = flag('--title')
   if (flag('--body-file')) pr.body = fs.readFileSync(flag('--body-file'), 'utf8')
 } else if (sub === 'comment') pr.comments.push(flag('--body'))
 else if (sub === 'close') pr.state = 'closed'
-else if (sub === 'merge') Object.assign(pr, { state: 'merged', mergedHead: flag('--match-head-commit') })
-else { console.error('gh stub: unsupported ' + process.argv.slice(2).join(' ')); process.exit(1) }
+else if (sub === 'view' && flag('--json') === 'reviewDecision') {
+  pr.views++
+  console.log(JSON.stringify({ reviewDecision: pr.reviewDecision }))
+  if (state.bot) pr.reviewDecision = 'APPROVED'
+} else if (sub === 'merge') {
+  pr.merges++
+  if (rest.includes('--admin') || rest.includes('--auto')) refused = 'gh stub: --admin and --auto are forbidden'
+  else if (state.refusal) refused = state.refusal
+  else if (pr.reviewDecision === 'REVIEW_REQUIRED') refused = ${JSON.stringify(POLICY_REFUSAL)}
+  else Object.assign(pr, { state: 'merged', mergedHead: flag('--match-head-commit') })
+} else { console.error('gh stub: unsupported ' + process.argv.slice(2).join(' ')); process.exit(1) }
 fs.writeFileSync(file, JSON.stringify(state))
+if (refused) { console.error(refused); process.exit(1) }
 `
 
 describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
@@ -142,6 +159,8 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
       GIT_CONFIG_NOSYSTEM: '1',
       GH_STUB_STATE: ghState,
       GATE_LOG: gateLog,
+      // The approval wait advances on the stand-in's state, not the wall clock.
+      ADOPT_STACK_POLL_MS: '0',
     }
     const git = (cwd, ...argv) => execFileSync('git', argv, { cwd, env, encoding: 'utf8' }).trim()
     const seedCommit = (cwd, message) => git(cwd, '-c', 'user.name=seed', '-c', 'user.email=seed@example.com', 'commit', '-qam', message)
@@ -149,8 +168,10 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
     const seed = join(root, 'seed')
     const pinBrand = (version) => writeFileSync(join(seed, 'package.json'), `${JSON.stringify({ name: 'adopt-stack-delivery-fixture', private: true, devDependencies: { [brand]: version } }, null, 2)}\n`)
     const gates = () => readFileSync(gateLog, 'utf8').split('\n').filter(Boolean).length
-    const prs = () => JSON.parse(readFileSync(ghState, 'utf8')).prs
-    const marker = () => /adopt-stack:plan=(\w+) result=([\w-]+)/.exec(prs()[0].body).slice(1)
+    const gh = () => JSON.parse(readFileSync(ghState, 'utf8'))
+    const setGh = (patch) => writeFileSync(ghState, JSON.stringify({ ...gh(), ...patch }))
+    const prs = () => gh().prs
+    const marker = () => /adopt-stack:plan=(\w+) result=([\w-]+)/.exec(prs().at(-1).body).slice(1)
     const branchHead = () => git(root, 'ls-remote', remote, 'refs/heads/chore/adopt-stack').split(/\s/)[0]
     let runs = 0
     const adopt = (gate, ...extra) => {
@@ -173,6 +194,7 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
       seedCommit(seed, 'seed')
       git(seed, 'remote', 'add', 'origin', remote)
       git(seed, 'push', '-q', 'origin', 'main')
+      setGh({ prs: [], bot: true })
 
       const first = adopt(pass)
       expect(first.status, first.stderr).toBe(0)
@@ -219,18 +241,46 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
 
       // A post-pin command is part of the plan, so it re-gates; the files it
       // creates or edits join the adoption commit and the pull request body.
+      // The first merge is refused while the review is required; the bot
+      // approves, and the identical merge succeeds.
       const sync = `node -e "const fs = require('node:fs'), pins = JSON.stringify(require('./package.json').devDependencies); fs.writeFileSync('template.json', pins); fs.writeFileSync('floors.json', pins)"`
       const merged = adopt(pass, '--merge', '--post-pin', sync)
       expect(merged.status, merged.stderr).toBe(0)
       expect(gates()).toBe(4)
-      expect(prs()[0]).toMatchObject({ state: 'merged', mergedHead: branchHead() })
+      expect(merged.stdout).toContain('awaits a required approval')
+      expect(merged.stdout).toContain(`merged #1 at ${branchHead().slice(0, 12)}`)
+      expect(prs()[0]).toMatchObject({ state: 'merged', mergedHead: branchHead(), reviewDecision: 'APPROVED', merges: 2, views: 1 })
       expect(prs()[0].body).toContain(`Post-pin: \`${sync}\` changed \`floors.json\`, \`template.json\`.`)
       const adopted = JSON.parse(git(remote, 'show', `${branchHead()}:package.json`))
       expect(adopted.devDependencies[brand]).toBe(latestBrand)
       for (const file of ['template.json', 'floors.json']) expect(JSON.parse(git(remote, 'show', `${branchHead()}:${file}`))[brand]).toBe(latestBrand)
       expect(git(remote, 'log', '-1', '--format=%an', branchHead())).toBe('github-actions[bot]')
+
+      // Any other refusal ends merge-refused on the first attempt, with no
+      // review decision read and so no wait.
+      const conflict = 'X Pull request example/caller#2 is not mergeable: the merge commit cannot be cleanly created.'
+      setGh({ refusal: conflict, bot: false })
+      const other = adopt(pass, '--merge')
+      expect(other.status).toBe(1)
+      expect(other.stderr).toContain('merging #2 failed: the merge was refused')
+      expect(marker()).toEqual([expect.any(String), 'merge-refused'])
+      expect(prs()[1]).toMatchObject({ state: 'open', merges: 1, views: 0 })
+      expect(prs()[1].comments.at(-1)).toContain(`but the merge was refused:\n\n\`\`\`\n${conflict}\n`)
+
+      // A required approval that never lands ends merge-refused once the wait
+      // runs out, and the comment says so.
+      setGh({ refusal: null })
+      env.ADOPT_STACK_WAIT_MS = '0'
+      const unapproved = adopt(pass, '--merge')
+      expect(unapproved.status).toBe(1)
+      expect(unapproved.stderr).toContain('merging #2 failed: the required approval had not landed after 0 min')
+      expect(marker()).toEqual([expect.any(String), 'merge-refused'])
+      expect(prs()).toHaveLength(2)
+      expect(prs()[1]).toMatchObject({ state: 'open', reviewDecision: 'REVIEW_REQUIRED', merges: 2, views: 1 })
+      expect(prs()[1].comments.at(-1)).toContain('but the required approval had not landed after 0 min:')
+      expect(prs()[1].comments.at(-1)).toContain('the base branch policy prohibits the merge')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 180_000)
+  }, 300_000)
 })

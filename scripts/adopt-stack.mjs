@@ -20,7 +20,12 @@
 // - The adopted versions are exact pins, so the install refetches metadata for
 //   a version its cache has not seen; no cache override is needed.
 // - It merges only a head whose base is still the default branch head, so the
-//   merged tree is the one the gate passed. No admin merge is attempted.
+//   merged tree is the one the gate passed. No admin or auto merge is attempted.
+// - A merge refused by the base branch policy while the pull request's review
+//   decision is REVIEW_REQUIRED waits for the approval bot: the same merge is
+//   retried every 20 s for up to 15 min. Any other refusal, or the wait running
+//   out, records merge-refused and the comment says which.
+//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS override the two bounds.
 //
 // Widening keeps the lower bound of the range's last alternative and moves its
 // upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
@@ -61,6 +66,10 @@ const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+g
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
 const EXACT = /^\d+\.\d+\.\d+$/
 const MARKER = /<!-- adopt-stack:plan=([0-9a-f]+) result=(pass|gate-fail|merge-refused) -->/
+// gh's refusal when a required review (or check) is missing; reviewDecision tells which.
+const POLICY = /base branch policy prohibits the merge/
+const POLL_MS = Number(process.env.ADOPT_STACK_POLL_MS || 20_000)
+const WAIT_MS = Number(process.env.ADOPT_STACK_WAIT_MS || 15 * 60_000)
 
 // ---- semver: release versions and the range grammar package.json uses ----
 
@@ -409,20 +418,53 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     throw new Error(`#${number} failed its gate`)
   }
   if (!merge) return log('merge is off; left open')
-  const remote = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
-  if (remote !== base) {
+  const merged = await mergeWhenApproved(dir, number, head, base, defaultBranch)
+  if (merged.moved) {
     // Closed, so the next run does not mistake it for an in-flight proposal.
-    gh(['pr', 'close', String(number), '--comment', `Gate passed, but ${defaultBranch} moved from ${base.slice(0, 12)} to ${remote.slice(0, 12)}; the next run re-gates on the new head.`])
-    return log(`${defaultBranch} moved during the gate; closed #${number} for a re-gate`)
+    gh(['pr', 'close', String(number), '--comment', `Gate passed, but ${defaultBranch} moved from ${base.slice(0, 12)} to ${merged.moved.slice(0, 12)}; the next run re-gates on the new head.`])
+    return log(`${defaultBranch} moved after the gate; closed #${number} for a re-gate`)
   }
-  const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
-  if (merged.status !== 0) {
+  if (merged.refusal) {
     writeFileSync(bodyFile, body(result, gate, hash, 'merge-refused', head, synced))
     gh(['pr', 'edit', String(number), '--body-file', bodyFile])
-    comment(`Gate passed on ${head.slice(0, 12)}, but the merge was refused:\n\n\`\`\`\n${(merged.stderr || merged.stdout).trim()}\n\`\`\`\n\nNo admin merge or protection bypass was attempted.`)
-    throw new Error(`merging #${number} was refused`)
+    comment(`Gate passed on ${head.slice(0, 12)}, but ${merged.why}:\n\n\`\`\`\n${merged.refusal}\n\`\`\`\n\nNo admin merge or protection bypass was attempted.`)
+    throw new Error(`merging #${number} failed: ${merged.why}`)
   }
   log(`merged #${number} at ${head.slice(0, 12)}`)
+}
+
+/**
+ * Merge `head` while the default branch still sits at `base`, the tree the gate
+ * passed. A base branch policy refusal while the review decision is
+ * REVIEW_REQUIRED means an approval (usually the approval bot's) has not landed
+ * yet, so the identical merge is retried every POLL_MS until WAIT_MS has
+ * passed. Any other refusal returns at once, including a moved head, which
+ * `--match-head-commit` refuses on every retry.
+ * Returns {} when merged, { moved } when the base moved, or { refusal, why }.
+ */
+async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
+  const deadline = Date.now() + WAIT_MS
+  for (;;) {
+    const remote = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
+    if (remote !== base) return { moved: remote }
+    const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
+    if (merged.status === 0) return {}
+    const refusal = (merged.stderr || merged.stdout).trim()
+    if (!POLICY.test(refusal) || reviewDecision(dir, number) !== 'REVIEW_REQUIRED') return { refusal, why: 'the merge was refused' }
+    if (Date.now() + POLL_MS >= deadline) return { refusal, why: `the required approval had not landed after ${WAIT_MS / 60_000} min` }
+    log(`#${number} awaits a required approval; retrying the merge in ${POLL_MS / 1000} s`)
+    await new Promise((done) => setTimeout(done, POLL_MS))
+  }
+}
+
+/** The pull request's review decision, or null when gh cannot read it. */
+function reviewDecision(dir, number) {
+  const viewed = spawnSync('gh', ['pr', 'view', String(number), '--json', 'reviewDecision'], { cwd: dir, encoding: 'utf8' })
+  try {
+    return viewed.status === 0 ? JSON.parse(viewed.stdout).reviewDecision : null
+  } catch {
+    return null
+  }
 }
 
 function options(argv) {
