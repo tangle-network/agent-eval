@@ -52,13 +52,8 @@ import type {
 } from '../../campaign/search-ledger-types'
 import type { SearchStateView } from '../../campaign/search-state'
 import { compareCodeUnits, hashCanonical } from '../../ledger-core/canonical'
-import {
-  INSUFFICIENT_FROM,
-  type LensResult,
-  rankingSplit,
-  type SampleSummary,
-  summarizeSamples,
-} from './shared'
+import { roundDecimal as round } from '../../math/round-decimal'
+import { type LensResult, rankingSplit, type SampleSummary, summarizeSamples } from './shared'
 
 /** The configuration that ran a search, as its ledger records it. */
 export interface SearchPolicyGenome {
@@ -284,39 +279,6 @@ export interface MetaSearchOptions {
   objective?: string
 }
 
-/** The signal's name, as a policy or a view reads it. */
-export const META_SEARCH_SIGNAL = 'metaSearch.bestPolicyConfiguration'
-
-const DEFAULT_GLYPH_NODES = 64
-
-/**
- * Every rule the per-search score depends on. Its digest is the score's
- * revision, which an outer search pins as its judge, so an outer climb's
- * cells and the lens report one number.
- */
-const META_SEARCH_SCORE_DEFINITION = {
-  name: 'tangle.meta-search-score.2026-09',
-  node: 'the claim selection on ship; on hold, the first finalist in claim order not decided invalid',
-  lift: 'estimateNode(node, against root, split test), oriented so a gain is positive',
-  unscored: [
-    'open',
-    'no claim',
-    'claim the ledger contradicts (verifySearchClaim mismatch)',
-    'test-cannot-resolve',
-    'hold with no finalist tested',
-    'fewer than 2 shared test units',
-  ],
-  dollars: 'committed spend of every cell and operation, claim cells included',
-  unknownCost: 'a floor only: the lift per dollar is a bound and enters no estimate',
-} as const
-
-/** The per-search score `metaSearchScore` computes. An outer search names it
- * as its objective's judge. */
-export const META_SEARCH_SCORE_SOURCE: SearchSourceRef = {
-  uri: 'npm:@tangle-network/agent-eval#metaSearchScore',
-  revision: hashCanonical(META_SEARCH_SCORE_DEFINITION),
-}
-
 /**
  * The genome of a search: the configuration its ledger records. Declared
  * parts come from the header; the proposer comes from what the edges and
@@ -365,6 +327,49 @@ export function searchPolicyGenome(state: SearchStateView): SearchPolicyGenome {
         ? sortedValues(executions)
         : { unknown: 'no recorded candidate-generation operation names what ran the proposer' },
   }
+}
+
+// ── helpers ──────────────────────────────────────────────────────────
+
+/** A policy or allocator name carries `seed=<n>` when it is seeded from the
+ * search's own seed; the genome names it `seed=<search>` so searches of one
+ * configuration on different seeds share a genome. */
+function withoutSearchSeed(name: string, seed: number): string {
+  return name.replace(new RegExp(`\\bseed=${seed}(?![\\d.])`, 'g'), 'seed=<search>')
+}
+
+function sortedValues<T>(map: ReadonlyMap<string, T>): T[] {
+  return [...map.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([, value]) => value)
+}
+
+/**
+ * Every rule the per-search score depends on. Its digest is the score's
+ * revision, which an outer search pins as its judge, so an outer climb's
+ * cells and the lens report one number.
+ */
+const META_SEARCH_SCORE_DEFINITION = {
+  name: 'tangle.meta-search-score.2026-09',
+  node: 'the claim selection on ship; on hold, the first finalist in claim order not decided invalid',
+  lift: 'estimateNode(node, against root, split test), oriented so a gain is positive',
+  unscored: [
+    'open',
+    'no claim',
+    'claim the ledger contradicts (verifySearchClaim mismatch)',
+    'test-cannot-resolve',
+    'hold with no finalist tested',
+    'fewer than 2 shared test units',
+  ],
+  dollars: 'committed spend of every cell and operation, claim cells included',
+  unknownCost: 'a floor only: the lift per dollar is a bound and enters no estimate',
+} as const
+
+/** The per-search score `metaSearchScore` computes. An outer search names it
+ * as its objective's judge. */
+export const META_SEARCH_SCORE_SOURCE: SearchSourceRef = {
+  uri: 'npm:@tangle-network/agent-eval#metaSearchScore',
+  revision: hashCanonical(META_SEARCH_SCORE_DEFINITION),
 }
 
 /**
@@ -451,130 +456,45 @@ function scoreSearch(
   }
 }
 
-/** The lens: every search as a node of a search of searches. */
-export function metaSearch(
-  searches: readonly SearchStateView[],
-  options: MetaSearchOptions = {},
-): LensResult<MetaSearchData, BestPolicyConfiguration> {
-  const glyphNodes = options.glyphNodes ?? DEFAULT_GLYPH_NODES
-  if (!Number.isSafeInteger(glyphNodes) || glyphNodes < 0) {
-    throw new TypeError(`metaSearch: glyphNodes must be a non-negative integer, got ${glyphNodes}`)
-  }
-  const byId = new Map<string, SearchStateView>()
-  for (const state of searches) {
-    if (!state.header) throw new Error(`metaSearch: search ${state.searchId} has not been opened`)
-    if (byId.has(state.searchId)) {
-      throw new Error(`metaSearch: search ${state.searchId} was given twice`)
+function liftPerUsd(
+  lift: number,
+  interval: [number, number] | null,
+  spend: MetaSearchSpend,
+): MetaSearchLiftPerUsd {
+  const committed = spend.knownUsd + spend.floorUsd
+  if (spend.unknownCost > 0) {
+    if (committed <= 0) {
+      return {
+        status: 'unknown',
+        reason: `${spend.unknownCost} cost${spend.unknownCost === 1 ? ' is' : 's are'} unknown with no proven floor`,
+      }
     }
-    byId.set(state.searchId, state)
-  }
-
-  const entries = searches.map((state) => entry(state, byId, glyphNodes))
-  const entryById = new Map(entries.map((item) => [item.searchId, item]))
-  for (const item of entries) {
-    if (item.parent?.present) entryById.get(item.parent.searchId)!.children.push(item.searchId)
-  }
-  const roots = entries.filter((item) => !item.parent?.present).map((item) => item.searchId)
-  const assignDepth = (searchId: string, depth: number, seen: Set<string>): void => {
-    if (seen.has(searchId)) return
-    seen.add(searchId)
-    const item = entryById.get(searchId)!
-    item.depth = depth
-    for (const child of item.children) assignDepth(child, depth + 1, seen)
-  }
-  const seen = new Set<string>()
-  for (const root of roots) assignDepth(root, 0, seen)
-
-  const configurations = configure(entries, byId)
-  const objectives = [...new Set(entries.map((item) => item.objectiveKey))].sort(compareCodeUnits)
-  const { objective, value } = best(configurations, objectives, options.objective)
-  return {
-    data: { searches: entries, roots, configurations, objectives, signalObjective: objective },
-    signal: { name: META_SEARCH_SIGNAL, value },
-  }
-}
-
-function entry(
-  state: SearchStateView,
-  byId: ReadonlyMap<string, SearchStateView>,
-  glyphNodes: number,
-): MetaSearchEntry {
-  const header = state.header!
-  const genome = searchPolicyGenome(state)
-  const closed = state.closed
-  let claim: MetaSearchEntry['claim'] = null
-  const verification = closed?.claim ? verifySearchClaim(state) : null
-  if (closed?.claim) {
-    claim = {
-      decision: closed.claim.decision,
-      selected: closed.claim.selected,
-      verification: verification?.status ?? 'unknown',
-      reason: closed.claim.reason,
-    }
-  }
-  const nodes = state.nodes()
-  const cells = state.cells()
-  return {
-    searchId: state.searchId,
-    subject: header.subject,
-    objective: { metric: header.objective.metric, direction: header.objective.direction },
-    objectiveKey: objectiveKey(header),
-    status: closed ? 'closed' : 'open',
-    closeReason: closed?.reason ?? null,
-    genome,
-    genomeDigest: hashCanonical(genome),
-    seed: header.policy.seed,
-    rootArtifactDigest: nodes[0]?.artifactDigest ?? null,
-    nodes: nodes.length,
-    cells: {
-      settled: state.audit.cells.settled,
-      test: cells.filter((cell) => cell.split === 'test').length,
-    },
-    claim,
-    score: scoreSearch(state, verification),
-    parent: parentOf(state, byId),
-    children: [],
-    depth: 0,
-    glyph: {
-      nodes: nodes
-        .slice(0, glyphNodes)
-        .map((node): [string, string | null, string | null] => [
-          node.nodeId,
-          node.primaryParentId,
-          node.status,
-        ]),
-      omitted: Math.max(0, nodes.length - glyphNodes),
-    },
-  }
-}
-
-/** `subject · metric (direction)`: the key searches are compared within. */
-export function objectiveKey(header: NonNullable<SearchStateView['header']>): string {
-  return `${header.subject} · ${header.objective.metric} (${header.objective.direction})`
-}
-
-function parentOf(
-  state: SearchStateView,
-  byId: ReadonlyMap<string, SearchStateView>,
-): MetaSearchParent | null {
-  const header = state.header!
-  if (header.containment) {
-    const { searchId, cellId, attempt } = header.containment
-    const outer = byId.get(searchId)
     return {
-      relation: 'contained',
-      searchId,
-      cellId,
-      attempt,
-      nodeId: outer?.cell(cellId)?.nodeId ?? null,
-      present: outer !== undefined,
+      status: 'bound',
+      value: lift / committed,
+      bound: lift >= 0 ? 'at-most' : 'at-least',
+      reason: `${spend.unknownCost} cost${spend.unknownCost === 1 ? ' is' : 's are'} known only as a floor; $${round(committed, 6)} is the least the search spent`,
     }
   }
-  if (header.derivedFrom) {
-    const { searchId, nodeId } = header.derivedFrom
-    return { relation: 'derived', searchId, nodeId, present: byId.has(searchId) }
+  if (spend.knownUsd <= 0) {
+    return {
+      status: 'unknown',
+      reason: 'the search recorded no spend, so a lift per dollar is undefined',
+    }
   }
-  return null
+  return {
+    status: 'known',
+    value: lift / spend.knownUsd,
+    interval: interval ? [interval[0] / spend.knownUsd, interval[1] / spend.knownUsd] : null,
+  }
+}
+
+function orient(delta: number, maximize: boolean): number {
+  return maximize ? delta : delta === 0 ? 0 : -delta
+}
+
+function orientInterval(interval: [number, number], maximize: boolean): [number, number] {
+  return maximize ? interval : [orient(interval[1], false), orient(interval[0], false)]
 }
 
 function configure(
@@ -774,39 +694,6 @@ function best(
   }
 }
 
-function liftPerUsd(
-  lift: number,
-  interval: [number, number] | null,
-  spend: MetaSearchSpend,
-): MetaSearchLiftPerUsd {
-  const committed = spend.knownUsd + spend.floorUsd
-  if (spend.unknownCost > 0) {
-    if (committed <= 0) {
-      return {
-        status: 'unknown',
-        reason: `${spend.unknownCost} cost${spend.unknownCost === 1 ? ' is' : 's are'} unknown with no proven floor`,
-      }
-    }
-    return {
-      status: 'bound',
-      value: lift / committed,
-      bound: lift >= 0 ? 'at-most' : 'at-least',
-      reason: `${spend.unknownCost} cost${spend.unknownCost === 1 ? ' is' : 's are'} known only as a floor; $${round(committed)} is the least the search spent`,
-    }
-  }
-  if (spend.knownUsd <= 0) {
-    return {
-      status: 'unknown',
-      reason: 'the search recorded no spend, so a lift per dollar is undefined',
-    }
-  }
-  return {
-    status: 'known',
-    value: lift / spend.knownUsd,
-    interval: interval ? [interval[0] / spend.knownUsd, interval[1] / spend.knownUsd] : null,
-  }
-}
-
 function fromSummary(summary: SampleSummary): MetaSearchConfigurationEstimate {
   return {
     basis: 'searches',
@@ -818,238 +705,7 @@ function fromSummary(summary: SampleSummary): MetaSearchConfigurationEstimate {
   }
 }
 
-// ── text form ────────────────────────────────────────────────────────
-
-export interface MetaSearchTextOptions {
-  /** Searches listed under each outer node or parent before the rest are
-   * counted. Default 5. */
-  searchesPerGroup?: number
-}
-
-/**
- * The lens as text, for an agent: the signal, every configuration best first
- * with its coverage and interval, and the forest of searches with contained
- * searches grouped under the outer node that ran them. `agent-eval search show
- * --meta` prints it.
- */
-export function renderMetaSearchText(
-  result: LensResult<MetaSearchData, BestPolicyConfiguration>,
-  options: MetaSearchTextOptions = {},
-): string {
-  const perGroup = options.searchesPerGroup ?? 5
-  const { data, signal } = result
-  const lines: string[] = []
-  const contained = data.searches.filter((item) => item.parent?.relation === 'contained').length
-  const derived = data.searches.filter((item) => item.parent?.relation === 'derived').length
-  lines.push(
-    `meta-search: ${plural(data.searches.length, 'search', 'searches')} (${contained} contained, ${derived} derived) in ${plural(data.objectives.length, 'objective')}, ${plural(data.configurations.length, 'configuration')}`,
-  )
-  const value = signal.value
-  lines.push(
-    value.liftPerUsd === null
-      ? `${signal.name}: unknown — ${value.reason}`
-      : `${signal.name}: ${value.genomeDigest!.slice(0, 19)} lift per known $ ${formatNumber(value.liftPerUsd)} ${formatInterval(value.interval, value.intervalMethod)} (${value.method}, ${value.basis} n=${value.n}); ${value.reason}`,
-  )
-  // One genome can run under several objectives, so a configuration is keyed
-  // by both.
-  const index = new Map(
-    data.configurations.map((item, position) => [
-      configurationKey(item.objectiveKey, item.genomeDigest),
-      position,
-    ]),
-  )
-  for (const objective of data.objectives) {
-    lines.push('', `configurations of ${objective}, best first:`)
-    for (const configuration of data.configurations) {
-      if (configuration.objectiveKey !== objective) continue
-      lines.push(...configurationLines(configuration, index))
-    }
-  }
-  lines.push('', 'searches, by derivation and containment:')
-  const byId = new Map(data.searches.map((item) => [item.searchId, item]))
-  const walk = (searchId: string, depth: number): void => {
-    const item = byId.get(searchId)!
-    const pad = '  '.repeat(depth + 1)
-    lines.push(`${pad}${searchLine(item, index)}`)
-    const derivedChildren = item.children.filter(
-      (child) => byId.get(child)!.parent?.relation === 'derived',
-    )
-    for (const child of derivedChildren) walk(child, depth + 1)
-    const groups = new Map<string, MetaSearchEntry[]>()
-    for (const child of item.children) {
-      const childItem = byId.get(child)!
-      if (childItem.parent?.relation !== 'contained') continue
-      const key = childItem.parent.nodeId ?? '(unknown node)'
-      const group = groups.get(key)
-      if (group) group.push(childItem)
-      else groups.set(key, [childItem])
-    }
-    for (const [nodeId, group] of groups) {
-      const shown = group.slice(0, perGroup)
-      const tally = decisionTally(group)
-      lines.push(
-        `${pad}  node ${nodeId}: ${plural(group.length, 'contained search', 'contained searches')} (${tally})`,
-      )
-      for (const child of shown) walk(child.searchId, depth + 2)
-      if (group.length > shown.length) {
-        lines.push(`${'  '.repeat(depth + 3)}… ${group.length - shown.length} more`)
-      }
-    }
-  }
-  for (const root of data.roots) walk(root, 0)
-  return lines.join('\n')
-}
-
-function configurationLines(
-  configuration: MetaSearchConfiguration,
-  index: ReadonlyMap<string, number>,
-): string[] {
-  const { estimate, genome } = configuration
-  const decisions = Object.entries(configuration.decisions)
-    .filter(([, count]) => count > 0)
-    .map(([decision, count]) => `${decision} ${count}`)
-    .join(', ')
-  const unscored = Object.entries(configuration.unscored)
-    .map(([reason, count]) => `${reason} ${count}`)
-    .join(', ')
-  const value =
-    estimate.value === null
-      ? 'lift per known $: unknown'
-      : `lift per known $ ${formatNumber(estimate.value)} ${formatInterval(estimate.interval, estimate.intervalMethod)} (${estimate.method}, ${estimate.basis} n=${estimate.n})`
-  const lines = [
-    `  #${index.get(configurationKey(configuration.objectiveKey, configuration.genomeDigest))! + 1} ${configuration.genomeDigest.slice(0, 19)} ${genomeLine(genome)}`,
-    `     ${plural(configuration.searches.length, 'search', 'searches')}: ${decisions}; scored ${configuration.scored}${configuration.bounded > 0 ? `, spend floor only ${configuration.bounded}` : ''}${unscored ? `, unscored: ${unscored}` : ''}; ${value}`,
-  ]
-  for (const outer of configuration.outerNodes) {
-    const against = outer.againstParent
-    const parentIndex =
-      outer.parentGenomeDigest === null
-        ? undefined
-        : index.get(configurationKey(configuration.objectiveKey, outer.parentGenomeDigest))
-    lines.push(
-      against === null
-        ? `     outer node ${outer.nodeId} in ${outer.searchId}: the outer root`
-        : `     outer node ${outer.nodeId} in ${outer.searchId}, from ${parentIndex === undefined ? outer.parentNodeId : `#${parentIndex + 1}`}: ${estimateText(against)}`,
-    )
-  }
-  return lines
-}
-
-function searchLine(item: MetaSearchEntry, index: ReadonlyMap<string, number>): string {
-  const claim = item.claim
-    ? `claim ${item.claim.decision} (${item.claim.verification})`
-    : 'no claim'
-  const configuration = index.get(configurationKey(item.objectiveKey, item.genomeDigest))
-  const score = item.score
-  const scoreText =
-    score.status === 'unscored'
-      ? `unscored: ${score.reason} — ${score.detail}`
-      : `lift ${formatNumber(score.lift)} ${formatInterval(score.liftInterval, score.liftInterval ? 'paired-delta-test' : null)} on ${score.estimate.pairs} test units (${score.estimate.method}); ${liftPerUsdText(score.liftPerUsd)}`
-  const relation =
-    item.parent === null
-      ? ''
-      : item.parent.relation === 'derived'
-        ? ` derived from ${item.parent.searchId}/${item.parent.nodeId}${item.parent.present ? '' : ' (not given)'};`
-        : item.parent.present
-          ? ''
-          : ` contained in ${item.parent.searchId} cell ${item.parent.cellId} (not given);`
-  return `${item.searchId} [${item.status}${item.closeReason ? `: ${item.closeReason}` : ''}; ${claim}; config #${configuration === undefined ? '?' : configuration + 1}; ${item.nodes} nodes, ${item.cells.settled} cells, $${round(item.score.spend.knownUsd)} known${item.score.spend.unknownCost > 0 ? ` + $${round(item.score.spend.floorUsd)} floor over ${item.score.spend.unknownCost} unknown` : ''}]${relation} ${scoreText}`
-}
-
-function genomeLine(genome: SearchPolicyGenome): string {
-  const budget = Object.entries(genome.budget)
-    .filter(([, value]) => value !== null && value !== 0)
-    .map(([key, value]) => `${key}=${value}`)
-    .join(' ')
-  const proposers = Array.isArray(genome.proposers)
-    ? genome.proposers.map((proposer) => `${proposer.kind}:${proposer.name}`).join(', ')
-    : 'unknown'
-  const execution = Array.isArray(genome.proposerExecution)
-    ? genome.proposerExecution
-        .map((item) =>
-          item.kind === 'model'
-            ? `model ${item.model.provider}/${'snapshot' in item.model ? item.model.snapshot : `${item.model.alias} (snapshot unknown)`}`
-            : 'deterministic',
-        )
-        .join(', ')
-    : 'unknown'
-  return `expansion=${genome.expansion} allocation=${genome.allocation}${budget ? ` ${budget}` : ''} proposer=${proposers} (${execution})`
-}
-
-function decisionTally(group: readonly MetaSearchEntry[]): string {
-  const counts = new Map<string, number>()
-  for (const item of group) {
-    const key =
-      item.score.status === 'scored'
-        ? `${item.score.decision} scored`
-        : `${item.claim?.decision ?? 'no claim'} unscored`
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([key, count]) => `${key} ${count}`)
-    .join(', ')
-}
-
-function estimateText(estimate: NodeEstimate): string {
-  if (estimate.delta === null) return `unknown (${plural(estimate.pairs, 'shared unit')})`
-  if (estimate.method === 'insufficient') {
-    return `${formatSigned(estimate.delta)} (insufficient: ${estimate.pairs} of ${INSUFFICIENT_FROM} units)`
-  }
-  return `${formatSigned(estimate.delta)} ${formatInterval(estimate.interval, estimate.interval ? 'paired-delta-test' : null)} (${estimate.method}, ${estimate.pairs} ${estimate.split} units)`
-}
-
-function liftPerUsdText(value: MetaSearchLiftPerUsd): string {
-  if (value.status === 'unknown') return `per $: unknown (${value.reason})`
-  if (value.status === 'bound') {
-    return `per $: ${value.bound} ${formatNumber(value.value)} (${value.reason})`
-  }
-  return `per $: ${formatNumber(value.value)}`
-}
-
-function formatInterval(interval: [number, number] | null, method: string | null): string {
-  if (interval === null) return '[no interval]'
-  return `[${formatNumber(interval[0])}, ${formatNumber(interval[1])}]${method ? ` ${method}` : ''}`
-}
-
-function formatNumber(value: number): string {
-  if (value === 0) return '0'
-  const magnitude = Math.abs(value)
-  return magnitude >= 0.01 ? value.toFixed(4) : value.toPrecision(3)
-}
-
-function formatSigned(value: number): string {
-  return value > 0 ? `+${formatNumber(value)}` : formatNumber(value)
-}
-
-function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`
-}
-
-// ── helpers ──────────────────────────────────────────────────────────
-
-/** A policy or allocator name carries `seed=<n>` when it is seeded from the
- * search's own seed; the genome names it `seed=<search>` so searches of one
- * configuration on different seeds share a genome. */
-function withoutSearchSeed(name: string, seed: number): string {
-  return name.replace(new RegExp(`\\bseed=${seed}(?![\\d.])`, 'g'), 'seed=<search>')
-}
-
-function orient(delta: number, maximize: boolean): number {
-  return maximize ? delta : delta === 0 ? 0 : -delta
-}
-
-function orientInterval(interval: [number, number], maximize: boolean): [number, number] {
-  return maximize ? interval : [orient(interval[1], false), orient(interval[0], false)]
-}
-
-function sortedValues<T>(map: ReadonlyMap<string, T>): T[] {
-  return [...map.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value)
-}
-
-function configurationKey(objective: string, genomeDigest: string): string {
+export function configurationKey(objective: string, genomeDigest: string): string {
   return `${objective}\u0000${genomeDigest}`
 }
 
@@ -1057,6 +713,133 @@ function rankValue(value: number | null): number {
   return value === null ? Number.NEGATIVE_INFINITY : value
 }
 
-function round(usd: number): number {
-  return Math.round(usd * 1e6) / 1e6
+/** The signal's name, as a policy or a view reads it. */
+export const META_SEARCH_SIGNAL = 'metaSearch.bestPolicyConfiguration'
+
+const DEFAULT_GLYPH_NODES = 64
+
+/** The lens: every search as a node of a search of searches. */
+export function metaSearch(
+  searches: readonly SearchStateView[],
+  options: MetaSearchOptions = {},
+): LensResult<MetaSearchData, BestPolicyConfiguration> {
+  const glyphNodes = options.glyphNodes ?? DEFAULT_GLYPH_NODES
+  if (!Number.isSafeInteger(glyphNodes) || glyphNodes < 0) {
+    throw new TypeError(`metaSearch: glyphNodes must be a non-negative integer, got ${glyphNodes}`)
+  }
+  const byId = new Map<string, SearchStateView>()
+  for (const state of searches) {
+    if (!state.header) throw new Error(`metaSearch: search ${state.searchId} has not been opened`)
+    if (byId.has(state.searchId)) {
+      throw new Error(`metaSearch: search ${state.searchId} was given twice`)
+    }
+    byId.set(state.searchId, state)
+  }
+
+  const entries = searches.map((state) => entry(state, byId, glyphNodes))
+  const entryById = new Map(entries.map((item) => [item.searchId, item]))
+  for (const item of entries) {
+    if (item.parent?.present) entryById.get(item.parent.searchId)!.children.push(item.searchId)
+  }
+  const roots = entries.filter((item) => !item.parent?.present).map((item) => item.searchId)
+  const assignDepth = (searchId: string, depth: number, seen: Set<string>): void => {
+    if (seen.has(searchId)) return
+    seen.add(searchId)
+    const item = entryById.get(searchId)!
+    item.depth = depth
+    for (const child of item.children) assignDepth(child, depth + 1, seen)
+  }
+  const seen = new Set<string>()
+  for (const root of roots) assignDepth(root, 0, seen)
+
+  const configurations = configure(entries, byId)
+  const objectives = [...new Set(entries.map((item) => item.objectiveKey))].sort(compareCodeUnits)
+  const { objective, value } = best(configurations, objectives, options.objective)
+  return {
+    data: { searches: entries, roots, configurations, objectives, signalObjective: objective },
+    signal: { name: META_SEARCH_SIGNAL, value },
+  }
+}
+
+function entry(
+  state: SearchStateView,
+  byId: ReadonlyMap<string, SearchStateView>,
+  glyphNodes: number,
+): MetaSearchEntry {
+  const header = state.header!
+  const genome = searchPolicyGenome(state)
+  const closed = state.closed
+  let claim: MetaSearchEntry['claim'] = null
+  const verification = closed?.claim ? verifySearchClaim(state) : null
+  if (closed?.claim) {
+    claim = {
+      decision: closed.claim.decision,
+      selected: closed.claim.selected,
+      verification: verification?.status ?? 'unknown',
+      reason: closed.claim.reason,
+    }
+  }
+  const nodes = state.nodes()
+  const cells = state.cells()
+  return {
+    searchId: state.searchId,
+    subject: header.subject,
+    objective: { metric: header.objective.metric, direction: header.objective.direction },
+    objectiveKey: objectiveKey(header),
+    status: closed ? 'closed' : 'open',
+    closeReason: closed?.reason ?? null,
+    genome,
+    genomeDigest: hashCanonical(genome),
+    seed: header.policy.seed,
+    rootArtifactDigest: nodes[0]?.artifactDigest ?? null,
+    nodes: nodes.length,
+    cells: {
+      settled: state.audit.cells.settled,
+      test: cells.filter((cell) => cell.split === 'test').length,
+    },
+    claim,
+    score: scoreSearch(state, verification),
+    parent: parentOf(state, byId),
+    children: [],
+    depth: 0,
+    glyph: {
+      nodes: nodes
+        .slice(0, glyphNodes)
+        .map((node): [string, string | null, string | null] => [
+          node.nodeId,
+          node.primaryParentId,
+          node.status,
+        ]),
+      omitted: Math.max(0, nodes.length - glyphNodes),
+    },
+  }
+}
+
+/** `subject · metric (direction)`: the key searches are compared within. */
+export function objectiveKey(header: NonNullable<SearchStateView['header']>): string {
+  return `${header.subject} · ${header.objective.metric} (${header.objective.direction})`
+}
+
+function parentOf(
+  state: SearchStateView,
+  byId: ReadonlyMap<string, SearchStateView>,
+): MetaSearchParent | null {
+  const header = state.header!
+  if (header.containment) {
+    const { searchId, cellId, attempt } = header.containment
+    const outer = byId.get(searchId)
+    return {
+      relation: 'contained',
+      searchId,
+      cellId,
+      attempt,
+      nodeId: outer?.cell(cellId)?.nodeId ?? null,
+      present: outer !== undefined,
+    }
+  }
+  if (header.derivedFrom) {
+    const { searchId, nodeId } = header.derivedFrom
+    return { relation: 'derived', searchId, nodeId, present: byId.has(searchId) }
+  }
+  return null
 }

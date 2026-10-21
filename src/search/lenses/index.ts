@@ -62,15 +62,14 @@ export {
   type MetaSearchParent,
   type MetaSearchScore,
   type MetaSearchSpend,
-  type MetaSearchTextOptions,
   type MetaSearchUnscoredReason,
   metaSearch,
   metaSearchScore,
   objectiveKey,
-  renderMetaSearchText,
   type SearchPolicyGenome,
   searchPolicyGenome,
 } from './meta-search'
+export { type MetaSearchTextOptions, renderMetaSearchText } from './meta-search-text'
 export type {
   ExpansionOperator,
   OperatorOutcomeCounts,
