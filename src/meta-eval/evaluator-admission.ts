@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ValidationError } from '../errors'
-import { type ComputedInterval, computeInterval } from '../experiment/ast'
+import { type ComputedInterval, computeInterval } from '../experiment/ast/interval'
 import { compareCodeUnits, hashCanonical, type LedgerHash } from '../ledger-core/canonical'
 
 const identity = z

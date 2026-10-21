@@ -31,7 +31,7 @@
  */
 
 import { JudgeError, ValidationError } from '../errors'
-import { type ComputedInterval, computeInterval } from '../experiment/ast'
+import { type ComputedInterval, computeInterval } from '../experiment/ast/interval'
 import {
   judgeSentinelReport,
   type SentinelSnapshot,
