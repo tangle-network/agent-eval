@@ -647,7 +647,7 @@ class CellExecutionError extends Error {
  * backend down) is a genuine diagnostic and propagates rather than being
  * swallowed.
  */
-export async function finalizeAbort(
+async function finalizeAbort(
   emitter: TraceEmitter,
   runId: string,
   reason: string,

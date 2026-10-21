@@ -259,7 +259,7 @@ async function verifyFinding(
  * A store that exposes exactly the cited spans. Discovery and whole-trace reads refuse, so the
  * verifier cannot go looking for other support; the underlying store's bounds still apply.
  */
-export function citedSpansOnly(
+function citedSpansOnly(
   store: TraceAnalysisStore,
   allowed: ReadonlyMap<string, ReadonlySet<string>>,
 ): TraceAnalysisStore {

@@ -827,7 +827,7 @@ export function monitorSignal(
   }
 }
 
-export const CLAIM_INTEGRITY_VERSION = '2'
+const CLAIM_INTEGRITY_VERSION = '2'
 
 export interface ClaimIntegrityPolicy {
   /** Signals whose firing is recorded but moves no verdict, such as a judge not yet calibrated. */

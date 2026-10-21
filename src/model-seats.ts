@@ -39,7 +39,7 @@ export interface ModelSeats {
   verifier?: string
 }
 
-export type SeatName = keyof ModelSeats
+type SeatName = keyof ModelSeats
 
 /**
  * Tier presets — plain data, swap or spread freely.
@@ -76,7 +76,7 @@ export const seatPresets: Record<'economy' | 'frontier', ModelSeats> = {
 }
 
 /** Thrown by `resolveSeat` when a seat is unset and no fallback was given. */
-export class SeatUnsetError extends ConfigError {
+class SeatUnsetError extends ConfigError {
   constructor(public readonly seat: SeatName) {
     super(
       `ModelSeats: seat '${seat}' is unset and no fallback was given — ` +

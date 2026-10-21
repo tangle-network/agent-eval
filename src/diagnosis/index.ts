@@ -27,7 +27,7 @@ export type {
   DiagnosisSeverity,
   DiagnosisSkippedAnalysis,
 } from './findings'
-export { DIAGNOSIS_FINDINGS_SCHEMA_ID, validateDiagnosisFindings } from './findings'
+
 export type {
   FirstFailure,
   FirstFailureAmbiguous,

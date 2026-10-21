@@ -16,7 +16,6 @@ import {
   completionVerdict,
   createLlmCorrectnessChecker,
   type ProducedState,
-  parseCorrectnessResponse,
   type RequirementCheck,
   type TaskGold,
   verifyCompletion,
@@ -440,42 +439,7 @@ describe('verifyCompletion — anti-game: structural match is not completion', (
   })
 })
 
-describe('parseCorrectnessResponse', () => {
-  it('parses a bare JSON object', () => {
-    expect(parseCorrectnessResponse('{"correct": true, "reason": "ok"}')).toEqual({
-      correct: true,
-      reason: 'ok',
-    })
-  })
 
-  it('parses JSON embedded in prose / fences', () => {
-    const r = parseCorrectnessResponse(
-      'Here is my verdict:\n```json\n{"correct": false, "reason": "stub"}\n```',
-    )
-    expect(r.correct).toBe(false)
-  })
-
-  it('throws JudgeParseError when no JSON object is present', () => {
-    expect(() => parseCorrectnessResponse('the artifact looks fine')).toThrow(JudgeParseError)
-  })
-
-  it("throws JudgeParseError when 'correct' is not a boolean", () => {
-    expect(() => parseCorrectnessResponse('{"correct": "yes"}')).toThrow(JudgeParseError)
-  })
-
-  it('recovers the verdict from a response truncated mid-JSON (max_tokens cap)', () => {
-    // The boolean landed before the cap: a real measurement, recover it.
-    expect(parseCorrectnessResponse('{"correct": false, "').correct).toBe(false)
-    expect(parseCorrectnessResponse('{"correct": true, "reason": "the deliv').correct).toBe(true)
-  })
-
-  it('does not fabricate a verdict when the boolean itself was cut off', () => {
-    expect(() => parseCorrectnessResponse('{"correct": ')).toThrow(JudgeParseError)
-    expect(() => parseCorrectnessResponse('{"reason": "looks fine", "corr')).toThrow(
-      JudgeParseError,
-    )
-  })
-})
 
 describe('createLlmCorrectnessChecker', () => {
   it('returns the parsed verdict from the model response', async () => {

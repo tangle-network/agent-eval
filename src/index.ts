@@ -40,54 +40,12 @@ export { defineAgentEval } from './contract/define-agent-eval'
 export { selfImprove } from './contract/self-improve'
 export * as profile from './profile/index'
 export { certificationEvidenceDigest, equivalenceVerdict } from './verdict'
-export {
-  buildEquivalenceRecord,
-  defineEquivalenceCheck,
-  EquivalenceProtocolError,
-  runEquivalenceCheck,
-  VERIFICATION_STRATEGIES,
-  VERIFICATION_STRATEGY_SOURCES,
-} from './verification-strategy'
+export { defineEquivalenceCheck, EquivalenceProtocolError, runEquivalenceCheck, VERIFICATION_STRATEGIES, VERIFICATION_STRATEGY_SOURCES } from './verification-strategy'
 export { BudgetBreachError, BudgetGuard } from './budget-guard'
-export {
-  CostAccountingIncompleteError,
-  CostCallConflictError,
-  CostCeilingReachedError,
-  CostLedger,
-  CostLedgerPersistenceError,
-  CostReceiptCaptureError,
-  CostReservationExceededError,
-  costForTokenPricing,
-  costForUsage,
-  modelPriceKey,
-} from './cost-ledger'
-export { runCounterfactual } from './counterfactual'
-export {
-  analystFindingDigest,
-  analystRunDigest,
-  analystRunToFeedbackTrajectory,
-  analystRunToReviewRequests,
-  controlRunToFeedbackTrajectory,
-  createFeedbackTrajectory,
-  FileSystemFeedbackTrajectoryStore,
-  feedbackTrajectoriesToDatasetScenarios,
-  feedbackTrajectoriesToOptimizerRows,
-  feedbackTrajectoryToOptimizerRow,
-  InMemoryFeedbackTrajectoryStore,
-  renderPreferenceMemoryMarkdown,
-  summarizePreferenceMemory,
-  withAssignedFeedbackSplit,
-} from './feedback-trajectory'
-export {
-  isRunRecord,
-  modelHasSnapshot,
-  parseRunRecordSafe,
-  RunRecordValidationError,
-  runTaskScore,
-  searchCellRunId,
-  UNKNOWN_MODEL,
-  validateRunRecord,
-} from './run-record'
+export { CostAccountingIncompleteError, CostCeilingReachedError, CostLedger, costForTokenPricing, costForUsage } from './cost-ledger'
+
+export { analystRunDigest, analystRunToFeedbackTrajectory, analystRunToReviewRequests, controlRunToFeedbackTrajectory, createFeedbackTrajectory, FileSystemFeedbackTrajectoryStore, feedbackTrajectoriesToDatasetScenarios, feedbackTrajectoriesToOptimizerRows, feedbackTrajectoryToOptimizerRow, InMemoryFeedbackTrajectoryStore, renderPreferenceMemoryMarkdown, summarizePreferenceMemory, withAssignedFeedbackSplit } from './feedback-trajectory'
+export { isRunRecord, modelHasSnapshot, parseRunRecordSafe, RunRecordValidationError, runTaskScore, UNKNOWN_MODEL, validateRunRecord } from './run-record'
 export { aggregateRunScore, clamp01 } from './run-score'
 export {
   diffScorecard,
@@ -126,14 +84,14 @@ export { buildTrajectory } from './trajectory'
 export { proposeSynthesisTargets } from './active-learning'
 export { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS, runBoundedProcess } from './bounded-process'
 export { runCampaign } from './campaign/run-campaign'
-export { quotaExhaustedUntil, transientDispatchFailure } from './campaign/transient-failure'
+export { transientDispatchFailure } from './campaign/transient-failure'
 export { ProductClient } from './client'
-export { LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS, localCommandRunner } from './command-runner'
+export { localCommandRunner } from './command-runner'
 export { runAgentControlLoop } from './control-runtime'
 export { objectiveEval, subjectiveEval } from './control-runtime/policy'
 export { discoverPersonas } from './discover-personas'
 export { runEvalCampaign } from './eval-campaign'
-export { improvementVerdict } from './improvement-verdict'
+
 export { hashJson, manifestContentDigest } from './pre-registration'
 export {
   createLlmReviewer,
@@ -141,46 +99,27 @@ export {
   jsonlReviewStore,
   runProposeReview,
 } from './propose-review'
-export { runProposeReviewAsControlLoop } from './propose-review-control'
+
 export { buildReflectionPrompt, parseReflectionResponse } from './reflective-mutation'
 export { mintRolloutRows } from './rollout/index'
 export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequential'
 export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
 export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'
-export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS } from './analyst/engine'
+
 export { diffFindings, FindingsStore } from './analyst/findings-store'
 export { createTraceAnalyst } from './analyst/kind-factory'
 export { DEFAULT_TRACE_ANALYST_KINDS, FAILURE_MODE_KIND_SPEC } from './analyst/kinds'
-export {
-  admitPolicyEdit,
-  applyPolicyEditToSurface,
-  computePolicyEditId,
-  makePolicyEdit,
-  makePolicyEditCandidateRecord,
-  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
-  PolicyEditValidationError,
-  policyEditsFromFindings,
-  validatePolicyEdit,
-  validatePolicyEditCandidateRecord,
-} from './analyst/policy-edit'
+export { makePolicyEditCandidateRecord } from './analyst/policy-edit'
 export { AnalystRegistry } from './analyst/registry'
-export { assertNoJudgeVerdict } from './analyst/steer-firewall'
+
 export { computeFindingId, makeFinding, makeProposalFinding } from './analyst/types'
 export { iqr, welchsTTest } from './baseline'
 export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
 export { CostTracker } from './cost-tracker'
 export { errorStreakDetector, observeAll, repeatedActionDetector } from './detectors'
 export { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
-export {
-  classifyFailure,
-  classifyFailureReason,
-  DEFAULT_FAILURE_REASON_RULES,
-  FAILURE_BLAME,
-  FAILURE_CLASSES,
-  failureBlame,
-  INFRA_FAILURE_BLAMES,
-} from './failure-taxonomy'
+export { classifyFailure, classifyFailureReason, FAILURE_CLASSES, failureBlame } from './failure-taxonomy'
 export {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
@@ -199,7 +138,7 @@ export {
 export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
 export { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'
 export { dominates, paretoFrontier } from './pareto'
-export { partitionHeldOut, partitionTrainSelectionTest } from './partition-held-out'
+export { partitionHeldOut } from './partition-held-out'
 export { budgetBreachView } from './pipelines/budget-breach'
 export { failureClusterView } from './pipelines/failure-cluster'
 export { judgeAgreementView } from './pipelines/judge-agreement'
@@ -213,49 +152,7 @@ export {
 } from './product-benchmark/index'
 export { projectRuntimeTrajectoryEvidence } from './runtime-trajectory'
 export { analyzeSeries } from './series-convergence'
-export {
-  BOOTSTRAP_GATE_MIN_N,
-  benjaminiHochberg,
-  bonferroni,
-  cliffsDelta,
-  cohensD,
-  confidenceInterval,
-  corpusInterRaterAgreement,
-  corpusInterRaterAgreementFromJudgeScores,
-  DECISION_PAIRED_DELTA_STATISTIC,
-  eProcess,
-  holm,
-  interpretCliffs,
-  interRaterReliability,
-  isBinaryOutcomeVector,
-  mannWhitneyU,
-  mcnemar,
-  mcnemarPower,
-  mcnemarRequiredN,
-  mulberry32,
-  pairedBinaryScale,
-  pairedBootstrap,
-  pairedCohensDz,
-  pairedDeltaTieFraction,
-  pairedMde,
-  pairedRiskDifference,
-  pairedRiskDifferenceExact,
-  pairedRiskDifferenceScore,
-  pairedSignTest,
-  pairedTTest,
-  partialCredit,
-  passAtK,
-  pearsonR,
-  ranks,
-  requiredPairedSampleSize,
-  requiredSampleSize,
-  spearmanR,
-  summarizeNumberSeries,
-  weightedComposite,
-  weightedMean,
-  wilcoxonSignedRank,
-  wilson,
-} from './statistics'
+export { BOOTSTRAP_GATE_MIN_N, benjaminiHochberg, bonferroni, cliffsDelta, cohensD, confidenceInterval, corpusInterRaterAgreement, corpusInterRaterAgreementFromJudgeScores, eProcess, holm, interpretCliffs, interRaterReliability, mannWhitneyU, mcnemar, mcnemarPower, mcnemarRequiredN, mulberry32, pairedBootstrap, pairedCohensDz, pairedMde, pairedRiskDifference, pairedRiskDifferenceExact, pairedRiskDifferenceScore, pairedSignTest, pairedTTest, partialCredit, passAtK, pearsonR, ranks, requiredPairedSampleSize, requiredSampleSize, spearmanR, summarizeNumberSeries, weightedComposite, weightedMean, wilcoxonSignedRank, wilson } from './statistics'
 export { gainHistogram, summaryTable } from './summary-report'
 export { computeToolUseMetrics } from './tool-use-metrics'
 export { analyzeTraces } from './trace-analyst/analyst'
@@ -270,10 +167,7 @@ export {
 } from './trace-analyst/insights'
 export { OtlpFileTraceStore } from './trace-analyst/store-otlp'
 export { toolSpansToTraceAnalysisStore } from './trace-analyst/store-tool-spans'
-export {
-  DEFAULT_TRACE_ANALYST_BUDGETS,
-  TRACE_ANALYST_TRUNCATION_MARKER_PREFIX,
-} from './trace-analyst/types'
+export { DEFAULT_TRACE_ANALYST_BUDGETS } from './trace-analyst/types'
 export { evaluateActionPolicy } from './action-policy'
 export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 export { runCanaries } from './canary'
@@ -285,29 +179,13 @@ export {
 export { checkCanaries } from './contamination-guard'
 export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
 export { HeldOutGate } from './held-out-gate'
-export {
-  assertNoHiddenLeak,
-  blendHeldout,
-  defaultBlendWeights,
-  gradeOnHidden,
-  hiddenGrade,
-  routeFields,
-  withHeldoutBlend,
-} from './hidden-criteria-grading'
+export { assertNoHiddenLeak, blendHeldout } from './hidden-criteria-grading'
 export {
   assertRealBackend,
   BackendIntegrityError,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
-export {
-  assertCrossFamilyServed,
-  assertServedModel,
-  assertServedModels,
-  checkServedModel,
-  ModelSubstitutionError,
-  ServedCrossFamilyError,
-  servedModelAcceptable,
-} from './integrity/served-model'
+export { assertCrossFamilyServed, assertServedModel, assertServedModels, checkServedModel, ModelSubstitutionError } from './integrity/served-model'
 export { assertSingleBackend } from './integrity/single-backend'
 export { runIntentMatchJudge } from './intent-match-judge'
 export {
@@ -333,14 +211,7 @@ export {
   snapshotFromJudgeAgreement,
 } from './meta-eval/judge-gate'
 export { gradeSemanticStatus, MultiLayerVerifier } from './multi-layer-verifier'
-export {
-  evaluateOracles,
-  jsonShape,
-  notBlocked,
-  regexMatches,
-  textInSnapshot,
-  urlContains,
-} from './oracle'
+export { evaluateOracles, jsonShape } from './oracle'
 export { decidePairedPromotion } from './paired-promotion-decision'
 export { pairedPromotionPower, requiredPairsForPairedPromotion } from './paired-promotion-power'
 export { extractProducedState } from './produced-state'
@@ -383,7 +254,7 @@ export {
 } from './statistics/inference'
 export { sampleMedian, summarizeSample } from './statistics/samples'
 export { PairwiseSteeringOptimizer } from './steering-optimizer'
-export { paretoChart } from './summary-report'
+
 export { InMemoryRawProviderSink } from './trace/raw-provider-sink'
 export { createBoundedTraceAnalysisStore } from './trace-analyst/store'
 export {

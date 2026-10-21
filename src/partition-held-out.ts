@@ -37,7 +37,7 @@ function fnv1a32(input: string): number {
 }
 
 /** Map an id+seed to the half-open unit interval [0, 1) deterministically. */
-export function hashToUnit(id: string, seed: string): number {
+function hashToUnit(id: string, seed: string): number {
   // Newline separator: 'ab' + '\n' + 'c' can't collide with 'a' + '\n' + 'bc'.
   return fnv1a32(`${id}\n${seed}`) / 0x1_0000_0000
 }
@@ -164,88 +164,6 @@ export interface TrainSelectionTestPartition<T> {
   testFraction: number
 }
 
-/**
- * Partition items into disjoint train, selection and test sets, the three
- * partitions `compareOptimizationMethods` and Runtime `improve()` take.
- *
- * Assignment is per unit: `hashToUnit(unit, seed)` below `testFraction` is
- * test, below `testFraction + selectionFraction` is selection, and the rest is
- * train. A unit therefore keeps its partition as the corpus grows, and items of
- * one unit never straddle two partitions. Fail-loud like `partitionHeldOut`:
- * empty input, a duplicate or empty id, an empty unit, fractions outside
- * (0, 1) or summing to 1 or more, and a partition below its floor all throw.
- * Order within each partition follows the input order.
- */
-export function partitionTrainSelectionTest<T extends { id: string }>(
-  items: readonly T[],
-  options: TrainSelectionTestOptions<T> = {},
-): TrainSelectionTestPartition<T> {
-  const seed = options.seed ?? 'train-selection-test-v1'
-  const selectionFraction = options.selectionFraction ?? 0.25
-  const testFraction = options.testFraction ?? 0.25
-  assertSplitFraction('selectionFraction', selectionFraction)
-  assertSplitFraction('testFraction', testFraction)
-  if (selectionFraction + testFraction >= 1) {
-    throw new ValidationError(
-      `partitionTrainSelectionTest: selectionFraction + testFraction must be below 1, got ${selectionFraction + testFraction}`,
-    )
-  }
-  if (items.length === 0) {
-    throw new ValidationError('partitionTrainSelectionTest: no items supplied')
-  }
-  const unitOf = options.unitOf ?? ((item: T) => item.id)
-  const seen = new Set<string>()
-  const partition: TrainSelectionTestPartition<T> = {
-    train: [],
-    selection: [],
-    test: [],
-    seed,
-    selectionFraction,
-    testFraction,
-  }
-  for (const item of items) {
-    if (typeof item.id !== 'string' || item.id.length === 0) {
-      throw new ValidationError(
-        `partitionTrainSelectionTest: ids must be non-empty strings, got ${JSON.stringify(item.id)}`,
-      )
-    }
-    if (seen.has(item.id)) {
-      throw new ValidationError(
-        `partitionTrainSelectionTest: duplicate id "${item.id}" — one item cannot be scored in two partitions`,
-      )
-    }
-    seen.add(item.id)
-    const unit = unitOf(item)
-    if (typeof unit !== 'string' || unit.length === 0) {
-      throw new ValidationError(`partitionTrainSelectionTest: item "${item.id}" has no unit`)
-    }
-    const position = hashToUnit(unit, seed)
-    if (position < testFraction) partition.test.push(item)
-    else if (position < testFraction + selectionFraction) partition.selection.push(item)
-    else partition.train.push(item)
-  }
-  const floors: Array<
-    [keyof Pick<TrainSelectionTestPartition<T>, 'train' | 'selection' | 'test'>, number]
-  > = [
-    ['train', options.minTrain ?? 1],
-    ['selection', options.minSelection ?? 1],
-    ['test', options.minTest ?? 1],
-  ]
-  for (const [name, floor] of floors) {
-    if (partition[name].length < floor) {
-      throw new ValidationError(
-        `partitionTrainSelectionTest: ${name} has ${partition[name].length} item(s), below the floor of ${floor} ` +
-          `(n=${items.length}, selectionFraction=${selectionFraction}, testFraction=${testFraction}, seed=${seed})`,
-      )
-    }
-  }
-  return partition
-}
 
-function assertSplitFraction(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0 || value >= 1) {
-    throw new ValidationError(
-      `partitionTrainSelectionTest: ${name} must be in (0, 1), got ${value}`,
-    )
-  }
-}
+
+

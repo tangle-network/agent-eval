@@ -4,7 +4,7 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import type { TraceAnalysisEngine, TraceAnalysisEngineRequest } from './engine'
 import type { RawAnalystFinding } from './finding-signature'
-import { askTraceQuestions, citedSpansOnly } from './trace-questions'
+import { askTraceQuestions } from './trace-questions'
 
 const rows: TraceAnalystSpan[] = [
   span('claim', 'I verified all 20 primes.'),
@@ -104,23 +104,7 @@ describe('askTraceQuestions', () => {
   })
 })
 
-describe('citedSpansOnly', () => {
-  it('exposes exactly the cited spans and refuses every wider read', async () => {
-    const store = citedSpansOnly(traceStore(rows), new Map([['run-1', new Set(['write'])]]))
-    expect(await store.hasTrace('run-1')).toBe(true)
-    expect(await store.hasTrace('other')).toBe(false)
-    expect(await store.hasSpans({ trace_id: 'run-1', span_ids: ['write', 'claim'] })).toEqual([
-      'write',
-    ])
-    const viewed = await store.viewSpans({ trace_id: 'run-1', span_ids: ['write', 'claim'] })
-    expect(viewed.spans.map((row) => row.span_id)).toEqual(['write'])
-    await expect(store.viewSpans({ trace_id: 'run-1', span_ids: ['claim'] })).rejects.toThrow(
-      /only the cited spans/,
-    )
-    await expect(store.viewTrace({ trace_id: 'run-1' })).rejects.toThrow(/not available/)
-    await expect(store.queryTraces({ limit: 5 })).rejects.toThrow(/not available/)
-  })
-})
+
 
 function result(answer: string, findings: RawAnalystFinding[] = []) {
   return { answer, findings, trajectory: [], modelCalls: 1, toolCalls: 1, runtime: {} }

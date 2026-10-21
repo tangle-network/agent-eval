@@ -18,7 +18,7 @@ export type {
   ReferenceEquivalenceJudgeOptions,
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
-export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
+
 export type { SeriesDistribution } from '../statistics'
 // ── The search kernel: policies, allocation, executor and proposer ports ──
 export {
@@ -32,38 +32,16 @@ export {
   uniform,
 } from './allocation'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
-export {
-  type BuildTraceAnalystSurfaceDispatchOptions,
-  buildTraceAnalystSurfaceDispatch,
-  type TraceAnalystArtifact,
-  type TraceAnalystScenario,
-  traceAnalystQualityJudge,
-} from './analyst-surface'
+export { type BuildTraceAnalystSurfaceDispatchOptions, type TraceAnalystArtifact, type TraceAnalystScenario } from './analyst-surface'
 // ── Auto-PR ──────────────────────────────────────────────────────────
-export {
-  type OpenAutoPrOptions,
-  type OpenAutoPrResult,
-  openAutoPr,
-} from './auto-pr'
-export {
-  type CacheIssueReason,
-  type CacheRead,
-  readCachedCell,
-} from './cell-cache'
+export { type OpenAutoPrOptions, type OpenAutoPrResult } from './auto-pr'
+export { type CacheIssueReason, type CacheRead } from './cell-cache'
 export {
   buildCellSchedule,
   type CellScheduleSlot,
   cellCachePath,
 } from './cell-schedule'
-export {
-  assertCampaignDesign,
-  assertCampaignSplitIdentity,
-  type CampaignCoverage,
-  campaignCoverage,
-  campaignScenarioIdentity,
-  campaignSplitDigest,
-  campaignSplitDigestFromIdentities,
-} from './coverage'
+export { assertCampaignDesign, type CampaignCoverage, campaignCoverage, campaignScenarioIdentity, campaignSplitDigest, campaignSplitDigestFromIdentities } from './coverage'
 // ── Cross-surface interaction matrix + frozen bundle selection ──────
 export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
 export type {
@@ -135,12 +113,7 @@ export type {
   ExternalOptimizerRunnerCommand,
   ExternalTextCandidate,
 } from './external-optimizer-process'
-export {
-  DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
-  DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS,
-  resolveExternalOptimizerCallbackLimits,
-  resolveExternalOptimizerProcessLimits,
-} from './external-optimizer-process'
+export { DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS, DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS } from './external-optimizer-process'
 export { decodeExternalTextCandidate } from './external-text-evaluation'
 export {
   type ExternalOptimizationExample,
@@ -208,16 +181,7 @@ export {
   sequentialDecide,
   sequentialPairedGate,
 } from './gates/sequential'
-export {
-  type DimensionRegression,
-  detectScale,
-  dimensionRegressions,
-  type HeldoutSignificance,
-  type HeldoutSignificanceOptions,
-  heldoutSignificance,
-  type PairedHoldout,
-  pairHoldout,
-} from './gates/statistical-heldout'
+export { type DimensionRegression, dimensionRegressions, type HeldoutSignificance, type HeldoutSignificanceOptions, heldoutSignificance, type PairedHoldout, pairHoldout } from './gates/statistical-heldout'
 export type {
   GepaCandidatePopulationArtifact,
   GepaCandidatePopulationCandidate,
@@ -234,39 +198,12 @@ export {
   type GepaRunnerCommand,
   gepaOptimizationMethod,
 } from './gepa-optimization-method'
-export {
-  type ExternalSearchOptimizer,
-  externalSurface,
-  type GepaEvaluationImport,
-  type GepaPopulationImport,
-  importExternalEvaluations,
-  importGepaPopulation,
-  recordGepaSearch,
-  recordSkillOptSearch,
-} from './gepa-search-import'
+export { type ExternalSearchOptimizer, externalSurface, type GepaEvaluationImport, type GepaPopulationImport, importExternalEvaluations, importGepaPopulation } from './gepa-search-import'
 // ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
-export {
-  classifyUngroundedLiterals,
-  type RolloutArgumentDiff,
-  type RolloutArgumentDiffOptions,
-  type RolloutCall,
-  rolloutArgumentDiff,
-  type ScoredRollout,
-  type UngroundedLiteralReport,
-} from './grounded-reflection'
-export {
-  FsLabeledScenarioStore,
-  type FsLabeledScenarioStoreOptions,
-  LabeledScenarioStoreError,
-} from './labeled-store/fs-adapter'
+export { type RolloutArgumentDiff, type RolloutArgumentDiffOptions, type RolloutCall, type ScoredRollout, type UngroundedLiteralReport } from './grounded-reflection'
+export { type FsLabeledScenarioStoreOptions } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
-export {
-  type ComparisonCost,
-  combineComparisonCosts,
-  costFromLedgerSummary,
-  type OptimizationTokenUsage,
-  optimizationTokenUsageFromSummary,
-} from './optimization-cost'
+export { type ComparisonCost, costFromLedgerSummary, type OptimizationTokenUsage } from './optimization-cost'
 export type {
   OptimizationMethod,
   OptimizationMethodComposition,
@@ -292,21 +229,7 @@ export {
   type OptimizationMethodPairwise,
   type OptimizationMethodScore,
 } from './presets/compare-optimization-methods'
-export {
-  makePlaybackDispatch,
-  type PlaybackContext,
-  type PlaybackDriver,
-  type PlaybackStep,
-  renderScoreboardMarkdown,
-  type ScoreboardRenderOptions,
-  type ScoreboardRow,
-  type ScoreboardSummary,
-  scoreboardSummary,
-  scoreUserStory,
-  type UserStory,
-  type UserStoryVerdict,
-  userStoryScoreboard,
-} from './presets/playback'
+export { type PlaybackContext, type PlaybackDriver, type PlaybackStep, renderScoreboardMarkdown, type ScoreboardRenderOptions, type ScoreboardRow, type ScoreboardSummary, scoreboardSummary, scoreUserStory, type UserStory, type UserStoryVerdict, userStoryScoreboard } from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
   type RunImprovementLoopOptions,
@@ -319,15 +242,7 @@ export {
   type RunOptimizationResult,
   runOptimization,
 } from './presets/run-optimization'
-export {
-  type ProfileDispatchFn,
-  ProfileMatrixError,
-  type ProfileSummary,
-  type RunProfileMatrixOptions,
-  type RunProfileMatrixResult,
-  runProfileMatrix,
-  type ScenarioRollup,
-} from './presets/run-profile-matrix'
+export { type ProfileDispatchFn, type ProfileSummary, type RunProfileMatrixOptions, type RunProfileMatrixResult, runProfileMatrix, type ScenarioRollup } from './presets/run-profile-matrix'
 export {
   type CreateProfileMatrixPlanOptions,
   createProfileMatrixPlan,
@@ -342,26 +257,7 @@ export {
   runProfileMatrixSegment,
 } from './presets/segmented-profile-matrix'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
-export {
-  type BuildLoopProvenanceArgs,
-  buildLoopProvenanceRecord,
-  campaignMeasurementDigest,
-  canonicalDigest,
-  type EmitLoopProvenanceArgs,
-  type EmitLoopProvenanceResult,
-  emitLoopProvenance,
-  type LoopProvenanceArgsFromResult,
-  type LoopProvenanceBackend,
-  type LoopProvenanceCandidate,
-  type LoopProvenanceEvidence,
-  type LoopProvenanceOptimizationMethod,
-  type LoopProvenanceRecord,
-  loopProvenanceArgsFromResult,
-  loopProvenanceSpans,
-  provenanceRecordPath,
-  provenanceSpansPath,
-  verifyLoopProvenanceRecord,
-} from './provenance'
+export { type BuildLoopProvenanceArgs, canonicalDigest, type EmitLoopProvenanceArgs, type EmitLoopProvenanceResult, emitLoopProvenance, type LoopProvenanceArgsFromResult, type LoopProvenanceBackend, type LoopProvenanceCandidate, type LoopProvenanceEvidence, type LoopProvenanceOptimizationMethod, type LoopProvenanceRecord } from './provenance'
 export {
   createRetainedDispatch,
   type RetainedDispatchOptions,
@@ -377,14 +273,9 @@ export {
   type RunCampaignOptions,
   runCampaign,
 } from './run-campaign'
-export { resolveRunDir, tangleTracesRoot } from './run-dir.js'
+export { resolveRunDir } from './run-dir.js'
 // ── Discriminative holdout selection (drop saturated ties) ───────────
-export {
-  type DiscriminationScore,
-  type ScenarioSignal,
-  scoreDiscrimination,
-  selectDiscriminative,
-} from './scenario-selection'
+export { type DiscriminationScore, type ScenarioSignal, scoreDiscrimination } from './scenario-selection'
 export {
   type CampaignBreakdown,
   campaignBreakdown,
@@ -410,111 +301,10 @@ export {
   verifySearchClaim,
 } from './search-claim'
 // ── Compact proof over a search ledger ─────────────────────────────────
-export {
-  assertCompleteSearchHistory,
-  assertSearchHistoryMatchesState,
-  type CreateSearchHistoryReceiptInput,
-  createSearchHistoryReceipt,
-  type SearchHistoryAdmissionOptions,
-  type SearchHistoryAuditSummary,
-  type SearchHistoryCoverage,
-  type SearchHistoryCoverageRow,
-  type SearchHistoryPolicy,
-  type SearchHistoryReceipt,
-  SearchHistoryRequiredError,
-  searchHistoryCoverageRow,
-  verifySearchHistoryArtifact,
-  verifySearchHistoryReceipt,
-} from './search-history-receipt'
-export {
-  type RunSearchOptions,
-  runSearch,
-  SEARCH_KERNEL_SOURCE,
-  type SearchArtifactCodec,
-  type SearchCellResult,
-  type SearchCellWork,
-  type SearchExecutor,
-  type SearchLane,
-  type SearchProposalBlob,
-  type SearchProposalRequest,
-  type SearchProposalResult,
-  type SearchProposedChild,
-  type SearchProposerPort,
-  type SearchRunResult,
-  searchDivergence,
-  searchExpansionIndex,
-  searchPolicyView,
-} from './search-kernel'
+export { assertSearchHistoryMatchesState, type CreateSearchHistoryReceiptInput, createSearchHistoryReceipt, type SearchHistoryAdmissionOptions, type SearchHistoryAuditSummary, type SearchHistoryCoverage, type SearchHistoryCoverageRow, type SearchHistoryPolicy, type SearchHistoryReceipt, verifySearchHistoryArtifact, verifySearchHistoryReceipt } from './search-history-receipt'
+export { type RunSearchOptions, runSearch, type SearchArtifactCodec, type SearchCellResult, type SearchCellWork, type SearchExecutor, type SearchLane, type SearchProposalBlob, type SearchProposalRequest, type SearchProposalResult, type SearchProposedChild, type SearchProposerPort, type SearchRunResult, searchDivergence, searchPolicyView } from './search-kernel'
 // ── Search ledger: nodes, edges and cells of one search ────────────────
-export {
-  FileSearchLedger,
-  type NodeEstimate,
-  type OpenSearchLedgerOptions,
-  openSearchLedger,
-  parseSearchLedgerLine,
-  replaySearchLedgerText,
-  SEARCH_LEDGER_SCHEMA,
-  type SearchArtifactKind,
-  type SearchArtifactRef,
-  type SearchAttemptAccounting,
-  type SearchAudit,
-  type SearchBudget,
-  type SearchCancelReason,
-  type SearchCandidateSurface,
-  type SearchCellAllocatedEvent,
-  type SearchCellCancelledEvent,
-  type SearchCellSettledEvent,
-  type SearchCellStage,
-  type SearchClaim,
-  type SearchClaimEstimator,
-  type SearchClaimFinalist,
-  type SearchClaimPower,
-  type SearchClaimTest,
-  type SearchClosedEvent,
-  type SearchCloseReason,
-  type SearchCostAccounting,
-  type SearchEdgeAttribution,
-  type SearchEdgeOperator,
-  type SearchEdgeRecordedEvent,
-  type SearchEstimateMethod,
-  type SearchExecutionIdentity,
-  type SearchFailureReason,
-  type SearchLedger,
-  type SearchLedgerAppendResult,
-  SearchLedgerConflictError,
-  type SearchLedgerEntry,
-  SearchLedgerError,
-  type SearchLedgerEvent,
-  type SearchLedgerHash,
-  SearchLedgerIntegrityError,
-  type SearchLedgerTrustedHeadMode,
-  type SearchModelIdentity,
-  type SearchNodeDecidedEvent,
-  type SearchNodeDecision,
-  type SearchNodeRef,
-  type SearchNodeRegisteredEvent,
-  type SearchNodeStatus,
-  type SearchOpenedEvent,
-  type SearchOperationKind,
-  type SearchOperationRecordedEvent,
-  type SearchOperationStartedEvent,
-  type SearchProposer,
-  type SearchProposerKind,
-  type SearchReservation,
-  type SearchSourceRef,
-  type SearchSplit,
-  type SearchSplits,
-  type SearchSplitTasks,
-  type SearchSurfaceEffect,
-  type SearchSurfaceEvidence,
-  type SearchSurfaceKind,
-  type SearchTask,
-  type SearchTaskOutcome,
-  type SearchTokenAccounting,
-  type SearchTraceRef,
-  type SearchUnknown,
-  validateSearchLedgerEvent,
-} from './search-ledger'
+export { FileSearchLedger, type NodeEstimate, type OpenSearchLedgerOptions, openSearchLedger, parseSearchLedgerLine, replaySearchLedgerText, SEARCH_LEDGER_SCHEMA, type SearchArtifactKind, type SearchArtifactRef, type SearchAttemptAccounting, type SearchAudit, type SearchBudget, type SearchCancelReason, type SearchCandidateSurface, type SearchCellAllocatedEvent, type SearchCellCancelledEvent, type SearchCellSettledEvent, type SearchCellStage, type SearchClaim, type SearchClaimEstimator, type SearchClaimFinalist, type SearchClaimPower, type SearchClaimTest, type SearchClosedEvent, type SearchCloseReason, type SearchCostAccounting, type SearchEdgeAttribution, type SearchEdgeOperator, type SearchEdgeRecordedEvent, type SearchEstimateMethod, type SearchExecutionIdentity, type SearchFailureReason, type SearchLedger, type SearchLedgerAppendResult, type SearchLedgerEntry, SearchLedgerError, type SearchLedgerEvent, type SearchLedgerHash, SearchLedgerIntegrityError, type SearchLedgerTrustedHeadMode, type SearchModelIdentity, type SearchNodeDecidedEvent, type SearchNodeDecision, type SearchNodeRef, type SearchNodeRegisteredEvent, type SearchNodeStatus, type SearchOpenedEvent, type SearchOperationKind, type SearchOperationRecordedEvent, type SearchOperationStartedEvent, type SearchProposer, type SearchProposerKind, type SearchReservation, type SearchSourceRef, type SearchSplit, type SearchSplits, type SearchSplitTasks, type SearchSurfaceEffect, type SearchSurfaceEvidence, type SearchSurfaceKind, type SearchTask, type SearchTaskOutcome, type SearchTokenAccounting, type SearchTraceRef, type SearchUnknown, validateSearchLedgerEvent } from './search-ledger'
 export {
   type AllocateSearchCellInput,
   developmentClaim,
@@ -592,12 +382,7 @@ export {
   surfaceDispatchRef,
   surfaceHash,
 } from './surface-identity'
-export {
-  isTransientTransportFailure,
-  quotaExhaustedUntil,
-  type TransientFailureOptions,
-  transientDispatchFailure,
-} from './transient-failure'
+export { isTransientTransportFailure, type TransientFailureOptions, transientDispatchFailure } from './transient-failure'
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,
@@ -643,22 +428,13 @@ export type {
   SurfaceProposer,
   TraceSpan,
 } from './types'
-export { isProposedCandidate, labelTrustRank } from './types'
+export { isProposedCandidate } from './types'
 export type {
   AutoevalsScoreLike,
   AutoevalsScorerLike,
   PhoenixEvaluationResultLike,
   PhoenixEvaluatorLike,
 } from './upstream-evaluators'
-export { autoevalsScorerJudge, phoenixEvaluatorJudge } from './upstream-evaluators'
+
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
-export {
-  type CodeSurfaceVerification,
-  type GitWorktreeAdapterOptions,
-  gitWorktreeAdapter,
-  resolveWorktreePath,
-  verifyCodeSurface,
-  type Worktree,
-  type WorktreeAdapter,
-  WorktreeAdapterError,
-} from './worktree'
+export { type CodeSurfaceVerification, type GitWorktreeAdapterOptions, gitWorktreeAdapter, resolveWorktreePath, verifyCodeSurface, type Worktree, type WorktreeAdapter } from './worktree'

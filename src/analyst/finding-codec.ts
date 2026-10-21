@@ -153,9 +153,4 @@ function describe(value: unknown): string {
   return `a ${typeof value}`
 }
 
-/** One line per refused row, for a repair prompt or an error message. */
-export function describeRejectedRows(rejected: readonly RejectedFindingRow[]): string {
-  return rejected
-    .map((row) => `row ${row.index}${row.path ? ` field '${row.path}'` : ''}: ${row.message}`)
-    .join('\n')
-}
+

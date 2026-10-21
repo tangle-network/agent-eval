@@ -33,7 +33,7 @@
  * scorecard/grading concept that makes sense without a running agent loop.
  */
 
-import type { JudgeScore } from './campaign/types'
+
 import { ValidationError } from './errors'
 
 // ── 1. field routing by destination ──────────────────────────────────────────
@@ -66,7 +66,7 @@ const hiddenDestinations: ReadonlySet<FieldDestination> = new Set<FieldDestinati
 ])
 
 /** True for the destinations whose values must never reach the agent context. */
-export function isHiddenDestination(destination: FieldDestination): boolean {
+function isHiddenDestination(destination: FieldDestination): boolean {
   return hiddenDestinations.has(destination)
 }
 
@@ -86,29 +86,7 @@ export interface RoutedField {
   destination: FieldDestination
 }
 
-/**
- * Route a domain's named fields by destination into the firewall's input shape.
- * The `routing` declares each field's destination; the `values` carry each
- * field's renderable string. A field present in `routing` but missing from
- * `values` is an authoring error (fail loud) — every routed field must have a
- * value the firewall can check.
- */
-export function routeFields<TName extends string>(
-  routing: Readonly<Record<TName, FieldDestination>>,
-  values: Readonly<Record<TName, string>>,
-): RoutedField[] {
-  const out: RoutedField[] = []
-  for (const name of Object.keys(routing) as TName[]) {
-    const value = values[name]
-    if (value === undefined) {
-      throw new ValidationError(
-        `routed field "${name}" has a destination but no value — every routed field must carry its value`,
-      )
-    }
-    out.push({ name, value, destination: routing[name] })
-  }
-  return out
-}
+
 
 /** A single detected leak: a hidden field whose value appears in the agent context. */
 export interface HiddenLeak {
@@ -191,37 +169,9 @@ export type HiddenCriteriaGrader<TArtifact, THidden> = (
   signal?: AbortSignal,
 ) => Promise<HiddenGradeResult> | HiddenGradeResult
 
-/** Normalize a grader's raw `{passed, total}` into a `HiddenGradeResult` with a
- *  consistent, fail-loud `passRate` — the canonical "honest zero on no-run"
- *  rule, single-sourced so every domain grader gets it. */
-export function hiddenGrade(passed: number, total: number, notes?: string): HiddenGradeResult {
-  const p = Number.isFinite(passed) && passed > 0 ? Math.floor(passed) : 0
-  const t = Number.isFinite(total) && total > 0 ? Math.floor(total) : 0
-  const passRate = t > 0 ? Math.min(1, p / t) : 0
-  return { passed: Math.min(p, t > 0 ? t : p), total: t, passRate, notes }
-}
 
-/**
- * Run a domain's hidden-criteria grader behind the firewall. Before grading, it
- * re-asserts the firewall against the agent context the run actually used —
- * proving (at grading time, on real data) that the hidden criteria never
- * reached the agent — then invokes the grader and returns its pass rate. A
- * domain that wants the firewall and the grader wired together in one call uses
- * this; a domain that already asserted the firewall at dispatch time can call
- * its grader directly and feed the result to `blendHeldout`.
- */
-export async function gradeOnHidden<TArtifact, THidden>(args: {
-  artifact: TArtifact
-  hiddenCriteria: THidden
-  grader: HiddenCriteriaGrader<TArtifact, THidden>
-  /** The routed fields + the exact agent context, re-checked before grading. */
-  firewall: { fields: readonly RoutedField[]; agentContext: string; options?: NoLeakOptions }
-  signal?: AbortSignal
-}): Promise<HiddenGradeResult> {
-  assertNoHiddenLeak(args.firewall.fields, args.firewall.agentContext, args.firewall.options)
-  const result = await args.grader(args.artifact, args.hiddenCriteria, args.signal)
-  return hiddenGrade(result.passed, result.total, result.notes)
-}
+
+
 
 // ── the composite: hidden correctness (PRIMARY) + judge quality (secondary) ────
 
@@ -236,7 +186,7 @@ export interface BlendWeights {
 
 /** Default blend: 0.7 hidden correctness, 0.3 judge quality. The coding bench's
  *  long-standing split — execution truth dominates, style refines. */
-export const defaultBlendWeights: BlendWeights = { heldout: 0.7, judge: 0.3 }
+const defaultBlendWeights: BlendWeights = { heldout: 0.7, judge: 0.3 }
 
 /** The input shape a judge's `score` receives — exactly `JudgeConfig.score`'s
  *  argument: the artifact, plus any scenario/signal fields the judge carries.
@@ -278,41 +228,7 @@ export function blendHeldout(
   return w.heldout * heldout + w.judge * judge
 }
 
-/**
- * Wrap a judge's `score` so the `composite` it REPORTS is the held-out-weighted
- * blend. The judge still scores its quality dimensions (recorded, secondary),
- * but the composite that downstream selection/scorecard reads becomes
- * `blendHeldout(heldoutPassRate(artifact), judgeComposite, weights)`. The held-
- * out pass rate is read off the artifact via `heldoutPassRate` — already
- * computed before the judge runs — so no second grading pass is needed.
- *
- * Generic over the artifact type, inferred from `heldoutPassRate`, so it
- * composes with both a `campaign` `JudgeConfig.score` and a bare scoring
- * function. The input is the judge's `{ artifact, ... }` — any extra fields
- * (`scenario`, `signal`) ride through untouched via the index signature.
- */
-export function withHeldoutBlend<TArtifact>(
-  score: (input: JudgeScoreInput<TArtifact>) => JudgeScore | Promise<JudgeScore>,
-  heldoutPassRate: (artifact: TArtifact) => number,
-  weights: BlendWeights = defaultBlendWeights,
-): (input: JudgeScoreInput<TArtifact>) => Promise<JudgeScore> {
-  return async (input: JudgeScoreInput<TArtifact>): Promise<JudgeScore> => {
-    const base = await score(input)
-    if (base.failed) return base
-    const rate = clampUnit(heldoutPassRate(input.artifact))
-    const composite = blendHeldout(rate, base.composite, weights)
-    const w = normalizeWeights(weights)
-    return {
-      ...base,
-      composite,
-      notes:
-        `composite=${composite.toFixed(3)} ` +
-        `(held-out ${(rate * 100).toFixed(0)}% × ${w.heldout.toFixed(2)} + ` +
-        `quality ${base.composite.toFixed(3)} × ${w.judge.toFixed(2)})` +
-        (base.notes ? ` — ${base.notes}` : ''),
-    }
-  }
-}
+
 
 function clampUnit(value: number): number {
   if (!Number.isFinite(value)) return 0

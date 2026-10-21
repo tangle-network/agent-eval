@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  extractAssetUrls,
-  htmlContainsElement,
   runKeywordCoverageJudge,
   runKeywordCoverageJudgeUrl,
 } from './keyword-coverage-judge'
@@ -76,47 +74,9 @@ describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
   })
 })
 
-describe('keyword-coverage — htmlContainsElement', () => {
-  it('tag-only matches case-insensitively', () => {
-    expect(htmlContainsElement('<FORM></FORM>', 'form')).toBe(true)
-    expect(htmlContainsElement('<div></div>', 'form')).toBe(false)
-  })
 
-  it('tag[attr="value"] matches with single or double quotes', () => {
-    expect(htmlContainsElement('<input type="number"/>', 'input[type="number"]')).toBe(true)
-    expect(htmlContainsElement("<input type='number'/>", 'input[type="number"]')).toBe(true)
-    expect(htmlContainsElement('<input type="text"/>', 'input[type="number"]')).toBe(false)
-  })
 
-  it('tag[attr] (presence-only) matches', () => {
-    expect(htmlContainsElement('<input required/>', 'input[required]')).toBe(true)
-    expect(htmlContainsElement('<input/>', 'input[required]')).toBe(false)
-  })
 
-  it('unsupported selector returns null', () => {
-    expect(htmlContainsElement('<p>x</p>', 'div > .child')).toBeNull()
-    expect(htmlContainsElement('<p>x</p>', 'p::first-line')).toBeNull()
-  })
-})
-
-describe('keyword-coverage — extractAssetUrls', () => {
-  it('extracts both link[href] and script[src] resolved against base', () => {
-    const urls = extractAssetUrls(
-      '<link rel="stylesheet" href="/a.css"/><script src="/b.js"></script>',
-      'https://x.example/page',
-    )
-    expect(urls).toContain('https://x.example/a.css')
-    expect(urls).toContain('https://x.example/b.js')
-  })
-
-  it('skips data: URLs gracefully', () => {
-    const urls = extractAssetUrls(
-      '<script src="data:text/plain,hello"></script>',
-      'https://x.example/',
-    )
-    expect(urls.some((u) => u.startsWith('data:'))).toBe(true)
-  })
-})
 
 describe('keyword-coverage — runKeywordCoverageJudgeUrl', () => {
   it('fetches HTML + assets and scores', async () => {

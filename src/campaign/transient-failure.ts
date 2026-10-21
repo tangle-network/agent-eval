@@ -119,7 +119,7 @@ const RELEASE_SHAPES = [
  * @param message the provider's error text
  * @returns the stated release time, or null when the text names none
  */
-export function quotaExhaustedUntil(message: string | null | undefined): Date | null {
+function quotaExhaustedUntil(message: string | null | undefined): Date | null {
   if (!message) return null
   QUOTA_PHRASE.lastIndex = 0
   // THE RELEASE MUST BELONG TO THE REFUSAL. An error string can carry several provider payloads,

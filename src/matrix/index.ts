@@ -11,7 +11,7 @@
  * `CellResult`, `AxisSummary`, `MatrixResult`.
  */
 
-export { type CellSpend, readCellSpend, withCellSpend } from './cell-spend'
+export { type CellSpend, withCellSpend } from './cell-spend'
 export { runAgentMatrix } from './runner'
 export type {
   AxisSummary,

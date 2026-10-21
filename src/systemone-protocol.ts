@@ -111,10 +111,7 @@ function optionalTextOrJson(value: unknown, name: string): void {
   if (value !== null) textOrJson(value, name)
 }
 
-/** Validate named questions without a state, as a judge does before it has input. */
-export function parseSystemOneQuestions(raw: unknown): SystemOneQuestions {
-  return readQuestions(raw, false) as SystemOneQuestions
-}
+
 
 function readQuestions(raw: unknown, recorded: boolean): SystemOneRecordedQuestions {
   const questions = object(raw)

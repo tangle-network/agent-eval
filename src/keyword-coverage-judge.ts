@@ -74,7 +74,7 @@ export interface KeywordCoverageOptions {
  * null when the selector isn't supported — caller treats that as
  * "unenforced" rather than "failed."
  */
-export function htmlContainsElement(html: string, selector: string): boolean | null {
+function htmlContainsElement(html: string, selector: string): boolean | null {
   const tagOnly = /^([a-zA-Z][\w-]*)$/.exec(selector)
   if (tagOnly) {
     const re = new RegExp(`<${tagOnly[1]}\\b`, 'i')
@@ -106,7 +106,7 @@ export function htmlContainsElement(html: string, selector: string): boolean | n
  * Permissive regex — agent-authored markup doesn't always quote
  * attributes the same way.
  */
-export function extractAssetUrls(html: string, baseUrl: string): string[] {
+function extractAssetUrls(html: string, baseUrl: string): string[] {
   const urls = new Set<string>()
   const linkRe = /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi
   const scriptRe = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi

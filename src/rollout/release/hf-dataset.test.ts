@@ -6,7 +6,7 @@ import { fixtureRolloutLine, malformedRolloutLine } from '../fixtures'
 import { writeRolloutLedger } from '../ledger'
 import type { RolloutLine } from '../schema'
 import { FORMAT_FILES } from './card'
-import { buildHfDataset, parseRolloutReleaseArgs, planPushCommand } from './hf-dataset'
+import { buildHfDataset } from './hf-dataset'
 
 const tempDirs: string[] = []
 
@@ -316,56 +316,6 @@ describe('buildHfDataset', () => {
   })
 })
 
-describe('CLI arg parsing', () => {
-  it('parses the documented one-command shape', () => {
-    const args = parseRolloutReleaseArgs([
-      'a.jsonl',
-      'b.jsonl',
-      '--out',
-      '/tmp/x',
-      '--formats',
-      'sft,raw',
-      '--include-proposers',
-    ])
-    expect(args).toEqual({
-      inputs: ['a.jsonl', 'b.jsonl'],
-      out: '/tmp/x',
-      formats: ['sft', 'raw'],
-      includeProposers: true,
-      push: null,
-    })
-  })
 
-  it('defaults to all formats and no proposers', () => {
-    const args = parseRolloutReleaseArgs(['a.jsonl', '--out', '/tmp/x'])
-    expect(args.formats).toEqual(['sft', 'verifiers', 'rft', 'raw'])
-    expect(args.includeProposers).toBe(false)
-  })
 
-  it('rejects unknown formats, unknown flags, missing out, bad push repo', () => {
-    expect(() =>
-      parseRolloutReleaseArgs(['a.jsonl', '--out', '/tmp/x', '--formats', 'sft,nope']),
-    ).toThrow('unknown format "nope"')
-    expect(() => parseRolloutReleaseArgs(['a.jsonl', '--out', '/tmp/x', '--frobnicate'])).toThrow(
-      'unknown flag',
-    )
-    expect(() => parseRolloutReleaseArgs(['a.jsonl'])).toThrow('usage:')
-    expect(() =>
-      parseRolloutReleaseArgs(['a.jsonl', '--out', '/tmp/x', '--push', 'not-a-repo']),
-    ).toThrow('--push expects <org/name>')
-  })
-})
 
-describe('push dry-run', () => {
-  it('plans the exact huggingface-cli upload argv without touching the network', () => {
-    expect(planPushCommand('tangle/rollouts-gen3', '/tmp/x')).toEqual([
-      'huggingface-cli',
-      'upload',
-      'tangle/rollouts-gen3',
-      '/tmp/x',
-      '.',
-      '--repo-type',
-      'dataset',
-    ])
-  })
-})

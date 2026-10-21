@@ -25,7 +25,7 @@ import type { ChatMessage } from '../schema'
 export const DEFAULT_CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
 /** Claude Code's project-directory slug for a working directory. */
-export function claudeProjectSlug(cwd: string): string {
+function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9-]/g, '-')
 }
 

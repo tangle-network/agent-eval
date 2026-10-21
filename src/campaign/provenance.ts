@@ -603,18 +603,7 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
   })
 }
 
-/** Recompute and validate the self-addressed durable record. */
-export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopProvenanceRecord {
-  if (record.schema !== 'tangle.loop-provenance') {
-    throw new Error('loop provenance has an unsupported schema')
-  }
-  const { recordDigest, ...recordWithoutDigest } = record
-  if (recordDigest !== canonicalDigest(recordWithoutDigest)) {
-    throw new Error('loop provenance record digest does not match its contents')
-  }
-  assertGateContributions(record.gate?.contributingGates, 'loop provenance')
-  return record
-}
+
 
 /** SHA-256 over the RFC 8785 canonical JSON of `value`. Throws
  * `LedgerCanonicalizationError` for a value with no canonical form. */

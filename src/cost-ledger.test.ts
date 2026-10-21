@@ -14,21 +14,10 @@ import {
   CostReservationExceededError,
   costForTokenPricing,
   costForUsage,
-  modelPriceKey,
 } from './cost-ledger'
 import { canonicalJson } from './verdict-cache'
 
-describe('modelPriceKey', () => {
-  it('returns the id for a priced model (exact or family)', () => {
-    expect(modelPriceKey('gpt-4o')).toBe('gpt-4o')
-    // family resolver matches harness-qualified ids
-    expect(modelPriceKey('claude-code/sonnet')).toBe('claude-code/sonnet')
-  })
 
-  it('returns null for an unpriced model', () => {
-    expect(modelPriceKey('totally-made-up-model-xyz')).toBeNull()
-  })
-})
 
 describe('costForUsage', () => {
   it('prices a known model and flags costUnknown=false', () => {

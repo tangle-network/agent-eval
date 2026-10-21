@@ -13,16 +13,16 @@
  */
 
 export type { BuildCapsuleInput, RenderCapsuleOptions } from './capsule'
-export { buildCapsule, renderCapsuleHtml } from './capsule'
+export { renderCapsuleHtml } from './capsule'
 export type { EvalRecord } from './cube'
 export { buildCoverage, cellId, enumerateCells } from './cube'
-export { BehaviorExplorer } from './explorer'
+
 export type { FuzzAgentOptions } from './fuzz-agent'
 export { fuzzAgent } from './fuzz-agent'
 export { composeGates, perturbationStabilityGate, severityFloorGate } from './gates'
-export { adversarialObjective, mutationProposer, noveltyObjective } from './policies'
+export { mutationProposer } from './policies'
 export type { ExploreToolDef } from './tools'
-export { makeExploreTools } from './tools'
+
 export type {
   ArchiveEntry,
   BehaviorSpace,

@@ -2,7 +2,7 @@ import { ProposalFindingSchema } from './finding-scope'
 import type { ProposalFinding } from './types'
 
 /** True when a finding names a source candidate generation may learn from. */
-export function isProposalFinding(finding: unknown): finding is ProposalFinding {
+function isProposalFinding(finding: unknown): finding is ProposalFinding {
   return ProposalFindingSchema.safeParse(finding).success
 }
 

@@ -76,7 +76,7 @@ function parsePublicBenchmarkRows(text: string, path: string): Array<Record<stri
   throw new TypeError(`public analyst benchmark dataset must contain JSON objects: ${path}`)
 }
 
-export function selectPublicBenchmarkRows(
+function selectPublicBenchmarkRows(
   dataset: PublicAnalystBenchmarkDataset,
   rows: readonly Record<string, unknown>[],
   options: { limit: number; seed: number },
@@ -104,7 +104,7 @@ export function selectPublicBenchmarkRows(
     .map(([, row]) => row)
 }
 
-export function publicBenchmarkDistributions(
+function publicBenchmarkDistributions(
   dataset: PublicAnalystBenchmarkDataset,
   rows: readonly Record<string, unknown>[],
 ): PublicBenchmarkDistributions {
@@ -148,7 +148,7 @@ export function publicBenchmarkDistributions(
   }
 }
 
-export function publicBenchmarkSelectionReport(
+function publicBenchmarkSelectionReport(
   dataset: PublicAnalystBenchmarkDataset,
   source: readonly Record<string, unknown>[],
   selected: readonly Record<string, unknown>[],

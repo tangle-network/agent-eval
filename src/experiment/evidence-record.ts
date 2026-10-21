@@ -103,7 +103,7 @@ export const evidenceRegistryRecordSchema = z.strictObject({
 export type EvidenceRegistryRecord = z.infer<typeof evidenceRegistryRecordSchema>
 
 /** Parse one record; throws with the zod issue list on any violation. */
-export function parseEvidenceRegistryRecord(raw: unknown): EvidenceRegistryRecord {
+function parseEvidenceRegistryRecord(raw: unknown): EvidenceRegistryRecord {
   return evidenceRegistryRecordSchema.parse(raw)
 }
 
@@ -114,7 +114,7 @@ class EvidenceRegistryError extends Error {}
  * unique, and every `supersedes` target exists. Returns records sorted in
  * the registry's canonical order (trust ladder, then date desc, then id).
  */
-export function validateEvidenceRegistry(raws: readonly unknown[]): EvidenceRegistryRecord[] {
+function validateEvidenceRegistry(raws: readonly unknown[]): EvidenceRegistryRecord[] {
   const records = raws.map((raw) => parseEvidenceRegistryRecord(raw))
   const seen = new Set<string>()
   for (const record of records) {

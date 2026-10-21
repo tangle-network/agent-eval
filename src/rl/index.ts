@@ -8,45 +8,58 @@
  */
 
 /** Advanced budget allocation across (variant, scenario) cells. */
-export * from './active-curriculum'
+export type { CellObservation, CurriculumAllocation, VarianceCurriculumOptions } from './active-curriculum'
 /** Advanced adaptation eval — does the policy actually learn from feedback? */
 export * from './adaptation-eval'
 /** Adversarial mutation contract consumed by the fuzz harness. */
 export * from './adversarial'
 /** Claim integrity: whether a checker-verified research claim is a result about its source statement or only about the checker. */
-export * from './claim-integrity'
+export { GRADER_REFERENCE_PHRASES, checkerReadSignal, claimIntegrityDigest, claimIntegritySystemOneReview, claimIntegrityTraceQuestions, claimIntegrityVerdict, farmingSignal, graderReferenceSignal, monitorSignal, parseSourceScopeReferee, refereeSignal, ruleHolds, scopeSignals, sourceScopeRefereeMessages, systemOneSignal } from './claim-integrity'
+export type { ClaimIntegrityPolicy, ClaimIntegritySystemOneOptions, ClaimIntegritySystemOneQuestions, ClaimIntegrityVerdict, FarmingOptions, IntegrityClaim, IntegrityEvidence, IntegritySignal, IntegritySignalId, IntegritySignalKind, RefereeVerdict, ScopeCondition, ScopeOperator, ScopeRule, ScopeValue, SourceExcerpt, SourceScope, SourceScopeRefereeAnswer, TrajectoryEvent } from './claim-integrity'
 /** @stable Compute curves: best-of-N, self-consistency, Pareto frontier across budgets. */
-export * from './compute-curves'
+export { bestOfN, paretoFrontier } from './compute-curves'
+export type { ComputeBestOfNOptions, ComputeBestOfNResult, ComputeCurve, ComputeCurveBudget, ComputeCurvePoint, ParetoPointInput, RunComputeCurveOptions, SelfConsistencyOptions, SelfConsistencyResult } from './compute-curves'
 /** @stable Held-out perturbation probes for benchmark contamination (paired Wilcoxon). */
-export * from './contamination'
+export { runContaminationProbe } from './contamination'
+export type { ContaminationProbeInput, ContaminationProbeOptions, ContaminationProbeReport, ScenarioPerturbation, ScenarioPerturbationKind } from './contamination'
 /** @stable Durable corpus: every eval run appends graded trajectories by default; harvest → buildRlDataset (datasets for free). */
-export * from './corpus'
+export { readCorpus } from './corpus'
+export type { CorpusAppendResult, CorpusRecord, HarvestOptions } from './corpus'
 /** @stable Publishable/sellable dataset bundle: format exporters + provenance + a Datasheet-for-Datasets card. */
-export * from './dataset'
+export { buildRlDataset, validateDatasetFormats } from './dataset'
+export type { DatasetFormat, RewardKind, RewardStats, RlDatasetBundle, RlDatasetConfig, RlDatasetManifest, RlDatasetStats } from './dataset'
 /** Trainer-format exporters (HuggingFace datasets, JSONL, parquet). */
-export * from './exporters'
+export { toDpoRows, toGrpoRows, toPrmRows, toSftJsonl, toSftRows } from './exporters'
+export type { DpoExportRow, DpoLineContext, DpoLookups, GrpoExportRow, GrpoLookups, PrmExportRow, PrmLineContext, PrmLookups, RolloutLineContext, SftExportRow, SftLookups, StepRewardJsonlRow, TrainingLineSelectionOptions } from './exporters'
 /** @stable Off-policy value estimation: IPS, SNIPS, doubly-robust. */
-export * from './off-policy'
+export { doublyRobust, inverseProbabilityWeighting, selfNormalizedImportanceWeighting } from './off-policy'
+export type { OffPolicyContributionCounts, OffPolicyEstimate, OffPolicyOptions, OffPolicyTrajectory } from './off-policy'
 /** Researcher that re-weights rubrics by deployment outcome correlation. */
 export * from './predictive-validity-researcher'
 /** @stable (chosen, rejected) preference triples for DPO / KTO / PPO. */
 export * from './preferences'
 /** Step-level rewards and process-reward training pairs. */
-export * from './process-reward'
+export { prmTrainingPairs } from './process-reward'
+export type { ExtractStepRewardsOptions, PrmTrainingTriple, RunwiseStepSummary, StepReward, StepScorer } from './process-reward'
 /** Reward-hacking signatures: reward divergence, distribution shift, judge drift. */
 export * from './reward-hacking'
 /** Closed-loop campaign runner: eval → preferences → mutate → re-eval. */
 export * from './rl-campaign'
 /** @stable Canonical `RunRecord` adapters: trials → records, verification reports → records. */
-export * from './run-record-adapters'
+export { campaignToRunRecords } from './run-record-adapters'
+export type { AdapterContext } from './run-record-adapters'
 /** Simulator fidelity between simulated and production RunRecords. */
-export * from './sim-fidelity'
+export { bucketLabel } from './sim-fidelity'
+export type { BehaviorFeatures, EasyModeOptions, EasyModeReport, FeatureDivergence, FeatureShift, FidelityReport, FidelityVerdict, SimFidelityOptions } from './sim-fidelity'
 /** @stable Bradley-Terry MLE + online Elo for pairwise tournament ratings. */
-export * from './tournament'
+export { fitBradleyTerry } from './tournament'
+export type { BradleyTerryFit, BradleyTerryRating, BuildPairwiseFromCampaignInput, EloOptions, PairwiseOutcome } from './tournament'
 /** @stable Verifiable reward extraction (compile / test / schema) with judge-noise filtering. */
-export * from './verifiable-reward'
+export { extractVerifiableReward, extractVerifiableRewardsFromRecords } from './verifiable-reward'
+export type { VerifiableReward, VerifiableRewardExtractionOptions, VerifiableRewardSource } from './verifiable-reward'
 /** Execution-verified gold labels joined into RL-ready rows (replay-verify batches → trainer input). */
-export * from './verified-findings-dataset'
+export { loadVerifiedFindingsDataset } from './verified-findings-dataset'
+export type { BuildVerifiedFindingRowArgs, CaseVerdictDetail, FixOutcome, GoldLabelEntry, NormalizedStep, PrefixDivergence, ReplayBatchCase, ReplayBatchFix, ReplayBatchReport, TrajectoryStep, VerifiedFindingFix, VerifiedFindingRow, VerifiedFindingsCorpusSource, VerifiedFindingsDataset, VerifiedFindingsSource, VerifiedFindingsSummary } from './verified-findings-dataset'
 
 // ── Deployment-outcome store (predictive-validity calibration) ──────
 // Promoted to public so external consumers don't have to inline the

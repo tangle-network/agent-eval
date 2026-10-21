@@ -19,7 +19,7 @@ export const DOMAIN_TAXONOMY_SCHEMA = 'agent-eval.domain-taxonomy.v1'
 export const LAB_NODE_ID = 'lab'
 
 /** Layers a taxonomy node can sit at, lowest first. */
-export const TAXONOMY_NODE_LAYERS = ['run', 'play', 'problem', 'domain'] as const
+const TAXONOMY_NODE_LAYERS = ['run', 'play', 'problem', 'domain'] as const
 
 export type TaxonomyNodeLayer = (typeof TAXONOMY_NODE_LAYERS)[number]
 

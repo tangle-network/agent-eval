@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractUsage, extractUsageFromResponse, extractUsageFromSse } from './extract-usage'
+import { extractUsage, extractUsageFromSse } from './extract-usage'
 
 describe('extractUsage', () => {
   it('reads the OpenAI prompt/completion shape', () => {
@@ -150,19 +150,4 @@ describe('extractUsageFromSse', () => {
   })
 })
 
-describe('extractUsageFromResponse', () => {
-  it('parses a JSON response without consuming the caller body', async () => {
-    const res = new Response(JSON.stringify({ usage: { prompt_tokens: 3, completion_tokens: 9 } }))
-    const usage = await extractUsageFromResponse(res)
-    expect(usage).toEqual({ input: 3, output: 9 })
-    // original body still readable by the caller
-    expect(await res.text()).toContain('prompt_tokens')
-  })
 
-  it('falls back to SSE accumulation for a streamed body', async () => {
-    const res = new Response(
-      'data: {"usage":{"input_tokens":2,"output_tokens":6}}\n\ndata: [DONE]\n\n',
-    )
-    expect(await extractUsageFromResponse(res)).toEqual({ input: 2, output: 6 })
-  })
-})

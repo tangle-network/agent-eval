@@ -235,7 +235,7 @@ interface PathOperations {
   sep: string
 }
 
-export function isPathInsideDirectory(
+function isPathInsideDirectory(
   directory: string,
   candidate: string,
   pathOperations: PathOperations = nodePath,

@@ -7,8 +7,7 @@
  * that schema.
  */
 
-export const DIAGNOSIS_FINDINGS_SCHEMA_ID =
-  'https://tangle.tools/schemas/diagnosis-findings-v1.json'
+
 
 export type DiagnosisSeverity = 'critical' | 'high' | 'medium' | 'low'
 

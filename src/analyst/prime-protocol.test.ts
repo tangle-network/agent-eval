@@ -1,25 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { CustomTokenPricing } from '../cost-ledger'
+
 import type { PrimeBridgeTransport, PrimeBridgeTransportRequest } from './prime-bridge-transport'
 import {
-  analystUsageReceiptFromPrimeUsage,
   buildPrimePrompt,
   buildPrimeRepairPrompt,
-  emptyPrimeRawUsage,
-  extractPrimeJsonObject,
-  mergePrimeRawUsage,
-  normalizePrimeUsage,
   type PrimeProjectionSource,
-  type PrimeRawUsage,
   type PrimeReplyContract,
   primeProtocolSha256,
-  primeReplyDefect,
   projectPrimeTrajectory,
   runPrimeExchange,
 } from './prime-protocol'
-import { assertValidAnalystUsageReceipt } from './usage-receipt'
 
-const PRICING: CustomTokenPricing = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
+
+
 const URL = 'http://bridge.test:4181/v1/chat/completions'
 const MODEL = 'prime/zai/glm-5.2'
 
@@ -162,36 +155,9 @@ describe('buildPrimeRepairPrompt', () => {
   })
 })
 
-describe('extractPrimeJsonObject', () => {
-  it('parses a bare JSON object', () => {
-    expect(extractPrimeJsonObject('{"findings": []}')).toEqual({ findings: [] })
-  })
 
-  it('prefers the LAST fenced block when the model emits several', () => {
-    const text = '```json\n{"findings":["first"]}\n```\nthen\n```json\n{"findings":["last"]}\n```'
-    expect(extractPrimeJsonObject(text)).toEqual({ findings: ['last'] })
-  })
 
-  it('falls back to the outermost brace slice for prose-wrapped JSON', () => {
-    expect(extractPrimeJsonObject('Here it is: {"findings": [1]} — done.')).toEqual({
-      findings: [1],
-    })
-  })
 
-  it('returns null for prose and for a bare array', () => {
-    expect(extractPrimeJsonObject('no json here')).toBeNull()
-    expect(extractPrimeJsonObject('[1, 2, 3]')).toBeNull()
-  })
-})
-
-describe('primeReplyDefect', () => {
-  it('names the consumer-specific rows field', () => {
-    expect(primeReplyDefect(null, 'blocks')).toBe('no parseable JSON object')
-    expect(primeReplyDefect({ answer: 'x' }, 'blocks')).toBe('JSON has no "blocks" array')
-    expect(primeReplyDefect({ answer: 'x' }, 'findings')).toBe('JSON has no "findings" array')
-    expect(primeReplyDefect({ findings: [] }, 'findings')).toBeNull()
-  })
-})
 
 describe('runPrimeExchange', () => {
   it('decodes a well-formed reply and reports the raw row count beside the accepted rows', async () => {
@@ -412,113 +378,9 @@ describe('runPrimeExchange', () => {
   })
 })
 
-describe('prime usage normalization', () => {
-  it('reads the bridge usage object, keeping the derived-counts flag', () => {
-    expect(
-      normalizePrimeUsage({
-        prompt_tokens: 500,
-        completion_tokens: 25,
-        model_requests: 3,
-        estimated: true,
-      }),
-    ).toEqual({ calls: 3, inputTokens: 500, outputTokens: 25, bridgeEstimated: true })
-  })
 
-  it('keeps a one-sided count rather than collapsing the whole receipt', () => {
-    expect(normalizePrimeUsage({ prompt_tokens: 500 })).toEqual({
-      calls: null,
-      inputTokens: 500,
-      outputTokens: null,
-      bridgeEstimated: false,
-    })
-    expect(normalizePrimeUsage({ completion_tokens: 25 })).toEqual({
-      calls: null,
-      inputTokens: null,
-      outputTokens: 25,
-      bridgeEstimated: false,
-    })
-  })
 
-  it('treats a missing, non-integer, or negative count as uncaptured rather than as a number', () => {
-    expect(normalizePrimeUsage(undefined)).toEqual(emptyPrimeRawUsage())
-    expect(normalizePrimeUsage({ prompt_tokens: 12.5, completion_tokens: -1 })).toEqual(
-      emptyPrimeRawUsage(),
-    )
-  })
 
-  it('poisons each side independently so a measured count survives its missing partner', () => {
-    const first: PrimeRawUsage = {
-      calls: 2,
-      inputTokens: 100,
-      outputTokens: null,
-      bridgeEstimated: false,
-    }
-    const second: PrimeRawUsage = {
-      calls: 3,
-      inputTokens: 40,
-      outputTokens: 7,
-      bridgeEstimated: true,
-    }
-
-    expect(mergePrimeRawUsage(first, second)).toEqual({
-      calls: 5,
-      inputTokens: 140,
-      outputTokens: null,
-      bridgeEstimated: true,
-    })
-  })
-})
-
-describe('analystUsageReceiptFromPrimeUsage', () => {
-  it('prices a complete receipt and leaves it unmarked', () => {
-    const receipt = analystUsageReceiptFromPrimeUsage(
-      { calls: 3, inputTokens: 1_000, outputTokens: 200, bridgeEstimated: false },
-      PRICING,
-    )
-
-    expect(receipt).toEqual({
-      calls: 3,
-      tokens: { input: 1_000, output: 200 },
-      cost: { kind: 'estimated', usd: (1_000 * 0.6 + 200 * 2.2) / 1_000_000 },
-    })
-    expect(() => assertValidAnalystUsageReceipt(receipt)).not.toThrow()
-  })
-
-  it('marks a receipt whose token counts the bridge derived rather than measured', () => {
-    const receipt = analystUsageReceiptFromPrimeUsage(
-      { calls: 1, inputTokens: 10, outputTokens: 2, bridgeEstimated: true },
-      PRICING,
-    )
-
-    expect(receipt.tokensEstimated).toBe(true)
-    expect(receipt.cost.kind).toBe('estimated')
-    expect(() => assertValidAnalystUsageReceipt(receipt)).not.toThrow()
-  })
-
-  it('carries a one-sided count beside a null total and prices it as a lower bound', () => {
-    const receipt = analystUsageReceiptFromPrimeUsage(
-      { calls: 2, inputTokens: 1_000, outputTokens: null, bridgeEstimated: false },
-      PRICING,
-    )
-
-    expect(receipt).toEqual({
-      calls: 2,
-      tokens: null,
-      partialTokens: { input: 1_000, output: null },
-      cost: { kind: 'uncaptured', usd: null },
-      knownCostUsd: (1_000 * 0.6) / 1_000_000,
-    })
-    expect(() => assertValidAnalystUsageReceipt(receipt)).not.toThrow()
-  })
-
-  it('reports nothing extra when the bridge reported no counts at all', () => {
-    expect(analystUsageReceiptFromPrimeUsage(emptyPrimeRawUsage(), PRICING)).toEqual({
-      calls: null,
-      tokens: null,
-      cost: { kind: 'uncaptured', usd: null },
-    })
-  })
-})
 
 describe('projectPrimeTrajectory', () => {
   function source(

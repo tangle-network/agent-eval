@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { decodeRawFindingArray, describeRejectedRows, MAX_FINDING_ROWS } from './finding-codec'
+import { decodeRawFindingArray, MAX_FINDING_ROWS } from './finding-codec'
 
 const CORPUS_DIR = join(__dirname, '../../tests/fixtures/finding-codec')
 
@@ -89,9 +89,4 @@ describe('shapes a model actually emits', () => {
   })
 })
 
-describe('describeRejectedRows', () => {
-  it('names each refused row and field so a repair turn gets the exact defect', () => {
-    const { rejected } = decodeRawFindingArray([{ claim: 'no evidence' }])
-    expect(describeRejectedRows(rejected)).toMatch(/^row 0 field 'severity': /)
-  })
-})
+

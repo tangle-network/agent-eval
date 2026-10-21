@@ -10,42 +10,14 @@
  * `./search-shipper.ts`.
  */
 
-export {
-  createHostedClient,
-  type HostedClient,
-  HostedRequestError,
-  type HostedTenant,
-  hostedClientFromEnv,
-  hostedTenantFromEnv,
-  type SearchLedgerIngestOutcome,
-} from './client'
+export { createHostedClient, type HostedClient, type HostedTenant, hostedClientFromEnv, hostedTenantFromEnv, type SearchLedgerIngestOutcome } from './client'
 export {
   IngestResponseSchema,
   IngestTracesRequestSchema,
   TraceSpanEventSchema,
   UnixNanoTimestampSchema,
 } from './schemas'
-export {
-  type AdmitSearchLedgerBatchInput,
-  admitSearchLedgerBatch,
-  type IngestSearchLedgerRequest,
-  IngestSearchLedgerRequestSchema,
-  SEARCH_LEDGER_BATCH_MAX_BYTES,
-  SEARCH_LEDGER_BATCH_MAX_LINES,
-  SEARCH_LEDGER_INGEST_PATH,
-  type SearchBlobPutResponse,
-  SearchBlobPutResponseSchema,
-  type SearchLedgerBatchAdmission,
-  type SearchLedgerConflict,
-  SearchLedgerConflictSchema,
-  type SearchLedgerHead,
-  SearchLedgerHeadSchema,
-  type SearchRunKind,
-  SearchRunKindSchema,
-  searchBlobPath,
-  searchLedgerArtifactRefs,
-  searchLedgerHeadPath,
-} from './search-ledger-wire'
+export { type AdmitSearchLedgerBatchInput, admitSearchLedgerBatch, type IngestSearchLedgerRequest, IngestSearchLedgerRequestSchema, SEARCH_LEDGER_BATCH_MAX_BYTES, SEARCH_LEDGER_INGEST_PATH, type SearchBlobPutResponse, SearchBlobPutResponseSchema, type SearchLedgerBatchAdmission, type SearchLedgerConflict, SearchLedgerConflictSchema, type SearchLedgerHead, SearchLedgerHeadSchema, type SearchRunKind } from './search-ledger-wire'
 export {
   SearchShipConflictError,
   type SearchShipMissingBlob,

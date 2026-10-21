@@ -2,8 +2,8 @@ import type { AgentProfileCell, AgentProfileJson } from '../agent-profile-cell'
 import { validateAgentProfileCell } from '../agent-profile-cell'
 import { ValidationError } from '../errors'
 import { hashCanonical } from '../ledger-core/canonical'
-import { type FindingSubject, parseFindingSubject } from './finding-subject'
-import { assertNoJudgeVerdict } from './steer-firewall'
+
+
 import type { AnalystFinding, EvidenceRef } from './types'
 
 export type PolicyEditSchemaVersion = 'policy-edit/v1'
@@ -99,7 +99,7 @@ export interface PolicyEdit {
   metadata?: Record<string, unknown>
 }
 
-export const POLICY_EDIT_CANDIDATE_RECORD_SCHEMA = 'tangle.policy-edit-candidate.v1' as const
+const POLICY_EDIT_CANDIDATE_RECORD_SCHEMA = 'tangle.policy-edit-candidate.v1' as const
 
 /** JSON-safe attribution carried with a measured candidate and its scores. */
 export interface PolicyEditCandidateRecord {
@@ -112,7 +112,7 @@ export type PolicyEditInit = Omit<PolicyEdit, 'schemaVersion' | 'editId'> & {
   editId?: string
 }
 
-export class PolicyEditValidationError extends ValidationError {
+class PolicyEditValidationError extends ValidationError {
   readonly path: string
   constructor(message: string, path = '') {
     super(path ? `${message} (at ${path})` : message)
@@ -143,30 +143,19 @@ export interface PolicyEditAdmission {
   reasons: string[]
 }
 
-const DEFAULT_MIN_SCORE = 0.7
-const DEFAULT_MIN_EXPECTED_GAIN = 0.01
+
+
 const POLICY_EDIT_ID = /^policy-edit:sha256:[0-9a-f]{64}$/
 
-export function makePolicyEdit(init: PolicyEditInit): PolicyEdit {
-  const normalized = normalizePolicyEdit({
-    schemaVersion: 'policy-edit/v1',
-    ...init,
-    source: normalizeSource(init.source),
-  })
-  const edit = {
-    ...normalized,
-    editId: init.editId ?? computePolicyEditId(normalized),
-  }
-  return validatePolicyEdit(edit)
-}
 
-export function computePolicyEditId(edit: Omit<PolicyEdit, 'editId'> | PolicyEdit): string {
+
+function computePolicyEditId(edit: Omit<PolicyEdit, 'editId'> | PolicyEdit): string {
   const { editId: _editId, schemaVersion, ...material } = edit as PolicyEdit
   void _editId
   return `policy-edit:${hashCanonical({ schemaVersion, ...material })}`
 }
 
-export function validatePolicyEdit(input: unknown): PolicyEdit {
+function validatePolicyEdit(input: unknown): PolicyEdit {
   if (input === null || typeof input !== 'object') {
     throw new PolicyEditValidationError('expected object')
   }
@@ -206,7 +195,7 @@ export function makePolicyEditCandidateRecord(edit: PolicyEdit): PolicyEditCandi
   })
 }
 
-export function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCandidateRecord {
+function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCandidateRecord {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new PolicyEditValidationError('expected object', 'candidateRecord')
   }
@@ -225,462 +214,41 @@ export function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCan
   }
 }
 
-export function policyEditsFromFindings(
-  findings: ReadonlyArray<AnalystFinding>,
-  opts: FindingToPolicyEditOptions = {},
-): PolicyEdit[] {
-  assertNoJudgeVerdict(findings, 'policyEditsFromFindings')
-  const edits: PolicyEdit[] = []
-  for (const finding of findings) {
-    const edit = policyEditFromFinding(finding, opts)
-    if (edit) edits.push(edit)
-  }
-  return edits
-}
 
-function policyEditFromFinding(
-  finding: AnalystFinding,
-  opts: FindingToPolicyEditOptions = {},
-): PolicyEdit | null {
-  assertNoJudgeVerdict([finding], 'policyEditFromFinding')
-  if (!finding.recommended_action?.trim()) return null
 
-  const expectedGain = resolveExpectedGain(finding, opts)
-  if (!expectedGain) return null
-  // A confidence outside [0,1] is a malformed model-produced row: skip the
-  // finding rather than let one poisoned row abort the whole batch.
-  if (
-    typeof finding.confidence !== 'number' ||
-    !Number.isFinite(finding.confidence) ||
-    finding.confidence < 0 ||
-    finding.confidence > 1
-  ) {
-    return null
-  }
 
-  const routed = routeFindingSubject(finding.subject, opts)
-  const risk = resolveRisk(finding, opts)
-  return makePolicyEdit({
-    axis: routed.axis,
-    target: routed.target,
-    change: { kind: 'text', mode: 'append', value: finding.recommended_action.trim() },
-    claim: finding.claim,
-    rationale: finding.rationale,
-    expectedGain,
-    confidence: finding.confidence,
-    risk,
-    validationPlan: finding.validation_plan,
-    source: {
-      findingIds: [finding.finding_id],
-      analystIds: [finding.analyst_id],
-      evidenceRefs: finding.evidence_refs,
-      derivedFromJudge: finding.derived_from_judge,
-    },
-  })
-}
 
-function scorePolicyEditReadiness(
-  edit: PolicyEdit,
-  opts: PolicyEditAdmissionOptions = {},
-): number {
-  validatePolicyEdit(edit)
-  const minExpectedGain = opts.minExpectedGain ?? DEFAULT_MIN_EXPECTED_GAIN
-  const requireEvidence = opts.requireEvidence ?? false
-  const evidenceScore = Math.min(1, edit.source.evidenceRefs.length / 2)
-  const confidenceScore = clamp01(edit.confidence)
-  const gainScore = clamp01(
-    Math.abs(edit.expectedGain.amount) / Math.max(minExpectedGain * 5, 0.001),
-  )
-  const targetScore = targetSpecificityScore(edit)
-  const riskPenalty =
-    edit.risk === 'high' && opts.allowHighRisk !== true ? 0.35 : edit.risk === 'unknown' ? 0.2 : 0
 
-  // Evidence weighs into the base score only when the caller requires it.
-  // Otherwise it is a bonus on top: the steer firewall's discriminator is
-  // provenance, and an evidence-less trace observation must be able to clear
-  // the default bar on confidence, gain, and target specificity alone.
-  const base = requireEvidence
-    ? 0.3 * evidenceScore + 0.25 * confidenceScore + 0.25 * gainScore + 0.2 * targetScore
-    : 0.35 * confidenceScore + 0.35 * gainScore + 0.3 * targetScore + 0.1 * evidenceScore
-  return clamp01(base - riskPenalty)
-}
 
-export function admitPolicyEdit(
-  edit: PolicyEdit,
-  opts: PolicyEditAdmissionOptions = {},
-): PolicyEditAdmission {
-  const validated = validatePolicyEdit(edit)
-  const score = scorePolicyEditReadiness(validated, opts)
-  const reasons: string[] = []
-  const minExpectedGain = opts.minExpectedGain ?? DEFAULT_MIN_EXPECTED_GAIN
-  // Default OFF, matching the steer firewall: the admission discriminator is
-  // PROVENANCE (derivedFromJudge), not evidence presence — an evidence-less
-  // trace-analyst observation is a legitimate edit source. Callers opt IN to
-  // an evidence requirement where their domain demands citations.
-  const requireEvidence = opts.requireEvidence ?? false
 
-  if (validated.source.derivedFromJudge) {
-    reasons.push('source is judge-derived; judge verdicts cannot steer policy edits')
-  }
-  if (requireEvidence && validated.source.evidenceRefs.length === 0) {
-    reasons.push('missing evidence refs')
-  }
-  if (Math.abs(validated.expectedGain.amount) < minExpectedGain) {
-    reasons.push(`expected gain below ${minExpectedGain}`)
-  }
-  if (validated.risk === 'high' && opts.allowHighRisk !== true) {
-    reasons.push('high-risk edit requires explicit allowHighRisk')
-  }
-  if (score < (opts.minScore ?? DEFAULT_MIN_SCORE)) {
-    reasons.push(
-      `readiness score ${score.toFixed(3)} below ${(opts.minScore ?? DEFAULT_MIN_SCORE).toFixed(3)}`,
-    )
-  }
 
-  return {
-    edit: validated,
-    decision: reasons.length === 0 ? 'admit' : 'reject',
-    score,
-    reasons,
-  }
-}
 
-export function applyPolicyEditToSurface(surface: unknown, edit: PolicyEdit): unknown {
-  const validated = validatePolicyEdit(edit)
-  if (validated.change.kind === 'text') return applyTextChange(surface, validated.change)
-  return applyJsonChange(surface, validated.change)
-}
 
-function routeFindingSubject(
-  subject: string | undefined,
-  opts: FindingToPolicyEditOptions,
-): { axis: PolicyEditAxis; target: PolicyEditTarget } {
-  const parsed = parseFindingSubject(subject)
-  if (!parsed) {
-    return {
-      axis: opts.defaultAxis ?? 'representation',
-      target: { surface: opts.defaultTargetSurface ?? 'prompt' },
-    }
-  }
-  return routeParsedSubject(parsed)
-}
 
-function routeParsedSubject(subject: FindingSubject): {
-  axis: PolicyEditAxis
-  target: PolicyEditTarget
-} {
-  switch (subject.kind) {
-    case 'system-prompt':
-      return {
-        axis: 'representation',
-        target: { surface: 'prompt', path: `system-prompt:${subject.section}` },
-      }
-    case 'skill':
-      return {
-        axis: 'agent_profile',
-        target: { surface: 'agent-profile', path: `skill:${subject.name}` },
-      }
-    case 'tool-doc':
-      return {
-        axis: 'tool_contract',
-        target: {
-          surface: 'tool-contract',
-          path: subject.aspect
-            ? `tool-doc:${subject.tool}:${subject.aspect}`
-            : `tool-doc:${subject.tool}`,
-        },
-      }
-    case 'new-tool':
-      return {
-        axis: 'tool_contract',
-        target: { surface: 'tool-contract', path: `new-tool:${subject.name}` },
-      }
-    case 'mcp':
-      return {
-        axis: 'tool_contract',
-        target: {
-          surface: 'agent-profile',
-          path: subject.tool ? `mcp:${subject.server}:${subject.tool}` : `mcp:${subject.server}`,
-        },
-      }
-    case 'hook':
-      return {
-        axis: 'agent_profile',
-        target: { surface: 'agent-profile', path: `hook:${subject.name}` },
-      }
-    case 'subagent':
-      return {
-        axis: 'routing',
-        target: { surface: 'agent-profile', path: `subagent:${subject.name}` },
-      }
-    case 'workflow':
-      return {
-        axis: 'routing',
-        target: { surface: 'runtime-config', path: `workflow:${subject.name}` },
-      }
-    case 'rollout-policy':
-      return {
-        axis: rolloutPolicyAxis(subject.field),
-        target: { surface: 'runtime-config', path: `rollout-policy:${subject.field}` },
-      }
-    case 'agent-profile':
-      return {
-        axis: 'agent_profile',
-        target: { surface: 'agent-profile', path: `agent-profile:${subject.field}` },
-      }
-    case 'code':
-      return {
-        axis: 'representation',
-        target: { surface: 'code', path: `code:${subject.path}` },
-      }
-    case 'rag':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `rag:${subject.corpus}:${subject.docId}` },
-      }
-    case 'memory':
-      return { axis: 'memory', target: { surface: 'memory', path: `memory:${subject.key}` } }
-    case 'scaffolding':
-      return {
-        axis: 'routing',
-        target: { surface: 'runtime-config', path: `scaffolding:${subject.concern}` },
-      }
-    case 'output-schema':
-      return {
-        axis: 'output_contract',
-        target: { surface: 'runtime-config', path: `output-schema:${subject.field}` },
-      }
-    case 'knowledge.wiki':
-      return {
-        axis: 'memory',
-        target: {
-          surface: 'memory',
-          path: `agent-knowledge:wiki:${subject.slug}${subject.heading ? `#${subject.heading}` : ''}`,
-        },
-      }
-    case 'knowledge.claim':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `agent-knowledge:claim:${subject.topic}` },
-      }
-    case 'knowledge.raw':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `agent-knowledge:raw:${subject.sourceId}` },
-      }
-    case 'knowledge.stale':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `agent-knowledge:stale:${subject.slug}` },
-      }
-    case 'websearch.outdated':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `websearch:outdated:${subject.topic}` },
-      }
-    case 'prior-run-summary':
-      return {
-        axis: 'memory',
-        target: { surface: 'memory', path: `prior-run-summary:${subject.topic}` },
-      }
-    case 'cluster':
-      return { axis: 'representation', target: { surface: 'prompt', path: subject.label } }
-  }
-}
 
-function rolloutPolicyAxis(field: string): PolicyEditAxis {
-  const normalized = field.toLowerCase()
-  if (/budget|max(?:imum)?[-_. ]?(?:turns?|tokens?|cost)|timeout|deadline/.test(normalized)) {
-    return 'budget'
-  }
-  if (/temperature|top[-_. ]?p|sampling|seed|shots?|parallel|concurrency/.test(normalized)) {
-    return 'sampling'
-  }
-  if (/output|schema|format/.test(normalized)) return 'output_contract'
-  return 'routing'
-}
 
-function resolveExpectedGain(
-  finding: AnalystFinding,
-  opts: FindingToPolicyEditOptions,
-): PolicyEditExpectedGain | null {
-  if (typeof opts.expectedGain === 'function') return opts.expectedGain(finding) ?? null
-  if (opts.expectedGain) return opts.expectedGain
-  return readExpectedGainFromMetadata(finding.metadata)
-}
 
-function readExpectedGainFromMetadata(
-  metadata: Record<string, unknown> | undefined,
-): PolicyEditExpectedGain | null {
-  const raw =
-    readPolicyEditMetadata(metadata)?.expectedGain ??
-    readPolicyEditMetadata(metadata)?.expected_gain
-  if (!raw || typeof raw !== 'object') return null
-  const obj = raw as Record<string, unknown>
-  // Metadata is model-produced. A malformed row degrades to null (the finding
-  // is skipped) instead of throwing, so one poisoned row cannot abort the
-  // whole batch — the same contract as a finding with no expected gain.
-  if (
-    typeof obj.metric !== 'string' ||
-    (obj.direction !== 'increase' && obj.direction !== 'decrease') ||
-    typeof obj.amount !== 'number' ||
-    !Number.isFinite(obj.amount) ||
-    obj.amount <= 0
-  ) {
-    return null
-  }
-  const out: PolicyEditExpectedGain = {
-    metric: obj.metric,
-    direction: obj.direction,
-    amount: obj.amount,
-  }
-  if (
-    obj.unit === 'absolute' ||
-    obj.unit === 'relative' ||
-    obj.unit === 'percent' ||
-    obj.unit === 'score'
-  ) {
-    out.unit = obj.unit
-  }
-  if (typeof obj.rationale === 'string') out.rationale = obj.rationale
-  return out
-}
 
-function readPolicyEditMetadata(
-  metadata: Record<string, unknown> | undefined,
-): Record<string, unknown> | null {
-  const raw = metadata?.policyEdit ?? metadata?.policy_edit
-  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
-}
 
-function resolveRisk(finding: AnalystFinding, opts: FindingToPolicyEditOptions): PolicyEditRisk {
-  if (typeof opts.risk === 'function') return opts.risk(finding)
-  if (opts.risk) return opts.risk
-  const raw = readPolicyEditMetadata(finding.metadata)?.risk
-  if (raw === 'low' || raw === 'medium' || raw === 'high' || raw === 'unknown') return raw
-  if (finding.severity === 'critical' || finding.severity === 'high') return 'medium'
-  return 'low'
-}
 
-function applyTextChange(
-  surface: unknown,
-  change: Extract<PolicyEditChange, { kind: 'text' }>,
-): string {
-  if (typeof surface !== 'string') {
-    throw new PolicyEditValidationError('text policy edits require a string surface', 'change')
-  }
-  if (change.mode === 'append') {
-    if (hasExactTextBlock(surface, change.value)) return surface
-    return `${surface.trimEnd()}\n\n${change.value}`.trimStart()
-  }
-  if (change.mode === 'prepend') {
-    if (hasExactTextBlock(surface, change.value)) return surface
-    return `${change.value}\n\n${surface.trimStart()}`.trimEnd()
-  }
-  const find = expectNonEmpty(change.find, 'change.find')
-  if (!surface.includes(find)) {
-    throw new PolicyEditValidationError('replace target not found in surface', 'change.find')
-  }
-  return surface.replace(find, change.value)
-}
 
-function applyJsonChange(
-  surface: unknown,
-  change: Extract<PolicyEditChange, { kind: 'json' }>,
-): AgentProfileJson {
-  const root = parseJsonSurface(surface)
-  const path = splitPath(change.path)
-  if (change.mode === 'remove') return setJsonAtPath(root, path, undefined, 'remove')
-  if (change.mode === 'set') return setJsonAtPath(root, path, change.value ?? null, 'set')
-  const prior = readJsonAtPath(root, path)
-  const merged =
-    prior &&
-    typeof prior === 'object' &&
-    !Array.isArray(prior) &&
-    change.value &&
-    typeof change.value === 'object' &&
-    !Array.isArray(change.value)
-      ? { ...prior, ...change.value }
-      : (change.value ?? null)
-  return setJsonAtPath(root, path, merged as AgentProfileJson, 'set')
-}
 
-function parseJsonSurface(surface: unknown): AgentProfileJson {
-  if (typeof surface === 'string') {
-    try {
-      return JSON.parse(surface) as AgentProfileJson
-    } catch {
-      throw new PolicyEditValidationError(
-        'json policy edits require a JSON string surface',
-        'change',
-      )
-    }
-  }
-  assertJson(surface, 'surface')
-  return surface as AgentProfileJson
-}
 
-function readJsonAtPath(root: AgentProfileJson, path: string[]): AgentProfileJson | undefined {
-  let cursor: AgentProfileJson | undefined = root
-  for (const part of path) {
-    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) return undefined
-    cursor = cursor[part]
-  }
-  return cursor
-}
 
-function setJsonAtPath(
-  root: AgentProfileJson,
-  path: string[],
-  value: AgentProfileJson | undefined,
-  mode: 'set' | 'remove',
-): AgentProfileJson {
-  if (path.length === 0) {
-    if (mode === 'remove') return null
-    return value ?? null
-  }
-  if (root === null || typeof root !== 'object' || Array.isArray(root)) {
-    throw new PolicyEditValidationError('json edit root must be an object', 'change.path')
-  }
-  const out: Record<string, AgentProfileJson> = { ...root }
-  let cursor: Record<string, AgentProfileJson> = out
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]!
-    const existing = cursor[key]
-    if (
-      mode === 'remove' &&
-      (!existing || typeof existing !== 'object' || Array.isArray(existing))
-    ) {
-      return out
-    }
-    const next =
-      existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
-    cursor[key] = next
-    cursor = next
-  }
-  const leaf = path[path.length - 1]!
-  if (mode === 'remove') delete cursor[leaf]
-  else cursor[leaf] = value ?? null
-  return out
-}
 
-function normalizePolicyEdit(input: Omit<PolicyEdit, 'editId'>): Omit<PolicyEdit, 'editId'> {
-  const out: Omit<PolicyEdit, 'editId'> = {
-    schemaVersion: 'policy-edit/v1',
-    axis: input.axis,
-    target: normalizeTarget(input.target),
-    change: normalizeChange(input.change),
-    claim: input.claim.trim(),
-    expectedGain: normalizeExpectedGain(input.expectedGain),
-    confidence: input.confidence,
-    risk: input.risk,
-    source: normalizeSource(input.source),
-  }
-  if (input.rationale?.trim()) out.rationale = input.rationale.trim()
-  if (input.validationPlan?.trim()) out.validationPlan = input.validationPlan.trim()
-  if (input.metadata) out.metadata = input.metadata
-  return out
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<object>()): void {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return
@@ -717,54 +285,13 @@ function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<ob
   ancestors.delete(value)
 }
 
-function normalizeTarget(target: PolicyEditTarget): PolicyEditTarget {
-  const out: PolicyEditTarget = { surface: target.surface }
-  if (target.path?.trim()) out.path = target.path.trim()
-  if (target.agentProfileCell)
-    out.agentProfileCell = validateAgentProfileCell(target.agentProfileCell)
-  if (target.label?.trim()) out.label = target.label.trim()
-  return out
-}
 
-function normalizeChange(change: PolicyEditChange): PolicyEditChange {
-  if (change.kind === 'text') {
-    const out: Extract<PolicyEditChange, { kind: 'text' }> = {
-      kind: 'text',
-      mode: change.mode,
-      value: change.value.trim(),
-    }
-    if (change.find?.trim()) out.find = change.find.trim()
-    return out
-  }
-  const out: Extract<PolicyEditChange, { kind: 'json' }> = {
-    kind: 'json',
-    mode: change.mode,
-    path: change.path.trim(),
-  }
-  if (change.value !== undefined) out.value = change.value
-  return out
-}
 
-function normalizeExpectedGain(gain: PolicyEditExpectedGain): PolicyEditExpectedGain {
-  const out: PolicyEditExpectedGain = {
-    metric: gain.metric.trim(),
-    direction: gain.direction,
-    amount: gain.amount,
-  }
-  if (gain.unit) out.unit = gain.unit
-  if (gain.rationale?.trim()) out.rationale = gain.rationale.trim()
-  return out
-}
 
-function normalizeSource(source: PolicyEditSource): PolicyEditSource {
-  const out: PolicyEditSource = {
-    findingIds: uniqueSorted(source.findingIds.map((s) => s.trim()).filter(Boolean)),
-    analystIds: uniqueSorted(source.analystIds.map((s) => s.trim()).filter(Boolean)),
-    evidenceRefs: source.evidenceRefs,
-  }
-  if (source.derivedFromJudge) out.derivedFromJudge = true
-  return out
-}
+
+
+
+
 
 function validateTarget(target: unknown): asserts target is PolicyEditTarget {
   if (!target || typeof target !== 'object')
@@ -864,14 +391,7 @@ function assertJson(value: unknown, path: string): asserts value is AgentProfile
   throw new PolicyEditValidationError('expected JSON-compatible value', path)
 }
 
-function targetSpecificityScore(edit: PolicyEdit): number {
-  let score = 0.4
-  if (edit.target.path) score += 0.25
-  if (edit.target.agentProfileCell) score += 0.15
-  if (edit.change.kind === 'json' || edit.change.mode === 'replace') score += 0.2
-  else if (edit.change.value.length > 0) score += 0.1
-  return clamp01(score)
-}
+
 
 // Assigning through these keys on a plain object mutates the prototype chain
 // instead of writing an own property: the edit silently no-ops after
@@ -911,10 +431,7 @@ function expectString(value: unknown, path: string): asserts value is string {
   }
 }
 
-function expectNonEmpty(value: unknown, path: string): string {
-  expectString(value, path)
-  return value
-}
+
 
 function expectConfidence(value: unknown, path: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
@@ -922,17 +439,9 @@ function expectConfidence(value: unknown, path: string): asserts value is number
   }
 }
 
-function hasExactTextBlock(surface: string, value: string): boolean {
-  const needle = normalizeTextBlock(value)
-  const normalizedSurface = surface.replace(/\r\n/g, '\n')
-  return [...normalizedSurface.split(/\n{2,}/), ...normalizedSurface.split('\n')].some(
-    (block) => normalizeTextBlock(block) === needle,
-  )
-}
 
-function normalizeTextBlock(value: string): string {
-  return value.replace(/\r\n/g, '\n').trim()
-}
+
+
 
 function expectOneOf<const T extends readonly string[]>(
   value: unknown,
@@ -954,13 +463,6 @@ function expectNonEmptyStringArray(value: unknown, path: string): asserts value 
   if (value.length === 0) throw new PolicyEditValidationError('expected non-empty array', path)
 }
 
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values)].sort()
-}
 
-function clamp01(n: number): number {
-  if (!Number.isFinite(n)) return 0
-  if (n < 0) return 0
-  if (n > 1) return 1
-  return n
-}
+
+

@@ -21,7 +21,8 @@ import { contentHash } from './verdict-cache'
 
 export * from './evaluation'
 export * from './systemone-domain-match'
-export * from './systemone-protocol'
+export { SystemOneResponseError, normalizeSystemOneResult, parseSystemOneRecordedRequest, parseSystemOneRequest, parseSystemOneResult, systemOneConfidence, systemOneUsage } from './systemone-protocol'
+export type { SystemOneAnswer, SystemOneAnswerFor, SystemOneDescription, SystemOneJson, SystemOneQuestion, SystemOneQuestions, SystemOneRecordedQuestion, SystemOneRecordedQuestions, SystemOneRecordedRequest, SystemOneRequest, SystemOneResult, SystemOneResultProfile, SystemOneScoreCriteria, SystemOneState } from './systemone-protocol'
 export * from './systemone-review'
 
 export type SystemOneEvaluate = EvaluatorOptions<SystemOneRequest, unknown>['execute']

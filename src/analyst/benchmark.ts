@@ -2,11 +2,9 @@ import { performance } from 'node:perf_hooks'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { assertValidAnalystScoringCase, scoreAnalystFindings } from './benchmark-scoring'
 import { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
-import type { AnalystRegistry, RegistryRunOpts } from './registry'
+
 import type {
   AnalystFinding,
-  AnalystRunInputs,
-  AnalystRunResult,
   AnalystUsageReceipt,
   EvidenceRef,
 } from './types'
@@ -331,30 +329,7 @@ export async function runAnalystBenchmark<TInput>(
   }
 }
 
-export function registryBenchmarkRunner(options: {
-  id: string
-  registry: AnalystRegistry
-  runOptions?: Omit<RegistryRunOpts, 'signal'>
-  /** Count any selected analyst failure as a failed benchmark run. */
-  failOnAnalystFailure?: boolean
-}): AnalystBenchmarkRunner<AnalystRunInputs> {
-  return {
-    id: options.id,
-    async analyze(input, context) {
-      const result = await options.registry.run(
-        `${options.id}:${context.caseId}:${context.repetition}`,
-        input,
-        { ...options.runOptions, signal: context.signal },
-      )
-      return {
-        findings: result.findings,
-        usage: mergeRegistryUsage(result),
-        metadata: { analystRun: result },
-        ...(options.failOnAnalystFailure ? { error: registryRunFailure(result) } : {}),
-      }
-    },
-  }
-}
+
 
 async function runBenchmarkJob<TInput>(
   job: {
@@ -440,19 +415,7 @@ function resolveBenchmarkLatency(
   return { value: observedLatencyMs, source: 'runner-reported' }
 }
 
-function registryRunFailure(result: AnalystRunResult): AnalystBenchmarkOutput['error'] | undefined {
-  const failed = result.per_analyst.filter((summary) => summary.status === 'failed')
-  if (failed.length === 0) return undefined
-  return {
-    class: 'AnalystRunFailure',
-    message: failed
-      .map(
-        (summary) =>
-          `${summary.analyst_id}: ${summary.error?.class ?? 'Error'}: ${summary.error?.message ?? 'analyst failed'}`,
-      )
-      .join('; '),
-  }
-}
+
 
 function benchmarkJobs<TInput>(
   cases: readonly AnalystBenchmarkCase<TInput>[],
@@ -705,37 +668,4 @@ function stableHash(value: string): number {
   return hash >>> 0
 }
 
-function mergeRegistryUsage(result: AnalystRunResult): AnalystUsageReceipt {
-  const usages = result.per_analyst.map((summary) => summary.usage)
-  const calls = usages.every((usage) => usage.calls !== null)
-    ? usages.reduce((sum, usage) => sum + (usage.calls ?? 0), 0)
-    : null
-  const tokens = usages.every((usage) => usage.tokens !== null)
-    ? usages.reduce(
-        (sum, usage) => ({
-          input: sum.input + (usage.tokens?.input ?? 0),
-          output: sum.output + (usage.tokens?.output ?? 0),
-          reasoning: sum.reasoning + (usage.tokens?.reasoning ?? 0),
-          cached: sum.cached + (usage.tokens?.cached ?? 0),
-          cacheWrite: sum.cacheWrite + (usage.tokens?.cacheWrite ?? 0),
-        }),
-        { input: 0, output: 0, reasoning: 0, cached: 0, cacheWrite: 0 },
-      )
-    : null
-  const knownCostUsd = usages.reduce(
-    (sum, usage) =>
-      sum + (usage.cost.kind === 'uncaptured' ? (usage.knownCostUsd ?? 0) : usage.cost.usd),
-    0,
-  )
-  const cost = usages.some((usage) => usage.cost.kind === 'uncaptured')
-    ? ({ kind: 'uncaptured', usd: null } as const)
-    : usages.some((usage) => usage.cost.kind === 'estimated')
-      ? ({ kind: 'estimated', usd: knownCostUsd } as const)
-      : ({ kind: 'observed', usd: knownCostUsd } as const)
-  return {
-    calls,
-    tokens,
-    cost,
-    ...(cost.kind === 'uncaptured' ? { knownCostUsd } : {}),
-  }
-}
+

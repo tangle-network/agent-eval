@@ -190,7 +190,7 @@ export function otlpRowsToRunRecords(
 }
 
 /** As {@link otlpToRunRecords} but returns the prompt/completion text too. */
-export function otlpToTraceRunRecords(
+function otlpToTraceRunRecords(
   otlpJsonl: string,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {

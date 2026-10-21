@@ -47,7 +47,7 @@ const NODE_PREFIX = 0x01
 const encoder = new TextEncoder()
 
 /** Root of the empty tree: SHA-256 of no bytes. */
-export const MERKLE_EMPTY_ROOT: LedgerHash = sha256Bytes(new Uint8Array(0)) as LedgerHash
+const MERKLE_EMPTY_ROOT: LedgerHash = sha256Bytes(new Uint8Array(0)) as LedgerHash
 
 /** A fresh random salt for {@link merkleLeafHash}: 32 bytes as 64 lowercase hex characters. */
 export function merkleSalt(): string {
@@ -89,24 +89,7 @@ export function merkleInclusionProof(
   return { leafIndex, treeSize: nodes.length, path: path.map(toLedgerHash) }
 }
 
-/**
- * Consistency proof that the first `oldSize` leaves are the tree of that size
- * (RFC 9162 §2.1.4.1). Sizes 0 and `leaves.length` need no path.
- */
-export function merkleConsistencyProof(
-  leaves: readonly LedgerHash[],
-  oldSize: number,
-): MerkleConsistencyProof {
-  const nodes = decodeLeaves(leaves)
-  if (!Number.isSafeInteger(oldSize) || oldSize < 0 || oldSize > nodes.length) {
-    throw new ValidationError(
-      `merkle old size ${oldSize} is outside a tree of ${nodes.length} leaves`,
-    )
-  }
-  const path: Uint8Array[] = []
-  if (oldSize > 0 && oldSize < nodes.length) subproof(nodes, oldSize, 0, nodes.length, true, path)
-  return { oldSize, newSize: nodes.length, path: path.map(toLedgerHash) }
-}
+
 
 /** Check that `leaf` is in the tree with `root` at the proof's index (RFC 9162 §2.1.3.2). */
 export function verifyMerkleInclusion(
@@ -144,62 +127,7 @@ export function verifyMerkleInclusion(
   return equal(r, rootBytes) ? { verified: true } : refused('leaf does not hash to the root')
 }
 
-/** Check that the tree with `newRoot` extends the tree with `oldRoot` (RFC 9162 §2.1.4.2). */
-export function verifyMerkleConsistency(
-  proof: MerkleConsistencyProof,
-  oldRoot: LedgerHash,
-  newRoot: LedgerHash,
-): MerkleVerification {
-  const { oldSize, newSize } = proof
-  if (!isSize(oldSize) || !isSize(newSize) || oldSize > newSize) {
-    return refused(`old size ${oldSize} does not precede new size ${newSize}`)
-  }
-  const decoded = decodeAll([oldRoot, newRoot, ...proof.path])
-  if (decoded === undefined) return refused('proof carries a malformed hash')
-  const [oldBytes, newBytes, ...given] = decoded as [Uint8Array, Uint8Array, ...Uint8Array[]]
-  if (oldSize === 0 || oldSize === newSize) {
-    if (given.length !== 0) return refused('a trivial consistency proof must be empty')
-    if (oldSize === 0) {
-      return oldRoot === MERKLE_EMPTY_ROOT
-        ? { verified: true }
-        : refused('the empty tree has a different root')
-    }
-    return equal(oldBytes, newBytes)
-      ? { verified: true }
-      : refused('equal sizes with different roots')
-  }
-  const path = isPowerOfTwo(oldSize) ? [oldBytes, ...given] : given
-  if (path.length === 0) return refused('consistency proof is empty')
-  let fn = oldSize - 1
-  let sn = newSize - 1
-  while (fn % 2 === 1) {
-    fn = Math.floor(fn / 2)
-    sn = Math.floor(sn / 2)
-  }
-  let fr = path[0] as Uint8Array
-  let sr = fr
-  for (const c of path.slice(1)) {
-    if (sn === 0) return refused('proof path is longer than the tree is deep')
-    if (fn % 2 === 1 || fn === sn) {
-      fr = node(c, fr)
-      sr = node(c, sr)
-      if (fn % 2 === 0) {
-        while (fn % 2 === 0 && fn !== 0) {
-          fn = Math.floor(fn / 2)
-          sn = Math.floor(sn / 2)
-        }
-      }
-    } else {
-      sr = node(sr, c)
-    }
-    fn = Math.floor(fn / 2)
-    sn = Math.floor(sn / 2)
-  }
-  if (sn !== 0) return refused('proof path is shorter than the tree is deep')
-  if (!equal(fr, oldBytes)) return refused('proof does not rebuild the old root')
-  if (!equal(sr, newBytes)) return refused('proof does not rebuild the new root')
-  return { verified: true }
-}
+
 
 function subtreeRoot(nodes: readonly Uint8Array[], start: number, end: number): Uint8Array {
   if (end - start === 1) return nodes[start] as Uint8Array
@@ -225,27 +153,7 @@ function inclusionPath(
   }
 }
 
-function subproof(
-  nodes: readonly Uint8Array[],
-  oldSize: number,
-  start: number,
-  end: number,
-  complete: boolean,
-  path: Uint8Array[],
-): void {
-  if (end - start === oldSize) {
-    if (!complete) path.push(subtreeRoot(nodes, start, end))
-    return
-  }
-  const k = largestPowerOfTwoBelow(end - start)
-  if (oldSize <= k) {
-    subproof(nodes, oldSize, start, start + k, complete, path)
-    path.push(subtreeRoot(nodes, start + k, end))
-  } else {
-    subproof(nodes, oldSize - k, start + k, end, false, path)
-    path.push(subtreeRoot(nodes, start, start + k))
-  }
-}
+
 
 function node(left: Uint8Array, right: Uint8Array): Uint8Array {
   return fromHex(digest(NODE_PREFIX, left, right).slice('sha256:'.length))
@@ -290,12 +198,7 @@ function largestPowerOfTwoBelow(n: number): number {
   return k
 }
 
-function isPowerOfTwo(n: number): boolean {
-  if (n < 1) return false
-  let m = n
-  while (m % 2 === 0) m /= 2
-  return m === 1
-}
+
 
 function isSize(n: number): boolean {
   return Number.isSafeInteger(n) && n >= 0

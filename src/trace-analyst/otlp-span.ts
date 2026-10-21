@@ -165,7 +165,7 @@ export function extractOtlpAttributes(raw: Record<string, unknown>): Record<stri
   return out
 }
 
-export function rawStringField(raw: Record<string, unknown>, key: string): string | undefined {
+function rawStringField(raw: Record<string, unknown>, key: string): string | undefined {
   const v = raw[key]
   return typeof v === 'string' ? v : undefined
 }

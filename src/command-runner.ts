@@ -119,7 +119,7 @@ export interface CommandRunner {
  * runner used to be unbounded: a consumer whose command runs longer names its
  * own `capMs`, and a run the bound stops says so with `timedOut: true`.
  */
-export const LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS = DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS
+const LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS = DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS
 
 export const localCommandRunner: CommandRunner = {
   name: 'local',

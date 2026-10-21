@@ -7,7 +7,7 @@ import type {
 import { scoreAnalystFindings } from '../analyst/benchmark'
 import type { AnalystFinding, AnalystRunResult, AnalystUsageReceipt } from '../analyst/types'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from './types'
+import type { JudgeConfig, Scenario } from './types'
 
 export interface TraceAnalystScenario extends Scenario {
   kind: 'trace-analyst'
@@ -32,27 +32,7 @@ export interface BuildTraceAnalystSurfaceDispatchOptions {
   }): Promise<TraceAnalystArtifact>
 }
 
-export function buildTraceAnalystSurfaceDispatch(
-  options: BuildTraceAnalystSurfaceDispatchOptions,
-): (
-  surface: MutableSurface,
-  scenario: TraceAnalystScenario,
-  context: DispatchContext,
-) => Promise<TraceAnalystArtifact> {
-  return async (surface, scenario, context) => {
-    if (typeof surface !== 'string') {
-      throw new TypeError(
-        `buildTraceAnalystSurfaceDispatch requires a string prompt, received ${surface.kind}`,
-      )
-    }
-    return options.analyze({
-      instructions: surface,
-      traceStore: scenario.traceStore,
-      runId: `${context.cellId}:${scenario.id}`,
-      signal: context.signal,
-    })
-  }
-}
+
 
 export function traceAnalystQualityJudge(): JudgeConfig<
   TraceAnalystArtifact,

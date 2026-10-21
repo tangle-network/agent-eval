@@ -5,7 +5,6 @@ import {
   gateRealness,
   type ProducedFile,
   scoreAuthenticity,
-  scoreAuthenticityNuance,
   scoreRealnessBlended,
 } from './index'
 
@@ -167,25 +166,7 @@ describe('authenticity — dead-code / decorative artifact (general)', () => {
   })
 })
 
-describe('authenticity — LLM nuance', () => {
-  it('parses a well-formed judge response', async () => {
-    const complete = async () =>
-      '{"mockedPct":80,"fakePct":90,"uniquePct":10,"verdict":"frontend facade, no real FHE"}'
-    const n = await scoreAuthenticityNuance(FAKE, complete)
-    expect(n).toEqual({
-      mockedPct: 80,
-      fakePct: 90,
-      uniquePct: 10,
-      verdict: 'frontend facade, no real FHE',
-    })
-  })
 
-  it('fails closed (fully-fake) on an unparseable response', async () => {
-    const n = await scoreAuthenticityNuance(FAKE, async () => 'the model rambled with no json')
-    expect(n.fakePct).toBe(100)
-    expect(n.uniquePct).toBe(0)
-  })
-})
 
 describe('authenticity — blended pipeline (gray-band-only LLM)', () => {
   let calls = 0

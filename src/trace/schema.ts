@@ -10,7 +10,7 @@
  * entities that OTEL leaves as free-form attributes.
  */
 
-export const TRACE_SCHEMA_VERSION = '1.0.0'
+
 
 // ── Run ──────────────────────────────────────────────────────────────
 

@@ -50,7 +50,7 @@ export const FINDING_LAYERS = [
 export type FindingLayer = (typeof FINDING_LAYERS)[number]
 
 /** Rank on the ladder; `meta` has none. */
-export function findingLayerRank(layer: FindingLayer): number | null {
+function findingLayerRank(layer: FindingLayer): number | null {
   return layer === 'meta' ? null : FINDING_LAYERS.indexOf(layer)
 }
 

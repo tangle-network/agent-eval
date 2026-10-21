@@ -23,7 +23,7 @@ import type { AnalystFinding } from './types'
 /** True iff the finding is a JUDGE VERDICT (an acceptance score lifted into a
  *  finding), identified by provenance set at the lift site — independent of
  *  whatever evidence it cites. */
-export function isJudgeVerdict(finding: AnalystFinding): boolean {
+function isJudgeVerdict(finding: AnalystFinding): boolean {
   return finding.derived_from_judge === true
 }
 

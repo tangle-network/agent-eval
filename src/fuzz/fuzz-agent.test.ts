@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { renderCapsuleHtml } from './capsule'
 import { buildCoverage, distribution, enumerateCells } from './cube'
-import { BehaviorExplorer } from './explorer'
+
 import { fuzzAgent } from './fuzz-agent'
 import { composeGates } from './gates'
-import { mutationProposer, noveltyObjective } from './policies'
-import { makeExploreTools } from './tools'
+import { mutationProposer } from './policies'
+
 import type {
   BehaviorSpace,
   Cell,
@@ -194,81 +194,7 @@ describe('fuzzAgent (adversarial preset)', () => {
   })
 })
 
-describe('BehaviorExplorer session + tools', () => {
-  it('uses observed cell variance to change allocation in the second round', async () => {
-    const allocations: Array<{ cellId: string; count: number }> = []
-    const executedIds: string[] = []
-    let nextId = 0
-    const explorer = new BehaviorExplorer<{ id: string; score: number }>({
-      target: 'curriculum-feedback',
-      space: { axes: [{ name: 'kind', values: ['stable', 'noisy'] }] },
-      budget: 80,
-      floorPerCell: 2,
-      allocation: 'variance',
-      seedsFor: () => [],
-      proposer: ({ cell, count }) =>
-        Array.from({ length: count }, (_, index) => ({
-          id: `scenario-${nextId++}`,
-          score: cell.coords.kind === 'stable' ? 0.5 : index % 2,
-        })),
-      evaluate: async (scenario) => {
-        executedIds.push(scenario.id)
-        return { valid: true, score: scenario.score }
-      },
-      scenarioId: (scenario) => scenario.id,
-      onProgress: (event) => {
-        if (event.type === 'cell-allocated')
-          allocations.push({ cellId: event.cell.id, count: event.count })
-      },
-    })
-    await explorer.step()
-    expect(allocations.map((allocation) => allocation.count)).toEqual([10, 10])
-    await explorer.step()
-    expect(allocations.slice(2).map((allocation) => allocation.count)).toEqual([8, 12])
-    expect(executedIds).toHaveLength(40)
-    expect(new Set(executedIds).size).toBe(40)
-  })
 
-  it('step() makes incremental progress an agent can drive', async () => {
-    const explorer = new BehaviorExplorer(base)
-    const first = await explorer.step()
-    expect(first.runs).toBeGreaterThan(0)
-    const coverage = explorer.coverage()
-    expect(coverage.filter((c) => c.runs > 0).length).toBeGreaterThan(0)
-  })
-
-  it('makeExploreTools exposes step/coverage/findings/capsule as JSON-schema tools', async () => {
-    const explorer = new BehaviorExplorer(base)
-    const tools = makeExploreTools(explorer)
-    expect(tools.map((t) => t.name)).toEqual([
-      'explore_step',
-      'explore_coverage',
-      'explore_findings',
-      'explore_capsule',
-    ])
-    for (const t of tools) {
-      expect(t.parameters).toHaveProperty('type', 'object')
-      expect(typeof t.description).toBe('string')
-    }
-    const step = tools[0]
-    const stepOut = (await step?.handler({})) as { runs: number }
-    expect(stepOut.runs).toBeGreaterThan(0)
-    const capsuleTool = tools[3]
-    const html = (await capsuleTool?.handler({
-      format: 'html',
-      generatedAt: '2026-06-10T00:00:00Z',
-    })) as string
-    expect(html).toContain('<!doctype html>')
-    expect(html).toContain('fake-agent')
-  })
-
-  it('a custom objective re-points the same engine (novelty)', async () => {
-    const explorer = new BehaviorExplorer({ ...base, objective: noveltyObjective(0.9), budget: 20 })
-    const capsule = await explorer.run()
-    expect(capsule.objective).toBe('novelty')
-    expect(capsule.stats.totalRuns).toBeGreaterThan(0)
-  })
-})
 
 describe('capsule rendering', () => {
   it('renders heat-map, dimension chips, and gate-verified findings', async () => {

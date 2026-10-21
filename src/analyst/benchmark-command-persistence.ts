@@ -47,7 +47,7 @@ export interface AnalystBenchmarkOutputPaths {
   report: string
 }
 
-export const ANALYST_BENCHMARK_INITIALIZATION_COMPLETE_FILE = 'initialization-complete.json'
+const ANALYST_BENCHMARK_INITIALIZATION_COMPLETE_FILE = 'initialization-complete.json'
 
 interface AnalystBenchmarkProgress {
   observations: AnalystBenchmarkObservation[]

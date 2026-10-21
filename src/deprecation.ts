@@ -13,7 +13,4 @@ export function warnDeprecatedOnce(key: string, message: string): void {
   console.warn(`[agent-eval deprecation] ${message}`)
 }
 
-/** Test seam: forget prior warnings so once-semantics can be asserted. */
-export function resetDeprecationWarnings(): void {
-  warned.clear()
-}
+
