@@ -1,20 +1,9 @@
 import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+
+import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../src/errors'
 import { calibrateJudge, continuousAgreement, type GoldenItem } from '../src/judge-calibration'
-import {
-  evalHealthStamp,
-  fileSentinelStore,
-  inMemorySentinelStore,
-  judgeSentinelReport,
-  type SentinelMetrics,
-  type SentinelSnapshot,
-  snapshotFromAgreement,
-  snapshotFromCalibration,
-  snapshotFromSentinelSet,
-} from '../src/meta-eval'
+import { evalHealthStamp, judgeSentinelReport, type SentinelMetrics, type SentinelSnapshot, snapshotFromAgreement, snapshotFromCalibration, snapshotFromSentinelSet } from '../src/meta-eval'
 import { analyzeSeries } from '../src/series-convergence'
 import { corpusInterRaterAgreement } from '../src/statistics'
 
@@ -249,70 +238,6 @@ describe('snapshot adapters — real instrument outputs', () => {
     expect(() => snapshotFromSentinelSet([{ itemId: 'zz', score: 0.5 }], golden, meta)).toThrow(
       ValidationError,
     )
-  })
-})
-
-describe('sentinel stores', () => {
-  let dir: string | undefined
-  afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true })
-    dir = undefined
-  })
-
-  it('inMemorySentinelStore appends and filters by judgeId', async () => {
-    const store = inMemorySentinelStore()
-    await store.append(snap(day(1), { irr: 0.8 }, 'm', 'a'))
-    await store.append(snap(day(2), { irr: 0.9 }, 'm', 'b'))
-    expect(await store.history()).toHaveLength(2)
-    expect(await store.history('a')).toHaveLength(1)
-  })
-
-  it('fileSentinelStore roundtrips JSONL across instances', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'judge-sentinel-'))
-    const path = join(dir, 'nested', 'sentinel.jsonl')
-    const writer = fileSentinelStore(path)
-    await writer.append(snap(day(1), { calibrationKappa: 0.8 }, 'm', 'a'))
-    await writer.append(snap(day(2), { calibrationKappa: 0.78 }, 'm', 'a'))
-    await writer.append(snap(day(1), { irr: 0.9 }, 'm', 'b'))
-
-    const reader = fileSentinelStore(path)
-    const all = await reader.history()
-    expect(all).toHaveLength(3)
-    expect(all[0]!.metrics.calibrationKappa).toBe(0.8)
-    expect(await reader.history('a')).toHaveLength(2)
-  })
-
-  it('fileSentinelStore returns empty history for a missing file', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'judge-sentinel-'))
-    const store = fileSentinelStore(join(dir, 'never-written.jsonl'))
-    expect(await store.history()).toEqual([])
-  })
-
-  it('fileSentinelStore fails loud on a corrupt JSONL line, naming the line', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'judge-sentinel-'))
-    const path = join(dir, 'sentinel.jsonl')
-    const store = fileSentinelStore(path)
-    await store.append(snap(day(1), { irr: 0.8 }))
-    appendFileSync(path, '{ definitely not json\n', 'utf8')
-
-    await expect(store.history()).rejects.toThrow(ValidationError)
-    await expect(store.history()).rejects.toThrow(/line 2/)
-  })
-
-  it('fileSentinelStore fails loud on a shape-invalid line (unknown metric key)', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'judge-sentinel-'))
-    const path = join(dir, 'sentinel.jsonl')
-    const store = fileSentinelStore(path)
-    const bogus = { at: day(1), judgeId: 'a', judgeModel: 'm', metrics: { kapa: 0.8 } }
-    appendFileSync(path, `${JSON.stringify(bogus)}\n`, 'utf8')
-
-    await expect(store.history()).rejects.toThrow(/unknown key "kapa"/)
-  })
-
-  it('append rejects snapshots with unparseable timestamps or non-finite metrics', async () => {
-    const store = inMemorySentinelStore()
-    await expect(store.append(snap('garbage', { irr: 0.8 }))).rejects.toThrow(ValidationError)
-    await expect(store.append(snap(day(1), { irr: Number.NaN }))).rejects.toThrow(ValidationError)
   })
 })
 

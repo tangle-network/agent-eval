@@ -316,7 +316,7 @@ export function describeTraceInsightScope(suite: TraceInsightSuite): string {
   return `${taskLabel} across ${difficulties || 'the selected benchmark scope'}.`
 }
 
-export function planTraceInsightQuestions(input: TraceInsightPromptInput): TraceInsightQuestion[] {
+function planTraceInsightQuestions(input: TraceInsightPromptInput): TraceInsightQuestion[] {
   const hasFailures = input.suite.tasks.some((task) => task.outcome && task.outcome !== 'satisfied')
   const hasMultipleShots = input.suite.tasks.some((task) =>
     (task.gaps ?? []).some((gap) => /shot|review|retry|continue/i.test(gap)),
@@ -462,7 +462,7 @@ export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceI
   }
 }
 
-export function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
+function defaultTraceInsightPanel(): TraceInsightPanelRole[] {
   return [
     {
       id: 'trace-forensics',

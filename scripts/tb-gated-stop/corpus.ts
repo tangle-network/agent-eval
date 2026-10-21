@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type EvidenceRecord } from '../../src/experiment'
-import { stratumOf } from '../../src/trace-repair'
+import { stratumOf } from '../../src/trace-repair/admission-records'
 import { WORK, ROWS_PATH } from './settings'
 
 // ── Rows ─────────────────────────────────────────────────────────────

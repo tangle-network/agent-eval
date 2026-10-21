@@ -6,7 +6,7 @@ import { basename, isAbsolute, join } from 'node:path'
  *  gitignore, no clutter, no accidental commits). Layout:
  *    ~/.tangle/traces/<repo>/runs/<runName>/
  *  where <repo> disambiguates runs across repos in one place. */
-export function tangleTracesRoot(): string {
+function tangleTracesRoot(): string {
   return join(homedir(), '.tangle', 'traces')
 }
 

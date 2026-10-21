@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   type ScenarioSignal,
   scoreDiscrimination,
-  selectDiscriminative,
 } from './scenario-selection'
 
 describe('scoreDiscrimination', () => {
@@ -57,55 +56,4 @@ describe('scoreDiscrimination', () => {
   })
 })
 
-describe('selectDiscriminative', () => {
-  const mixed: ScenarioSignal[] = [
-    { scenarioId: 'tie-a', scores: [1.0, 1.0, 1.0] },
-    { scenarioId: 'tie-b', scores: [1.0, 1.0] },
-    { scenarioId: 'live-lo', scores: [0.2, 0.4] },
-    { scenarioId: 'live-hi', scores: [0.0, 1.0] },
-  ]
 
-  it('excludes saturated ties when enough non-tied scenarios exist', () => {
-    const picked = selectDiscriminative(mixed, 2)
-    expect(picked).toEqual(['live-hi', 'live-lo'])
-    expect(picked).not.toContain('tie-a')
-    expect(picked).not.toContain('tie-b')
-  })
-
-  it('falls back to least-saturated ties when non-tied < k', () => {
-    const signals: ScenarioSignal[] = [
-      { scenarioId: 'live', scores: [0.1, 0.9] },
-      { scenarioId: 'tie-high', scores: [1.0, 1.0] },
-      { scenarioId: 'tie-low', scores: [0.999, 0.999] },
-    ]
-    // Only 1 non-tied; k=2 must fill with the least-saturated tie (tie-low < tie-high).
-    const picked = selectDiscriminative(signals, 2)
-    expect(picked[0]!).toBe('live')
-    expect(picked[1]!).toBe('tie-low')
-    expect(picked).not.toContain('tie-high')
-  })
-
-  it('is deterministic: same input twice ⇒ identical output', () => {
-    const a = selectDiscriminative(mixed, 3)
-    const b = selectDiscriminative(mixed, 3)
-    expect(a).toEqual(b)
-  })
-
-  it('throws if k < 1', () => {
-    expect(() => selectDiscriminative(mixed, 0)).toThrow()
-    expect(() => selectDiscriminative(mixed, -1)).toThrow()
-  })
-
-  it('returns all ids in discrimination order when k >= n', () => {
-    const all = selectDiscriminative(mixed, mixed.length)
-    expect(all).toHaveLength(mixed.length)
-    expect([...all].sort()).toEqual(['live-hi', 'live-lo', 'tie-a', 'tie-b'])
-    // Order matches scoreDiscrimination ranking, including ties (not dropped here).
-    expect(all).toEqual(scoreDiscrimination(mixed).map((s) => s.scenarioId))
-  })
-
-  it('returns all ids when k exceeds n', () => {
-    const all = selectDiscriminative(mixed, mixed.length + 5)
-    expect(all).toHaveLength(mixed.length)
-  })
-})

@@ -55,26 +55,8 @@ export {
   pairArms,
   pairRunRecords,
 } from '../paired-arms'
-export {
-  evaluateHypothesis,
-  type HypothesisManifest,
-  type HypothesisResult,
-  hashJson,
-  manifestContentDigest,
-  type SignedManifest,
-  type SignedManifestAlgo,
-  signManifest,
-  verifyManifest,
-} from '../pre-registration'
-export {
-  type PairedEvalueOptions,
-  type PairedEvalueSequence,
-  type PairedEvalueStep,
-  pairedEvalueSequence,
-  type SequentialCrossingHorizon,
-  type SequentialCrossingHorizonOptions,
-  sequentialCrossingHorizon,
-} from '../sequential'
+export { type HypothesisManifest, type HypothesisResult, hashJson, manifestContentDigest, type SignedManifest, type SignedManifestAlgo, signManifest, verifyManifest } from '../pre-registration'
+export { type PairedEvalueOptions, type PairedEvalueSequence, type PairedEvalueStep, pairedEvalueSequence, type SequentialCrossingHorizon, type SequentialCrossingHorizonOptions } from '../sequential'
 // ── Fold-in: estimators and registration primitives, from their homes ─
 export {
   BOOTSTRAP_GATE_MIN_N,
@@ -103,18 +85,7 @@ export {
   wilson,
 } from '../statistics'
 // ── The registered-rule AST and its interpreters ─────────────────────
-export {
-  type BudgetRule,
-  evaluateHaltRule,
-  type HaltOutcome,
-  type HaltRule,
-  type MatchedBudgetRule,
-  type NLadderProjection,
-  projectNLadderBudget,
-  runUniformPassBudget,
-  type UniformPassDecision,
-  type UniformPassSchedule,
-} from './ast/budget'
+export { type BudgetRule, type HaltOutcome, type HaltRule, type MatchedBudgetRule, type NLadderProjection, type UniformPassDecision, type UniformPassSchedule } from './ast/budget'
 export {
   type Condition,
   type DecisionBranch,
@@ -124,36 +95,15 @@ export {
   evaluateCondition,
   executeDecisionRule,
 } from './ast/decision'
-export { computeEstimand, type Estimand, type EstimandResult, type SetExpr } from './ast/estimand'
+export { type Estimand, type EstimandResult, type SetExpr } from './ast/estimand'
 export type { EvidenceRecord, JsonValue } from './ast/evidence'
 export { type ComputedInterval, computeInterval, type IntervalSpec } from './ast/interval'
-export { evaluatePredicate, type Predicate, readField } from './ast/predicate'
-export { classifyReissue, type ReissuePolicy, type ReissueVerdict } from './ast/reissue'
-export {
-  type AdmissionPartition,
-  type AdmissionRule,
-  type AdmissionStage,
-  runSelectionRule,
-  type SelectionRule,
-} from './ast/selection'
-export {
-  evaluateIdentityGate,
-  evaluateOracleDeterminismGate,
-  evaluatePopulationReproducibilityGate,
-  evaluatePowerFloorGate,
-  evaluateProvenanceGate,
-  type GateResult,
-  type Obligation,
-  type ValidityGate,
-} from './ast/validity'
+export { type Predicate, readField } from './ast/predicate'
+export { type ReissuePolicy, type ReissueVerdict } from './ast/reissue'
+export { type AdmissionPartition, type AdmissionRule, type AdmissionStage, type SelectionRule } from './ast/selection'
+export { evaluatePowerFloorGate, type GateResult, type Obligation, type ValidityGate } from './ast/validity'
 // ── Matched-budget refusal ───────────────────────────────────────────
-export {
-  type ArmRealizedBudget,
-  assertMatchedBudgets,
-  MatchedBudgetError,
-  type MatchedBudgetVerdict,
-  verifyMatchedBudgets,
-} from './budget'
+export { type ArmRealizedBudget, assertMatchedBudgets, type MatchedBudgetVerdict, verifyMatchedBudgets } from './budget'
 export { type CampaignEvidenceContext, createCampaignEvidenceReceipt } from './campaign-evidence'
 export {
   defineEvaluationClaim,
@@ -162,46 +112,11 @@ export {
   summarizeEvaluationUnits,
 } from './claim'
 // ── Define, seal, amend, execute ─────────────────────────────────────
-export {
-  type ArmSpec,
-  amendExperiment,
-  defineExperiment,
-  type ExperimentSpec,
-  type GateEvidence,
-  type OutcomeSpec,
-  openSealedExperiment,
-  type RegisteredExperiment,
-  type SealAmendment,
-  type SealedExperiment,
-  SealIntegrityError,
-  type SeedDerivation,
-  sealExperiment,
-  verifySealedExperiment,
-} from './define'
+export { type ArmSpec, amendExperiment, defineExperiment, type ExperimentSpec, type GateEvidence, type OutcomeSpec, openSealedExperiment, type RegisteredExperiment, type SealAmendment, type SealedExperiment, type SeedDerivation, sealExperiment, verifySealedExperiment } from './define'
 // ── Runtime↔Eval evidence identity ───────────────────────────────────
-export {
-  type CreateEvidenceReceiptInput,
-  createEvidenceReceipt,
-  EVIDENCE_RECEIPT_VERSION,
-  type EvidenceAuthority,
-  type EvidenceAuthorityKind,
-  type EvidenceBinding,
-  type EvidenceReceipt,
-  type EvidenceReceiptVerification,
-  isIndependentEvidence,
-  verifyEvidenceReceipt,
-} from './evidence-receipt'
+export { type CreateEvidenceReceiptInput, createEvidenceReceipt, type EvidenceAuthority, type EvidenceAuthorityKind, type EvidenceBinding, type EvidenceReceipt, type EvidenceReceiptVerification, isIndependentEvidence, verifyEvidenceReceipt } from './evidence-receipt'
 // ── Evidence registry records (evidence/records/*.json) ──────────────
-export {
-  EVIDENCE_STATES,
-  type EvidenceDenominator,
-  type EvidenceRegistryRecord,
-  type EvidenceState,
-  evidenceRegistryRecordSchema,
-  parseEvidenceRegistryRecord,
-  renderEvidenceIndex,
-  validateEvidenceRegistry,
-} from './evidence-record'
+export { EVIDENCE_STATES, type EvidenceDenominator, type EvidenceRegistryRecord, type EvidenceState, evidenceRegistryRecordSchema } from './evidence-record'
 export {
   FinalEvidenceConflictError,
   FinalEvidenceError,
@@ -213,30 +128,9 @@ export {
   openFinalEvidenceLedger,
 } from './final-evidence'
 // ── Denominator chain ────────────────────────────────────────────────
-export {
-  type AdmissionExecution,
-  assertFunnelReconciles,
-  buildFunnel,
-  composeFunnels,
-  type ExperimentFunnel,
-  executeAdmissionRule,
-  FunnelIntegrityError,
-  type FunnelPartitionCount,
-  type FunnelStageCount,
-  type FunnelStageInput,
-  renderFunnelTable,
-} from './funnel'
+export { type AdmissionExecution, buildFunnel, composeFunnels, type ExperimentFunnel, executeAdmissionRule, type FunnelPartitionCount, type FunnelStageCount, type FunnelStageInput, renderFunnelTable } from './funnel'
 // ── Cluster-aware power with refusal ─────────────────────────────────
-export {
-  assertDesignAdequate,
-  type ClusteredPowerOptions,
-  type ClusteredPowerPoint,
-  type ClusteredPowerRefusal,
-  type ClusteredPowerResult,
-  clusteredPower,
-  DesignRefusalError,
-  type SignFlipFloor,
-} from './power'
+export { assertDesignAdequate, type ClusteredPowerOptions, type ClusteredPowerPoint, type ClusteredPowerRefusal, type ClusteredPowerResult, clusteredPower, type SignFlipFloor } from './power'
 export {
   joinProspectiveCanaryReceipts,
   type ProspectiveCanaryAssignment,

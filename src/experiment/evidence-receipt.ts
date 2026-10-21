@@ -18,7 +18,7 @@ import {
   verifyAttestation,
 } from '../attestation'
 
-export const EVIDENCE_RECEIPT_VERSION = '1.0.0' as const
+const EVIDENCE_RECEIPT_VERSION = '1.0.0' as const
 
 /** Closed promotion vocabulary. A typo or unknown future kind is never independent by default. */
 const EVIDENCE_AUTHORITY_KINDS = [

@@ -55,52 +55,7 @@ export interface RolloutArgumentDiff {
   readonly failingValues: ReadonlySet<string>
 }
 
-/**
- * Deterministic per-field diff of call arguments between passing and failing
- * rollouts. A field set by failing rollouts but left unset by passing ones is
- * the classic poison-input signature; a field whose values differ across the
- * split points at the correct value. Feed `text` to the reviser verbatim.
- */
-export function rolloutArgumentDiff(
-  rollouts: readonly ScoredRollout[],
-  opts: RolloutArgumentDiffOptions = {},
-): RolloutArgumentDiff {
-  const passThreshold = opts.passThreshold ?? 1
-  const maxValues = opts.maxValuesPerField ?? 4
-  const collect = (pass: boolean): Map<string, Set<string>> => {
-    const byField = new Map<string, Set<string>>()
-    for (const r of rollouts) {
-      if (pass !== r.score >= passThreshold) continue
-      for (const c of r.calls) {
-        for (const [k, v] of Object.entries(c.args)) {
-          const set = byField.get(k) ?? new Set<string>()
-          set.add(String(v))
-          byField.set(k, set)
-        }
-      }
-    }
-    return byField
-  }
-  const passing = collect(true)
-  const failing = collect(false)
-  const lines: string[] = []
-  for (const field of new Set([...passing.keys(), ...failing.keys()])) {
-    const pv = [...(passing.get(field) ?? [])].slice(0, maxValues)
-    const fv = [...(failing.get(field) ?? [])].slice(0, maxValues)
-    const render = (vals: string[]) => (vals.length ? JSON.stringify(vals) : 'NOT SET (omitted)')
-    lines.push(`  ${field}: passing runs -> ${render(pv)} | failing runs -> ${render(fv)}`)
-  }
-  const lower = (m: Map<string, Set<string>>): Set<string> => {
-    const out = new Set<string>()
-    for (const vals of m.values()) for (const v of vals) out.add(v.toLowerCase())
-    return out
-  }
-  return {
-    text: lines.join('\n') || '  (no calls observed)',
-    passingValues: lower(passing),
-    failingValues: lower(failing),
-  }
-}
+
 
 export interface UngroundedLiteralReport {
   /** Quoted single-word literals in the text that no passing rollout used. */
@@ -109,25 +64,4 @@ export interface UngroundedLiteralReport {
   readonly harmful: readonly string[]
 }
 
-/**
- * Scan revised artifact text for single-quoted single-word literals (the
- * "use exactly 'new'" pattern) that appear in no passing rollout's argument
- * values. Multi-word quotes pass (they are prose, not prescriptions).
- * Callers should reject on `harmful` (with a bounded retry) and at most log
- * `ungrounded` - see the module header for why the severities differ.
- */
-export function classifyUngroundedLiterals(
-  text: string,
-  diff: Pick<RolloutArgumentDiff, 'passingValues' | 'failingValues'>,
-): UngroundedLiteralReport {
-  const ungrounded = new Set<string>()
-  for (const m of text.matchAll(/'([a-z][a-z_-]{1,19})'/gi)) {
-    const w = (m[1] as string).toLowerCase()
-    if (!diff.passingValues.has(w)) ungrounded.add(w)
-  }
-  const all = [...ungrounded]
-  return {
-    ungrounded: all,
-    harmful: all.filter((w) => diff.failingValues.has(w)),
-  }
-}
+

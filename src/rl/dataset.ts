@@ -259,7 +259,7 @@ function stat(value: number | null): string {
 }
 
 /** Render the "Datasheet for Datasets" card that a buyer reads. */
-export function datasheetToMarkdown(m: RlDatasetManifest): string {
+function datasheetToMarkdown(m: RlDatasetManifest): string {
   const s = m.stats
   const total = s.records || 1
   const splitLines = (['search', 'dev', 'holdout', 'canary'] as RolloutSplit[])

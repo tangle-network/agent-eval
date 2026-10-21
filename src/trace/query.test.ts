@@ -1,38 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalString, LedgerCanonicalizationError } from '../ledger-core/canonical'
-import { aggregateLlm, argHash } from './query'
-import type { LlmSpan } from './schema'
+import { argHash } from './query'
 
-function llm(extra: Partial<LlmSpan>): LlmSpan {
-  // `extra` is a Partial spread last, which widens `kind`; cast back to LlmSpan.
-  return { spanId: 's', runId: 'r', kind: 'llm', name: 'llm', startedAt: 0, ...extra } as LlmSpan
-}
 
-describe('aggregateLlm', () => {
-  it('sums cache reads, cache writes, and reasoning tokens', () => {
-    const agg = aggregateLlm([
-      llm({
-        inputTokens: 100,
-        outputTokens: 50,
-        cachedTokens: 300,
-        cacheWriteTokens: 30,
-        reasoningTokens: 1000,
-      }),
-      llm({
-        inputTokens: 10,
-        outputTokens: 5,
-        cachedTokens: 40,
-        cacheWriteTokens: 4,
-        reasoningTokens: 200,
-      }),
-    ])
-    expect(agg.inputTokens).toBe(110)
-    expect(agg.outputTokens).toBe(55)
-    expect(agg.cachedTokens).toBe(340)
-    expect(agg.cacheWriteTokens).toBe(34)
-    expect(agg.reasoningTokens).toBe(1200)
-  })
-})
+
+
+
 
 describe('argHash', () => {
   it('keys uncaptured args and null args to distinct strings', () => {

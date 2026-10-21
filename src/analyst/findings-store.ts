@@ -101,7 +101,7 @@ export interface DiffPolicy {
  * Default materiality test. Deliberately narrow so LLM-reword churn
  * doesn't flood the diff. Stricter tests are opt-in via DiffPolicy.
  */
-export function defaultIsMaterial(a: AnalystFinding, b: AnalystFinding): boolean {
+function defaultIsMaterial(a: AnalystFinding, b: AnalystFinding): boolean {
   if (a.severity !== b.severity) return true
   if (Math.abs((a.confidence ?? 0) - (b.confidence ?? 0)) > 0.05) return true
   if (a.evidence_refs.length !== b.evidence_refs.length) return true

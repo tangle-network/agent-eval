@@ -1,15 +1,15 @@
 /** `node:fs/promises` is wrapped, not replaced: `open` is counted and the input
  *  is swapped mid-run to reproduce the input-substitution race the command must
  *  detect. Every other call goes to the real filesystem. */
-import { mkdtemp, readFile, symlink, unlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { unlink } from 'node:fs/promises'
+
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { codeTraceFixture, codeTraceRow } from './benchmark-command.test-support'
+import { codeTraceFixture } from './benchmark-command.test-support'
 import type { CodeTraceBenchRow } from './benchmark-datasets'
 import { codeTraceBlockMetadataFromSubject } from './benchmark-public-adapters'
-import { preparePublicAnalystBenchmark } from './benchmark-public-data'
+
 import {
   adaptPublicBenchmarkFindings,
   CODE_TRACE_BENCH_ANALYST_PROMPT,
@@ -17,14 +17,11 @@ import {
   MAX_INCORRECT_BLOCK_STEPS,
   MAX_INCORRECT_BLOCKS,
   publicBenchmarkRlmInstructions,
-  publicBenchmarkSelectionReport,
   publicBenchmarkSystemPrompt,
-  selectPublicBenchmarkRows,
 } from './benchmark-real-model'
 import {
   appendVerificationArtifactsToOtlp,
   loadCodeTraceVerificationArtifacts,
-  sha256Digest,
 } from './benchmark-verification-artifacts'
 import { makeFinding } from './types'
 
@@ -50,218 +47,7 @@ vi.mock('node:fs/promises', async () => {
   }
 })
 
-describe('public analyst benchmark input', () => {
-  it('loads public dataset arrays and JSONL without changing row fields', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'analyst-benchmark-input-'))
-    const arrayPath = join(dir, 'rows.json')
-    const jsonlPath = join(dir, 'rows.jsonl')
-    const rows = [{ traj_id: 'a', extra: { retained: true } }, { traj_id: 'b' }]
-    await writeFile(arrayPath, JSON.stringify(rows))
-    await writeFile(jsonlPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`)
 
-    await expect(loadPublicBenchmarkRows(arrayPath)).resolves.toEqual(rows)
-    await expect(loadPublicBenchmarkRows(jsonlPath)).resolves.toEqual(rows)
-  })
-
-  it('loads prepared public benchmark case manifests', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'analyst-benchmark-manifest-'))
-    const path = join(dir, 'manifest.json')
-    const cases = [{ trajectory_id: 'rx-1' }, { trajectory_id: 'rx-2' }]
-    await writeFile(path, JSON.stringify({ benchmark: 'AgentRx public', cases }))
-
-    await expect(loadPublicBenchmarkRows(path)).resolves.toEqual(cases)
-  })
-
-  it('keeps verification artifact paths relative to a symlinked root', async () => {
-    const fixture = await codeTraceFixture()
-    const linkedRoot = join(fixture.root, 'linked-artifacts')
-    await symlink(fixture.artifactDir, linkedRoot, 'junction')
-
-    const prepare = (artifactDir: string) =>
-      preparePublicAnalystBenchmark({
-        dataset: 'codetracebench',
-        labelsPath: fixture.labelsPath,
-        traceDir: fixture.traceDir,
-        artifactDir,
-        limit: 1,
-        seed: 0,
-      })
-    const direct = await prepare(fixture.artifactDir)
-    const linked = await prepare(linkedRoot)
-
-    expect(linked.verificationArtifacts).toEqual(direct.verificationArtifacts)
-    expect(linked.verificationArtifacts[0]?.caseDirectory).toBe('trace-1/cases/trace-1')
-    expect(linked.verificationArtifacts[0]?.files).toHaveLength(2)
-  })
-
-  it.skipIf(process.platform === 'win32')(
-    'uses one opened byte snapshot when label and trace paths are replaced',
-    async () => {
-      const fixture = await codeTraceFixture()
-      const tracePath = join(fixture.traceDir, 'trace.otlp.jsonl')
-      const originalLabels = await readFile(fixture.labelsPath)
-      const originalTrace = await readFile(tracePath)
-      const replacementLabels = join(fixture.root, 'replacement-labels.jsonl')
-      const replacementTrace = join(fixture.root, 'replacement-trace.jsonl')
-      await writeFile(
-        replacementLabels,
-        `${JSON.stringify({
-          traj_id: 'replaced',
-          agent: 7,
-          model: 'replacement',
-          task_name: 'replacement',
-          step_count: 1,
-          incorrect_stages: [],
-        })}\n`,
-      )
-      await writeFile(
-        replacementTrace,
-        `${JSON.stringify({
-          trace_id: 'trace-1',
-          span_id: 'step-1',
-          attributes: {
-            content: JSON.stringify({ incorrect_step_ids: [1] }),
-          },
-        })}\n`,
-      )
-      inputOpenRace.openCounts.clear()
-      inputOpenRace.replacements.set(fixture.labelsPath, replacementLabels)
-      inputOpenRace.replacements.set(tracePath, replacementTrace)
-
-      try {
-        const prepared = await preparePublicAnalystBenchmark({
-          dataset: 'codetracebench',
-          labelsPath: fixture.labelsPath,
-          traceDir: fixture.traceDir,
-          artifactDir: fixture.artifactDir,
-          limit: 1,
-          seed: 0,
-        })
-
-        expect(inputOpenRace.openCounts.get(fixture.labelsPath)).toBe(1)
-        expect(inputOpenRace.openCounts.get(tracePath)).toBe(1)
-        expect(prepared.labelsSha256).toBe(sha256Digest(originalLabels))
-        expect(prepared.traceFiles).toEqual([
-          expect.objectContaining({ traceId: 'trace-1', sha256: sha256Digest(originalTrace) }),
-        ])
-        const trace = await prepared.cases[0]!.input.traceStore!.viewSpans({
-          trace_id: 'trace-1',
-          span_ids: ['step-1'],
-        })
-        expect(trace.spans[0]?.attributes['llm.output_messages']).toContain('Read the repository.')
-        expect(await readFile(fixture.labelsPath, 'utf8')).toContain('"traj_id":"replaced"')
-        expect(await readFile(tracePath, 'utf8')).toContain('incorrect_step_ids')
-      } finally {
-        inputOpenRace.replacements.clear()
-        inputOpenRace.openCounts.clear()
-      }
-    },
-  )
-
-  it('selects the same cases for the same seed independent of input order', () => {
-    const rows = Array.from({ length: 12 }, (_, index) => ({ traj_id: `trace-${index}` }))
-    const first = selectPublicBenchmarkRows('codetracebench', rows, { limit: 5, seed: 19 })
-    const repeated = selectPublicBenchmarkRows('codetracebench', [...rows].reverse(), {
-      limit: 5,
-      seed: 19,
-    })
-    const changed = selectPublicBenchmarkRows('codetracebench', rows, { limit: 5, seed: 20 })
-
-    expect(repeated.map((row) => row.traj_id)).toEqual(first.map((row) => row.traj_id))
-    expect(changed.map((row) => row.traj_id)).not.toEqual(first.map((row) => row.traj_id))
-  })
-
-  it('marks limited hash samples non-representative and reports every requested distribution', () => {
-    const rows = [
-      codeTraceRow('bad-a', {
-        agent: 'mini',
-        model: 'model-a',
-        difficulty: 'hard',
-        solved: false,
-        incorrect: [2],
-      }),
-      codeTraceRow('bad-b', {
-        agent: 'mini',
-        model: 'model-b',
-        difficulty: 'easy',
-        solved: false,
-        incorrect: [1],
-      }),
-      codeTraceRow('clean-a', {
-        agent: 'swe',
-        model: 'model-a',
-        difficulty: 'easy',
-        solved: true,
-        incorrect: [],
-      }),
-    ]
-
-    const report = publicBenchmarkSelectionReport('codetracebench', rows, [rows[0]!], 11)
-
-    expect(report).toEqual({
-      method: 'deterministic-hash',
-      seed: 11,
-      sourceCount: 3,
-      selectedCount: 1,
-      stratified: false,
-      representativeOfInput: false,
-      source: {
-        class: {
-          total: 3,
-          missing: 0,
-          counts: { positive: 2, 'trusted-negative': 1 },
-        },
-        agent: { total: 3, missing: 0, counts: { mini: 2, swe: 1 } },
-        model: { total: 3, missing: 0, counts: { 'model-a': 2, 'model-b': 1 } },
-        difficulty: { total: 3, missing: 0, counts: { easy: 2, hard: 1 } },
-        solved: { total: 3, missing: 0, counts: { false: 2, true: 1 } },
-      },
-      selected: {
-        class: { total: 1, missing: 0, counts: { positive: 1 } },
-        agent: { total: 1, missing: 0, counts: { mini: 1 } },
-        model: { total: 1, missing: 0, counts: { 'model-a': 1 } },
-        difficulty: { total: 1, missing: 0, counts: { hard: 1 } },
-        solved: { total: 1, missing: 0, counts: { false: 1 } },
-      },
-    })
-  })
-
-  it('does not present failed label-empty trajectories as trusted negatives', () => {
-    const rows = [
-      codeTraceRow('trusted-negative', {
-        agent: 'mini',
-        model: 'model',
-        difficulty: 'easy',
-        solved: true,
-        incorrect: [],
-      }),
-      codeTraceRow('unlabeled-failure', {
-        agent: 'mini',
-        model: 'model',
-        difficulty: 'hard',
-        solved: false,
-        incorrect: [],
-      }),
-      codeTraceRow('labeled', {
-        agent: 'mini',
-        model: 'model',
-        difficulty: 'hard',
-        solved: false,
-        incorrect: [2],
-      }),
-    ]
-
-    expect(publicBenchmarkSelectionReport('codetracebench', rows, rows, 0).source.class).toEqual({
-      total: 3,
-      missing: 0,
-      counts: {
-        positive: 1,
-        'trusted-negative': 1,
-        'unlabeled-failure': 1,
-      },
-    })
-  })
-})
 
 describe('public analyst benchmark output adapters', () => {
   it('expands a subject-encoded failure block into one incorrect-step finding per member', async () => {

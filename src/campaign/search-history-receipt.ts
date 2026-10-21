@@ -145,7 +145,7 @@ export interface SearchHistoryCoverage {
   readonly producers: readonly SearchHistoryCoverageRow[]
 }
 
-export class SearchHistoryRequiredError extends Error {
+class SearchHistoryRequiredError extends Error {
   readonly producerId: string
   readonly reasons: readonly string[]
 

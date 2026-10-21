@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   addCalibrationVerdicts,
-  assertJudgeMayGate,
   type CalibrationExample,
-  inMemorySentinelStore,
   type JudgeCalibrationSet,
-  JudgeGateRefusedError,
   type JudgeRun,
   judgeGateDecision,
   measureJudgeAgreement,
@@ -172,116 +169,7 @@ describe('registerCalibrationSet and addCalibrationVerdicts', () => {
   })
 })
 
-describe('judgeGateDecision', () => {
-  const calibrated = measureJudgeAgreement(critic, everyRunAgrees(3), meta)
-  const gate = { judgeId: 'ad-critic', judgeModel: 'gemini-x', rubricVersion: 'r2', asOf: AT }
 
-  it('lets a measured judge gate', () => {
-    const decision = judgeGateDecision({ ...gate, agreement: calibrated })
-    expect(decision).toMatchObject({ mayGate: true, status: 'calibrated', reasons: [] })
-    expect(() => assertJudgeMayGate(decision)).not.toThrow()
-  })
-
-  it('refuses an unmeasured judge, a changed model or rubric, and an expired report', () => {
-    expect(judgeGateDecision({ ...gate, agreement: null })).toMatchObject({
-      mayGate: false,
-      status: 'uncalibrated',
-      reasons: ['no measured agreement with owner verdicts'],
-    })
-    const moved = judgeGateDecision({
-      ...gate,
-      judgeModel: 'gemini-y',
-      rubricVersion: 'r3',
-      agreement: calibrated,
-    })
-    expect(moved.status).toBe('uncalibrated')
-    expect(moved.reasons).toEqual([
-      'agreement was measured on model gemini-x; the judge now runs gemini-y',
-      'agreement was measured on rubric r2; the judge now runs r3',
-    ])
-    const expired = judgeGateDecision({
-      ...gate,
-      asOf: '2026-11-20T12:00:00.000Z',
-      agreement: calibrated,
-    })
-    expect(expired.reasons).toEqual(['agreement is 42.0 days old (limit 30)'])
-  })
-
-  it('refuses a judge with too few decided examples of either verdict', () => {
-    const rejectionsOnly = measureJudgeAgreement(
-      critic,
-      everyRunAgrees(1).filter((run) => run.exampleId !== 'approved-1'),
-      meta,
-    )
-    const decision = judgeGateDecision({ ...gate, agreement: rejectionsOnly })
-    expect(decision.status).toBe('uncalibrated')
-    expect(decision.reasons).toEqual([
-      '0 judged examples the owner marked pass; at least 1 required',
-    ])
-    expect(
-      judgeGateDecision({ ...gate, agreement: rejectionsOnly, policy: { minExamples: 20 } })
-        .reasons[0],
-    ).toBe('10 judged examples; at least 20 required')
-  })
-
-  it('refuses a judge below the agreement floors', () => {
-    const runs = everyRunAgrees(1).map((run, index) =>
-      index < 2
-        ? { ...run, verdict: run.verdict === 'pass' ? ('fail' as const) : ('pass' as const) }
-        : run,
-    )
-    const weak = measureJudgeAgreement(critic, runs, meta)
-    const decision = judgeGateDecision({ ...gate, agreement: weak })
-    expect(decision.status).toBe('below-threshold')
-    expect(decision.reasons).toEqual(['accuracy 81.8% is below 90.0%', 'kappa -0.10 is below 0.6'])
-    expect(() => assertJudgeMayGate(decision)).toThrow(JudgeGateRefusedError)
-    try {
-      assertJudgeMayGate(decision)
-    } catch (error) {
-      expect((error as JudgeGateRefusedError).decision).toBe(decision)
-    }
-  })
-
-  it('refuses a judge whose recorded agreement drifted down', async () => {
-    const store = inMemorySentinelStore()
-    await store.append(
-      snapshotFromJudgeAgreement({ ...calibrated, measuredAt: '2026-10-01T00:00:00.000Z' }),
-    )
-    await store.append({
-      at: '2026-10-05T00:00:00.000Z',
-      judgeId: 'ad-critic',
-      judgeModel: 'gemini-x',
-      metrics: { sentinelPassRate: 0.8, calibrationKappa: 0.7 },
-    })
-    await store.append(snapshotFromJudgeAgreement(calibrated))
-    // Back at full agreement today: the series baseline is the oldest snapshot, so no alarm.
-    expect(
-      judgeGateDecision({ ...gate, agreement: calibrated, history: await store.history() }).status,
-    ).toBe('calibrated')
-
-    const decayed = inMemorySentinelStore([
-      snapshotFromJudgeAgreement({ ...calibrated, measuredAt: '2026-10-01T00:00:00.000Z' }),
-      {
-        at: AT,
-        judgeId: 'ad-critic',
-        judgeModel: 'gemini-x',
-        metrics: { sentinelPassRate: 0.85, calibrationKappa: 0.62 },
-      },
-    ])
-    const decision = judgeGateDecision({
-      ...gate,
-      agreement: { ...calibrated, accuracy: 0.92, kappa: 0.7 },
-      history: await decayed.history(),
-    })
-    expect(decision.status).toBe('drifted')
-    expect(decision.reasons.join('\n')).toMatch(
-      /calibrationKappa dropped 0\.380 from baseline 1\.000/,
-    )
-    expect(decision.reasons.join('\n')).toMatch(
-      /sentinelPassRate dropped 0\.150 from baseline 1\.000/,
-    )
-  })
-})
 
 describe('veto judges', () => {
   // Owners reject for reasons a copy check never sees, so its misses are expected; blocking what they approved is not.

@@ -19,7 +19,7 @@ export type SupervisorRunReportFormat = 'headline' | 'markdown' | 'json'
 
 const FORMATS: readonly SupervisorRunReportFormat[] = ['headline', 'markdown', 'json']
 
-export const SUPERVISOR_RUN_USAGE =
+const SUPERVISOR_RUN_USAGE =
   'usage: agent-eval supervisor-run report <runDir> [--format headline|markdown|json]'
 
 /** Output sinks, injectable so tests read the exact bytes a terminal would. */

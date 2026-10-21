@@ -126,7 +126,7 @@ function scrubValue(value: unknown, counts: ScrubCounts): unknown {
  * did not rewrite a field the schema constrains (`reward` is a number, not a
  * string, so no rule should ever touch it — this is what checks that).
  */
-export function scrubRolloutLine(line: MintedRolloutLine, counts: ScrubCounts): MintedRolloutLine {
+function scrubRolloutLine(line: MintedRolloutLine, counts: ScrubCounts): MintedRolloutLine {
   return assertMinted(scrubValue(line, counts), `scrubbed rollout line ${line.rollout_id}`)
 }
 

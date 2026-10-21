@@ -29,9 +29,8 @@ import {
   type LedgerTextStore,
   type LedgerTrustedHead,
   type LedgerTrustedHeadRemoval,
-  MemoryLedgerJournal,
-  replayLedgerText,
 } from '../ledger-core'
+import { MemoryLedgerJournal, replayLedgerText } from '../ledger-core/journal'
 import { modelHasSnapshot } from '../run-record'
 import {
   SearchLedgerConflictError,

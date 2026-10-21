@@ -811,4 +811,5 @@ export function renderStoryboardHtml(storyboard: Storyboard, opts: HtmlRenderOpt
 // The "watch the agent write code" keystroke animation + the CodeEdit IR a
 // Remotion consumer reads. Composes with this pipeline: a 'diff' scene shows an
 // inline card here; renderCodeAnimationHtml types the whole file out there.
-export * from './code-edit'
+export { editAnimationText, extractCodeEdits, renderCodeAnimationHtml } from './code-edit'
+export type { CodeAnimationOptions, CodeEdit } from './code-edit'

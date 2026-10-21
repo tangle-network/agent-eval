@@ -93,7 +93,7 @@ export function buildPrimeRepairPrompt(spec: PrimeRepairPromptSpec): string {
  * last one is its answer — so fences are scanned in reverse, and only then is a
  * brace-to-brace slice tried.
  */
-export function extractPrimeJsonObject(text: string): Record<string, unknown> | null {
+function extractPrimeJsonObject(text: string): Record<string, unknown> | null {
   const direct = parsePrimeJsonObject(text)
   if (direct) return direct
   const fenced = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)```/g)]
@@ -111,7 +111,7 @@ export function extractPrimeJsonObject(text: string): Record<string, unknown> | 
 }
 
 /** Why the reply cannot be read as a prime answer, or null when it can. */
-export function primeReplyDefect(
+function primeReplyDefect(
   parsed: Record<string, unknown> | null,
   rowsField: string,
 ): string | null {
@@ -158,7 +158,7 @@ export interface PrimeRawUsage {
   bridgeEstimated: boolean
 }
 
-export function emptyPrimeRawUsage(): PrimeRawUsage {
+function emptyPrimeRawUsage(): PrimeRawUsage {
   return { calls: null, inputTokens: null, outputTokens: null, bridgeEstimated: false }
 }
 

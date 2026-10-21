@@ -35,76 +35,10 @@
  * before any analyst reads a row.
  */
 
-export {
-  type ActionPayloadKind,
-  type BudgetCheck,
-  type BudgetMeasurement,
-  type BudgetViolation,
-  checkInterventionBudget,
-  classifyActionPayload,
-  type InterventionBudget,
-  normalizeActionForComparison,
-  SCAFFOLD_INTERVENTION_BUDGET,
-  scanShellAction,
-} from './action-budget'
-export {
-  ADMISSION_CONFIG_DEFAULTS,
-  type AdmissionConfig,
-  type AdmissionConfigInput,
-  type AdmissionControlObservation,
-  type AdmissionControlRequest,
-  type AdmissionControlRunner,
-  type AdmissionDivergence,
-  type AdmissionEndStateOracle,
-  type AdmissionOutcome,
-  type AdmissionPrefixReplay,
-  type AdmissionPrefixReplayer,
-  type AdmissionProvenance,
-  type AdmissionReport,
-  type AdmissionTestVerdict,
-  admittedCount,
-  admittedRowIds,
-  assertDenominatorIntact,
-  type DenominatorIntactInput,
-  noOpInjectionStep,
-  type RunAdmissionOptions,
-  resolveAdmissionConfig,
-  runAdmission,
-} from './admission'
-export {
-  type AdmissionCriteria,
-  type AdmissionDecision,
-  type AdmissionEvidence,
-  type AdmissionRejection,
-  type AdmissionScreeningRecord,
-  type AdmittedRow,
-  admitRow,
-  type ControlArmEvidence,
-  type PrefixFidelityEvidence,
-  TB_REPAIR_ADMISSION_CRITERIA,
-} from './admission-contract'
-export {
-  ADMISSION_EXCLUSION_MEANING,
-  ADMISSION_EXCLUSION_ORDER,
-  ADMISSION_STRATA,
-  type AdmissionCheckRecord,
-  type AdmissionControlArm,
-  AdmissionDenominatorError,
-  type AdmissionExclusionReason,
-  AdmissionIndependenceError,
-  type AdmissionNoOpInjection,
-  type AdmissionRolloutSummary,
-  type AdmissionRow,
-  type AdmissionRowVerdict,
-  type AdmissionStratum,
-  assertAnalystIndependent,
-  assertChainReconciles,
-  buildDenominatorChain,
-  type DenominatorChain,
-  type DenominatorChainArtifact,
-  type DenominatorStage,
-  stratumOf,
-} from './admission-records'
+export { type ActionPayloadKind, type BudgetCheck, type BudgetMeasurement, type BudgetViolation, type InterventionBudget } from './action-budget'
+export { ADMISSION_CONFIG_DEFAULTS, type AdmissionConfig, type AdmissionConfigInput, type AdmissionControlObservation, type AdmissionControlRequest, type AdmissionControlRunner, type AdmissionDivergence, type AdmissionEndStateOracle, type AdmissionOutcome, type AdmissionPrefixReplay, type AdmissionPrefixReplayer, type AdmissionProvenance, type AdmissionReport, type AdmissionTestVerdict, assertDenominatorIntact, type DenominatorIntactInput, type RunAdmissionOptions, runAdmission } from './admission'
+export { type AdmissionCriteria, type AdmissionDecision, type AdmissionEvidence, type AdmissionRejection, type AdmissionScreeningRecord, type AdmittedRow, admitRow, type ControlArmEvidence, type PrefixFidelityEvidence } from './admission-contract'
+export { type AdmissionCheckRecord, type AdmissionControlArm, type AdmissionExclusionReason, type AdmissionNoOpInjection, type AdmissionRolloutSummary, type AdmissionRow, type AdmissionRowVerdict, type AdmissionStratum, assertAnalystIndependent, assertChainReconciles, buildDenominatorChain, type DenominatorChain, type DenominatorChainArtifact, type DenominatorStage } from './admission-records'
 export {
   type AdmissionArtifact,
   admissionArtifact,
@@ -130,85 +64,16 @@ export {
   repairArmAsymmetries,
   repairArmResponse,
 } from './analyst-arm'
-export {
-  type AnalystResponse,
-  NO_DECISIVE_FAILURE,
-  type ParseAnalystResponseOutcome,
-  parseAnalystResponse,
-  type RepairDeclined,
-  type RepairFinding,
-  type RepairIntervention,
-  type ResponseParseFailure,
-  repairFinding,
-} from './analyst-response'
+export { type AnalystResponse, type ParseAnalystResponseOutcome, parseAnalystResponse, type RepairDeclined, type RepairFinding, type RepairIntervention, type ResponseParseFailure } from './analyst-response'
 export {
   type CompletionRepairArmOptions,
   createCompletionRepairArm,
 } from './arm-completion'
-export {
-  assertDspyRepairEngine,
-  createDspyRepairArm,
-  DSPY_REPAIR_SIGNATURE,
-  DSPY_REPAIR_TASK_TOKEN,
-  type DspyRepairArmOptions,
-  dspyRepairInstructions,
-  type ReadRepairPayloadOptions,
-} from './arm-dspy'
-export {
-  BLINDED_FIELDS,
-  type BlindedStep,
-  type BlindedTrajectoryPrefix,
-  type BlindTrajectoryOptions,
-  blindTrajectory,
-} from './blinding'
-export {
-  assertArmSymmetry,
-  type ContinuationEnvironment,
-  type ContinuationEnvironmentFactory,
-  type ContinuationEnvironmentRequest,
-  type ContinuationExecResult,
-  type ContinuationModel,
-  type ContinuationModelRequest,
-  type ContinuationModelResponse,
-  ContinuationPolicyViolationError,
-  ContinuationSymmetryError,
-  continuationPolicyDigest,
-  continuationSeed,
-  type DefineContinuationPolicyInput,
-  definePinnedContinuationPolicy,
-  type PinnedContinuationPolicy,
-  type RunContinuationOptions,
-  runContinuation,
-  totalCost,
-  totalUsage,
-} from './continuation-policy'
-export {
-  type ContinuationArm,
-  type ContinuationEnvironmentDescription,
-  type ContinuationExecRecord,
-  type ContinuationExitStatus,
-  type ContinuationMessage,
-  type ContinuationModelCall,
-  type ContinuationRollout,
-  type ContinuationStepRecord,
-  type ContinuationUsageTotals,
-  type RecordedStep,
-  type RecordedToolCall,
-  rolloutDigest,
-  rolloutRecordedSteps,
-  toRecordedSteps,
-} from './continuation-records'
-export {
-  assertControlCalibrated,
-  CONTROL_SCREENING_MODES,
-  type ControlCapability,
-  type ControlPolicy,
-  type ControlPolicyInput,
-  type ControlScreening,
-  controlCanRescue,
-  defineControlPolicy,
-  UncalibratedControlError,
-} from './control-policy'
+export { createDspyRepairArm, DSPY_REPAIR_SIGNATURE, type DspyRepairArmOptions, type ReadRepairPayloadOptions } from './arm-dspy'
+export { type BlindedStep, type BlindedTrajectoryPrefix, type BlindTrajectoryOptions, blindTrajectory } from './blinding'
+export { assertArmSymmetry, type ContinuationEnvironment, type ContinuationEnvironmentFactory, type ContinuationEnvironmentRequest, type ContinuationExecResult, type ContinuationModel, type ContinuationModelRequest, type ContinuationModelResponse, continuationPolicyDigest, continuationSeed, type DefineContinuationPolicyInput, definePinnedContinuationPolicy, type PinnedContinuationPolicy, type RunContinuationOptions, runContinuation, totalCost, totalUsage } from './continuation-policy'
+export { type ContinuationArm, type ContinuationEnvironmentDescription, type ContinuationExecRecord, type ContinuationExitStatus, type ContinuationMessage, type ContinuationModelCall, type ContinuationRollout, type ContinuationStepRecord, type ContinuationUsageTotals, type RecordedStep, type RecordedToolCall, rolloutDigest, rolloutRecordedSteps } from './continuation-records'
+export { assertControlCalibrated, type ControlCapability, type ControlPolicy, type ControlPolicyInput, type ControlScreening, defineControlPolicy, UncalibratedControlError } from './control-policy'
 export {
   DEGENERATE_STRATEGIES,
   type DegenerateDefeatKind,
@@ -224,68 +89,15 @@ export {
   type RepairThreatId,
   renderDeltaRepairReport,
 } from './delta-repair'
-export {
-  createDockerContinuationEnvironment,
-  type DockerContinuationEnvironmentOptions,
-  dockerRunArgs,
-  nodeProcessRunner,
-  type ProcessRequest,
-  type ProcessResult,
-  type ProcessRunner,
-} from './docker-environment'
-export {
-  CREDIT_TERMS,
-  countFunnel,
-  type InterventionExecution,
-  type PrefixReplayEvidence,
-  type RepairArmEvidence,
-  type RepairCredit,
-  type RepairFunnelCounts,
-  type RepairGrade,
-  type RepairRejection,
-  type RepairRolloutEvidence,
-  type ReproductionEvidence,
-  repairCredit,
-  type TestRunEvidence,
-} from './funnel'
+export { createDockerContinuationEnvironment, type DockerContinuationEnvironmentOptions, nodeProcessRunner, type ProcessRequest, type ProcessResult, type ProcessRunner } from './docker-environment'
+export { type InterventionExecution, type PrefixReplayEvidence, type RepairArmEvidence, type RepairCredit, type RepairFunnelCounts, type RepairGrade, type RepairRejection, type RepairRolloutEvidence, type ReproductionEvidence, type TestRunEvidence } from './funnel'
 export {
   type GradeRepairOptions,
   gradeRepairRow,
   type RepairRowResult,
 } from './grade'
-export {
-  type CommandOutput,
-  isRecordedTimeout,
-  MINI_SWE_SYSTEM_MESSAGE,
-  OUTPUT_ELISION_THRESHOLD,
-  type ParsedAction,
-  parseAction,
-  renderFormatErrorObservation,
-  renderInstanceMessage,
-  renderObservation,
-  renderTimeoutObservation,
-  SUBMIT_SENTINEL,
-  submissionOf,
-} from './mini-swe-scaffold'
-export {
-  assertDeterministicOracle,
-  NondeterministicOracleError,
-  type OracleAssertionResult,
-  type OracleDeterminismEvidence,
-  type OracleDeterminismVerdict,
-  type OracleFlippedUnit,
-  type OracleLoad,
-  type OracleReplicate,
-  type OracleReplicateGroup,
-  type OracleStateLabel,
-  type OracleStateVerdict,
-  oracleDeterminism,
-  parseTaskOracleRegistry,
-  SUITE_REWARD_UNIT,
-  type TaskOracleRegistry,
-  type TaskOracleRegistryDocument,
-  taskOracleRegistry,
-} from './oracle-determinism'
+export { type CommandOutput, type ParsedAction, parseAction } from './mini-swe-scaffold'
+export { assertDeterministicOracle, type OracleAssertionResult, type OracleDeterminismEvidence, type OracleDeterminismVerdict, type OracleFlippedUnit, type OracleLoad, type OracleReplicate, type OracleReplicateGroup, type OracleStateLabel, type OracleStateVerdict, parseTaskOracleRegistry, type TaskOracleRegistry, type TaskOracleRegistryDocument } from './oracle-determinism'
 export type {
   InjectedAction,
   RepairArm,
@@ -300,22 +112,5 @@ export type {
   TestOracleContext,
   TestOracleOutcome,
 } from './ports'
-export {
-  REPAIR_CONTRACT_LINES,
-  REPAIR_QUESTION,
-  REPAIR_REPAIR_CONTRACT_LINES,
-  renderRepairTrajectory,
-  repairArmPromptSha256,
-  repairQuestionSha256,
-  repairTaskDefinition,
-  repairTaskPolicy,
-  repairTrajectoryHeader,
-} from './repair-prompt'
-export {
-  type InjectedTestOracleOptions,
-  injectedTestOracle,
-  TestOracleError,
-  type TestSuiteFile,
-  TestSuiteTamperedError,
-  testSuiteDigest,
-} from './test-oracle'
+export { repairArmPromptSha256, repairQuestionSha256 } from './repair-prompt'
+export { type InjectedTestOracleOptions, injectedTestOracle, type TestSuiteFile, TestSuiteTamperedError } from './test-oracle'

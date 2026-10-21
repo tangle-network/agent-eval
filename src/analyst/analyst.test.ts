@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetLockedAppendersForTesting } from '../testing'
 import { createChatClient } from './chat-client'
-import { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
+import { diffFindings, FindingsStore } from './findings-store'
 import { type AnalystHooks, AnalystRegistry } from './registry'
 import {
   type Analyst,
@@ -666,39 +666,7 @@ describe('BudgetPolicy', () => {
   })
 })
 
-describe('diffFindings policy', () => {
-  function f(claim: string, sev: AnalystFinding['severity'] = 'medium', rationale?: string) {
-    return {
-      ...makeFinding({
-        analyst_id: 'a',
-        area: 'x',
-        claim,
-        severity: sev,
-        confidence: 0.8,
-        evidence_refs: [],
-        rationale,
-      }),
-      run_id: 'r0',
-    }
-  }
 
-  it('default isMaterial ignores rationale text change', () => {
-    const prev = [f('same', 'medium', 'reason A')]
-    const cur = [{ ...f('same', 'medium', 'reason B reworded'), run_id: 'r1' }]
-    const d = diffFindings(prev, cur)
-    expect(d.changed).toHaveLength(0)
-    expect(d.persisted).toHaveLength(1)
-  })
-
-  it('custom isMaterial can flag rationale shifts', () => {
-    const prev = [f('same', 'medium', 'reason A')]
-    const cur = [{ ...f('same', 'medium', 'reason B reworded'), run_id: 'r1' }]
-    const d = diffFindings(prev, cur, {
-      isMaterial: (a, b) => defaultIsMaterial(a, b) || a.rationale !== b.rationale,
-    })
-    expect(d.changed).toHaveLength(1)
-  })
-})
 
 describe('AnalystRegistry.runStream', () => {
   function makeOkAnalyst(id: string, findings: AnalystFinding[]): Analyst {

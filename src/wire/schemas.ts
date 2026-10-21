@@ -395,7 +395,7 @@ export const WIRE_VERSION = '1.1.0'
  * changed" — the two are indistinguishable when the value is an untagged hex
  * string.
  */
-export const RUBRIC_VERSION_SCHEME = 'sha256-rfc8785'
+const RUBRIC_VERSION_SCHEME = 'sha256-rfc8785'
 
 /**
  * Stable identity of a rubric, as `<name>@sha256-rfc8785:<hex>`. Two scores

@@ -210,6 +210,4 @@ export const DEFAULT_TRACE_ANALYST_BUDGETS: TraceAnalystByteBudgets = {
   perMatchTextBudget: 1_024,
 }
 
-/** Marker substituted in place of truncated string payloads. Callers
- *  parsing tool output can detect it deterministically. */
-export const TRACE_ANALYST_TRUNCATION_MARKER_PREFIX = '[trace-analyst truncated:'
+

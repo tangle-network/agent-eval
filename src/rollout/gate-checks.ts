@@ -76,7 +76,7 @@ export type GateCheckedOutcome = Partial<RolloutOutcome> | Readonly<Record<strin
  * `outcome` would have let the old call sites keep compiling while silently
  * checking nothing — the exact failure this module exists to make impossible.
  */
-export interface GateSubject {
+interface GateSubject {
   outcome: GateCheckedOutcome
   /** The line's trajectory steps, when it carries any. */
   steps?: unknown

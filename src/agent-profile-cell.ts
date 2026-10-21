@@ -117,7 +117,7 @@ export function validateAgentProfileCell(input: unknown): AgentProfileCell {
   return input as AgentProfileCell
 }
 
-export function requireAgentProfileCell(record: {
+function requireAgentProfileCell(record: {
   runId: string
   agentProfile?: AgentProfileCell
 }): AgentProfileCell {
@@ -137,33 +137,7 @@ export function agentProfileCellKey(record: {
   return requireAgentProfileCell(record).cellId
 }
 
-export async function assertRunAgentProfileCell(record: {
-  runId: string
-  model: string
-  promptHash: string
-  agentProfile?: AgentProfileCell
-}): Promise<AgentProfileCell> {
-  const profile = requireAgentProfileCell(record)
-  if (!(await verifyAgentProfileCell(profile))) {
-    throw new AgentProfileCellValidationError(
-      `run "${record.runId}" has an agentProfile.cellId that does not match its content`,
-      'agentProfile.cellId',
-    )
-  }
-  if (profile.model !== undefined && profile.model !== record.model) {
-    throw new AgentProfileCellValidationError(
-      `run "${record.runId}" agentProfile.model "${profile.model}" does not match model "${record.model}"`,
-      'agentProfile.model',
-    )
-  }
-  if (profile.promptHash !== undefined && profile.promptHash !== record.promptHash) {
-    throw new AgentProfileCellValidationError(
-      `run "${record.runId}" agentProfile.promptHash "${profile.promptHash}" does not match promptHash "${record.promptHash}"`,
-      'agentProfile.promptHash',
-    )
-  }
-  return profile
-}
+
 
 export function groupRunsByAgentProfileCell<
   T extends { runId: string; agentProfile?: AgentProfileCell },
@@ -411,40 +385,4 @@ export function toAgentProfileJson(value: unknown): AgentProfileJson {
 /** Canonical AgentProfile shape required when deriving a stable cell id. */
 export type AgentInterfaceProfileLike = AgentProfile & { name: string; version: string }
 
-/** Higher-level helper that hard-codes the canonical
- *  `agent-interface-profile` kind plus the JSON canonicalization. Equivalent
- *  to calling `buildAgentProfileCell` with `profileId = \`${name}@${version}\``
- *  and `sourceProfile = { kind: AGENT_INTERFACE_PROFILE, profile: <round-tripped> }`.
- *
- *  Use this from any product consuming an agent-interface `AgentProfile`; the
- *  manual `buildAgentProfileCell` call is reserved for advanced cases
- *  (custom kinds, pre-computed source hashes, alternate profileId
- *  conventions). */
-export async function buildAgentInterfaceProfileCell(
-  profile: AgentInterfaceProfileLike,
-  input: Omit<AgentProfileCellInput, 'profileId' | 'sourceProfile'>,
-): Promise<AgentProfileCell> {
-  if (!profile || typeof profile !== 'object') {
-    throw new AgentProfileCellValidationError('AgentProfile must be an object', 'profile')
-  }
-  if (typeof profile.name !== 'string' || profile.name.length === 0) {
-    throw new AgentProfileCellValidationError(
-      'AgentProfile must have a non-empty `name`',
-      'profile.name',
-    )
-  }
-  if (typeof profile.version !== 'string' || profile.version.length === 0) {
-    throw new AgentProfileCellValidationError(
-      'AgentProfile must have a non-empty `version`',
-      'profile.version',
-    )
-  }
-  return buildAgentProfileCell({
-    ...input,
-    profileId: `${profile.name}@${profile.version}`,
-    sourceProfile: {
-      kind: AGENT_PROFILE_KINDS.AGENT_INTERFACE_PROFILE,
-      profile: toAgentProfileJson(profile),
-    },
-  })
-}
+

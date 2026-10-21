@@ -301,7 +301,7 @@ function truncateObservation(
  * Join one batch case with its gold label and trajectory into a row.
  * Throws on any join inconsistency — never emits a partially joined row.
  */
-export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): VerifiedFindingRow {
+function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): VerifiedFindingRow {
   const { batchCase, label, steps, detail } = args
   const caseId = `${args.runId}/${batchCase.corpus}/${batchCase.trajId}`
   const maxObservationChars = args.maxObservationChars ?? DEFAULT_MAX_OBSERVATION_CHARS
@@ -443,7 +443,7 @@ export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): Veri
   }
 }
 
-export function summarizeVerifiedFindings(rows: VerifiedFindingRow[]): VerifiedFindingsSummary {
+function summarizeVerifiedFindings(rows: VerifiedFindingRow[]): VerifiedFindingsSummary {
   const summary: VerifiedFindingsSummary = {
     rows: rows.length,
     reproduced: 0,

@@ -15,7 +15,7 @@
  */
 
 import type { Span } from '../trace/schema'
-import type { Scene, Storyboard } from './index'
+
 
 const EDIT_TOOLS =
   /(edit|write|patch|apply|str_replace|create.*file|save|insert|update.*file|multi_edit)/i
@@ -95,7 +95,7 @@ function countDiff(diff?: string): { additions: number; deletions: number } {
 }
 
 /** Extract a CodeEdit from a single span, or undefined if it is not an edit. */
-export function codeEditFromSpan(span: Span): CodeEdit | undefined {
+function codeEditFromSpan(span: Span): CodeEdit | undefined {
   if (span.kind !== 'tool') return undefined
   const tool = span as Extract<Span, { kind: 'tool' }>
   if (!EDIT_TOOLS.test(tool.toolName)) return undefined
@@ -126,23 +126,7 @@ export function extractCodeEdits(spans: readonly Span[]): CodeEdit[] {
     .sort((a, b) => a.startedAt - b.startedAt)
 }
 
-/** Pair each code-edit (`diff`) scene with its concrete edit, matched via the
- *  scene's evidence span ids. Scenes without a recoverable edit are dropped. */
-export function codeEditsForStoryboard(
-  storyboard: Storyboard,
-  spans: readonly Span[],
-): Array<{ scene: Scene; edit: CodeEdit }> {
-  const bySpan = new Map(extractCodeEdits(spans).map((e) => [e.spanId, e]))
-  const out: Array<{ scene: Scene; edit: CodeEdit }> = []
-  for (const scene of storyboard.scenes) {
-    if (scene.sceneType !== 'diff') continue
-    const edit = scene.evidenceSpanIds
-      .map((id) => bySpan.get(id))
-      .find((e): e is CodeEdit => e != null)
-    if (edit) out.push({ scene, edit })
-  }
-  return out
-}
+
 
 /** The text the animation types for an edit: prefer the full new file body,
  *  then the added lines of a diff, then a minimal placeholder so the scene is

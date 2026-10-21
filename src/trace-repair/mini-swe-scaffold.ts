@@ -26,7 +26,7 @@ export { isRecordedTimeout } from '../trajectory-replay/steps'
 export const SUBMIT_SENTINEL = SUBMIT_ACTION_SIGNATURE
 
 /** Outputs at or above this length are elided head+tail instead of shown whole. */
-export const OUTPUT_ELISION_THRESHOLD = 10_000
+const OUTPUT_ELISION_THRESHOLD = 10_000
 
 /** Characters kept from each end of an elided output. */
 const OUTPUT_ELISION_WINDOW = 5_000

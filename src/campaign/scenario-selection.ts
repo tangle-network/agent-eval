@@ -90,27 +90,4 @@ export function scoreDiscrimination(
   return scored.sort(compareDiscrimination)
 }
 
-/**
- * Select the top-`k` most discriminative scenario ids for a holdout, EXCLUDING
- * fully saturated ties when enough non-tied scenarios exist (a tie in the
- * holdout wastes a paired cell).
- *
- * Prefers non-tied scenarios; if fewer than `k` non-tied exist, fills with the
- * least-saturated tied ones (tied scenarios are already ordered least-saturated
- * first by `meanScore` asc). Deterministic. Throws if `k < 1`. If
- * `signals.length <= k`, returns all ids in discrimination order.
- */
-export function selectDiscriminative(
-  signals: ScenarioSignal[],
-  k: number,
-  opts?: { saturationCeiling?: number },
-): string[] {
-  if (k < 1) throw new Error(`selectDiscriminative: k must be >= 1 (got ${k})`)
-  const ranked = scoreDiscrimination(signals, opts)
-  if (ranked.length <= k) return ranked.map((s) => s.scenarioId)
-  const nonTied = ranked.filter((s) => !s.tied)
-  if (nonTied.length >= k) return nonTied.slice(0, k).map((s) => s.scenarioId)
-  const tied = ranked.filter((s) => s.tied)
-  const fill = tied.slice(0, k - nonTied.length)
-  return [...nonTied, ...fill].map((s) => s.scenarioId)
-}
+

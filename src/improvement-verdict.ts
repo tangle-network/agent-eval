@@ -20,7 +20,7 @@
  */
 
 import type { EvidenceRef } from './analyst/types'
-import { ValidationError } from './errors'
+
 
 /** Verdict for one candidate relative to its parent. ITERATE is the neutral
  *  "keep collecting reps / no parent to compare against" state. */
@@ -85,81 +85,8 @@ export interface ImprovementVerdictResult {
   reason: string
 }
 
-const DEFAULTS: Required<ImprovementThresholds> = {
-  keepThreshold: 5,
-  regressionThreshold: 5,
-  iqrUnstableAbove: 10,
-  stddevUnstableAbove: Number.POSITIVE_INFINITY,
-  minRepsForVerdict: 3,
-}
 
-function resolveThresholds(t: ImprovementThresholds | undefined): Required<ImprovementThresholds> {
-  const r = { ...DEFAULTS, ...(t ?? {}) }
-  if (r.keepThreshold < 0) {
-    throw new ValidationError(
-      `improvement-verdict: keepThreshold must be >= 0, got ${r.keepThreshold}`,
-    )
-  }
-  if (r.regressionThreshold < 0) {
-    throw new ValidationError(
-      `improvement-verdict: regressionThreshold must be >= 0, got ${r.regressionThreshold}`,
-    )
-  }
-  if (r.minRepsForVerdict < 1) {
-    throw new ValidationError(
-      `improvement-verdict: minRepsForVerdict must be >= 1, got ${r.minRepsForVerdict}`,
-    )
-  }
-  return r
-}
 
-/**
- * Verdict for a candidate against its parent. Pure — operates on already-computed
- * stats. KEEP/REGRESSION require both sides to have `>= minRepsForVerdict` reps
- * AND the candidate to be `stable`; otherwise the result is NOISE (unstable) or
- * ITERATE (not enough reps / no parent).
- */
-export function improvementVerdict(
-  candidate: ExperimentStats,
-  parent: ExperimentStats | null,
-  thresholds?: ImprovementThresholds,
-): ImprovementVerdictResult {
-  const t = resolveThresholds(thresholds)
-  if (!parent) {
-    return {
-      verdict: 'ITERATE',
-      medianDelta: null,
-      reason: 'no parent experiment to compare against',
-    }
-  }
-  if (candidate.n < t.minRepsForVerdict || parent.n < t.minRepsForVerdict) {
-    return {
-      verdict: 'ITERATE',
-      medianDelta: null,
-      reason: `need >= ${t.minRepsForVerdict} reps on both sides (candidate n=${candidate.n}, parent n=${parent.n})`,
-    }
-  }
-  if (!candidate.stable) {
-    return {
-      verdict: 'NOISE',
-      medianDelta: candidate.median - parent.median,
-      reason: `candidate unstable (iqr=${candidate.iqr}, stddev=${candidate.stddev.toFixed(2)})`,
-    }
-  }
-  const medianDelta = candidate.median - parent.median
-  if (medianDelta > t.keepThreshold) {
-    return { verdict: 'KEEP', medianDelta, reason: `median +${medianDelta} > +${t.keepThreshold}` }
-  }
-  if (medianDelta < -t.regressionThreshold) {
-    return {
-      verdict: 'REGRESSION',
-      medianDelta,
-      reason: `median ${medianDelta} < -${t.regressionThreshold}`,
-    }
-  }
-  return {
-    verdict: 'NOISE',
-    medianDelta,
-    reason: `median delta ${medianDelta} inside noise band [-${t.regressionThreshold}, +${t.keepThreshold}]`,
-  }
-}
+
+
+

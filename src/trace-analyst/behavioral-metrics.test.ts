@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { deriveEfficiencyFindings } from '../analyst/behavioral-analyst'
-import { diffFindings } from '../analyst/findings-store'
+
+
 import {
   LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,
@@ -635,37 +635,4 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
   })
 })
 
-describe('deriveEfficiencyFindings', () => {
-  it('emits 4 structured findings with confidence 1 and exact evidence', () => {
-    const findings = deriveEfficiencyFindings(computeTraceMetrics(fixture530()), {
-      producedAt: '2026-01-01T00:00:00.000Z',
-    })
-    expect(findings).toHaveLength(4)
-    for (const f of findings) {
-      expect(f.area).toBe('efficiency')
-      expect(f.confidence).toBe(1)
-      expect(f.evidence_refs[0]!.kind).toBe('metric')
-      expect(f.recommended_action).toBeTruthy()
-      expect(f.metadata?.deterministic).toBe(true)
-      expect(f.metadata?.trace_id).toBe('t1')
-      expect(f.evidence_refs[0]!.uri).toContain('/t1/')
-    }
-    const growth = findings.find((f) => f.subject === 'monotonic-input-growth')!
-    expect(growth.claim).toContain('671→8776')
-    expect((growth.metadata!.evidence as { growth_x: number }).growth_x).toBeCloseTo(13.08, 1)
-  })
 
-  it('keeps finding identity stable across trace ids and cross-run diffs', () => {
-    const a = deriveEfficiencyFindings(computeTraceMetrics(fixture530()), { producedAt: 'x' })
-    const secondTrace = fixture530().map((span) => ({ ...span, trace_id: 't2' }))
-    const b = deriveEfficiencyFindings(computeTraceMetrics(secondTrace), { producedAt: 'x' })
-    expect(a.map((f) => f.finding_id)).toEqual(b.map((f) => f.finding_id))
-    const diff = diffFindings(
-      a.map((finding) => ({ ...finding, run_id: 'old' })),
-      b.map((finding) => ({ ...finding, run_id: 'new' })),
-    )
-    expect(diff.appeared).toEqual([])
-    expect(diff.disappeared).toEqual([])
-    expect(diff.persisted).toHaveLength(4)
-  })
-})

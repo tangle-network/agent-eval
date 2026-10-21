@@ -82,7 +82,7 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
  * two-point encoding). This predicate remains for callers that specifically
  * mean "literally 0/1".
  */
-export function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
+function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
   if (values.length === 0) return false
   for (let i = 0; i < values.length; i++) {
     const v = values[i]!

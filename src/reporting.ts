@@ -26,7 +26,7 @@ export type {
   ReleaseConfidenceThresholds,
   ReleaseTraceEvidence,
 } from './release-confidence'
-export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
+export { evaluateReleaseConfidence } from './release-confidence'
 export type {
   InterimReleaseConfidence,
   InterimReleaseConfidenceInput,
@@ -64,10 +64,4 @@ export type {
   SummaryTableOptions,
   SummaryTableRow,
 } from './summary-report'
-export {
-  gainHistogram,
-  paretoChart,
-  RESEARCH_REPORT_HARD_PAIR_FLOOR,
-  researchReport,
-  summaryTable,
-} from './summary-report'
+export { gainHistogram, RESEARCH_REPORT_HARD_PAIR_FLOOR, researchReport, summaryTable } from './summary-report'

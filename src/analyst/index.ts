@@ -7,9 +7,9 @@
 // adapters — lives here so it has a home without crowding the root surface.
 
 export type { SemanticConceptJudgeAdapterOpts } from './adapters'
-export { createSemanticConceptJudgeAdapter } from './adapters'
+
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
-export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
+export { behavioralAnalyst } from './behavioral-analyst'
 export type {
   AnalystBenchmarkCase,
   AnalystBenchmarkDatasetRef,
@@ -31,20 +31,12 @@ export type {
   AnalystLatencyDistribution,
   RunAnalystBenchmarkOptions,
 } from './benchmark'
-export {
-  registryBenchmarkRunner,
-  runAnalystBenchmark,
-  scoreAnalystFindings,
-  traceStoreEvidenceResolver,
-} from './benchmark'
+export { runAnalystBenchmark, traceStoreEvidenceResolver } from './benchmark'
 export type {
   AgentRxCalibrationRunnerSummary,
   AgentRxCalibrationSummary,
 } from './benchmark-agentrx-calibration'
-export {
-  renderAgentRxCalibrationMarkdown,
-  summarizeAgentRxCalibration,
-} from './benchmark-agentrx-calibration'
+
 export type {
   AnalystBenchmarkArtifact,
   AnalystBenchmarkCommandConfig,
@@ -69,7 +61,7 @@ export type {
   AnalystMetricComparison,
   AnalystRunnerComparison,
 } from './benchmark-comparison'
-export { compareAnalystRunners } from './benchmark-comparison'
+
 export type {
   AgentRxBenchmarkCaseOptions,
   AgentRxFailure,
@@ -88,50 +80,20 @@ export type {
   StepLabelAdapterOptions,
   UpstreamPredictionAdapterOptions,
 } from './benchmark-datasets'
-export {
-  agentRxBenchmarkCase,
-  agentRxPredictionsToFindings,
-  codeTraceBenchCase,
-  codeTracerPredictionsToFindings,
-  normalizeAgentRxCategory,
-  normalizeBenchmarkLabel,
-  roundAgentRxStep,
-} from './benchmark-datasets'
-export {
-  ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM,
-  ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
-  ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
-  ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
-  ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256,
-  ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM,
-  ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
-  ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-  analystBenchmarkDependencyLockDigest,
-  analystBenchmarkImplementationDigest,
-} from './benchmark-implementation'
-export {
-  analystInstructionsOverrideFromText,
-  effectiveAnalystProtocolSha256,
-  readAnalystInstructionsOverride,
-} from './benchmark-instructions-override'
+export { agentRxBenchmarkCase, agentRxPredictionsToFindings, codeTraceBenchCase, codeTracerPredictionsToFindings } from './benchmark-datasets'
+export { ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256, ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256, ANALYST_BENCHMARK_IMPLEMENTATION_FILES } from './benchmark-implementation'
+
 export type {
   CodeTraceCalibrationRunnerSummary,
   CodeTraceCalibrationSummary,
 } from './benchmark-public-calibration'
-export {
-  renderCodeTraceCalibrationMarkdown,
-  summarizeCodeTraceCalibration,
-} from './benchmark-public-calibration'
+
 export {
   type PublicBenchmarkModelPrediction,
   type PublicDirectDefinitionArgs,
   publicDirectAnalystDefinition,
 } from './benchmark-public-model'
-export {
-  type PublicRlmDefinitionArgs,
-  publicRlmAnalystDefinition,
-  rlmEngineLimits,
-} from './benchmark-public-rlm'
+export { type PublicRlmDefinitionArgs, publicRlmAnalystDefinition } from './benchmark-public-rlm'
 export type {
   AnalystInstructionsOverride,
   PreparedPublicAnalystBenchmark,
@@ -143,57 +105,27 @@ export type {
   PublicBenchmarkSelectionReport,
   PublicBenchmarkValueDistribution,
 } from './benchmark-real-model'
-export {
-  adaptPublicBenchmarkFindings,
-  CODE_TRACE_BENCH_ANALYST_PROMPT,
-  type CodeTraceBlockDiagnostics,
-  type CodeTraceFailureBlock,
-  createPrimeBenchmarkRunner,
-  createPublicBenchmarkDirectRunner,
-  createPublicBenchmarkRlmRunner,
-  emptyPublicBenchmarkRunner,
-  expandCodeTraceFailureBlocks,
-  loadPublicBenchmarkRows,
-  MAX_INCORRECT_BLOCK_STEPS,
-  MAX_INCORRECT_BLOCKS,
-  nodeHttpPrimeBridgeTransport,
-  type PrimeBenchmarkRunnerOptions,
-  type PrimeBridgeTransport,
-  type PrimeBridgeTransportRequest,
-  type PrimeBridgeTransportResult,
-  preparePublicAnalystBenchmark,
-  primeAnalystProtocolSha256,
-  publicBenchmarkDistributions,
-  publicBenchmarkProtocolSha256,
-  publicBenchmarkRlmInstructions,
-  publicBenchmarkSelectionReport,
-  publicBenchmarkSystemPrompt,
-  selectPublicBenchmarkRows,
-} from './benchmark-real-model'
-export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+export { CODE_TRACE_BENCH_ANALYST_PROMPT, type CodeTraceBlockDiagnostics, type CodeTraceFailureBlock, createPrimeBenchmarkRunner, createPublicBenchmarkDirectRunner, createPublicBenchmarkRlmRunner, expandCodeTraceFailureBlocks, loadPublicBenchmarkRows, nodeHttpPrimeBridgeTransport, type PrimeBenchmarkRunnerOptions, type PrimeBridgeTransport, type PrimeBridgeTransportRequest, type PrimeBridgeTransportResult, primeAnalystProtocolSha256, publicBenchmarkProtocolSha256 } from './benchmark-real-model'
+
 export {
   type PrimeCodeTraceDefinitionArgs,
   primeCodeTraceAnalystDefinition,
 } from './benchmark-runner-prime'
-export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
+
 export type {
   LoadedVerificationArtifacts,
   VerificationArtifactFile,
   VerificationArtifactManifest,
   VerificationArtifactRole,
 } from './benchmark-verification-artifacts'
-export {
-  appendVerificationArtifactsToOtlp,
-  DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
-  loadCodeTraceVerificationArtifacts,
-} from './benchmark-verification-artifacts'
+
 export type {
   VerificationOutcome,
   VerificationOutcomeSource,
   VerificationOutcomeStatus,
   VerificationResultFile,
 } from './benchmark-verification-outcome'
-export { parseVerificationOutcome } from './benchmark-verification-outcome'
+
 export { type AnalystTransportBinding, bindAnalyst } from './bind'
 export type {
   ChatCallOpts,
@@ -247,19 +179,7 @@ export type {
   TaxonomyNodeLayer,
   TaxonomyOutcome,
 } from './domain-taxonomy'
-export {
-  attachToTaxonomy,
-  DOMAIN_TAXONOMY_SCHEMA,
-  defineDomainTaxonomy,
-  domainPathOf,
-  LAB_NODE_ID,
-  lowestCommonAncestor,
-  resolveDomainPath,
-  TAXONOMY_NODE_LAYERS,
-  taxonomyAncestry,
-  taxonomyLayerOf,
-  taxonomyParentOf,
-} from './domain-taxonomy'
+export { attachToTaxonomy, defineDomainTaxonomy, domainPathOf, LAB_NODE_ID, lowestCommonAncestor, resolveDomainPath, taxonomyAncestry, taxonomyLayerOf } from './domain-taxonomy'
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
@@ -268,7 +188,7 @@ export type {
   TraceAnalysisEngineResult,
   TraceAnalystLimits,
 } from './engine'
-export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS, resolveTraceAnalystLimits } from './engine'
+
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,
@@ -291,18 +211,7 @@ export type {
   FailureModesCalibration,
   FailureModesOutcome,
 } from './failure-modes'
-export {
-  AGENT_RX_FAILURE_MODE_MAP,
-  calibrateFailureModes,
-  createFailureModesAnalyst,
-  FAILURE_MODE_LABELS,
-  FAILURE_MODES_ANALYST_ID,
-  FAILURE_MODES_MIN_KAPPA,
-  FAILURE_MODES_QUESTIONS,
-  FAILURE_MODES_VERSION,
-  loadFailureModeGold,
-  parseFailureModeGold,
-} from './failure-modes'
+export { calibrateFailureModes, createFailureModesAnalyst, FAILURE_MODE_LABELS, FAILURE_MODES_ANALYST_ID, FAILURE_MODES_MIN_KAPPA, FAILURE_MODES_QUESTIONS, FAILURE_MODES_VERSION, loadFailureModeGold } from './failure-modes'
 export type {
   FindingCalibration,
   FindingEvidenceUnit,
@@ -314,18 +223,7 @@ export type {
   FindingScope,
   FindingScopeReading,
 } from './finding-scope'
-export {
-  AnalystFindingSchema,
-  FINDING_LAYERS,
-  findingLayerRank,
-  independentUnitCount,
-  lineageRoots,
-  mergeEvidenceUnits,
-  ProposalFindingSchema,
-  parseAnalystFinding,
-  readFindingScope,
-  UNKNOWN_LINEAGE,
-} from './finding-scope'
+export { FINDING_LAYERS, independentUnitCount, lineageRoots, ProposalFindingSchema, parseAnalystFinding, readFindingScope } from './finding-scope'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -355,16 +253,12 @@ export type {
 } from './findings-ledger'
 export { diffFindingsOverTime, openFindingsLedger, queryFindings } from './findings-ledger'
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './findings-store'
-export { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
+export { diffFindings, FindingsStore } from './findings-store'
 export type {
   CreateTraceAnalystOptions,
   TraceAnalystDefinition,
 } from './kind-factory'
-export {
-  createTraceAnalyst,
-  renderPriorFindings,
-  runTraceAnalyst,
-} from './kind-factory'
+export { createTraceAnalyst, runTraceAnalyst } from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -382,43 +276,12 @@ export type {
   SkillUsageReport,
   SkillUsageScanConfig,
 } from './kinds/skill-usage'
-export {
-  buildSkillUsageReport,
-  emitSkillUsageFindings,
-  SKILL_USAGE_ANALYST,
-} from './kinds/skill-usage'
-export { coerceJson, stripCodeFences } from './parse-tolerant'
-export {
-  analystUsageReceiptFromPrimeUsage,
-  buildPrimePrompt,
-  buildPrimeRepairPrompt,
-  emptyPrimeRawUsage,
-  extractPrimeJsonObject,
-  mergePrimeRawUsage,
-  normalizePrimeUsage,
-  type PrimeExchangeOptions,
-  type PrimeExchangeOutcome,
-  type PrimeFailure,
-  type PrimeProjectionDelivery,
-  type PrimeProjectionOutcome,
-  type PrimeProjectionSource,
-  type PrimePromptSpec,
-  type PrimeProtocolIdentity,
-  type PrimeRawUsage,
-  type PrimeRejectedRow,
-  type PrimeRepairPromptSpec,
-  type PrimeRepairState,
-  type PrimeReplyContract,
-  type PrimeRowDecoded,
-  type PrimeTurnRecord,
-  primeProtocolSha256,
-  primeReplyDefect,
-  projectPrimeTrajectory,
-  runPrimeExchange,
-} from './prime-protocol'
+export { buildSkillUsageReport } from './kinds/skill-usage'
+export { stripCodeFences } from './parse-tolerant'
+export { analystUsageReceiptFromPrimeUsage, buildPrimePrompt, buildPrimeRepairPrompt, mergePrimeRawUsage, normalizePrimeUsage, type PrimeExchangeOptions, type PrimeExchangeOutcome, type PrimeFailure, type PrimeProjectionDelivery, type PrimeProjectionOutcome, type PrimeProjectionSource, type PrimePromptSpec, type PrimeProtocolIdentity, type PrimeRawUsage, type PrimeRejectedRow, type PrimeRepairPromptSpec, type PrimeRepairState, type PrimeReplyContract, type PrimeRowDecoded, type PrimeTurnRecord, primeProtocolSha256, projectPrimeTrajectory, runPrimeExchange } from './prime-protocol'
 export type { PromoteOptions, PromotionHold, PromotionResult } from './promote'
-export { PROMOTE_ANALYST_ID, PROMOTE_VERSION, promote } from './promote'
-export { assertProposalFindings, isProposalFinding } from './proposal-findings'
+export { promote } from './promote'
+export { assertProposalFindings } from './proposal-findings'
 export type {
   AnalystHooks,
   AnalystRegistryOptions,
@@ -438,9 +301,9 @@ export type {
   ReplyRowDecoded,
   ReplyRowRejection,
 } from './reply-contract'
-export { decodeReplyRows } from './reply-contract'
+
 export type { RollupInput, RollupOptions, RollupResult } from './rollup'
-export { ROLLUP_ANALYST_ID, ROLLUP_VERSION, rollupAnalyst, rollupFindings } from './rollup'
+export { rollupFindings } from './rollup'
 export type {
   NotObservable,
   TeamIntegration,
@@ -453,16 +316,7 @@ export type {
   TeamShapeObserved,
   TeamShapeOutcome,
 } from './team-shape'
-export {
-  classifyTeamShape,
-  NOT_OBSERVABLE,
-  TEAM_SHAPE_ANALYST_ID,
-  TEAM_SHAPE_CLASSES,
-  TEAM_SHAPE_THRESHOLDS,
-  TEAM_SHAPE_VERSION,
-  teamShapeAnalyst,
-  teamShapeInputFromSources,
-} from './team-shape'
+export { classifyTeamShape, NOT_OBSERVABLE, TEAM_SHAPE_ANALYST_ID, TEAM_SHAPE_CLASSES, TEAM_SHAPE_VERSION, teamShapeAnalyst, teamShapeInputFromSources } from './team-shape'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {
@@ -471,7 +325,7 @@ export type {
   TraceQuestionSpec,
   VerifiedTraceFinding,
 } from './trace-questions'
-export { askTraceQuestions, citedSpansOnly } from './trace-questions'
+export { askTraceQuestions } from './trace-questions'
 export type {
   Analyst,
   AnalystContext,
@@ -493,10 +347,4 @@ export type {
   ProposalFinding,
   ProposalFindingOrigin,
 } from './types'
-export {
-  ANALYST_FINDING_SCHEMA_VERSIONS,
-  computeFindingId,
-  FINDING_SCOPE_FIELDS,
-  makeFinding,
-  makeProposalFinding,
-} from './types'
+export { computeFindingId, makeFinding, makeProposalFinding } from './types'

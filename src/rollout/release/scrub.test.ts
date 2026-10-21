@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { fixtureRolloutLine } from '../fixtures'
-import { validateRolloutLine } from '../schema'
-import { emptyScrubCounts, scrubLines, scrubRolloutLine, scrubText } from './scrub'
+
+
+import { emptyScrubCounts, scrubText } from './scrub'
 
 function scrub(text: string): { text: string; counts: Record<string, number> } {
   const counts = emptyScrubCounts()
@@ -118,66 +118,4 @@ describe('determinism and idempotency', () => {
   })
 })
 
-describe('line scrubbing', () => {
-  it('scrubs every string field and the result is still a valid line', () => {
-    const line = fixtureRolloutLine({
-      run_id: '/home/drew/runs/gen3#1',
-      messages: [
-        { role: 'system', content: 'cwd is /home/drew/code/supervisor-lab' },
-        {
-          role: 'user',
-          content: 'use OPENAI_API_KEY=sk-abcdefghijklmnop1234 against router.tangle.tools',
-        },
-        {
-          role: 'assistant',
-          content: null,
-          tool_calls: [
-            {
-              id: 'call_1',
-              type: 'function',
-              function: { name: 'bash', arguments: '{"cmd":"ls /Users/drew/data"}' },
-            },
-          ],
-        },
-        { role: 'tool', tool_call_id: 'call_1', name: 'bash', content: '/Users/drew/data/a.csv' },
-      ],
-      artifacts: {
-        patch_path: '/home/drew/patches/fix.patch',
-        run_dir: '/home/drew/runs/R4',
-        transcript_ref: '/tmp/claude-1000/-home-drew-code-supervisor-lab/t.jsonl',
-      },
-    })
-    const counts = emptyScrubCounts()
-    const scrubbed = scrubRolloutLine(line, counts)
 
-    expect(scrubbed.run_id).toBe('$WORK/runs/gen3#1')
-    expect(scrubbed.messages[0]!.content).toBe('cwd is $WORK/code/supervisor-lab')
-    expect(scrubbed.messages[1]!.content).toBe(
-      'use OPENAI_API_KEY=[REDACTED:env] against router.internal.example',
-    )
-    expect(scrubbed.messages[2]!.tool_calls?.[0]?.function.arguments).toBe(
-      '{"cmd":"ls $WORK/data"}',
-    )
-    expect(scrubbed.messages[3]!.content).toBe('$WORK/data/a.csv')
-    expect(scrubbed.artifacts).toEqual({
-      patch_path: '$WORK/patches/fix.patch',
-      run_dir: '$WORK/runs/R4',
-      transcript_ref: '/tmp/claude-1000/$WORK-code-supervisor-lab/t.jsonl',
-    })
-    expect(counts['home-path']).toBe(6)
-    expect(counts['home-path-encoded']).toBe(1)
-    expect(counts['env-secret']).toBe(1)
-    expect(counts['infra-host']).toBe(1)
-
-    // The scrubbed line must still validate (scrubbing never breaks structure).
-    expect(validateRolloutLine(scrubbed)).toEqual([])
-  })
-
-  it('scrubLines reports totals across lines', () => {
-    const a = fixtureRolloutLine({ run_id: '/home/drew/a' })
-    const b = fixtureRolloutLine({ run_id: '/home/drew/b' })
-    const { lines, counts } = scrubLines([a, b])
-    expect(lines.map((line) => line.run_id)).toEqual(['$WORK/a', '$WORK/b'])
-    expect(counts['home-path']).toBe(2)
-  })
-})

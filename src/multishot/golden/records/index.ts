@@ -61,7 +61,7 @@ const VERSIONS: Record<string, MultishotGoldenRecordSet> = {
   v1: deepFreeze(assertRecordSet(v1, 'v1')),
 }
 
-export function multishotGoldenVersions(): string[] {
+function multishotGoldenVersions(): string[] {
   return Object.keys(VERSIONS)
 }
 

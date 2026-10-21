@@ -27,10 +27,10 @@ import {
   UNKNOWN_LINEAGE,
 } from './finding-scope'
 import { type PromotionHold, promote } from './promote'
-import { type Analyst, type AnalystFinding, makeFinding } from './types'
+import { type AnalystFinding, makeFinding } from './types'
 
-export const ROLLUP_ANALYST_ID = 'rollup'
-export const ROLLUP_VERSION = '1'
+const ROLLUP_ANALYST_ID = 'rollup'
+const ROLLUP_VERSION = '1'
 
 export interface RollupOptions {
   /** Independent agreeing children `promote` requires. Default 2. */
@@ -221,17 +221,4 @@ export interface RollupInput {
   options?: RollupOptions
 }
 
-/** The rollup analyst: emits the play aggregates and every finding promote lifted from them. */
-export function rollupAnalyst(): Analyst<RollupInput> {
-  return {
-    id: ROLLUP_ANALYST_ID,
-    description:
-      'Aggregates run findings up run → play → problem → domain → lab with bootstrap intervals.',
-    inputKind: 'custom',
-    cost: { kind: 'deterministic' },
-    version: ROLLUP_VERSION,
-    async analyze(input) {
-      return rollupFindings(input.findings, input.taxonomy, input.options).findings
-    },
-  }
-}
+

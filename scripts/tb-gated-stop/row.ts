@@ -1,4 +1,5 @@
-import { injectedTestOracle, MINI_SWE_SYSTEM_MESSAGE, parseAction, renderFormatErrorObservation, renderInstanceMessage, renderObservation, renderTimeoutObservation, submissionOf } from '../../src/trace-repair'
+import { injectedTestOracle, parseAction } from '../../src/trace-repair'
+import { MINI_SWE_SYSTEM_MESSAGE, renderFormatErrorObservation, renderInstanceMessage, renderObservation, renderTimeoutObservation, submissionOf } from '../../src/trace-repair/mini-swe-scaffold'
 import { parseRecordedReturncode } from '../../src/trajectory-replay/steps'
 import { STEP_TIMEOUT_SECONDS, REPLAY_TIMEOUT_MS, GRADE_TIMEOUT_MS } from './settings'
 import { ZAI_GLM_PRICING } from '../zai-glm-pricing'

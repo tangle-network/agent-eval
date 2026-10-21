@@ -323,7 +323,7 @@ export interface SealAmendment {
 }
 
 /** SHA-256 over the RFC 8785 canonical JSON encoding of the experiment. */
-export type SealAlgo = 'sha256-rfc8785'
+type SealAlgo = 'sha256-rfc8785'
 
 export interface SealedExperiment {
   spec: ExperimentSpec

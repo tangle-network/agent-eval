@@ -30,7 +30,7 @@
  * Regenerating: `docs/multishot-golden-records.md`.
  */
 
-export { type CompareOptions, compareJson } from './compare'
+export { type CompareOptions } from './compare'
 export type { MultishotGoldenEngine, MultishotMatrixGoldenEngine } from './engine'
 export {
   assertMultishotGoldenScenario,
@@ -47,22 +47,8 @@ export {
   type MultishotMatrixGoldenScenario,
   multishotMatrixGoldenScenarios,
 } from './matrix-scenarios'
-export {
-  maskVolatileMarkdown,
-  readRunDir,
-  recordError,
-  recordJudgeRequest,
-  recordMessage,
-  recordRequest,
-  recordResult,
-  sortJudgeRequests,
-  stripVolatile,
-} from './recording'
-export {
-  CURRENT_MULTISHOT_GOLDEN_VERSION,
-  goldenRecords,
-  multishotGoldenVersions,
-} from './records'
+export { recordError, recordMessage, recordRequest, recordResult, stripVolatile } from './recording'
+export { CURRENT_MULTISHOT_GOLDEN_VERSION, goldenRecords } from './records'
 export {
   type MultishotGoldenCase,
   type MultishotGoldenScenario,

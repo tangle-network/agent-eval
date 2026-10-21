@@ -10,10 +10,8 @@
 import type { AdversarialMutation } from '../rl/adversarial'
 import type {
   Cell,
-  Evaluation,
   MutationProposer,
   Objective,
-  ObjectiveContext,
   ProposeContext,
 } from './types'
 
@@ -60,37 +58,6 @@ export function adversarialObjective(threshold = 0.5): Objective {
   return { kind: 'adversarial', threshold, interest: (ev) => clamp01(1 - ev.score) }
 }
 
-function hamming(
-  a: Record<string, string> | undefined,
-  b: Record<string, string> | undefined,
-): number {
-  if (!a || !b) return 1
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
-  if (keys.size === 0) return 0
-  let diff = 0
-  for (const k of keys) if (a[k] !== b[k]) diff++
-  return diff / keys.size
-}
 
-/**
- * Novelty: interesting when far from the archive in score AND measured behavior
- * descriptor — quality-diversity's diversity pressure; drives corpus growth
- * rather than re-finding the same hole.
- */
-export function noveltyObjective(threshold = 0.3): Objective {
-  return {
-    kind: 'novelty',
-    threshold,
-    interest: (ev: Evaluation, ctx: ObjectiveContext) => {
-      const scoreNovelty =
-        ctx.archiveScores.length === 0
-          ? 1
-          : Math.min(...ctx.archiveScores.map((s) => Math.abs(s - ev.score)))
-      const descNovelty =
-        ctx.archiveDescriptors.length === 0
-          ? 1
-          : Math.min(...ctx.archiveDescriptors.map((d) => hamming(d, ev.descriptor)))
-      return clamp01(0.5 * scoreNovelty + 0.5 * descNovelty)
-    },
-  }
-}
+
+

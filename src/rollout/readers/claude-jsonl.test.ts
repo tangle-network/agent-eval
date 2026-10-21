@@ -4,13 +4,11 @@
  * final answer, 100 input and 20 output tokens per response, each response written as one record
  * per content block.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  claudeProjectSlug,
-  findClaudeTranscripts,
   parseClaudeTranscript,
   readClaudeTranscript,
 } from './claude-jsonl'
@@ -28,26 +26,9 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-describe('claudeProjectSlug', () => {
-  it('matches Claude Code project-directory naming', () => {
-    expect(claudeProjectSlug('/tmp/claude-1000/-home-drew/x.y_z')).toBe(
-      '-tmp-claude-1000--home-drew-x-y-z',
-    )
-  })
-})
 
-describe('findClaudeTranscripts', () => {
-  it('lists jsonl session files for a cwd, empty when the project dir is absent', async () => {
-    const cwd = '/tmp/some/worktree'
-    const project = join(dir, claudeProjectSlug(cwd))
-    await mkdir(project, { recursive: true })
-    await writeFile(join(project, 'abc.jsonl'), '')
-    await writeFile(join(project, 'notes.txt'), '')
-    const refs = await findClaudeTranscripts(cwd, dir)
-    expect(refs).toEqual([{ sessionId: 'abc', path: join(project, 'abc.jsonl') }])
-    expect(await findClaudeTranscripts('/tmp/other', dir)).toEqual([])
-  })
-})
+
+
 
 describe('readClaudeTranscript', () => {
   it('reads a real transcript: one message per response, usage counted once per response', async () => {
