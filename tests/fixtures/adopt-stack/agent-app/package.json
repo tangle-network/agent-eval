@@ -1,0 +1,921 @@
+{
+  "name": "@tangle-network/agent-app",
+  "version": "0.60.241",
+  "packageManager": "pnpm@11.24.0",
+  "description": "Build agent applications with typed chat, tools, sandboxes, integrations, billing, and evaluation.",
+  "keywords": [
+    "tangle",
+    "ai-agent",
+    "agent-framework",
+    "llm",
+    "tool-calling",
+    "mcp",
+    "openai",
+    "approval-workflow",
+    "cloudflare-workers",
+    "eval"
+  ],
+  "homepage": "https://github.com/tangle-network/agent-app#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangle-network/agent-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tangle-network/agent-app/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": [
+    "./dist/**/*.css"
+  ],
+  "files": [
+    "dist",
+    "bin",
+    ".claude/skills"
+  ],
+  "bin": {
+    "agent-app-theme-check": "./dist/theme-contract/cli.js",
+    "agent-app-legibility-check": "./dist/legibility/cli.js",
+    "agent-app-preflight": "./dist/preflight/cli.js",
+    "agent-app-peer-check": "./dist/peer-floors/cli.js",
+    "agent-app-spend-check": "./dist/spend/cli.js",
+    "agent-app-signoff": "./dist/signoff/cli.js",
+    "agent-app-agent-surfaces": "./dist/agent-surfaces/cli.js",
+    "agent-app-verify-proof": "./dist/signoff/proof-cli.js",
+    "tangle-agent": "bin/tangle-agent.mjs",
+    "agent-app-invariants": "./dist/launch-invariants/cli.js",
+    "agent-app-rollout-check": "./dist/rollout/cli.js",
+    "agent-app-journeys": "./dist/journeys/cli.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./signoff": {
+      "types": "./dist/signoff/index.d.ts",
+      "import": "./dist/signoff/index.js",
+      "default": "./dist/signoff/index.js"
+    },
+    "./signoff/proof": {
+      "types": "./dist/signoff/proof.d.ts",
+      "import": "./dist/signoff/proof.js",
+      "default": "./dist/signoff/proof.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js",
+      "default": "./dist/tools/index.js"
+    },
+    "./platform": {
+      "types": "./dist/platform/index.d.ts",
+      "import": "./dist/platform/index.js",
+      "default": "./dist/platform/index.js"
+    },
+    "./operator": {
+      "types": "./dist/operator/index.d.ts",
+      "import": "./dist/operator/index.js",
+      "default": "./dist/operator/index.js"
+    },
+    "./app-auth": {
+      "types": "./dist/app-auth/index.d.ts",
+      "import": "./dist/app-auth/index.js",
+      "default": "./dist/app-auth/index.js"
+    },
+    "./email": {
+      "types": "./dist/email/index.d.ts",
+      "import": "./dist/email/index.js",
+      "default": "./dist/email/index.js"
+    },
+    "./app-oauth": {
+      "types": "./dist/app-oauth/index.d.ts",
+      "import": "./dist/app-oauth/index.js",
+      "default": "./dist/app-oauth/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js",
+      "default": "./dist/runtime/index.js"
+    },
+    "./router-turn": {
+      "types": "./dist/runtime/router-turn.d.ts",
+      "import": "./dist/runtime/router-turn.js",
+      "default": "./dist/runtime/router-turn.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "import": "./dist/catalog/index.js",
+      "default": "./dist/catalog/index.js"
+    },
+    "./eval": {
+      "types": "./dist/eval/index.d.ts",
+      "import": "./dist/eval/index.js",
+      "default": "./dist/eval/index.js"
+    },
+    "./eval-campaign": {
+      "types": "./dist/eval-campaign/index.d.ts",
+      "import": "./dist/eval-campaign/index.js",
+      "default": "./dist/eval-campaign/index.js"
+    },
+    "./knowledge": {
+      "types": "./dist/knowledge/index.d.ts",
+      "import": "./dist/knowledge/index.js",
+      "default": "./dist/knowledge/index.js"
+    },
+    "./skills": {
+      "types": "./dist/skills/index.d.ts",
+      "import": "./dist/skills/index.js",
+      "default": "./dist/skills/index.js"
+    },
+    "./skills/marketplace-drizzle": {
+      "types": "./dist/skills/marketplace-drizzle.d.ts",
+      "import": "./dist/skills/marketplace-drizzle.js",
+      "default": "./dist/skills/marketplace-drizzle.js"
+    },
+    "./skills-placement": {
+      "types": "./dist/skills-placement/index.d.ts",
+      "import": "./dist/skills-placement/index.js",
+      "default": "./dist/skills-placement/index.js"
+    },
+    "./toolbelt": {
+      "types": "./dist/toolbelt/index.d.ts",
+      "import": "./dist/toolbelt/index.js",
+      "default": "./dist/toolbelt/index.js"
+    },
+    "./profile": {
+      "types": "./dist/profile/index.d.ts",
+      "import": "./dist/profile/index.js",
+      "default": "./dist/profile/index.js"
+    },
+    "./profile-editor": {
+      "types": "./dist/profile-editor/index.d.ts",
+      "import": "./dist/profile-editor/index.js",
+      "default": "./dist/profile-editor/index.js"
+    },
+    "./profile-editor/server": {
+      "types": "./dist/profile-editor/server.d.ts",
+      "import": "./dist/profile-editor/server.js",
+      "default": "./dist/profile-editor/server.js"
+    },
+    "./agent-profiles": {
+      "types": "./dist/agent-profiles/index.d.ts",
+      "import": "./dist/agent-profiles/index.js",
+      "default": "./dist/agent-profiles/index.js"
+    },
+    "./agent-profiles/switch": {
+      "types": "./dist/agent-profiles/switch.d.ts",
+      "import": "./dist/agent-profiles/switch.js",
+      "default": "./dist/agent-profiles/switch.js"
+    },
+    "./workspace-store/d1": {
+      "types": "./dist/workspace-store/d1.d.ts",
+      "import": "./dist/workspace-store/d1.js",
+      "default": "./dist/workspace-store/d1.js"
+    },
+    "./agent-profiles/d1": {
+      "types": "./dist/agent-profiles/d1.d.ts",
+      "import": "./dist/agent-profiles/d1.js",
+      "default": "./dist/agent-profiles/d1.js"
+    },
+    "./agent-profiles/drizzle": {
+      "types": "./dist/agent-profiles/drizzle.d.ts",
+      "import": "./dist/agent-profiles/drizzle.js",
+      "default": "./dist/agent-profiles/drizzle.js"
+    },
+    "./agent-profiles/reaper": {
+      "types": "./dist/agent-profiles/reaper.d.ts",
+      "import": "./dist/agent-profiles/reaper.js",
+      "default": "./dist/agent-profiles/reaper.js"
+    },
+    "./prompt": {
+      "types": "./dist/prompt/index.d.ts",
+      "import": "./dist/prompt/index.js",
+      "default": "./dist/prompt/index.js"
+    },
+    "./model-resolution": {
+      "types": "./dist/model-resolution/index.d.ts",
+      "import": "./dist/model-resolution/index.js",
+      "default": "./dist/model-resolution/index.js"
+    },
+    "./policy-filters": {
+      "types": "./dist/policy-filters/index.d.ts",
+      "import": "./dist/policy-filters/index.js",
+      "default": "./dist/policy-filters/index.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox/index.d.ts",
+      "import": "./dist/sandbox/index.js",
+      "default": "./dist/sandbox/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "import": "./dist/config/index.js",
+      "default": "./dist/config/index.js"
+    },
+    "./knowledge-loop": {
+      "types": "./dist/knowledge-loop/index.d.ts",
+      "import": "./dist/knowledge-loop/index.js",
+      "default": "./dist/knowledge-loop/index.js"
+    },
+    "./harness": {
+      "types": "./dist/harness/index.d.ts",
+      "import": "./dist/harness/index.js",
+      "default": "./dist/harness/index.js"
+    },
+    "./preset-cloudflare": {
+      "types": "./dist/preset-cloudflare/index.d.ts",
+      "import": "./dist/preset-cloudflare/index.js",
+      "default": "./dist/preset-cloudflare/index.js"
+    },
+    "./billing": {
+      "types": "./dist/billing/index.d.ts",
+      "import": "./dist/billing/index.js",
+      "default": "./dist/billing/index.js"
+    },
+    "./alerting": {
+      "types": "./dist/alerting/index.d.ts",
+      "import": "./dist/alerting/index.js",
+      "default": "./dist/alerting/index.js"
+    },
+    "./preflight": {
+      "types": "./dist/preflight/index.d.ts",
+      "import": "./dist/preflight/index.js",
+      "default": "./dist/preflight/index.js"
+    },
+    "./forms": {
+      "types": "./dist/forms/index.d.ts",
+      "import": "./dist/forms/index.js",
+      "default": "./dist/forms/index.js"
+    },
+    "./workspace-export": {
+      "types": "./dist/workspace-export/index.d.ts",
+      "import": "./dist/workspace-export/index.js",
+      "default": "./dist/workspace-export/index.js"
+    },
+    "./workspace-export/react": {
+      "types": "./dist/workspace-export/react.d.ts",
+      "import": "./dist/workspace-export/react.js",
+      "default": "./dist/workspace-export/react.js"
+    },
+    "./object-store": {
+      "types": "./dist/object-store/index.d.ts",
+      "import": "./dist/object-store/index.js",
+      "default": "./dist/object-store/index.js"
+    },
+    "./chat-store": {
+      "types": "./dist/chat-store/index.d.ts",
+      "import": "./dist/chat-store/index.js",
+      "default": "./dist/chat-store/index.js"
+    },
+    "./chat-routes": {
+      "types": "./dist/chat-routes/index.d.ts",
+      "import": "./dist/chat-routes/index.js",
+      "default": "./dist/chat-routes/index.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "import": "./dist/crypto/index.js",
+      "default": "./dist/crypto/index.js"
+    },
+    "./stream": {
+      "types": "./dist/stream/index.d.ts",
+      "import": "./dist/stream/index.js",
+      "default": "./dist/stream/index.js"
+    },
+    "./turn-stream": {
+      "types": "./dist/turn-stream/index.d.ts",
+      "import": "./dist/turn-stream/index.js",
+      "default": "./dist/turn-stream/index.js"
+    },
+    "./turn-health": {
+      "types": "./dist/turn-health/index.d.ts",
+      "import": "./dist/turn-health/index.js",
+      "default": "./dist/turn-health/index.js"
+    },
+    "./launch-invariants": {
+      "types": "./dist/launch-invariants/index.d.ts",
+      "import": "./dist/launch-invariants/index.js",
+      "default": "./dist/launch-invariants/index.js"
+    },
+    "./rollout": {
+      "types": "./dist/rollout/index.d.ts",
+      "import": "./dist/rollout/index.js",
+      "default": "./dist/rollout/index.js"
+    },
+    "./rollout/d1": {
+      "types": "./dist/rollout/d1.d.ts",
+      "import": "./dist/rollout/d1.js",
+      "default": "./dist/rollout/d1.js"
+    },
+    "./launch-invariants/testing": {
+      "types": "./dist/launch-invariants/testing.d.ts",
+      "import": "./dist/launch-invariants/testing.js",
+      "default": "./dist/launch-invariants/testing.js"
+    },
+    "./journeys": {
+      "types": "./dist/journeys/index.d.ts",
+      "import": "./dist/journeys/index.js",
+      "default": "./dist/journeys/index.js"
+    },
+    "./integrations": {
+      "types": "./dist/integrations/index.d.ts",
+      "import": "./dist/integrations/index.js",
+      "default": "./dist/integrations/index.js"
+    },
+    "./hub-approvals": {
+      "types": "./dist/hub-approvals/index.d.ts",
+      "import": "./dist/hub-approvals/index.js",
+      "default": "./dist/hub-approvals/index.js"
+    },
+    "./hub-approvals-react": {
+      "types": "./dist/hub-approvals-react/index.d.ts",
+      "import": "./dist/hub-approvals-react/index.js",
+      "default": "./dist/hub-approvals-react/index.js"
+    },
+    "./integrations-react": {
+      "types": "./dist/integrations-react/index.d.ts",
+      "import": "./dist/integrations-react/index.js",
+      "default": "./dist/integrations-react/index.js"
+    },
+    "./channels": {
+      "types": "./dist/channels/index.d.ts",
+      "import": "./dist/channels/index.js",
+      "default": "./dist/channels/index.js"
+    },
+    "./hosted-agent": {
+      "types": "./dist/hosted-agent/index.d.ts",
+      "import": "./dist/hosted-agent/index.js",
+      "default": "./dist/hosted-agent/index.js"
+    },
+    "./agent-enrollment": {
+      "types": "./dist/agent-enrollment/index.d.ts",
+      "import": "./dist/agent-enrollment/index.js",
+      "default": "./dist/agent-enrollment/index.js"
+    },
+    "./agent-enrollment/drizzle": {
+      "types": "./dist/agent-enrollment/drizzle.d.ts",
+      "import": "./dist/agent-enrollment/drizzle.js",
+      "default": "./dist/agent-enrollment/drizzle.js"
+    },
+    "./hosted-agent/application": {
+      "types": "./dist/hosted-agent/application.d.ts",
+      "import": "./dist/hosted-agent/application.js",
+      "default": "./dist/hosted-agent/application.js"
+    },
+    "./hosted-agent/react": {
+      "types": "./dist/hosted-agent/react/index.d.ts",
+      "import": "./dist/hosted-agent/react/index.js",
+      "default": "./dist/hosted-agent/react/index.js"
+    },
+    "./hosted-agent/react/styles": {
+      "types": "./dist/hosted-agent/react/styles.d.ts",
+      "default": "./dist/hosted-agent/react/lines.css"
+    },
+    "./interactions": {
+      "types": "./dist/interactions/index.d.ts",
+      "import": "./dist/interactions/index.js",
+      "default": "./dist/interactions/index.js"
+    },
+    "./plans": {
+      "types": "./dist/plans/index.d.ts",
+      "import": "./dist/plans/index.js",
+      "default": "./dist/plans/index.js"
+    },
+    "./missions": {
+      "types": "./dist/missions/index.d.ts",
+      "import": "./dist/missions/index.js",
+      "default": "./dist/missions/index.js"
+    },
+    "./session-shell": {
+      "types": "./dist/session-shell/index.d.ts",
+      "import": "./dist/session-shell/index.js",
+      "default": "./dist/session-shell/index.js"
+    },
+    "./agent-surfaces": {
+      "types": "./dist/agent-surfaces/index.d.ts",
+      "import": "./dist/agent-surfaces/index.js",
+      "default": "./dist/agent-surfaces/index.js"
+    },
+    "./web": {
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.js",
+      "default": "./dist/web/index.js"
+    },
+    "./web-react": {
+      "types": "./dist/web-react/index.d.ts",
+      "import": "./dist/web-react/index.js",
+      "default": "./dist/web-react/index.js"
+    },
+    "./web-react/async": {
+      "types": "./dist/web-react/async/index.d.ts",
+      "import": "./dist/web-react/async/index.js",
+      "default": "./dist/web-react/async/index.js"
+    },
+    "./web-react/terminal": {
+      "types": "./dist/web-react/terminal.d.ts",
+      "import": "./dist/web-react/terminal.js",
+      "default": "./dist/web-react/terminal.js"
+    },
+    "./work-product": {
+      "types": "./dist/work-product/index.d.ts",
+      "import": "./dist/work-product/index.js",
+      "default": "./dist/work-product/index.js"
+    },
+    "./work-product-react": {
+      "types": "./dist/work-product-react/index.d.ts",
+      "import": "./dist/work-product-react/index.js",
+      "default": "./dist/work-product-react/index.js"
+    },
+    "./chat-react": {
+      "types": "./dist/chat-react/index.d.ts",
+      "import": "./dist/chat-react/index.js",
+      "default": "./dist/chat-react/index.js"
+    },
+    "./workspace-apps": {
+      "types": "./dist/workspace-apps/index.d.ts",
+      "import": "./dist/workspace-apps/index.js",
+      "default": "./dist/workspace-apps/index.js"
+    },
+    "./workspace-apps/react": {
+      "types": "./dist/workspace-apps/react.d.ts",
+      "import": "./dist/workspace-apps/react.js",
+      "default": "./dist/workspace-apps/react.js"
+    },
+    "./workspace-react": {
+      "types": "./dist/workspace-react/index.d.ts",
+      "import": "./dist/workspace-react/index.js",
+      "default": "./dist/workspace-react/index.js"
+    },
+    "./assistant": {
+      "types": "./dist/assistant/index.d.ts",
+      "import": "./dist/assistant/index.js",
+      "default": "./dist/assistant/index.js"
+    },
+    "./redact": {
+      "types": "./dist/redact/index.d.ts",
+      "import": "./dist/redact/index.js",
+      "default": "./dist/redact/index.js"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js",
+      "default": "./dist/store/index.js"
+    },
+    "./assets": {
+      "types": "./dist/assets/index.d.ts",
+      "import": "./dist/assets/index.js",
+      "default": "./dist/assets/index.js"
+    },
+    "./brand-extraction": {
+      "types": "./dist/brand-extraction/index.d.ts",
+      "import": "./dist/brand-extraction/index.js",
+      "default": "./dist/brand-extraction/index.js"
+    },
+    "./trace": {
+      "types": "./dist/trace/index.d.ts",
+      "import": "./dist/trace/index.js",
+      "default": "./dist/trace/index.js"
+    },
+    "./turn-trace": {
+      "types": "./dist/turn-trace/index.d.ts",
+      "import": "./dist/turn-trace/index.js",
+      "default": "./dist/turn-trace/index.js"
+    },
+    "./sequences": {
+      "types": "./dist/sequences/index.d.ts",
+      "import": "./dist/sequences/index.js",
+      "default": "./dist/sequences/index.js"
+    },
+    "./sequences/drizzle": {
+      "types": "./dist/sequences/drizzle.d.ts",
+      "import": "./dist/sequences/drizzle.js",
+      "default": "./dist/sequences/drizzle.js"
+    },
+    "./sequences-react": {
+      "types": "./dist/sequences-react/index.d.ts",
+      "import": "./dist/sequences-react/index.js",
+      "default": "./dist/sequences-react/index.js"
+    },
+    "./design-canvas": {
+      "types": "./dist/design-canvas/index.d.ts",
+      "import": "./dist/design-canvas/index.js",
+      "default": "./dist/design-canvas/index.js"
+    },
+    "./documents": {
+      "types": "./dist/documents/index.d.ts",
+      "import": "./dist/documents/index.js",
+      "default": "./dist/documents/index.js"
+    },
+    "./documents/pdf-inspector": {
+      "types": "./dist/documents/pdf-inspector.d.ts",
+      "import": "./dist/documents/pdf-inspector.js",
+      "default": "./dist/documents/pdf-inspector.js"
+    },
+    "./openui": {
+      "types": "./dist/openui/index.d.ts",
+      "import": "./dist/openui/index.js",
+      "default": "./dist/openui/index.js"
+    },
+    "./openui-react": {
+      "types": "./dist/openui-react/index.d.ts",
+      "import": "./dist/openui-react/index.js",
+      "default": "./dist/openui-react/index.js"
+    },
+    "./design-canvas/drizzle": {
+      "types": "./dist/design-canvas/drizzle.d.ts",
+      "import": "./dist/design-canvas/drizzle.js",
+      "default": "./dist/design-canvas/drizzle.js"
+    },
+    "./design-canvas-react": {
+      "types": "./dist/design-canvas-react/index.d.ts",
+      "import": "./dist/design-canvas-react/index.js",
+      "default": "./dist/design-canvas-react/index.js"
+    },
+    "./design-canvas-react/engine": {
+      "types": "./dist/design-canvas-react/engine.d.ts",
+      "import": "./dist/design-canvas-react/engine.js",
+      "default": "./dist/design-canvas-react/engine.js"
+    },
+    "./design-canvas-react/lazy": {
+      "types": "./dist/design-canvas-react/lazy.d.ts",
+      "import": "./dist/design-canvas-react/lazy.js",
+      "default": "./dist/design-canvas-react/lazy.js"
+    },
+    "./studio": {
+      "types": "./dist/studio/index.d.ts",
+      "import": "./dist/studio/index.js",
+      "default": "./dist/studio/index.js"
+    },
+    "./studio-react": {
+      "types": "./dist/studio-react/index.d.ts",
+      "import": "./dist/studio-react/index.js",
+      "default": "./dist/studio-react/index.js"
+    },
+    "./studio-react/styles": {
+      "types": "./dist/studio-react/styles.d.ts",
+      "default": "./dist/studio-react/studio.css"
+    },
+    "./teams": {
+      "types": "./dist/teams/index.d.ts",
+      "import": "./dist/teams/index.js",
+      "default": "./dist/teams/index.js"
+    },
+    "./teams/drizzle": {
+      "types": "./dist/teams/drizzle.d.ts",
+      "import": "./dist/teams/drizzle.js",
+      "default": "./dist/teams/drizzle.js"
+    },
+    "./teams/members-api": {
+      "types": "./dist/teams/members-api.d.ts",
+      "import": "./dist/teams/members-api.js",
+      "default": "./dist/teams/members-api.js"
+    },
+    "./teams/invitations-api": {
+      "types": "./dist/teams/invitations-api.d.ts",
+      "import": "./dist/teams/invitations-api.js",
+      "default": "./dist/teams/invitations-api.js"
+    },
+    "./settings-react": {
+      "types": "./dist/settings-react/index.d.ts",
+      "import": "./dist/settings-react/index.js",
+      "default": "./dist/settings-react/index.js"
+    },
+    "./teams-react": {
+      "types": "./dist/teams-react/index.d.ts",
+      "import": "./dist/teams-react/index.js",
+      "default": "./dist/teams-react/index.js"
+    },
+    "./intakes": {
+      "types": "./dist/intakes/index.d.ts",
+      "import": "./dist/intakes/index.js",
+      "default": "./dist/intakes/index.js"
+    },
+    "./intakes/drizzle": {
+      "types": "./dist/intakes/drizzle.d.ts",
+      "import": "./dist/intakes/drizzle.js",
+      "default": "./dist/intakes/drizzle.js"
+    },
+    "./record": {
+      "types": "./dist/record/index.d.ts",
+      "import": "./dist/record/index.js",
+      "default": "./dist/record/index.js"
+    },
+    "./record/drizzle": {
+      "types": "./dist/record/drizzle.d.ts",
+      "import": "./dist/record/drizzle.js",
+      "default": "./dist/record/drizzle.js"
+    },
+    "./vault": {
+      "types": "./dist/vault/index.d.ts",
+      "import": "./dist/vault/index.js",
+      "default": "./dist/vault/index.js"
+    },
+    "./vault/lazy": {
+      "types": "./dist/vault/lazy.d.ts",
+      "import": "./dist/vault/lazy.js",
+      "default": "./dist/vault/lazy.js"
+    },
+    "./vault/server": {
+      "types": "./dist/vault/server.d.ts",
+      "import": "./dist/vault/server.js",
+      "default": "./dist/vault/server.js"
+    },
+    "./brand": {
+      "types": "./dist/brand/index.d.ts",
+      "import": "./dist/brand/index.js",
+      "default": "./dist/brand/index.js"
+    },
+    "./theme": {
+      "types": "./dist/theme/index.d.ts",
+      "import": "./dist/theme/index.js",
+      "default": "./dist/theme/index.js"
+    },
+    "./tailwind-preset": {
+      "types": "./dist/theme/tailwind-preset.d.ts",
+      "import": "./dist/theme/tailwind-preset.js",
+      "default": "./dist/theme/tailwind-preset.js"
+    },
+    "./theme-contract": {
+      "types": "./dist/theme-contract/index.d.ts",
+      "import": "./dist/theme-contract/index.js",
+      "default": "./dist/theme-contract/index.js"
+    },
+    "./tailwind.css": "./dist/theme/tailwind.css",
+    "./styles": {
+      "types": "./dist/theme/styles.d.ts",
+      "default": "./dist/theme/tokens.css"
+    },
+    "./legibility": {
+      "types": "./dist/legibility/index.d.ts",
+      "import": "./dist/legibility/index.js",
+      "default": "./dist/legibility/index.js"
+    },
+    "./copy-quality": {
+      "types": "./dist/copy-quality/index.d.ts",
+      "import": "./dist/copy-quality/index.js",
+      "default": "./dist/copy-quality/index.js"
+    },
+    "./peer-floors": {
+      "types": "./dist/peer-floors/check.d.ts",
+      "import": "./dist/peer-floors/check.js",
+      "default": "./dist/peer-floors/check.js"
+    },
+    "./spend": {
+      "types": "./dist/spend/index.d.ts",
+      "import": "./dist/spend/index.js",
+      "default": "./dist/spend/index.js"
+    },
+    "./public-consultation": {
+      "types": "./dist/public-consultation/index.d.ts",
+      "import": "./dist/public-consultation/index.js",
+      "default": "./dist/public-consultation/index.js"
+    },
+    "./chatgpt-react": {
+      "types": "./dist/chatgpt-react/index.d.ts",
+      "import": "./dist/chatgpt-react/index.js",
+      "default": "./dist/chatgpt-react/index.js"
+    },
+    "./chatgpt-react/styles": {
+      "types": "./dist/chatgpt-react/styles.d.ts",
+      "default": "./dist/chatgpt-react/styles.css"
+    }
+  },
+  "scripts": {
+    "build": "node src/theme/build.mjs --check && tsup && tsc -p tsconfig.build.json",
+    "dev": "tsup --watch",
+    "dev:types": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "prepare": "pnpm run build",
+    "test": "NODE_OPTIONS=--localstorage-file=.vitest-localstorage.json vitest run",
+    "test:generated": "node .github/scripts/test-generated-projects.mjs",
+    "test:theme:packed": "node tests/theme/packed-styles-consumer.mjs",
+    "test:gates": "vitest run tests/chat-routes/authorize-before-stream.test.ts src/sandbox/index.test.ts src/profile/index.test.ts tests/chat-stream.test.ts tests/browser-safe-subpaths.test.ts tests/test-quality.test.ts tests/knip-entries-fresh.test.ts tests/web-react/popover-escapes-host.test.tsx tests/web-react/popover-canon-source.test.ts tests/studio/layer-order.test.ts",
+    "test:watch": "NODE_OPTIONS=--localstorage-file=.vitest-localstorage.json vitest",
+    "typecheck": "tsc --noEmit",
+    "docs:gen": "agent-docs",
+    "knip": "knip",
+    "signoff": "node dist/signoff/cli.js",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "test:eval-compat": "vitest run --config vitest.eval-compat.config.ts && AGENT_EVAL_COMPAT=agent-eval-0211 vitest run --config vitest.eval-compat.config.ts"
+  },
+  "devDependencies": {
+    "zod": "4.4.3",
+    "@better-auth/oauth-provider": "1.7.2",
+    "@cloudflare/workers-types": "5.20260828.1",
+    "@firecrawl/pdf-inspector-wasm": "^1.17.0",
+    "@hocuspocus/provider": "^4.6.0",
+    "@storybook/react": "^10.5.10",
+    "@storybook/react-vite": "^10.5.10",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tangle-network/agent-docs": "0.2.1",
+    "@tangle-network/agent-eval": "0.214.0",
+    "@tangle-network/agent-gateway": "0.11.4",
+    "@tangle-network/agent-integrations": "0.75.0",
+    "@tangle-network/agent-interface": "5.2.1",
+    "@tangle-network/agent-knowledge": "22.0.3",
+    "@tangle-network/agent-profile-materialize": "0.25.2",
+    "@tangle-network/agent-runtime": "0.325.0",
+    "@tangle-network/brand": "1.26.0",
+    "@tangle-network/hub-sdk": "0.30.2",
+    "@tangle-network/sandbox": "0.60.49",
+    "@tangle-network/sandbox-ui": "0.134.10",
+    "@tangle-network/ui": "11.40.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
+    "@tiptap/core": "^3.30.5",
+    "@tiptap/extension-mention": "^3.30.5",
+    "@tiptap/pm": "^3.30.5",
+    "@tiptap/react": "^3.30.5",
+    "@tiptap/starter-kit": "^3.30.5",
+    "@tiptap/suggestion": "^3.30.5",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.13.3",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@types/semver": "^7.8.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "@xyflow/react": "^12.11.5",
+    "autoprefixer": "^10.5.4",
+    "better-auth": "^1.7.2",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "fast-check": "^4.9.0",
+    "hono": "4.13.5",
+    "jsdom": "^30.0.1",
+    "knip": "^6.33.0",
+    "konva": "^10.3.2",
+    "lucide-react": "^1.35.0",
+    "npm": "12.0.2",
+    "pdf-lib": "^1.17.1",
+    "postcss": "^8.5.26",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-konva": "^19.2.5",
+    "react-router": "^8.3.1",
+    "semver": "^7.8.5",
+    "storybook": "^10.5.10",
+    "tailwindcss": "^4.3.3",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "viem": "^2.56.0",
+    "vitest": "^4.1.11",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.32",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tangle-network/browser-agent-driver": "0.36.3",
+    "@tangle-network/tcloud": "0.8.2",
+    "playwright": "^1.63.0",
+    "@ai-sdk/google": "^3.0.33",
+    "@ai-sdk/anthropic": "^3.0.49",
+    "@anthropic-ai/sdk": "^0.93.0",
+    "@nanostores/react": "1.1.0",
+    "nanostores": "1.5.4",
+    "agent-eval-0204": "npm:@tangle-network/agent-eval@0.204.0",
+    "agent-eval-0211": "npm:@tangle-network/agent-eval@0.211.2"
+  },
+  "peerDependencies": {
+    "@better-auth/oauth-provider": ">=1.7.2",
+    "@firecrawl/pdf-inspector-wasm": ">=0.1.3",
+    "@huggingface/transformers": ">=3",
+    "@tangle-network/agent-eval": ">=0.199.0 <0.205.0 || >=0.205.1 <0.206.0 || >=0.209.1 <0.210.0 || >=0.211.2 <0.212.0 || >=0.213.0 <0.215.0",
+    "@tangle-network/agent-integrations": ">=0.54.2 <0.58.0 || >=0.59.0 <0.61.0 || >=0.66.0 <0.67.0 || >=0.67.0 <0.68.0 || >=0.68.0 <0.69.0 || >=0.69.0 <0.70.0 || >=0.70.0 <0.71.0 || >=0.75.0 <0.76.0",
+    "@tangle-network/agent-interface": "^2.13.0 || ^3.0.0 || ^5.2.0",
+    "@tangle-network/agent-knowledge": "^17.1.2 || ^18.0.0 || ^19.0.1 || ^20.0.0 || ^22.0.1",
+    "@tangle-network/agent-profile-materialize": ">=0.20.1 <0.21.0 || >=0.21.0 <0.22.0 || >=0.22.0 <0.23.0 || >=0.25.2 <0.26.0",
+    "@tangle-network/agent-runtime": ">=0.318.0 <0.319.0 || >=0.319.3 <0.326.0",
+    "@tangle-network/brand": ">=1.21.1",
+    "@tangle-network/hub-sdk": ">=0.19.3 <0.21.0 || >=0.21.0 <0.22.0 || >=0.22.1 <0.25.0 || >=0.27.0 <0.28.0 || >=0.28.0 <0.29.0 || >=0.29.5 <0.30.0 || >=0.30.2 <0.31.0",
+    "@tangle-network/sandbox": ">=0.45.0 <0.48.0 || ^0.49.0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0 || ^0.55.0 || >=0.58.1 <0.60.0 || >=0.60.3 <0.61.0",
+    "@tangle-network/sandbox-ui": ">=0.134.10 <0.137.0",
+    "@tangle-network/ui": ">=11.40.0 <12.0.0",
+    "@tiptap/core": ">=3.28.0 <4.0.0",
+    "@tiptap/extension-mention": ">=3.28.0 <4.0.0",
+    "@tiptap/pm": ">=3.28.0 <4.0.0",
+    "@tiptap/react": ">=3.28.0 <4.0.0",
+    "@tiptap/starter-kit": ">=3.28.0 <4.0.0",
+    "@tiptap/suggestion": ">=3.28.0 <4.0.0",
+    "@xyflow/react": ">=12.0.0",
+    "better-auth": ">=1.6.16",
+    "drizzle-orm": ">=0.36",
+    "konva": ">=9",
+    "lucide-react": ">=1",
+    "pdf-lib": ">=1.17",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "react-konva": ">=18",
+    "react-router": ">=8.3.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tangle-network/browser-agent-driver": "^0.36.1",
+    "@tangle-network/tcloud": "^0.5.2 || >=0.8.1 <0.9.0",
+    "playwright": "^1.63.0",
+    "@nanostores/react": ">=0.8.4 <2.0.0",
+    "nanostores": ">=0.11.3 <2.0.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@better-auth/oauth-provider": {
+      "optional": true
+    },
+    "@firecrawl/pdf-inspector-wasm": {
+      "optional": true
+    },
+    "@huggingface/transformers": {
+      "optional": true
+    },
+    "better-auth": {
+      "optional": true
+    },
+    "@tangle-network/agent-knowledge": {
+      "optional": true
+    },
+    "@tangle-network/agent-profile-materialize": {
+      "optional": true
+    },
+    "@tangle-network/agent-runtime": {
+      "optional": true
+    },
+    "@tangle-network/sandbox": {
+      "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "konva": {
+      "optional": true
+    },
+    "react-konva": {
+      "optional": true
+    },
+    "@tangle-network/sandbox-ui": {
+      "optional": true
+    },
+    "@tangle-network/ui": {
+      "optional": true
+    },
+    "@tangle-network/brand": {
+      "optional": true
+    },
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-mention": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/react": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
+    "@tiptap/suggestion": {
+      "optional": true
+    },
+    "@xyflow/react": {
+      "optional": true
+    },
+    "react-router": {
+      "optional": true
+    },
+    "lucide-react": {
+      "optional": true
+    },
+    "pdf-lib": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "@tangle-network/hub-sdk": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "@tangle-network/browser-agent-driver": {
+      "optional": true
+    },
+    "@tangle-network/tcloud": {
+      "optional": true
+    },
+    "playwright": {
+      "optional": true
+    },
+    "@nanostores/react": {
+      "optional": true
+    },
+    "nanostores": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  }
+}

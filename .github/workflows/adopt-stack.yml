@@ -1,0 +1,110 @@
+# Adopt each new @tangle-network release in the calling repository: pin it,
+# widen the caller's own peer ranges to include it, gate the result with the
+# caller's acceptance command and open one pull request on chore/adopt-stack,
+# merged when `merge` is true and the gate passed. scripts/adopt-stack.mjs owns
+# the steps and their rules.
+#
+# A caller schedules it, because a reusable workflow cannot schedule itself:
+#
+#   on:
+#     schedule: [{ cron: '*/30 * * * *' }]
+#     workflow_dispatch:
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#   jobs:
+#     adopt:
+#       uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@main
+#       with:
+#         gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+#         runs-on: '["self-hosted", "beelink"]'
+#         default-branch: master
+#         merge: true
+#       secrets: inherit
+#
+# Each caller runs scripts/adopt-stack.mjs from agent-eval `stack-ref` (default
+# main) with a write-scoped token; pin `uses:` and `stack-ref` to a sha to take
+# script changes only on purpose.
+#
+# A merge made with the default workflow token starts no push workflow in the
+# caller. Pass a `token` secret (a PAT or app token) when the merge must trigger
+# deploys; otherwise the job's own token is used.
+name: Adopt stack
+
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: '@tangle-network/* names to adopt, comma or space separated (default: all in package.json)'
+        type: string
+        default: ''
+      gate:
+        description: "The caller's acceptance command, run from its checkout after the install"
+        type: string
+        default: ''
+      runs-on:
+        description: 'A runner label, or a JSON array of labels'
+        type: string
+        default: ubuntu-latest
+      default-branch:
+        description: 'The branch adoption PRs target'
+        type: string
+        default: main
+      merge:
+        description: 'Merge the adoption PR when the gate passes'
+        type: boolean
+        default: false
+      dry-run:
+        description: 'Print the plan and change nothing'
+        type: boolean
+        default: false
+      stack-ref:
+        description: 'The agent-eval revision whose scripts/adopt-stack.mjs runs'
+        type: string
+        default: main
+    secrets:
+      token:
+        required: false
+
+jobs:
+  adopt:
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 75
+    # One adoption at a time per repository, so two runs never race one branch.
+    concurrency:
+      group: adopt-stack-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.default-branch }}
+          path: caller
+          token: ${{ secrets.token || github.token }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: tangle-network/agent-eval
+          ref: ${{ inputs.stack-ref }}
+          path: adopt-stack
+          sparse-checkout: scripts/adopt-stack.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: pnpm/action-setup@v6
+        if: ${{ !inputs.dry-run }}
+        with:
+          package_json_file: caller/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Adopt the newest @tangle-network releases
+        working-directory: caller
+        env:
+          GH_TOKEN: ${{ secrets.token || github.token }}
+          PACKAGES: ${{ inputs.packages }}
+          GATE: ${{ inputs.gate }}
+          DEFAULT_BRANCH: ${{ inputs.default-branch }}
+          MERGE: ${{ inputs.merge && '--merge' || '' }}
+          DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
+        run: node ../adopt-stack/scripts/adopt-stack.mjs --packages "$PACKAGES" --gate "$GATE" --default-branch "$DEFAULT_BRANCH" $MERGE $DRY_RUN
