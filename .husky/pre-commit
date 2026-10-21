@@ -1,4 +1,6 @@
-r="$(git config --global core.hooksPath || true)/loc-ratchet"
+# The global commit-time ratchets (size, doc paths, duplicate exports); older hosts have only loc-ratchet.
+g="$(git config --global core.hooksPath || true)"
+r="$g/ratchets"; [ -x "$r" ] || r="$g/loc-ratchet"
 if [ -x "$r" ]; then
   "$r" || exit "$?"
 fi

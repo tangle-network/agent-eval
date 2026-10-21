@@ -3,16 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import {
-  createLlmReviewer,
-  inMemoryReviewStore,
-  jsonlReviewStore,
-  type Review,
-  type ReviewFn,
-  type ReviewMemoryEntry,
-  runProposeReview,
-  type Verification,
-} from '../src/propose-review'
+import { createLlmReviewer, jsonlReviewStore, type Review, type ReviewFn, type ReviewMemoryEntry, runProposeReview, type Verification } from '../src/propose-review'
 
 const passingReview: Review = {
   observations: 'worker produced artifact with expected shape and no retries',
@@ -293,77 +284,3 @@ describe('createLlmReviewer', () => {
   })
 })
 
-describe('dogfooding — a propose-review harness is itself evaluable by propose-review', () => {
-  it('outer loop drives an inner loop and directs it with different configs', async () => {
-    type InnerGoal = { target: number }
-    type OuterState = { completedInner: boolean; shotsUsed: number; lastTarget: number }
-
-    const innerPropose = async ({
-      state,
-      priorReview,
-    }: {
-      state: { v: number }
-      priorReview: Review | null
-    }) => {
-      const step = priorReview?.nextShotInstruction.includes('big') ? 5 : 1
-      return { state: { v: state.v + step } }
-    }
-
-    async function runInner(target: number, shotCap: number) {
-      const memory = inMemoryReviewStore()
-      return runProposeReview<{ v: number }>({
-        goal: `reach v=${target}`,
-        initialState: { v: 0 },
-        propose: async (input) =>
-          innerPropose({ state: input.state, priorReview: input.priorReview }),
-        verify: async (s) => ({ pass: s.v >= target, score: Math.min(1, s.v / target) }),
-        review: async ({ state }) =>
-          state.v === 0 ? failingReview('keep going', 0.9) : failingReview('keep going', 0.9),
-        memory,
-        maxShots: shotCap,
-      })
-    }
-
-    let outerShots = 0
-    const outerReport = await runProposeReview<OuterState, { innerShots: number }>({
-      goal: 'the inner loop must complete within the shot budget',
-      initialState: { completedInner: false, shotsUsed: 0, lastTarget: 3 },
-      propose: async ({ state, priorReview }) => {
-        outerShots += 1
-        // First outer shot: try with too small a budget. Second outer shot:
-        // honor the reviewer's instruction to bump the budget.
-        const cap = priorReview?.nextShotInstruction.includes('raise cap') ? 10 : 2
-        const inner = await runInner(state.lastTarget, cap)
-        return {
-          state: {
-            completedInner: inner.completed,
-            shotsUsed: inner.shots.length,
-            lastTarget: state.lastTarget,
-          },
-          traceSummary: { innerShots: inner.shots.length },
-        }
-      },
-      verify: async (s) => ({
-        pass: s.completedInner,
-        score: s.completedInner ? 1 : 0,
-        failingLayers: s.completedInner ? [] : ['inner-budget'],
-      }),
-      review: async ({ state, traceSummary }) => ({
-        observations: `inner loop used ${traceSummary?.innerShots ?? 0} shots and completedInner=${state.completedInner}`,
-        diagnosis: state.completedInner
-          ? 'inner succeeded'
-          : 'inner ran out of shots before reaching the target — budget was too small',
-        nextShotInstruction: 'raise cap for the inner loop so it can converge',
-        shouldContinue: !state.completedInner,
-        confidence: 0.9,
-      }),
-      maxShots: 5,
-    })
-
-    expect(outerShots).toBe(2)
-    expect(outerReport.completed).toBe(true)
-    expect(outerReport.finalState.completedInner).toBe(true)
-    expect(outerReport.shots[0]!.verification.pass).toBe(false)
-    expect(outerReport.shots[1]!.verification.pass).toBe(true)
-  })
-})

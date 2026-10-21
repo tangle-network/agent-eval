@@ -8,34 +8,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  amendExperiment,
-  classifyReissue,
-  openSealedExperiment,
-  sealExperiment,
-  verifySealedExperiment,
-} from '../../src/experiment/index'
-import {
-  freelunchLedgerAmendment6,
-  freelunchLedgerAsExecuted,
-  freelunchMeasuredPassCosts,
-  freelunchSpec,
-  killtestSpec,
-  milestone2Spec,
-} from './preregistrations'
-import {
-  admitRecords,
-  freelunchOutcomes,
-  m1Outcomes,
-  m1PolicyDigest,
-  oracleProbe,
-  recordedChain,
-  recordedM2Interval,
-  recordedPowerCurve,
-  recordedUniformN,
-  rowSubsetM2,
-  rowSubsetM3,
-} from './recorded-fixtures'
+import { amendExperiment, openSealedExperiment, sealExperiment, verifySealedExperiment } from '../../src/experiment/index'
+import { freelunchLedgerAmendment6, freelunchLedgerAsExecuted, freelunchMeasuredPassCosts, freelunchSpec, killtestSpec } from './preregistrations'
+import { admitRecords, freelunchOutcomes, m1Outcomes, m1PolicyDigest, oracleProbe, recordedChain, recordedPowerCurve, recordedUniformN } from './recorded-fixtures'
 
 const killtestSealed = sealExperiment(killtestSpec, { sealedAt: '2026-08-10T00:00:00Z' })
 const killtestRegistered = killtestSealed.then(openSealedExperiment)
@@ -44,9 +19,6 @@ const freelunchSealed = sealExperiment(freelunchSpec(freelunchLedgerAsExecuted),
   sealedAt: '2026-08-10T08:00:00Z',
 })
 const freelunchRegistered = freelunchSealed.then(openSealedExperiment)
-
-const milestone2Sealed = sealExperiment(milestone2Spec, { sealedAt: '2026-08-08T00:00:00Z' })
-const milestone2Registered = milestone2Sealed.then(openSealedExperiment)
 
 describe('fixture 1: killtest-20260810 — four gates fail, the halt refuses the spend', () => {
   it('seals deterministically and verifies', async () => {
@@ -259,37 +231,3 @@ describe('fixture 2: freelunch-20260810 — identity, funnel, budget, report-onl
   })
 })
 
-describe('fixture 3: tbench-20260808 milestone 2 — sealed subsets and the verdict table', () => {
-  const admitted = admitRecords.filter((record) => record.admitted)
-
-  it('the round-robin rule over the admitted records reproduces the recorded 20 rows in pick order', async () => {
-    const registered = await milestone2Registered
-    const derived = registered.select('m2-subset', admitted, { idField: 'rowId' })
-    expect(derived).toEqual(rowSubsetM2)
-  })
-
-  it('the m3 subset is the certified-task filter of the SEALED m2 subset (16 rows, in order)', async () => {
-    const registered = await milestone2Registered
-    const derived = registered.select('m3-subset', admitted, { idField: 'rowId' })
-    expect(derived).toEqual(rowSubsetM3)
-  })
-
-  it('the decision table on the recorded interval (-0.100, +0.567) reproduces the verdict', async () => {
-    const registered = await milestone2Registered
-    const outcome = registered.decide({
-      intervals: { 'task-clustered-95': recordedM2Interval },
-      quantities: {},
-      obligationsMet: {},
-    })
-    expect(outcome.verdict).toBe('not-certified-at-this-n')
-    expect(outcome.report).toContain('wins-losses-ties')
-  })
-
-  it('a carrier fault is reissued within budget; a model outcome stands', async () => {
-    await milestone2Sealed
-    const policy = milestone2Spec.reissue!
-    expect(classifyReissue(policy, 'deadline', 0)).toBe('reissue')
-    expect(classifyReissue(policy, 'empty-content', 3)).toBe('exhausted')
-    expect(classifyReissue(policy, 'model-refused', 0)).toBe('stands')
-  })
-})

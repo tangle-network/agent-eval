@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Objective } from '../src/pareto'
-import {
-  crowdingDistance,
-  paretoFrontier,
-  paretoFrontierWithCrowding,
-  scalarScore,
-} from '../src/pareto'
+import { crowdingDistance, paretoFrontier, paretoFrontierWithCrowding } from '../src/pareto'
 
 interface Candidate {
   id: string
