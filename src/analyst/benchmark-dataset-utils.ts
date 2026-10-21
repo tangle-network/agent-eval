@@ -1,6 +1,5 @@
 import type { ExternalId } from './benchmark-dataset-types'
 
-import { isRecord } from '../llm-client/json'
 export function normalizeBenchmarkLabel(value: string): string {
   const normalized = nonEmpty(value, 'benchmark label')
     .toLowerCase()

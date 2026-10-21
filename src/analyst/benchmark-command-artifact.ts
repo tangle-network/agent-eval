@@ -10,7 +10,6 @@ import type {
 } from './benchmark-real-model'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
 
-import { isRecord } from '../llm-client/json'
 export { assertAnalystBenchmarkObservation } from './benchmark-command-validation'
 
 export interface AnalystBenchmarkArtifact {

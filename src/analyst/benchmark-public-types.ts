@@ -8,7 +8,6 @@ import type { AnalystBenchmarkCase } from './benchmark'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
 import type { AnalystRunInputs } from './types'
 
-import { isRecord } from '../llm-client/json'
 export type PublicAnalystBenchmarkDataset = 'agentrx' | 'codetracebench'
 
 /**
