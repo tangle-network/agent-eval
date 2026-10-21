@@ -4,7 +4,7 @@ import {
   type ContinuousAgreementOptions,
   continuousAgreement,
 } from '../judge-calibration'
-import type { JudgeScore } from '../types'
+import type { DimensionJudgeScore } from '../types'
 
 /**
  * Inter-rater reliability — Krippendorff's α under the squared-difference
@@ -23,7 +23,7 @@ import type { JudgeScore } from '../types'
  * ratings irrespective of item. α = 1 is perfect agreement, 0 is chance,
  * negative is systematic disagreement.
  */
-export function interRaterReliability(judgeScores: JudgeScore[][]): number {
+export function interRaterReliability(judgeScores: DimensionJudgeScore[][]): number {
   if (judgeScores.length < 2) return 1
 
   // dimension → one score sequence per judge, in that judge's supplied order.
@@ -102,7 +102,7 @@ export interface CorpusScoreRecord {
   itemId: string
   /** Identifier for the judge that produced this score. */
   judgeName: string
-  /** Dimension name (matches `JudgeScore.dimension`). */
+  /** Dimension name (matches `DimensionJudgeScore.dimension`). */
   dimension: string
   /** Numeric score; must be finite. */
   score: number
@@ -278,15 +278,15 @@ export function corpusInterRaterAgreement(
 }
 
 /**
- * Convenience adapter for `JudgeScore[]` data keyed externally by item.
+ * Convenience adapter for `DimensionJudgeScore[]` data keyed externally by item.
  *
- * Use when you have per-item arrays of `JudgeScore[]` (e.g. one
+ * Use when you have per-item arrays of `DimensionJudgeScore[]` (e.g. one
  * `ScenarioResult.judgeScores` per scenario) and want corpus-wide
  * agreement without manually flattening. `itemId` must be unique per
  * row of `itemsScores`.
  */
 export function corpusInterRaterAgreementFromJudgeScores(
-  itemsScores: Array<{ itemId: string; scores: JudgeScore[] }>,
+  itemsScores: Array<{ itemId: string; scores: DimensionJudgeScore[] }>,
   opts: CorpusAgreementOptions = {},
 ): CorpusAgreementReport {
   const records: CorpusScoreRecord[] = []

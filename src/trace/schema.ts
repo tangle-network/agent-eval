@@ -23,7 +23,7 @@ export interface BudgetSpec {
   usd?: number
 }
 
-export interface RunOutcome {
+export interface TraceRunOutcome {
   score?: number
   pass?: boolean
   failureClass?: FailureClass
@@ -77,7 +77,7 @@ export interface Run {
   startedAt: number
   endedAt?: number
   status: RunStatus
-  outcome?: RunOutcome
+  outcome?: TraceRunOutcome
   budget?: BudgetSpec
   /** Free-form labels for downstream grouping. */
   tags?: Record<string, string>

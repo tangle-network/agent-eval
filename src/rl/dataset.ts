@@ -1,7 +1,7 @@
 /**
  * RL dataset packaging + datasheet — the publishable, sellable bundle.
  *
- * The format exporters (`toGrpoRows` / `toSftRows` / `toDpoRows`) already
+ * The format exporters (`toGrpoRows` / `toSftRowsWithLookups` / `toDpoRows`) already
  * produce trainer-ready shapes (prime-rl GRPO, TRL DPO, conversational SFT).
  * What turns that into a dataset someone can PUBLISH or BUY is the provenance
  * + a datasheet: which models produced it, which prompt/agent versions, how the
@@ -33,7 +33,7 @@ import {
   toGrpoJsonl,
   toGrpoRows,
   toSftJsonl,
-  toSftRows,
+  toSftRowsWithLookups,
 } from './exporters'
 import type { PreferenceTriple } from './preferences'
 import { trainableLineReward } from './rollout-input'
@@ -215,7 +215,7 @@ export async function buildRlDataset(
     rowCounts.grpo = rows.length
   }
   if (formats.includes('sft')) {
-    const rows = await toSftRows(lines, lookups)
+    const rows = await toSftRowsWithLookups(lines, lookups)
     requireRows('sft', rows.length)
     files['train.sft.jsonl'] = toSftJsonl(rows)
     rowCounts.sft = rows.length

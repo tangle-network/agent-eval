@@ -164,7 +164,7 @@ export type RepairArmReply =
       readonly usage: RepairArmUsage
     }
 
-export interface RepairArm {
+export interface RepairAnalystArm {
   readonly declaration: RepairArmDeclaration
   ask(request: RepairArmRequest): Promise<RepairArmReply>
 }
@@ -198,7 +198,7 @@ export interface RepairArmAnswer {
 }
 
 export interface AskRepairArmOptions {
-  readonly arm: RepairArm
+  readonly arm: RepairAnalystArm
   readonly row: AdmittedRow
   /** Truncate the prefix after this 1-based step. Defaults to the whole recording. */
   readonly throughStep?: number
@@ -309,7 +309,7 @@ export interface RepairArmAsymmetryReport {
  * harness.
  */
 export function repairArmAsymmetries(
-  arms: readonly RepairArm[],
+  arms: readonly RepairAnalystArm[],
   options: { readonly budget?: InterventionBudget } = {},
 ): RepairArmAsymmetryReport {
   if (arms.length === 0) {

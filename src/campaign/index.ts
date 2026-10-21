@@ -173,7 +173,7 @@ export {
 export {
   type SequentialDecideFn,
   type SequentialDecideOptions,
-  type SequentialDecision,
+  type SequentialGateDecision,
   type SequentialObservation,
   type SequentialPairedGate,
   type SequentialPairedGateOptions,

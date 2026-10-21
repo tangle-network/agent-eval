@@ -31,7 +31,7 @@ export type {
   WranglerDeployRunnerInput,
 } from '../deploy-gate-layer'
 export type {
-  GateDecision as HeldOutGateDecision,
+  HeldOutGateDecision,
   GateEvidence,
   HeldOutGateConfig,
   HeldOutGateRejectionCode,

@@ -11,8 +11,8 @@ import type { AdversarialMutation } from '../rl/adversarial'
 import type {
   Cell,
   MutationProposer,
-  Objective,
-  ProposeContext,
+  FuzzObjective,
+  FuzzProposeContext,
 } from './types'
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
@@ -28,7 +28,7 @@ export function mutationProposer<S>(opts: {
   mutationsFor: (cell: Cell) => AdversarialMutation<S>[]
   scenarioId: (s: S) => string
 }): MutationProposer<S> {
-  return async (ctx: ProposeContext<S>): Promise<S[]> => {
+  return async (ctx: FuzzProposeContext<S>): Promise<S[]> => {
     const mutations = opts.mutationsFor(ctx.cell)
     const parents = [...ctx.elites, ...ctx.seeds]
     const seen = new Set(parents.map(opts.scenarioId))
@@ -54,7 +54,7 @@ export function mutationProposer<S>(opts: {
 // ── objectives ────────────────────────────────────────────────────────────────
 
 /** Adversarial: a low headline score is interesting — find where the agent fails. */
-export function adversarialObjective(threshold = 0.5): Objective {
+export function adversarialObjective(threshold = 0.5): FuzzObjective {
   return { kind: 'adversarial', threshold, interest: (ev) => clamp01(1 - ev.score) }
 }
 

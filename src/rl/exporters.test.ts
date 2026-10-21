@@ -9,7 +9,7 @@ import {
 } from '../rollout/schema'
 import type { RunRecord } from '../run-record'
 import { InMemoryTraceStore } from '../trace/store'
-import { toGrpoRows, toPrmRows, toSftRows } from './exporters'
+import { toGrpoRows, toPrmRows, toSftRowsWithLookups } from './exporters'
 import type { PrmTrainingTriple } from './process-reward'
 
 // Training-data exporters accept only validated minted lines. A regression here
@@ -96,13 +96,13 @@ describe('toGrpoRows', () => {
   })
 })
 
-describe('toSftRows', () => {
+describe('toSftRowsWithLookups', () => {
   it('emits conversational rows from clean scored lines', async () => {
     const records = [
       rec({ runId: 'a', scenarioId: 's', score: 0.9 }),
       rec({ runId: 'b', scenarioId: 's', score: 0.3, candidateId: 'B' }),
     ]
-    const rows = await toSftRows(await mint(records), lookups)
+    const rows = await toSftRowsWithLookups(await mint(records), lookups)
     expect(rows).toHaveLength(2)
     // Minted with an empty trace store, so these are gap lines: the transcript
     // comes from the lookups and the row says so.
@@ -125,7 +125,7 @@ describe('toSftRows', () => {
       rec({ runId: 'honest', scenarioId: 's', score: 0.9 }),
       rec({ runId: 'gamed', scenarioId: 's', score: 1, candidateId: 'B', gated: true }),
     ]
-    const rows = await toSftRows(await mint(records), lookups)
+    const rows = await toSftRowsWithLookups(await mint(records), lookups)
     expect(rows.map((r) => r.meta?.runId)).toEqual(['honest'])
   })
 
@@ -138,16 +138,16 @@ describe('toSftRows', () => {
     }
     const lines = await mint([search, holdout])
     // Default: trainable splits only — holdout must not ship in train.sft.jsonl.
-    expect((await toSftRows(lines, lookups)).map((r) => r.meta?.runId)).toEqual(['train-me'])
+    expect((await toSftRowsWithLookups(lines, lookups)).map((r) => r.meta?.runId)).toEqual(['train-me'])
     // Named opt-in: the same rule the rollout exporters use.
     expect(
-      (await toSftRows(lines, { ...lookups, allowHeldOutTrainingData: true })).map(
+      (await toSftRowsWithLookups(lines, { ...lookups, allowHeldOutTrainingData: true })).map(
         (r) => r.meta?.runId,
       ),
     ).toEqual(['train-me', 'held-out'])
     // Explicit selection replaces the default rule (e.g. a holdout eval bundle).
     expect(
-      (await toSftRows(lines, { ...lookups, splitFilter: ['holdout'] })).map((r) => r.meta?.runId),
+      (await toSftRowsWithLookups(lines, { ...lookups, splitFilter: ['holdout'] })).map((r) => r.meta?.runId),
     ).toEqual(['held-out'])
   })
 
@@ -156,7 +156,7 @@ describe('toSftRows', () => {
       rec({ runId: 'good', scenarioId: 's', score: 0.95 }),
       rec({ runId: 'bad', scenarioId: 's', score: 0.2 }),
     ]
-    const rows = await toSftRows(await mint(records), {
+    const rows = await toSftRowsWithLookups(await mint(records), {
       ...lookups,
       systemOf: (line) => `system-for-${line.candidate_id}`,
       include: (line) => (line.outcome.reward ?? 0) >= 0.5,
@@ -172,7 +172,7 @@ describe('toSftRows', () => {
     const unlabeled = fixtureRolloutLine({
       outcome: { ...base.outcome, reward: null, reward_source: 'run-record/unscored' },
     })
-    expect(await toSftRows([unlabeled], lookups)).toEqual([])
+    expect(await toSftRowsWithLookups([unlabeled], lookups)).toEqual([])
   })
 })
 

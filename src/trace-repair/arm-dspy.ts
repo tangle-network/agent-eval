@@ -39,7 +39,7 @@ import {
   SCAFFOLD_INTERVENTION_BUDGET,
 } from './action-budget'
 import type {
-  RepairArm,
+  RepairAnalystArm,
   RepairArmRejectedRow,
   RepairArmReply,
   RepairArmRequest,
@@ -106,7 +106,7 @@ export interface DspyRepairArmOptions {
   readonly log?: (message: string, fields?: Record<string, unknown>) => void
 }
 
-export function createDspyRepairArm(options: DspyRepairArmOptions): RepairArm {
+export function createDspyRepairArm(options: DspyRepairArmOptions): RepairAnalystArm {
   assertDspyRepairEngine(options.engine)
   const budget = options.budget ?? SCAFFOLD_INTERVENTION_BUDGET
   const instructions = dspyRepairInstructions(budget)

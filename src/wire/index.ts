@@ -14,7 +14,7 @@ export type { HandleJudgeOptions, IngestionStores } from './handlers'
 export { dispatchRpc, type RpcOptions } from './rpc'
 
 export { ErrorResponseSchema, FeedbackTrajectorySchema, TraceEventSchema, WIRE_VERSION } from './schemas'
-export type { ErrorResponse, FailureMode, FeedbackIngestResponse, FeedbackTrajectory, JudgeRequest, JudgeResult, ListRubricsResponse, Rubric, RubricDimension, RubricInfo, TraceEvent, TracesIngestRequest, TracesIngestResponse, VersionResponse } from './schemas'
+export type { ErrorResponse, WireFailureMode, FeedbackIngestResponse, WireFeedbackTrajectory, JudgeRequest, JudgeResult, ListRubricsResponse, Rubric, WireRubricDimension, RubricInfo, WireTraceEvent, TracesIngestRequest, TracesIngestResponse, VersionResponse } from './schemas'
 export {
   createApp,
   type ServeOptions,

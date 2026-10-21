@@ -38,10 +38,10 @@ import { type EProcessState, eProcess, mulberry32 } from '../../statistics'
 import type { Gate, GateContext, GateResult, GenerationRecord, Scenario } from '../types'
 import { aggregatePairedHoldout, pairHoldout } from './statistical-heldout'
 
-export type SequentialDecision = 'promote' | 'continue' | 'undecided-at-maxN'
+export type SequentialGateDecision = 'promote' | 'continue' | 'undecided-at-maxN'
 
 export interface SequentialObservation {
-  decision: SequentialDecision
+  decision: SequentialGateDecision
   /** Current e-value (the betting wealth) against H0. */
   eValue: number
   /** Paired deltas consumed so far. */
@@ -93,7 +93,7 @@ export interface SequentialPairedGateOptions {
  *  decision, which applies `minN` and `maxN` on top of the core latch. A
  *  gate rebuilt with `resume` from this value continues exactly where the
  *  snapshot was taken. */
-export type SequentialStreamState = EProcessState & { decision: SequentialDecision }
+export type SequentialStreamState = EProcessState & { decision: SequentialGateDecision }
 
 export interface SequentialPairedGate<TArtifact = unknown, TScenario extends Scenario = Scenario>
   extends Gate<TArtifact, TScenario> {
@@ -212,7 +212,7 @@ interface SequentialStream {
   state(): SequentialStreamState
 }
 
-const SEQUENTIAL_DECISIONS: readonly SequentialDecision[] = [
+const SEQUENTIAL_DECISIONS: readonly SequentialGateDecision[] = [
   'promote',
   'continue',
   'undecided-at-maxN',
@@ -266,7 +266,7 @@ function makeStream(cfg: ResolvedConfig, resume?: SequentialStreamState): Sequen
     ...(resume === undefined ? {} : { resume }),
   })
   const threshold = 1 / cfg.alpha
-  let terminal: SequentialDecision | undefined =
+  let terminal: SequentialGateDecision | undefined =
     resume === undefined || resume.decision === 'continue' ? undefined : resume.decision
   return {
     observe(delta: number): SequentialObservation {

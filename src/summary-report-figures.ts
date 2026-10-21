@@ -1,6 +1,6 @@
 /** Tables and library-independent chart specifications from scored runs. */
 
-import type { GateDecision } from './held-out-gate'
+import type { HeldOutGateDecision } from './held-out-gate'
 import { fmt } from './research-report-render'
 import { observedSplitScore } from './rollout/reward'
 import type { RunRecord } from './run-record'
@@ -184,7 +184,7 @@ export interface ParetoPoint {
   /** Whether this candidate is on the Pareto frontier — high
    *  quality, low cost, no dominator. */
   onFrontier: boolean
-  /** Optional gate verdict for this candidate, if a `GateDecision`
+  /** Optional gate verdict for this candidate, if a `HeldOutGateDecision`
    *  for it was passed in. */
   gate?: 'promote' | 'reject'
 }
@@ -205,7 +205,7 @@ export function paretoChart(
   runs: RunRecord[],
   opts: {
     split?: 'search' | 'holdout'
-    gateDecisions?: Record<string, GateDecision>
+    gateDecisions?: Record<string, HeldOutGateDecision>
   } = {},
 ): ParetoFigureSpec {
   const split = opts.split ?? 'holdout'
@@ -255,7 +255,7 @@ function dominates(a: ParetoPoint, b: ParetoPoint): boolean {
   return a.cost <= b.cost && a.quality >= b.quality && (a.cost < b.cost || a.quality > b.quality)
 }
 
-export function gateLabel(d: GateDecision): ParetoPoint['gate'] {
+export function gateLabel(d: HeldOutGateDecision): ParetoPoint['gate'] {
   return d.promote ? 'promote' : 'reject'
 }
 

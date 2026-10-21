@@ -1,9 +1,9 @@
 import type { ChatClient } from './analyst/chat-client'
 import type { CostLedgerHandle, CostLedgerSummary } from './cost-ledger'
 
-// ── Scenario Definition ──
+// ── ProductScenario Definition ──
 
-export interface Scenario {
+export interface ProductScenario {
   id: string
   persona: string
   label: string
@@ -61,7 +61,7 @@ export interface ScenarioResult {
   persona: string
   turns: TurnResult[]
   artifactResults: ArtifactResult[]
-  judgeScores: JudgeScore[]
+  judgeScores: DimensionJudgeScore[]
   judgeErrors: number
   overallScore: number
   totalDurationMs: number
@@ -86,7 +86,7 @@ export interface ArtifactResult {
   detail?: string
 }
 
-export interface JudgeScore {
+export interface DimensionJudgeScore {
   judgeName: string
   dimension: string
   score: number
@@ -124,7 +124,7 @@ export interface ProductClientConfig {
   timeoutMs?: number
 }
 
-// ── Scenario Registry ──
+// ── ProductScenario Registry ──
 
 export interface ScenarioFile {
   id: string
@@ -202,7 +202,7 @@ export interface DriverState {
 }
 
 export interface JudgeInput {
-  scenario: Scenario
+  scenario: ProductScenario
   turns: TurnResult[]
   artifacts: CollectedArtifacts
   /** Shared ledger for paid built-in judges. Direct calls default to an uncapped ledger. */
@@ -212,7 +212,7 @@ export interface JudgeInput {
   signal?: AbortSignal
 }
 
-export type JudgeFn = (chat: ChatClient, input: JudgeInput) => Promise<JudgeScore[]>
+export type JudgeFn = (chat: ChatClient, input: JudgeInput) => Promise<DimensionJudgeScore[]>
 
 // ── E2E Test Types ──
 

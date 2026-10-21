@@ -36,14 +36,14 @@ export const RubricDimensionSchema = z
     min: z.number().default(0).describe('Lower bound of valid score for this dimension.'),
     max: z.number().default(1).describe('Upper bound of valid score for this dimension.'),
   })
-  .openapi('RubricDimension')
+  .openapi('WireRubricDimension')
 
 const FailureModeSchema = z
   .object({
     id: z.string().min(1).describe('Short stable id like "ai-cadence" — used in detection lists.'),
     description: z.string().min(1).describe('Plain-English description of the failure pattern.'),
   })
-  .openapi('FailureMode')
+  .openapi('WireFailureMode')
 
 // ── Rubric ──────────────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ export const JudgeResultSchema = z
       .describe('Weighted combination of dimension scores in 0..1. The single number to gate on.'),
     dimensions: z
       .record(z.string(), z.number())
-      .describe('Per-dimension score, keyed by RubricDimension.id.'),
+      .describe('Per-dimension score, keyed by WireRubricDimension.id.'),
     failureModes: z
       .array(z.string())
       .default([])
@@ -186,8 +186,8 @@ export const HealthResponseSchema = z
 // ── Ingestion: production traces + user feedback ────────────────────
 
 /**
- * Minimal `TraceEvent` shape that the production runtime emits.
- * Matches `trace/schema.ts` `TraceEvent` but is duplicated here as a
+ * Minimal `WireTraceEvent` shape that the production runtime emits.
+ * Matches `trace/schema.ts` `WireTraceEvent` but is duplicated here as a
  * wire schema so non-TypeScript clients can validate without depending
  * on internal types.
  */
@@ -217,7 +217,7 @@ export const TraceEventSchema = z
       .record(z.string(), z.unknown())
       .describe('Free-form payload — the runtime owns the shape.'),
   })
-  .openapi('TraceEvent')
+  .openapi('WireTraceEvent')
 
 export const TracesIngestRequestSchema = z
   .object({
@@ -333,7 +333,7 @@ export const FeedbackTrajectorySchema = z
     updatedAt: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
-  .openapi('FeedbackTrajectory')
+  .openapi('WireFeedbackTrajectory')
 
 export const FeedbackIngestResponseSchema = z
   .object({
@@ -342,10 +342,10 @@ export const FeedbackIngestResponseSchema = z
   })
   .openapi('FeedbackIngestResponse')
 
-export type TraceEvent = z.infer<typeof TraceEventSchema>
+export type WireTraceEvent = z.infer<typeof TraceEventSchema>
 export type TracesIngestRequest = z.infer<typeof TracesIngestRequestSchema>
 export type TracesIngestResponse = z.infer<typeof TracesIngestResponseSchema>
-export type FeedbackTrajectory = z.infer<typeof FeedbackTrajectorySchema>
+export type WireFeedbackTrajectory = z.infer<typeof FeedbackTrajectorySchema>
 export type FeedbackIngestResponse = z.infer<typeof FeedbackIngestResponseSchema>
 
 // ── Errors ──────────────────────────────────────────────────────────
@@ -368,8 +368,8 @@ export const ErrorResponseSchema = z
 
 // ── Type exports for callers in the same package ────────────────────
 
-export type RubricDimension = z.infer<typeof RubricDimensionSchema>
-export type FailureMode = z.infer<typeof FailureModeSchema>
+export type WireRubricDimension = z.infer<typeof RubricDimensionSchema>
+export type WireFailureMode = z.infer<typeof FailureModeSchema>
 export type Rubric = z.infer<typeof RubricSchema>
 export type JudgeRequest = z.infer<typeof JudgeRequestSchema>
 export type JudgeResult = z.infer<typeof JudgeResultSchema>

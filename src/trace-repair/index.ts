@@ -48,7 +48,7 @@ export {
 export {
   type AskRepairArmOptions,
   askRepairArm,
-  type RepairArm as RepairAnalystArm,
+  type RepairAnalystArm,
   type RepairArmAffordance,
   type RepairArmAnswer,
   type RepairArmAsymmetry,

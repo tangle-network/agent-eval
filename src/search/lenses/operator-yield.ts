@@ -43,7 +43,7 @@ import type {
   SearchNodeStatus,
 } from '../../campaign/search-ledger-types'
 import type { SearchNode, SearchStateView } from '../../campaign/search-state'
-import { rankingSplit, type SampleSummary, summarizeSamples } from './shared'
+import { rankingSplit, type LensSampleSummary, summarizeSamples } from './shared'
 
 /** The operators an expansion may choose (`SearchExpansion.operator` in
  * `search-policy.ts`): every edge operator except `seed` (the search's own
@@ -82,7 +82,7 @@ export interface OperatorYieldRow {
    * units shared with the root, or a proposal or screen cost that is
    * unknown, unrecorded or zero. Never imputed into `yield`. */
   excluded: number
-  yield: SampleSummary
+  yield: LensSampleSummary
 }
 
 export interface OperatorYieldData {

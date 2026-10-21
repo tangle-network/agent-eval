@@ -27,8 +27,8 @@ import type {
   Cell,
   CoverageCell,
   ExploreOptions,
-  Finding,
-  Objective,
+  FuzzFinding,
+  FuzzObjective,
 } from './types'
 
 async function pMap<T>(
@@ -55,7 +55,7 @@ async function pMap<T>(
 export class BehaviorExplorer<S> {
   private readonly cells: Cell[]
   private readonly cellById: Map<string, Cell>
-  private readonly objective: Objective
+  private readonly objective: FuzzObjective
   private readonly threshold: number
   private readonly floorPerCell: number
   private readonly perRoundBudget: number
@@ -64,7 +64,7 @@ export class BehaviorExplorer<S> {
   private readonly log: Array<EvalRecord & { scenarioId: string }> = []
   /** binId (input × measured coords) → the most interesting entry seen. */
   private readonly archiveByBin = new Map<string, ArchiveEntry<S>>()
-  private readonly _findings: Finding<S>[] = []
+  private readonly _findings: FuzzFinding<S>[] = []
   private runsUsed = 0
   private candidateFindings = 0
   private evalErrors = 0
@@ -165,12 +165,12 @@ export class BehaviorExplorer<S> {
   }
 
   /** One allocate → propose → evaluate → gate → archive round. */
-  async step(): Promise<{ runs: number; findings: Finding<S>[] }> {
+  async step(): Promise<{ runs: number; findings: FuzzFinding<S>[] }> {
     const remaining = this.opts.budget - this.runsUsed
     if (remaining <= 0 || this.opts.signal?.aborted) return { runs: 0, findings: [] }
 
     const allocations = this.allocate(Math.min(this.perRoundBudget, remaining))
-    const newFindings: Finding<S>[] = []
+    const newFindings: FuzzFinding<S>[] = []
     let runsThisStep = 0
 
     for (const alloc of allocations) {
@@ -304,7 +304,7 @@ export class BehaviorExplorer<S> {
             const minimized = this.opts.minimize
               ? await this.opts.minimize(scenario, this.opts.evaluate, cell)
               : scenario
-            const finding: Finding<S> = {
+            const finding: FuzzFinding<S> = {
               id: this.opts.scenarioId(scenario),
               cell,
               scenario,
@@ -366,7 +366,7 @@ export class BehaviorExplorer<S> {
     return this.capsule().coverage
   }
 
-  findings(): Finding<S>[] {
+  findings(): FuzzFinding<S>[] {
     return [...this._findings].sort((a, b) => b.interest - a.interest)
   }
 

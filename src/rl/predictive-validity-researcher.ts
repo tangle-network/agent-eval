@@ -13,7 +13,7 @@
  * for the next validity check.
  */
 
-import type { GateDecision, SplitCoverage } from '../held-out-gate'
+import type { HeldOutGateDecision, SplitCoverage } from '../held-out-gate'
 import {
   assertUniqueObservationIds,
   validateOutcomeMetricSpecifications,
@@ -189,7 +189,7 @@ export class PredictiveValidityResearcher implements Researcher {
     // implementations that only understand re-scoring runs can produce a
     // "no-op" gate decision and let the caller drive the actual sweep.
     // Real evaluators (CallbackResearcher) execute the plan; we report.
-    const emptyGate: GateDecision = {
+    const emptyGate: HeldOutGateDecision = {
       promote: false,
       candidateId: plan.proposedCandidateId,
       baselineId: plan.baselineCandidateId,

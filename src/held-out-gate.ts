@@ -328,7 +328,7 @@ export interface GateEvidence {
   realnessGatedRuns: number
 }
 
-export interface GateDecision {
+export interface HeldOutGateDecision {
   /** Final promote/no-promote verdict. */
   promote: boolean
   /** The candidate that was evaluated. */
@@ -396,7 +396,7 @@ export class HeldOutGate {
   /** Decide whether `candidate` should replace `baseline`.
    *  Pairing is by `(experimentId, scenarioId, seed)`.
    *  Missing or duplicate identities throw instead of comparing by position. */
-  evaluate(candidate: RunRecord[], baseline: RunRecord[]): GateDecision {
+  evaluate(candidate: RunRecord[], baseline: RunRecord[]): HeldOutGateDecision {
     const candidateId = inferCandidateId(candidate, this.baselineKey)
     const baselineId = this.baselineKey
     assertScenarioIdentities([...candidate, ...baseline])

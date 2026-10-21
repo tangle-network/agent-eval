@@ -32,7 +32,7 @@ export {
   paretoSignificanceGate,
 } from '../campaign/gates/promotion-policy'
 export {
-  type SequentialDecision,
+  type SequentialGateDecision,
   type SequentialObservation,
   type SequentialPairedGate,
   type SequentialPairedGateOptions,
@@ -101,7 +101,7 @@ export { type ComputedInterval, computeInterval, type IntervalSpec } from './ast
 export { type Predicate, readField } from './ast/predicate'
 export { type ReissuePolicy, type ReissueVerdict } from './ast/reissue'
 export { type AdmissionPartition, type AdmissionRule, type AdmissionStage, type SelectionRule } from './ast/selection'
-export { evaluatePowerFloorGate, type GateResult, type Obligation, type ValidityGate } from './ast/validity'
+export { evaluatePowerFloorGate, type ValidityGateResult, type Obligation, type ValidityGate } from './ast/validity'
 // ── Matched-budget refusal ───────────────────────────────────────────
 export { type ArmRealizedBudget, assertMatchedBudgets, type MatchedBudgetVerdict, verifyMatchedBudgets } from './budget'
 export { type CampaignEvidenceContext, createCampaignEvidenceReceipt } from './campaign-evidence'
@@ -112,7 +112,7 @@ export {
   summarizeEvaluationUnits,
 } from './claim'
 // ── Define, seal, amend, execute ─────────────────────────────────────
-export { type ArmSpec, amendExperiment, defineExperiment, type ExperimentSpec, type GateEvidence, type OutcomeSpec, openSealedExperiment, type RegisteredExperiment, type SealAmendment, type SealedExperiment, type SeedDerivation, sealExperiment, verifySealedExperiment } from './define'
+export { type ArmSpec, amendExperiment, defineExperiment, type ExperimentSpec, type ExperimentGateEvidence, type OutcomeSpec, openSealedExperiment, type RegisteredExperiment, type SealAmendment, type SealedExperiment, type SeedDerivation, sealExperiment, verifySealedExperiment } from './define'
 // ── Runtime↔Eval evidence identity ───────────────────────────────────
 export { type CreateEvidenceReceiptInput, createEvidenceReceipt, type EvidenceAuthority, type EvidenceAuthorityKind, type EvidenceBinding, type EvidenceReceipt, type EvidenceReceiptVerification, isIndependentEvidence, verifyEvidenceReceipt } from './evidence-receipt'
 // ── Evidence registry records (evidence/records/*.json) ──────────────
