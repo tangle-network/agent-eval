@@ -6,7 +6,6 @@
   },
   "include": [
     "scripts/prove-task-matrix.mts",
-    "scripts/ledger-journal-load.ts",
     "scripts/render-evidence-index.ts",
     "scripts/record-multishot-golden.ts",
     "scripts/redaction-corpus.ts",
@@ -18,7 +17,6 @@
     "scripts/tb-oracle-determinism.ts",
     "scripts/tb-repair-freelunch-model.ts",
     "scripts/tb-repair-freelunch.ts",
-    "scripts/tb-repair-milestone1.ts",
     "src"
   ],
   "exclude": [
