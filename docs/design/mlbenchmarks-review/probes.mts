@@ -287,6 +287,7 @@ async function negativeOutcomeDirection() {
   }))
   const runs: RunRecord[] = []
   const outcomes = new InMemoryOutcomeStore()
+  const targetOutcome = { id: 'success_rate', direction: 'higher-is-better' as const }
   for (const [i, row] of rows.entries()) {
     const runId = `direction-fixture-${i}`
     runs.push({
@@ -316,14 +317,14 @@ async function negativeOutcomeDirection() {
   const report = await rubricPredictiveValidity({
     runs,
     outcomes,
-    outcomeMetrics: ['success_rate'],
+    outcomeMetrics: [targetOutcome],
     rubrics: ['quality'],
     seed: 1,
     bootstrapResamples: 100,
   })
   const researcher = new PredictiveValidityResearcher({
     outcomes,
-    outcomeMetrics: ['success_rate'],
+    targetOutcome,
     rubrics: ['quality'],
   })
   const researcherReport = await researcher.runValidityCheck(runs)
@@ -334,8 +335,7 @@ async function negativeOutcomeDirection() {
       n: rows.length,
       rows,
       rubric: 'quality',
-      outcome: 'success_rate',
-      desiredOutcomeDirection: 'increase',
+      outcome: targetOutcome,
       seed: 1,
       bootstrapResamples: 100,
       researcherBootstrapResamples: 500,
@@ -356,9 +356,8 @@ async function negativeOutcomeDirection() {
       },
     },
     limitations: [
-      'Magnitude-based bucketing is intentional in existing tests, despite contradictory interface prose.',
-      'A negative association can be desirable for an outcome such as failure rate; direction needs explicit interpretation.',
-      'The researcher recommends increasing rubric weight despite its negative association with desired success rate; it does not execute or deploy that recommendation.',
+      'The desired outcome direction is explicit; association remains descriptive and does not authorize a rubric change.',
+      'The researcher reports recommendations; this diagnostic does not execute or deploy them.',
       'Constructed perfect correlation establishes neither causal validity nor held-out predictive performance.',
     ],
   }
