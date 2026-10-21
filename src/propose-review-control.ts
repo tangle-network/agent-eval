@@ -1,9 +1,6 @@
-import {
-  type ControlRunResult,
-  type ControlRuntimeConfig,
-  objectiveEval,
-  runAgentControlLoop,
-} from './control-runtime'
+import { runAgentControlLoop } from './control-runtime'
+import type { ControlRunResult, ControlRuntimeConfig } from './control-runtime/contract'
+import { objectiveEval } from './control-runtime/policy'
 import {
   inMemoryReviewStore,
   type ProposeFn,

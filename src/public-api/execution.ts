@@ -18,7 +18,7 @@ export type {
   ControlRuntimeError,
   ControlStep,
   StopDecision,
-} from '../control-runtime'
+} from '../control-runtime/contract'
 export type { DiscoveredPersona, DiscoverPersonasOptions } from '../discover-personas'
 export type {
   CampaignFactoryParams,

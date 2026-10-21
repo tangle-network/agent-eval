@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 import { type AnalystFinding, type AnalystRunResult, makeFinding } from './analyst/types'
-import type { ControlRunResult } from './control-runtime'
+import type { ControlRunResult } from './control-runtime/contract'
 import {
   type AnalystReviewDecision,
   analystFindingDigest,

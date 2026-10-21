@@ -1,4 +1,4 @@
-import type { ControlSeverity } from '../control-runtime'
+import type { ControlSeverity } from '../control-runtime/contract'
 
 export type KnowledgeRequirementCategory =
   | 'user_specific'
