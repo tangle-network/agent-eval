@@ -194,7 +194,7 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
       seedCommit(seed, 'seed')
       git(seed, 'remote', 'add', 'origin', remote)
       git(seed, 'push', '-q', 'origin', 'main')
-      setGh({ prs: [], bot: true })
+      writeFileSync(ghState, JSON.stringify({ prs: [], bot: true }))
 
       const first = adopt(pass)
       expect(first.status, first.stderr).toBe(0)

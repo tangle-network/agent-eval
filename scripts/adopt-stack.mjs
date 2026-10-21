@@ -439,7 +439,9 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
  * REVIEW_REQUIRED means an approval (usually the approval bot's) has not landed
  * yet, so the identical merge is retried every POLL_MS until WAIT_MS has
  * passed. Any other refusal returns at once, including a moved head, which
- * `--match-head-commit` refuses on every retry.
+ * `--match-head-commit` refuses on every retry. A decision gh cannot read
+ * (null) refuses at once. Each retry re-reads the default branch, so a base
+ * that moves during the wait closes the pull request for a re-gate.
  * Returns {} when merged, { moved } when the base moved, or { refusal, why }.
  */
 async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
