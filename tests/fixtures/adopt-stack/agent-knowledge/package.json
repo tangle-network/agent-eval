@@ -1,0 +1,112 @@
+{
+  "name": "@tangle-network/agent-knowledge",
+  "version": "22.0.4",
+  "description": "Build, search, evaluate, and improve source-backed knowledge bases.",
+  "homepage": "https://github.com/tangle-network/agent-knowledge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangle-network/agent-knowledge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tangle-network/agent-knowledge/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./viz": {
+      "types": "./dist/viz/index.d.ts",
+      "import": "./dist/viz/index.js",
+      "default": "./dist/viz/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js",
+      "default": "./dist/memory/index.js"
+    },
+    "./benchmarks": {
+      "types": "./dist/benchmarks/index.d.ts",
+      "import": "./dist/benchmarks/index.js",
+      "default": "./dist/benchmarks/index.js"
+    },
+    "./search": {
+      "types": "./dist/search/index.d.ts",
+      "import": "./dist/search/index.js",
+      "default": "./dist/search/index.js"
+    }
+  },
+  "bin": {
+    "agent-knowledge": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "skills",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:contracts",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:contracts": "tsc --noEmit -p tsconfig.contracts.json",
+    "lint": "biome check src tests",
+    "format": "biome format --write src tests",
+    "check:skills": "node scripts/check-skills.mjs",
+    "check:path-containment": "node scripts/check-path-containment.mjs",
+    "verify:package": "pnpm run check:version-bump && pnpm run check:skills && pnpm run check:path-containment && pnpm run check:api-surface && publint && attw --pack --profile esm-only . && node scripts/verify-package.mjs && pnpm run verify:search",
+    "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
+    "check:version-bump": "node scripts/check-version-bump.mjs",
+    "check:api-surface": "node scripts/check-api-surface.mjs",
+    "api:surface": "node scripts/check-api-surface.mjs --write",
+    "verify:search": "node scripts/verify-search-entry.mjs"
+  },
+  "dependencies": {
+    "@types/proper-lockfile": "4.1.4",
+    "proper-lockfile": "4.1.2",
+    "zod": "4.6.5"
+  },
+  "peerDependencies": {
+    "@tangle-network/agent-eval": ">=0.213.0 <0.216.0",
+    "@tangle-network/agent-interface": "^5.2.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.14",
+    "@neo4j-labs/agent-memory": "0.5.0",
+    "@tangle-network/agent-eval": "0.215.0",
+    "@tangle-network/agent-interface": "5.2.0",
+    "@types/node": "^26.6.2",
+    "mem0ai": "3.3.0",
+    "oxc-parser": "0.151.0",
+    "publint": "^0.3.24",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vite": "8.3.1",
+    "vitest": "^5.0.1",
+    "yaml": "2.9.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@12.6.0"
+}

@@ -1,0 +1,18 @@
+# Exercise the reusable adoption workflow on every push. agent-eval's own
+# @tangle-network ranges already cover npm latest, so the plan is usually empty;
+# this proves the workflow wiring and the pushed script against the registry.
+name: Adopt stack (dry run)
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  adopt:
+    uses: ./.github/workflows/adopt-stack.yml
+    with:
+      dry-run: true
+      stack-ref: ${{ github.sha }}
+      default-branch: ${{ github.ref_name }}
