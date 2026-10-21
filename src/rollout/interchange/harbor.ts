@@ -79,6 +79,7 @@ import {
   type ToolDef,
 } from '../schema'
 
+import { isRecord } from '../../llm-client/json'
 export const ATIF_SCHEMA_VERSION = 'ATIF-v1.7'
 
 /** Gap note on every imported line — ATIF carries no verdict, so nothing is scored. */
@@ -209,9 +210,6 @@ export interface HarborTrajectory {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
 

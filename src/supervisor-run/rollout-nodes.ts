@@ -30,7 +30,7 @@ import {
   type RolloutLine,
   type RolloutSplit,
 } from '../rollout/schema'
-import { asRecord, parseJson, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
+import { asRecord, parseJsonRecord, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
 import { readTerminalRecord } from './terminal-record'
 import {
   isUnavailable,
@@ -123,15 +123,15 @@ export function supervisorRunRolloutLinesFromFacts(
   }
 
   const state = tree.state
-  const result = parseJson(src.result)
-  const judge = parseJson(src.judge)
+  const result = parseJsonRecord(src.result)
+  const judge = parseJsonRecord(src.judge)
   const stateResult = asRecord(state?.result)
   // One derivation with the analyzer, so the root row and the report never
   // disagree about which record the status came from.
   const terminal = readTerminalRecord({
     state,
     result,
-    failure: src.failure === undefined ? undefined : parseJson(src.failure),
+    failure: src.failure === undefined ? undefined : parseJsonRecord(src.failure),
   })
 
   const rootId = tree.rootId

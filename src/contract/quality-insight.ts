@@ -253,8 +253,8 @@ export function computeOutcomeCorrelation(
 
   const p = pearsonR(xs, ys)
   const s = spearmanR(xs, ys)
-  const meanX = mean(xs)
-  const meanY = mean(ys)
+  const meanX = meanOrZero(xs)
+  const meanY = meanOrZero(ys)
   let num = 0
   let denom = 0
   for (let i = 0; i < xs.length; i++) {
@@ -287,6 +287,6 @@ export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-export function mean(arr: number[]): number {
+export function meanOrZero(arr: number[]): number {
   return arr.length === 0 ? 0 : arithmeticMean(arr)
 }

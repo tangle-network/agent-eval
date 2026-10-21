@@ -55,15 +55,15 @@ export interface ProjectedOtlpSpan {
  * when the line is missing the mandatory `trace_id` + `span_id`.
  */
 export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlpSpan | null {
-  const trace_id = stringField(raw, 'trace_id') ?? stringField(raw, 'traceId')
-  const span_id = stringField(raw, 'span_id') ?? stringField(raw, 'spanId')
+  const trace_id = rawStringField(raw, 'trace_id') ?? rawStringField(raw, 'traceId')
+  const span_id = rawStringField(raw, 'span_id') ?? rawStringField(raw, 'spanId')
   if (!trace_id || !span_id) return null
 
-  const rawParentId = stringField(raw, 'parent_span_id') ?? stringField(raw, 'parentSpanId') ?? null
+  const rawParentId = rawStringField(raw, 'parent_span_id') ?? rawStringField(raw, 'parentSpanId') ?? null
   const parent_id = normalizeParentSpanId(trace_id, span_id, rawParentId)
-  const name = stringField(raw, 'name') ?? 'unknown'
-  const start_time = stringField(raw, 'start_time') ?? stringField(raw, 'startTime') ?? ''
-  const end_time = stringField(raw, 'end_time') ?? stringField(raw, 'endTime') ?? start_time
+  const name = rawStringField(raw, 'name') ?? 'unknown'
+  const start_time = rawStringField(raw, 'start_time') ?? rawStringField(raw, 'startTime') ?? ''
+  const end_time = rawStringField(raw, 'end_time') ?? rawStringField(raw, 'endTime') ?? start_time
 
   const status = readOtlpStatus(raw)
   const attributes = extractOtlpAttributes(raw)
@@ -165,7 +165,7 @@ export function extractOtlpAttributes(raw: Record<string, unknown>): Record<stri
   return out
 }
 
-export function stringField(raw: Record<string, unknown>, key: string): string | undefined {
+export function rawStringField(raw: Record<string, unknown>, key: string): string | undefined {
   const v = raw[key]
   return typeof v === 'string' ? v : undefined
 }

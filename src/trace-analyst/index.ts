@@ -72,7 +72,7 @@ export {
   firstStringAttr,
   type ProjectedOtlpSpan,
   projectOtlpFlatLine,
-  stringField,
+  rawStringField,
 } from './otlp-span'
 export {
   type OtlpToRunRecordsOptions,

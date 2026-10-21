@@ -67,6 +67,7 @@ import {
 import { type ClaudeTranscript, transcriptFromSession } from '../rollout/readers/claude-jsonl'
 import type { SupervisorRunReader, SupervisorRunSources, WorkerLogSource } from './types'
 
+import { isRecord } from '../llm-client/json'
 /** Tool names that spawn a child agent. `Task` is the older name for `Agent`. */
 const DEFAULT_SPAWN_TOOLS = ['Agent', 'Task'] as const
 /** Tool names that deliver a message to an ALREADY-RUNNING child agent. */
@@ -96,9 +97,6 @@ export interface ClaudeCodeReaderOptions {
   readonly steerTools?: readonly string[]
   readonly cancelTools?: readonly string[]
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 

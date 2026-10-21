@@ -157,7 +157,7 @@ async function post(request: ContinuationModelRequest): Promise<RouterResponse> 
 }
 
 /** The router answered with a different model than the policy pinned. */
-export class ModelSubstitutionError extends Error {}
+class FreeLunchModelSubstitutionError extends Error {}
 
 export function routerContinuationModel(label = ''): ContinuationModel {
   return async (request: ContinuationModelRequest): Promise<ContinuationModelResponse> => {
@@ -178,7 +178,7 @@ export function routerContinuationModel(label = ''): ContinuationModel {
     // policy that silently ran a substitute would name the wrong model in every
     // number it produced, so a substitution stops the rollout.
     if (!servedMatches(request.model, served)) {
-      throw new ModelSubstitutionError(
+      throw new FreeLunchModelSubstitutionError(
         `policy pinned ${request.model}, router served ${served}`,
       )
     }

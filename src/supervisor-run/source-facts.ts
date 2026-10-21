@@ -146,7 +146,7 @@ function parseJsonlWithDiagnostics(text: string | null): ParsedJsonl {
   return { rows: out, invalidRows }
 }
 
-export function parseJson(text: string | null): Record<string, unknown> | null {
+export function parseJsonRecord(text: string | null): Record<string, unknown> | null {
   if (text === null) return null
   try {
     const parsed: unknown = JSON.parse(text)
@@ -466,7 +466,7 @@ function summarizeDialect(seen: ReadonlySet<JournalRowDialect>): SupervisorJourn
 export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
   const parsedJournal = parseJsonlWithDiagnostics(src.journal)
   const events = parsedJournal.rows
-  const state = parseJson(src.state)
+  const state = parseJsonRecord(src.state)
 
   const spawns: SpawnRow[] = []
   const closes: CloseRow[] = []
@@ -770,7 +770,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   for (const close of closes) widenEventSpan(close.at)
   for (const metered of meteredRows) widenEventSpan(metered.at)
 
-  const result = parseJson(src.result)
+  const result = parseJsonRecord(src.result)
   if (result && Object.hasOwn(result, 'spentTotal')) {
     resourceRecords.push({
       nodeId: rootId,

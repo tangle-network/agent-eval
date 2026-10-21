@@ -62,7 +62,7 @@ import {
   ROUND,
   SEED,
   MAX_EVALUATIONS,
-  COST_CEILING_USD,
+  GEPA_ANALYST_COST_CEILING_USD,
   ANALYSIS_TIMEOUT_MS,
   DSPY_PYTHON,
   GEPA_PYTHON,
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const costLedger = createRunCostLedger({
     storage,
     runDir: join(RUN_DIR, 'cost'),
-    costCeilingUsd: COST_CEILING_USD,
+    costCeilingUsd: GEPA_ANALYST_COST_CEILING_USD,
   })
 
   const prepared = await prepareCampaignScenarios()

@@ -8,7 +8,7 @@ import {
   type AnalystBenchmarkRunManifest,
   canonicalJson,
   observationKey,
-  parseJson,
+  parseJsonText,
 } from './benchmark-command-artifact'
 import { readRegularFile } from './benchmark-command-persistence'
 import { assertAnalystBenchmarkArtifact } from './benchmark-command-validation'
@@ -20,7 +20,7 @@ import { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export async function readAnalystBenchmarkArtifact(
   path: string,
 ): Promise<AnalystBenchmarkArtifact> {
-  const value = parseJson(await readRegularFile(path, 'analyst benchmark result'), path)
+  const value = parseJsonText(await readRegularFile(path, 'analyst benchmark result'), path)
   assertAnalystBenchmarkArtifact(value, 'analyst benchmark result')
   return value
 }

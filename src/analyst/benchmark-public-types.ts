@@ -8,6 +8,7 @@ import type { AnalystBenchmarkCase } from './benchmark'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
 import type { AnalystRunInputs } from './types'
 
+import { isRecord } from '../llm-client/json'
 export type PublicAnalystBenchmarkDataset = 'agentrx' | 'codetracebench'
 
 /**
@@ -150,6 +151,3 @@ export function safeInteger(value: number, field: string): number {
   return value
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

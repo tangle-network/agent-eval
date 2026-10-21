@@ -3,6 +3,7 @@ import type { RunCostProvenance, RunTokenUsage } from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import type { CodeAgentSessionMetrics } from './code-agent-session-types'
 
+import { clamp01 } from '../../run-score'
 export function emptyMetrics(entries: number): CodeAgentSessionMetrics {
   return {
     entries,
@@ -141,7 +142,3 @@ export function resolveSessionCost(
   return { costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } }
 }
 
-export function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(1, value))
-}

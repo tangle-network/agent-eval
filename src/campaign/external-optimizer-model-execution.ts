@@ -10,8 +10,8 @@ import {
   type ExternalOptimizerChatRequest,
   type ExternalOptimizerModelCall,
   freezeJsonSnapshot,
-  isRecord,
 } from './external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import {
   MissingModelExecutionError,
   type ModelProxyPath,

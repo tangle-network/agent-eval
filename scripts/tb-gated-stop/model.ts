@@ -1,4 +1,4 @@
-import { MODEL, BASE_URL, SEAT_CONCURRENCY, MODEL_DEADLINE_MS } from './settings'
+import { TB_GATED_STOP_MODEL, TB_GATED_STOP_BASE_URL, SEAT_CONCURRENCY, MODEL_DEADLINE_MS } from './settings'
 
 // ── The seat ─────────────────────────────────────────────────────────
 
@@ -32,10 +32,10 @@ export async function callModel(messages: { role: string; content: string }[]): 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), MODEL_DEADLINE_MS)
     try {
-      const response = await fetch(BASE_URL, {
+      const response = await fetch(TB_GATED_STOP_BASE_URL, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, messages, temperature: 0, max_tokens: 4096 }),
+        body: JSON.stringify({ model: TB_GATED_STOP_MODEL, messages, temperature: 0, max_tokens: 4096 }),
         signal: controller.signal,
       })
       if (!response.ok) throw new Error(`seat answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`)

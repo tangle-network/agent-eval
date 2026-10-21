@@ -7,9 +7,9 @@ import {
   type ExternalTextCandidate,
   type ExternalTextEvaluationRequest,
   isExternalTextCandidate,
-  isRecord,
   resolveExternalOptimizerCallbackLimits,
 } from './external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import {
   closeServer,
   listenLocal,

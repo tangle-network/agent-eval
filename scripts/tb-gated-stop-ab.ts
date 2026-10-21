@@ -50,7 +50,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { clusteredPower, type EvidenceRecord, openSealedExperiment, sealExperiment } from '../src/experiment'
-import { WORK, MODEL, SEAT_CONCURRENCY, COST_CEILING_USD, STEP_ALLOTMENT } from './tb-gated-stop/settings'
+import { WORK, TB_GATED_STOP_MODEL, SEAT_CONCURRENCY, TB_GATED_STOP_COST_CEILING_USD, STEP_ALLOTMENT } from './tb-gated-stop/settings'
 import { type EndStateMeasurement, endStateScreen, pilotExposedRowIds } from './tb-gated-stop/corpus'
 import { REGISTERED_EFFECT_GRID, POWER_TARGET, POWER_SIM, SETTLING_EFFECT, settlingDraw, buildSpec, prepare } from './tb-gated-stop/design'
 import { type TaskFixture, loadTask } from './tb-gated-stop/container'
@@ -256,8 +256,8 @@ async function main(): Promise<void> {
           const index = next
           next += 1
           if (index >= rows.length) return
-          if (spent > COST_CEILING_USD) {
-            log(`cost ceiling ${COST_CEILING_USD} reached, stopping`)
+          if (spent > TB_GATED_STOP_COST_CEILING_USD) {
+            log(`cost ceiling ${TB_GATED_STOP_COST_CEILING_USD} reached, stopping`)
             return
           }
           const row = rows[index]!
@@ -313,10 +313,10 @@ async function main(): Promise<void> {
     const probe = await callModel([{ role: 'user', content: 'reply with the single word ok' }])
     const identity = registered.gate('servedModel', {
       kind: 'identity',
-      pinned: MODEL,
+      pinned: TB_GATED_STOP_MODEL,
       served: probe.servedModel,
     })
-    log(`servedModel gate: pinned=${MODEL} served=${probe.servedModel} passed=${identity.passed}`)
+    log(`servedModel gate: pinned=${TB_GATED_STOP_MODEL} served=${probe.servedModel} passed=${identity.passed}`)
     if (!identity.passed) {
       const refusal = {
         generatedAt: new Date().toISOString(),
@@ -331,7 +331,7 @@ async function main(): Promise<void> {
       }
       writeFileSync(join(WORK, 'confirm-refusal.json'), `${JSON.stringify(refusal, null, 2)}\n`)
       process.stdout.write(
-        `ABORT servedModel: pinned=${MODEL} served=${probe.servedModel}; no spend, no rows graded\n`,
+        `ABORT servedModel: pinned=${TB_GATED_STOP_MODEL} served=${probe.servedModel}; no spend, no rows graded\n`,
       )
       process.exitCode = 3
       return
@@ -365,8 +365,8 @@ async function main(): Promise<void> {
           const row = rows[index]!
           const key = `blind-continue::${row.rowId}`
           if (held[key] !== undefined) continue
-          if (spent() > COST_CEILING_USD) {
-            log(`cost ceiling ${COST_CEILING_USD} reached in blind-continue`)
+          if (spent() > TB_GATED_STOP_COST_CEILING_USD) {
+            log(`cost ceiling ${TB_GATED_STOP_COST_CEILING_USD} reached in blind-continue`)
             return
           }
           held[key] = await runRow({
@@ -397,8 +397,8 @@ async function main(): Promise<void> {
         pool += control.promptTokens + control.completionTokens - (held[key]!.promptTokens + held[key]!.completionTokens)
         continue
       }
-      if (spent() > COST_CEILING_USD) {
-        log(`cost ceiling ${COST_CEILING_USD} reached in gated-continue`)
+      if (spent() > TB_GATED_STOP_COST_CEILING_USD) {
+        log(`cost ceiling ${TB_GATED_STOP_COST_CEILING_USD} reached in gated-continue`)
         break
       }
       const entitlement = control.promptTokens + control.completionTokens

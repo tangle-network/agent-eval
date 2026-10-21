@@ -15,6 +15,7 @@ import type { SearchStateView } from '../../campaign/search-state'
 import { medianInPlace } from '../../statistics/internal'
 import type { LensResult, LensSignal } from './shared'
 
+import { DEFAULT_MAX_ATTEMPTS } from '../../campaign/search-kernel-contract'
 /** The one number a geometry lens exposes to policies: the shared
  * `LensSignal`, with the noise model and sample it rests on. */
 export interface GeometrySignal extends LensSignal<number | null> {
@@ -39,8 +40,6 @@ export interface GeometryLensResult<TData> extends LensResult<TData, number | nu
 }
 
 /** Attempts the kernel gives a retryable errored cell by default. */
-export const DEFAULT_MAX_ATTEMPTS = 3
-
 /**
  * Nodes whose screen finished, in registration order, root first: the
  * ledger's reading of the kernel's `screened` list. A node counts once it is

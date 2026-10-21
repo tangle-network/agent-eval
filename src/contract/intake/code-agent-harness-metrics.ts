@@ -3,7 +3,6 @@ import { numberField, record, stringField, timestampMs } from './code-agent-fiel
 import {
   addUsage,
   addUsageTo,
-  clamp01,
   emptyMetrics,
   emptyTokenTotals,
   hasTokenTotals,
@@ -11,6 +10,7 @@ import {
 } from './code-agent-session-metrics'
 import type { CodeAgentSessionMetrics } from './code-agent-session-types'
 
+import { clamp01 } from '../../run-score'
 export function claudeCodeMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
   let startedAt: number | undefined

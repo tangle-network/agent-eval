@@ -1,5 +1,6 @@
 import type { ExternalId } from './benchmark-dataset-types'
 
+import { isRecord } from '../llm-client/json'
 export function normalizeBenchmarkLabel(value: string): string {
   const normalized = nonEmpty(value, 'benchmark label')
     .toLowerCase()
@@ -29,10 +30,6 @@ export function assertStepWithinRange(
 
 export function defaultStepUri(trajectoryId: string, step: number): string {
   return `trace://${encodeURIComponent(trajectoryId)}/span/step-${step}`
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function positiveStep(value: number, field: string): number {

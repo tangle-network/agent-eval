@@ -21,7 +21,7 @@ export interface ExtractScenario extends Scenario {
   gold: { merchant: string; amount: string; date: string; category: string }
 }
 
-export interface Artifact {
+export interface ExtractionArtifact {
   text: string
   parsed: Record<string, unknown> | null
 }
@@ -166,7 +166,7 @@ function normAmount(s: unknown): string {
 /** Composite is the fraction of fields that exactly match after normalization. */
 export function extractionJudge(
   dataset: ExtractScenario[],
-): JudgeConfig<Artifact, ExtractScenario> {
+): JudgeConfig<ExtractionArtifact, ExtractScenario> {
   const byId = new Map(dataset.map((s) => [s.id, s]))
   return {
     name: 'field-exact-match',
@@ -240,7 +240,7 @@ export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
     surface: string,
     scenario: ExtractScenario,
     ctx: DispatchContext,
-  ): Promise<Artifact> {
+  ): Promise<ExtractionArtifact> {
     const request: LlmCallRequest = {
       model: opts.model,
       messages: [

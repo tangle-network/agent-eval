@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import {
   type ExternalOptimizerRunnerCommand,
-  isRecord,
   resolveExternalOptimizerProcessLimits,
 } from './external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import { runWithCleanup } from './external-optimizer-resources'
 
 const PROCESS_TERMINATION_GRACE_MS = 5_000

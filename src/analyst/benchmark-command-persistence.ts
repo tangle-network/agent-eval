@@ -19,11 +19,11 @@ import {
   assertExactKeys,
   canonicalJson,
   digestCanonical,
-  isRecord,
   isSha256,
   observationKey,
-  parseJson,
+  parseJsonText,
 } from './benchmark-command-artifact'
+import { isRecord } from '../llm-client/json'
 import {
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
@@ -333,7 +333,7 @@ export async function readAndValidateResumeFiles(
     paths.localReceipt,
     'benchmark local run receipt',
   )
-  const value = parseJson(localReceiptContent, paths.localReceipt)
+  const value = parseJsonText(localReceiptContent, paths.localReceipt)
   if (!isRecord(value)) {
     throw new TypeError(`benchmark local run receipt must be an object: ${paths.localReceipt}`)
   }
@@ -412,7 +412,7 @@ async function readAndValidateManifestContent(
   currentIdentitySha256: string,
   currentLocalIdentitySha256: string,
 ): Promise<AnalystBenchmarkRunManifest> {
-  const value = parseJson(content, path)
+  const value = parseJsonText(content, path)
   if (!isRecord(value)) throw new TypeError(`benchmark run manifest must be an object: ${path}`)
   assertExactKeys(
     value,
@@ -537,7 +537,7 @@ export async function readProgress(
     if (!line.trim()) {
       throw new Error(`benchmark observation log contains an empty row at line ${index + 1}`)
     }
-    const parsed = parseJson(line, `${path}:${index + 1}`)
+    const parsed = parseJsonText(line, `${path}:${index + 1}`)
     if (!isRecord(parsed)) {
       throw new TypeError(`benchmark observation row ${index + 1} must be an object`)
     }

@@ -11,11 +11,11 @@ import {
   assertStepWithinRange,
   defaultStepUri,
   externalId,
-  isRecord,
   normalizeBenchmarkLabel,
   positiveStep,
   predictionConfidence,
 } from './benchmark-dataset-utils'
+import { isRecord } from '../llm-client/json'
 import { type AnalystFinding, makeFinding } from './types'
 
 export function agentRxBenchmarkCase<TInput>(

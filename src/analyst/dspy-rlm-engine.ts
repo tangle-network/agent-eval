@@ -21,6 +21,7 @@ import {
 import { decodeRawFindingArray } from './finding-codec'
 import { startTraceToolCallback, type TraceToolCallbackLimits } from './trace-tool-callback'
 
+import { isRecord } from '../llm-client/json'
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_MAX_COST_USD = 1
 const DEFAULT_MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
@@ -386,6 +387,3 @@ function sanitizedRunner(
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

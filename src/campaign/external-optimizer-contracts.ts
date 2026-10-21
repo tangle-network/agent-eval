@@ -5,6 +5,7 @@ import { costForTokenPricing } from '../cost-ledger'
 import { deepFreezeCanonicalJson as deepFreezeJson } from '../ledger-core/deep-freeze'
 import { canonicalJson } from '../verdict-cache'
 
+import { isRecord } from '../llm-client/json'
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAXIMUM_JSON_BYTES = Math.min(
   bufferConstants.MAX_LENGTH - 1,
@@ -451,10 +452,6 @@ function isCredentialKey(key: string): boolean {
       'token',
     ].includes(segment),
   )
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function freezeJsonSnapshot(value: unknown, label: string): unknown {

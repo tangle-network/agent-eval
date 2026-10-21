@@ -35,9 +35,8 @@ export const RUN_DIR =
       : '/dev/shm/mp-tg2-gepa-r2')
 export const ROUND = FAMILY ? 3 : 2
 export const SEED = FAMILY ? 31 : 23
-export const MODEL = 'glm-5.2'
-export const BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
-export const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
+export const GEPA_ANALYST_MODEL = 'glm-5.2'
+export const GEPA_ANALYST_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 export const EVALUATIONS_OVERRIDE = argValue('--max-evaluations')
 /** In family mode this is the upstream evaluation target GEPA optimizes with,
  * not the callback's hard cap — see the budget-geometry note at the recipe. */
@@ -52,7 +51,7 @@ export const MAX_EVALUATIONS = EVALUATIONS_OVERRIDE
 // callback cap intentionally exceeds the upstream target by one iteration
 // burst, so the family ceiling carries ~2x headroom over expected spend — a
 // runaway guard, not a target.
-export const COST_CEILING_USD = SMOKE ? 3 : FAMILY ? 30 : 20
+export const GEPA_ANALYST_COST_CEILING_USD = SMOKE ? 3 : FAMILY ? 30 : 20
 export const MAX_PROPOSER_COST_USD = SMOKE ? 1 : 5
 export const GEPA_TIMEOUT_MS = SMOKE ? 3_600_000 : 28_800_000
 export const ANALYSIS_TIMEOUT_MS = 1_200_000

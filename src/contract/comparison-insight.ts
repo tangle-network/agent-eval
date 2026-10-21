@@ -18,7 +18,7 @@ import {
   compositeOf,
   finiteCompositeScores,
   isFiniteNumber,
-  mean,
+  meanOrZero,
 } from './quality-insight'
 
 type MetricDirection = 'higher-is-better' | 'lower-is-better'
@@ -170,8 +170,8 @@ export function computeLift(
       split,
     )
     if (scoresA.length === 0 || scoresB.length === 0) return undefined
-    const meanA = mean(scoresA)
-    const meanB = mean(scoresB)
+    const meanA = meanOrZero(scoresA)
+    const meanB = meanOrZero(scoresB)
     bId = meanA <= meanB ? idA : idB
     cId = meanA <= meanB ? idB : idA
   }
@@ -210,11 +210,11 @@ export function computeLift(
   const reverseInferredArms =
     grouped !== undefined &&
     (!baselineId || !candidateId) &&
-    mean(pairedBaseline) > mean(pairedCandidate)
+    meanOrZero(pairedBaseline) > meanOrZero(pairedCandidate)
   if (reverseInferredArms) [pairedBaseline, pairedCandidate] = [pairedCandidate, pairedBaseline]
 
-  const baselineMean = mean(pairedBaseline)
-  const candidateMean = mean(pairedCandidate)
+  const baselineMean = meanOrZero(pairedBaseline)
+  const candidateMean = meanOrZero(pairedCandidate)
   const delta = candidateMean - baselineMean
 
   const bootstrap = pairedBootstrap(pairedBaseline, pairedCandidate, {

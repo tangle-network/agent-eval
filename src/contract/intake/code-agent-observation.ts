@@ -6,12 +6,12 @@
 
 import { readSessionInput } from '@tangle-network/harness-sessions'
 import {
-  isRecord,
   numberField,
   record,
   stringField,
   timestampMs as timestamp,
 } from './code-agent-fields'
+import { isRecord } from '../../llm-client/json'
 import { sessionIdFromEntries } from './code-agent-identity'
 
 export type CodeAgentSessionSource =

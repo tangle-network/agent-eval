@@ -10,6 +10,7 @@ import type {
 } from './benchmark-real-model'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
 
+import { isRecord } from '../llm-client/json'
 export { assertAnalystBenchmarkObservation } from './benchmark-command-validation'
 
 export interface AnalystBenchmarkArtifact {
@@ -199,7 +200,7 @@ export function observationKey(observation: {
   return `${observation.runnerId}\u0000${observation.caseId}\u0000${observation.repetition}`
 }
 
-export function parseJson(text: string, source: string): unknown {
+export function parseJsonText(text: string, source: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
@@ -239,10 +240,6 @@ export function digestCanonical(value: unknown): string {
  *  the receipt digests and compares against. */
 export function canonicalJson(value: unknown): string {
   return canonicalString(jsonDocument(value))
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function isSha256(value: unknown): value is string {
