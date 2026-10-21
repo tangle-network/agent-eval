@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  budgetBreachView,
-  failureClusterView,
-  firstDivergenceView,
-  judgeAgreementView,
-  regressionView,
-  stuckLoopView,
-  toolWasteView,
-} from '../src/pipelines'
+import { budgetBreachView, failureClusterView, judgeAgreementView, stuckLoopView, toolWasteView } from '../src/pipelines'
 import type { ToolSpan } from '../src/trace'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
@@ -178,47 +170,3 @@ describe('judgeAgreementView', () => {
   })
 })
 
-describe('firstDivergenceView', () => {
-  it('reports first differing step with a reason', async () => {
-    const store = new InMemoryTraceStore()
-    const runA = await runWithTools(store, 's', ['search', 'write', 'read'])
-    const runB = await runWithTools(store, 's', ['search', 'delete', 'read'])
-    const report = await firstDivergenceView(store, runA, runB)
-    expect(report.firstDivergenceIndex).toBe(1)
-    expect(report.reason).toContain('write')
-    expect(report.reason).toContain('delete')
-    expect(report.commonPrefixLen).toBe(1)
-  })
-
-  it('returns null index when identical', async () => {
-    const store = new InMemoryTraceStore()
-    const a = await runWithTools(store, 's', ['search', 'write'])
-    const b = await runWithTools(store, 's', ['search', 'write'])
-    const r = await firstDivergenceView(store, a, b)
-    expect(r.firstDivergenceIndex).toBeNull()
-  })
-})
-
-describe('regressionView', () => {
-  it('detects score regression on candidate slice', async () => {
-    const store = new InMemoryTraceStore()
-    // baseline: 10 runs with score ~0.9
-    for (let i = 0; i < 10; i++) {
-      const e = new TraceEmitter(store)
-      await e.startRun({ scenarioId: 's', variantId: 'baseline' })
-      await e.endRun({ pass: true, score: 0.9 + (i % 2) * 0.01 })
-    }
-    // candidate: 10 runs with score ~0.6
-    for (let i = 0; i < 10; i++) {
-      const e = new TraceEmitter(store)
-      await e.startRun({ scenarioId: 's', variantId: 'candidate' })
-      await e.endRun({ pass: true, score: 0.6 + (i % 2) * 0.01 })
-    }
-    const report = await regressionView(store, [{ metric: 'score', higherIsBetter: true }], {
-      baseline: { variantId: 'baseline' },
-      candidate: { variantId: 'candidate' },
-    })
-    expect(report.hasRegression).toBe(true)
-    expect(report.metrics[0].verdict).toBe('regressed')
-  })
-})

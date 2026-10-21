@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  canaryLeakView,
-  checkBehavioralCanary,
-  checkCanaries,
-  HoldoutAuditor,
-  runBehavioralCanaries,
-} from '../src/contamination-guard'
+import { canaryLeakView, checkBehavioralCanary, checkCanaries, HoldoutAuditor } from '../src/contamination-guard'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
 describe('checkCanaries', () => {
