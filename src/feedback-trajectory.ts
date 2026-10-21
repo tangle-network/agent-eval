@@ -1,5 +1,5 @@
 import type { AnalystFinding, AnalystRunResult } from './analyst/types'
-import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
+import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime/contract'
 import type { DatasetScenario, DatasetSplit } from './dataset'
 import {
   type AnalystReviewDecision,

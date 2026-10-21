@@ -14,7 +14,9 @@
  */
 
 import { CaptureIntegrityError } from '../errors'
-import { type AdmissionRule, type EvidenceRecord, evaluatePredicate } from './ast'
+import type { EvidenceRecord } from './ast/evidence'
+import { evaluatePredicate } from './ast/predicate'
+import type { AdmissionRule } from './ast/selection'
 
 /** A funnel stage gained rows, double-counted them, or failed to reconcile. */
 export class FunnelIntegrityError extends CaptureIntegrityError {}

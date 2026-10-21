@@ -53,17 +53,15 @@ import {
   META_SEARCH_SCORE_SOURCE,
   metaSearch,
   objectiveKey,
-  renderMetaSearchText,
 } from '../src/search/lenses/meta-search'
+import { renderMetaSearchText } from '../src/search/lenses/meta-search-text'
 import { runNestedSearch } from '../src/search/nested-search'
 import { memoryStore, runSimulation, type SimOptions } from './search-sim'
 
 /** One inner search configuration: the outer search's artifact. */
-interface InnerConfig {
+type InnerConfig = Pick<SimOptions, 'population' | 'expansions'> & {
   policy: 'incumbent' | 'crowded-frontier'
   allocation: 'uniform' | 'asha'
-  population: number
-  expansions: number
 }
 
 const ROOT_CONFIG: InnerConfig = {

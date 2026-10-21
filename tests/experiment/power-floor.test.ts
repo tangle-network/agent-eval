@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluatePowerFloorGate, type ValidityGate } from '../../src/experiment/ast'
+import { evaluatePowerFloorGate, type ValidityGate } from '../../src/experiment/ast/validity'
 import { defineExperiment } from '../../src/experiment/define'
 import { killtestSpec } from './preregistrations'
 

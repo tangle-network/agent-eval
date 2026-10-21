@@ -15,19 +15,23 @@ import {
   crossSurfaceRowsFor as rowsFor,
   validateCrossSurfaceInput as validateAndIndex,
 } from './cross-surface-context'
+import {
+  appendEvidenceReasons as appendBundleEvidenceReasons,
+  appendEvidenceReasons as appendEvidenceEligibilityReasons,
+  summarizeCandidateEvidence,
+  summarizePairEvidence,
+} from './cross-surface-evidence'
 import type {
   AnalyzeCrossSurfaceInteractionsInput,
   CrossSurfaceAdditionDecision,
   CrossSurfaceAdditionRejectionReason,
   CrossSurfaceCandidate,
   CrossSurfaceCandidateComparison,
-  CrossSurfaceCandidateEvidence,
   CrossSurfaceCandidateOutcome,
   CrossSurfaceCandidateSummary,
   CrossSurfaceCompositionStep,
   CrossSurfaceDistribution,
   CrossSurfaceEligibility,
-  CrossSurfaceEvidenceBreakdown,
   CrossSurfaceIneligibilityReason,
   CrossSurfaceInteractionAwareSelection,
   CrossSurfaceInteractionEffect,
@@ -100,232 +104,135 @@ export function analyzeCrossSurfaceInteractions<TRow extends CrossSurfaceTaskRow
   }
 }
 
-function summarizeCandidate<TRow extends CrossSurfaceTaskRow>(
+function compareCandidates<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
-  candidate: CrossSurfaceCandidate,
-  baseline: CrossSurfaceCandidate,
-): CrossSurfaceCandidateSummary {
-  const rows = rowsFor(context, candidate.candidateId)
-  const baselineRows = rowsFor(context, baseline.candidateId)
-  const outcome = summarizeOutcome(
-    context,
-    rows,
-    baselineRows,
-    candidate.candidateId === baseline.candidateId,
-  )
-  const completeScores = rows
-    .filter((row) => row.completeness === 'complete')
-    .map((row) => row.score as number)
-  const costs = Object.fromEntries(
-    context.input.costMetricOrder.map((metric) => [
-      metric,
-      distribution(rows.map((row) => row.cost[metric] as number)),
-    ]),
-  )
-  return {
-    candidate,
-    outcome,
-    score: completeScores.length === 0 ? null : distribution(completeScores),
-    costs,
-    firing: summarizeCandidateEvidence(rows, candidate.componentIds, 'fired'),
-    effect: summarizeCandidateEvidence(rows, candidate.componentIds, 'effectObserved'),
-    comparisonToBaseline:
-      candidate.candidateId === baseline.candidateId
-        ? null
-        : pairedComparison(context, baseline.candidateId, candidate.candidateId),
-    eligibility: null,
-  }
-}
-
-function summarizeOutcome<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  rows: TRow[],
-  baselineRows: TRow[],
-  isBaseline: boolean,
-): CrossSurfaceCandidateOutcome {
-  const resolvedTaskIds: string[] = []
-  const failedTaskIds: string[] = []
-  const missingTaskIds: string[] = []
-  const invalidTaskIds: string[] = []
-  const benefitTaskIds: string[] = []
+  summaryById: Map<string, CrossSurfaceCandidateSummary>,
+  comparatorCandidateId: string,
+  treatmentCandidateId: string,
+): CrossSurfaceCandidateComparison {
+  const winsTaskIds: string[] = []
   const regressionTaskIds: string[] = []
-  const comparisonMissingTaskIds: string[] = []
-  for (let index = 0; index < context.input.taskOrder.length; index++) {
-    const row = rows[index]!
-    const baseline = baselineRows[index]!
-    if (row.completeness === 'missing') missingTaskIds.push(row.taskId)
-    else if (row.completeness === 'invalid') invalidTaskIds.push(row.taskId)
-    else if (row.pass) resolvedTaskIds.push(row.taskId)
-    else failedTaskIds.push(row.taskId)
-
-    if (isBaseline) continue
-    if (row.completeness !== 'complete' || baseline.completeness !== 'complete') {
-      comparisonMissingTaskIds.push(row.taskId)
-    } else if (row.pass && !baseline.pass) benefitTaskIds.push(row.taskId)
-    else if (!row.pass && baseline.pass) regressionTaskIds.push(row.taskId)
+  const missingTaskIds: string[] = []
+  for (const taskId of context.input.taskOrder) {
+    const comparator = rowFor(context, comparatorCandidateId, taskId)
+    const treatment = rowFor(context, treatmentCandidateId, taskId)
+    if (comparator.completeness !== 'complete' || treatment.completeness !== 'complete') {
+      missingTaskIds.push(taskId)
+    } else if (treatment.pass && !comparator.pass) winsTaskIds.push(taskId)
+    else if (!treatment.pass && comparator.pass) regressionTaskIds.push(taskId)
   }
   return {
-    resolvedTaskIds,
-    failedTaskIds,
-    missingTaskIds,
-    invalidTaskIds,
-    benefitTaskIds,
+    comparatorCandidateId,
+    treatmentCandidateId,
+    winsTaskIds,
     regressionTaskIds,
-    comparisonMissingTaskIds,
-    netBenefit: benefitTaskIds.length - regressionTaskIds.length,
+    missingTaskIds,
+    paired: pairedComparison(context, comparatorCandidateId, treatmentCandidateId),
+    relativeCost: relativeCosts(
+      context,
+      summaryById.get(treatmentCandidateId)!,
+      summaryById.get(comparatorCandidateId)!,
+    ),
   }
 }
 
-function summarizeCandidateEvidence<TRow extends CrossSurfaceTaskRow>(
-  rows: TRow[],
-  componentIds: string[],
-  field: 'fired' | 'effectObserved',
-): CrossSurfaceCandidateEvidence {
-  if (componentIds.length === 0) {
-    return {
-      byComponent: [],
-      allObservedTaskIds: [],
-      someObservedTaskIds: [],
-      noneObservedTaskIds: [],
-      unobservedTaskIds: [],
-    }
+function pairedComparison<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  comparatorCandidateId: string,
+  treatmentCandidateId: string,
+): PairedArmsComparison {
+  const rows: PairedArmRow[] = []
+  for (const taskId of context.input.taskOrder) {
+    rows.push(toPairedArmRow(context, rowFor(context, comparatorCandidateId, taskId)))
+    rows.push(toPairedArmRow(context, rowFor(context, treatmentCandidateId, taskId)))
   }
-  const byComponent: CrossSurfaceEvidenceBreakdown[] = componentIds.map((componentId) => {
-    const observedTaskIds: string[] = []
-    const notObservedTaskIds: string[] = []
-    const unobservedTaskIds: string[] = []
-    for (const row of rows) {
-      const value = evidenceValue(row, componentId, field)
-      if (value === true) observedTaskIds.push(row.taskId)
-      else if (value === false) notObservedTaskIds.push(row.taskId)
-      else unobservedTaskIds.push(row.taskId)
-    }
-    return { componentId, observedTaskIds, notObservedTaskIds, unobservedTaskIds }
+  return comparePairedArms(rows, {
+    baselineArm: comparatorCandidateId,
+    treatmentArm: treatmentCandidateId,
+    metricNames: ['score', ...context.input.costMetricOrder],
+    bootstrap: { ...context.input.bootstrap, statistic: 'mean' },
   })
-  const allObservedTaskIds: string[] = []
-  const someObservedTaskIds: string[] = []
-  const noneObservedTaskIds: string[] = []
-  const unobservedTaskIds: string[] = []
-  for (const row of rows) {
-    const values = componentIds.map((componentId) => evidenceValue(row, componentId, field))
-    if (values.some((value) => value === null)) unobservedTaskIds.push(row.taskId)
-    else if (values.every(Boolean)) allObservedTaskIds.push(row.taskId)
-    else if (values.some(Boolean)) someObservedTaskIds.push(row.taskId)
-    else noneObservedTaskIds.push(row.taskId)
-  }
+}
+
+function toPairedArmRow<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  row: TRow,
+): PairedArmRow {
+  const metrics: Record<string, number> = Object.fromEntries(
+    context.input.costMetricOrder.map((metric) => [metric, row.cost[metric] as number]),
+  )
+  if (row.completeness === 'complete') metrics.score = row.score as number
   return {
-    byComponent,
-    allObservedTaskIds,
-    someObservedTaskIds,
-    noneObservedTaskIds,
-    unobservedTaskIds,
+    pairKey: row.taskId,
+    arm: row.candidateId,
+    ...(row.completeness === 'complete' ? { pass: row.pass as boolean } : {}),
+    metrics,
   }
 }
 
-function candidateEligibility<TRow extends CrossSurfaceTaskRow>(
+function relativeCosts<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
-  summary: CrossSurfaceCandidateSummary,
+  treatment: CrossSurfaceCandidateSummary,
+  comparator: CrossSurfaceCandidateSummary,
+): Record<string, CrossSurfaceRelativeCost> {
+  return Object.fromEntries(
+    context.input.costMetricOrder.map((metric) => {
+      const treatmentMedian = treatment.costs[metric]!.median
+      const comparatorMedian = comparator.costs[metric]!.median
+      return [
+        metric,
+        {
+          treatmentMedian,
+          comparatorMedian,
+          medianDelta: treatmentMedian - comparatorMedian,
+          medianRatio:
+            comparatorMedian === 0
+              ? treatmentMedian === 0
+                ? 1
+                : null
+              : treatmentMedian / comparatorMedian,
+        },
+      ]
+    }),
+  )
+}
+
+function withinCostLimits<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  treatment: CrossSurfaceCandidateSummary,
   baseline: CrossSurfaceCandidateSummary,
-): CrossSurfaceEligibility {
-  const reasons: CrossSurfaceIneligibilityReason[] = []
-  if (summary.outcome.missingTaskIds.length > 0) reasons.push('missing_attempt')
-  if (summary.outcome.invalidTaskIds.length > 0) reasons.push('invalid_attempt')
-  if (summary.outcome.comparisonMissingTaskIds.length > 0) reasons.push('baseline_outcome_missing')
-  if (summary.outcome.benefitTaskIds.length <= summary.outcome.regressionTaskIds.length) {
-    reasons.push('benefit_not_greater_than_regression')
-  }
-  appendEvidenceEligibilityReasons(
-    reasons,
-    summary.firing,
-    context.input.selection.minimumFiringTasks,
-    context.input.selection.requireObservedFiring,
-    'firing_below_minimum',
-    'firing_unobserved',
+): boolean {
+  const relative = relativeCosts(context, treatment, baseline)
+  return Object.entries(context.input.selection.maximumMedianCostRatioToBaseline).every(
+    ([metric, limit]) => {
+      const ratio = relative[metric]!.medianRatio
+      return ratio !== null && ratio <= limit
+    },
   )
-  appendEvidenceEligibilityReasons(
-    reasons,
-    summary.effect,
-    context.input.selection.minimumEffectTasks,
-    context.input.selection.requireObservedEffect,
-    'effect_below_minimum',
-    'effect_unobserved',
-  )
-  if (!withinCostLimits(context, summary, baseline)) reasons.push('cost_limit_exceeded')
-  return { eligible: reasons.length === 0, reasons: unique(reasons) }
 }
 
-function appendEvidenceEligibilityReasons(
-  reasons: CrossSurfaceIneligibilityReason[],
-  evidence: CrossSurfaceCandidateEvidence,
-  minimum: number,
-  requireObserved: boolean,
-  belowReason: CrossSurfaceIneligibilityReason,
-  unobservedReason: CrossSurfaceIneligibilityReason,
-): void {
-  if (evidence.byComponent.some((component) => component.observedTaskIds.length < minimum)) {
-    reasons.push(belowReason)
-  }
-  if (
-    requireObserved &&
-    evidence.byComponent.some((component) => component.unobservedTaskIds.length > 0)
-  ) {
-    reasons.push(unobservedReason)
+function distribution(values: number[]): CrossSurfaceDistribution {
+  const sorted = [...values].sort((left, right) => left - right)
+  const total = sorted.reduce((sum, value) => sum + value, 0)
+  const middle = Math.floor(sorted.length / 2)
+  const median =
+    sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
+  return {
+    n: sorted.length,
+    min: sorted[0]!,
+    median,
+    mean: total / sorted.length,
+    max: sorted[sorted.length - 1]!,
+    total,
   }
 }
 
-function rankedEligibleSingles<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  summaryById: Map<string, CrossSurfaceCandidateSummary>,
-): CrossSurfaceCandidateSummary[] {
-  return [...context.singleByComponent.values()]
-    .map((candidate) => summaryById.get(candidate.candidateId)!)
-    .filter((summary) => summary.eligibility?.eligible)
-    .sort((left, right) => compareSingleSummaries(context, left, right))
+function meanOrNull(values: number[]): number | null {
+  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
-/**
- * A neutral constituent may seed a composition when it has complete, bounded,
- * observed evidence and causes no baseline regression. Individual benefit is
- * deliberately left to the best-single arm rather than used as a pair gate.
- */
-function rankedInteractionReadySingles<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  summaryById: Map<string, CrossSurfaceCandidateSummary>,
-): CrossSurfaceCandidateSummary[] {
-  return [...context.singleByComponent.values()]
-    .map((candidate) => summaryById.get(candidate.candidateId)!)
-    .filter(
-      (summary) =>
-        summary.outcome.regressionTaskIds.length === 0 &&
-        summary.eligibility?.reasons.every(
-          (reason) => reason === 'benefit_not_greater_than_regression',
-        ),
-    )
-    .sort((left, right) => compareSingleSummaries(context, left, right))
-}
-
-function compareSingleSummaries<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  left: CrossSurfaceCandidateSummary,
-  right: CrossSurfaceCandidateSummary,
-): number {
-  const byNetBenefit = right.outcome.netBenefit - left.outcome.netBenefit
-  if (byNetBenefit !== 0) return byNetBenefit
-  const byBenefit = right.outcome.benefitTaskIds.length - left.outcome.benefitTaskIds.length
-  if (byBenefit !== 0) return byBenefit
-  const byRegression =
-    left.outcome.regressionTaskIds.length - right.outcome.regressionTaskIds.length
-  if (byRegression !== 0) return byRegression
-  for (const metric of context.input.costMetricOrder) {
-    const byCost = left.costs[metric]!.median - right.costs[metric]!.median
-    if (byCost !== 0) return byCost
-  }
-  const byBytes = left.candidate.artifactBytes - right.candidate.artifactBytes
-  if (byBytes !== 0) return byBytes
-  return (
-    context.candidateIndex.get(left.candidate.candidateId)! -
-    context.candidateIndex.get(right.candidate.candidateId)!
-  )
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)]
 }
 
 function buildPairwise<TRow extends CrossSurfaceTaskRow>(
@@ -813,25 +720,6 @@ function emptyAdditionDecision(
   }
 }
 
-function appendBundleEvidenceReasons(
-  reasons: CrossSurfaceAdditionRejectionReason[],
-  evidence: CrossSurfaceCandidateEvidence,
-  minimum: number,
-  requireObserved: boolean,
-  belowReason: CrossSurfaceAdditionRejectionReason,
-  unobservedReason: CrossSurfaceAdditionRejectionReason,
-): void {
-  if (evidence.byComponent.some((component) => component.observedTaskIds.length < minimum)) {
-    reasons.push(belowReason)
-  }
-  if (
-    requireObserved &&
-    evidence.byComponent.some((component) => component.unobservedTaskIds.length > 0)
-  ) {
-    reasons.push(unobservedReason)
-  }
-}
-
 function compareAdditionDecisions<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   summaryById: Map<string, CrossSurfaceCandidateSummary>,
@@ -855,170 +743,165 @@ function compareAdditionDecisions<TRow extends CrossSurfaceTaskRow>(
   )
 }
 
-function compareCandidates<TRow extends CrossSurfaceTaskRow>(
+function summarizeCandidate<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  candidate: CrossSurfaceCandidate,
+  baseline: CrossSurfaceCandidate,
+): CrossSurfaceCandidateSummary {
+  const rows = rowsFor(context, candidate.candidateId)
+  const baselineRows = rowsFor(context, baseline.candidateId)
+  const outcome = summarizeOutcome(
+    context,
+    rows,
+    baselineRows,
+    candidate.candidateId === baseline.candidateId,
+  )
+  const completeScores = rows
+    .filter((row) => row.completeness === 'complete')
+    .map((row) => row.score as number)
+  const costs = Object.fromEntries(
+    context.input.costMetricOrder.map((metric) => [
+      metric,
+      distribution(rows.map((row) => row.cost[metric] as number)),
+    ]),
+  )
+  return {
+    candidate,
+    outcome,
+    score: completeScores.length === 0 ? null : distribution(completeScores),
+    costs,
+    firing: summarizeCandidateEvidence(rows, candidate.componentIds, 'fired'),
+    effect: summarizeCandidateEvidence(rows, candidate.componentIds, 'effectObserved'),
+    comparisonToBaseline:
+      candidate.candidateId === baseline.candidateId
+        ? null
+        : pairedComparison(context, baseline.candidateId, candidate.candidateId),
+    eligibility: null,
+  }
+}
+
+function summarizeOutcome<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  rows: TRow[],
+  baselineRows: TRow[],
+  isBaseline: boolean,
+): CrossSurfaceCandidateOutcome {
+  const resolvedTaskIds: string[] = []
+  const failedTaskIds: string[] = []
+  const missingTaskIds: string[] = []
+  const invalidTaskIds: string[] = []
+  const benefitTaskIds: string[] = []
+  const regressionTaskIds: string[] = []
+  const comparisonMissingTaskIds: string[] = []
+  for (let index = 0; index < context.input.taskOrder.length; index++) {
+    const row = rows[index]!
+    const baseline = baselineRows[index]!
+    if (row.completeness === 'missing') missingTaskIds.push(row.taskId)
+    else if (row.completeness === 'invalid') invalidTaskIds.push(row.taskId)
+    else if (row.pass) resolvedTaskIds.push(row.taskId)
+    else failedTaskIds.push(row.taskId)
+
+    if (isBaseline) continue
+    if (row.completeness !== 'complete' || baseline.completeness !== 'complete') {
+      comparisonMissingTaskIds.push(row.taskId)
+    } else if (row.pass && !baseline.pass) benefitTaskIds.push(row.taskId)
+    else if (!row.pass && baseline.pass) regressionTaskIds.push(row.taskId)
+  }
+  return {
+    resolvedTaskIds,
+    failedTaskIds,
+    missingTaskIds,
+    invalidTaskIds,
+    benefitTaskIds,
+    regressionTaskIds,
+    comparisonMissingTaskIds,
+    netBenefit: benefitTaskIds.length - regressionTaskIds.length,
+  }
+}
+
+function candidateEligibility<TRow extends CrossSurfaceTaskRow>(
+  context: AnalysisContext<TRow>,
+  summary: CrossSurfaceCandidateSummary,
+  baseline: CrossSurfaceCandidateSummary,
+): CrossSurfaceEligibility {
+  const reasons: CrossSurfaceIneligibilityReason[] = []
+  if (summary.outcome.missingTaskIds.length > 0) reasons.push('missing_attempt')
+  if (summary.outcome.invalidTaskIds.length > 0) reasons.push('invalid_attempt')
+  if (summary.outcome.comparisonMissingTaskIds.length > 0) reasons.push('baseline_outcome_missing')
+  if (summary.outcome.benefitTaskIds.length <= summary.outcome.regressionTaskIds.length) {
+    reasons.push('benefit_not_greater_than_regression')
+  }
+  appendEvidenceEligibilityReasons(
+    reasons,
+    summary.firing,
+    context.input.selection.minimumFiringTasks,
+    context.input.selection.requireObservedFiring,
+    'firing_below_minimum',
+    'firing_unobserved',
+  )
+  appendEvidenceEligibilityReasons(
+    reasons,
+    summary.effect,
+    context.input.selection.minimumEffectTasks,
+    context.input.selection.requireObservedEffect,
+    'effect_below_minimum',
+    'effect_unobserved',
+  )
+  if (!withinCostLimits(context, summary, baseline)) reasons.push('cost_limit_exceeded')
+  return { eligible: reasons.length === 0, reasons: unique(reasons) }
+}
+
+function rankedEligibleSingles<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
   summaryById: Map<string, CrossSurfaceCandidateSummary>,
-  comparatorCandidateId: string,
-  treatmentCandidateId: string,
-): CrossSurfaceCandidateComparison {
-  const winsTaskIds: string[] = []
-  const regressionTaskIds: string[] = []
-  const missingTaskIds: string[] = []
-  for (const taskId of context.input.taskOrder) {
-    const comparator = rowFor(context, comparatorCandidateId, taskId)
-    const treatment = rowFor(context, treatmentCandidateId, taskId)
-    if (comparator.completeness !== 'complete' || treatment.completeness !== 'complete') {
-      missingTaskIds.push(taskId)
-    } else if (treatment.pass && !comparator.pass) winsTaskIds.push(taskId)
-    else if (!treatment.pass && comparator.pass) regressionTaskIds.push(taskId)
-  }
-  return {
-    comparatorCandidateId,
-    treatmentCandidateId,
-    winsTaskIds,
-    regressionTaskIds,
-    missingTaskIds,
-    paired: pairedComparison(context, comparatorCandidateId, treatmentCandidateId),
-    relativeCost: relativeCosts(
-      context,
-      summaryById.get(treatmentCandidateId)!,
-      summaryById.get(comparatorCandidateId)!,
-    ),
-  }
+): CrossSurfaceCandidateSummary[] {
+  return [...context.singleByComponent.values()]
+    .map((candidate) => summaryById.get(candidate.candidateId)!)
+    .filter((summary) => summary.eligibility?.eligible)
+    .sort((left, right) => compareSingleSummaries(context, left, right))
 }
 
-function pairedComparison<TRow extends CrossSurfaceTaskRow>(
+/**
+ * A neutral constituent may seed a composition when it has complete, bounded,
+ * observed evidence and causes no baseline regression. Individual benefit is
+ * deliberately left to the best-single arm rather than used as a pair gate.
+ */
+function rankedInteractionReadySingles<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
-  comparatorCandidateId: string,
-  treatmentCandidateId: string,
-): PairedArmsComparison {
-  const rows: PairedArmRow[] = []
-  for (const taskId of context.input.taskOrder) {
-    rows.push(toPairedArmRow(context, rowFor(context, comparatorCandidateId, taskId)))
-    rows.push(toPairedArmRow(context, rowFor(context, treatmentCandidateId, taskId)))
-  }
-  return comparePairedArms(rows, {
-    baselineArm: comparatorCandidateId,
-    treatmentArm: treatmentCandidateId,
-    metricNames: ['score', ...context.input.costMetricOrder],
-    bootstrap: { ...context.input.bootstrap, statistic: 'mean' },
-  })
+  summaryById: Map<string, CrossSurfaceCandidateSummary>,
+): CrossSurfaceCandidateSummary[] {
+  return [...context.singleByComponent.values()]
+    .map((candidate) => summaryById.get(candidate.candidateId)!)
+    .filter(
+      (summary) =>
+        summary.outcome.regressionTaskIds.length === 0 &&
+        summary.eligibility?.reasons.every(
+          (reason) => reason === 'benefit_not_greater_than_regression',
+        ),
+    )
+    .sort((left, right) => compareSingleSummaries(context, left, right))
 }
 
-function toPairedArmRow<TRow extends CrossSurfaceTaskRow>(
+function compareSingleSummaries<TRow extends CrossSurfaceTaskRow>(
   context: AnalysisContext<TRow>,
-  row: TRow,
-): PairedArmRow {
-  const metrics: Record<string, number> = Object.fromEntries(
-    context.input.costMetricOrder.map((metric) => [metric, row.cost[metric] as number]),
+  left: CrossSurfaceCandidateSummary,
+  right: CrossSurfaceCandidateSummary,
+): number {
+  const byNetBenefit = right.outcome.netBenefit - left.outcome.netBenefit
+  if (byNetBenefit !== 0) return byNetBenefit
+  const byBenefit = right.outcome.benefitTaskIds.length - left.outcome.benefitTaskIds.length
+  if (byBenefit !== 0) return byBenefit
+  const byRegression =
+    left.outcome.regressionTaskIds.length - right.outcome.regressionTaskIds.length
+  if (byRegression !== 0) return byRegression
+  for (const metric of context.input.costMetricOrder) {
+    const byCost = left.costs[metric]!.median - right.costs[metric]!.median
+    if (byCost !== 0) return byCost
+  }
+  const byBytes = left.candidate.artifactBytes - right.candidate.artifactBytes
+  if (byBytes !== 0) return byBytes
+  return (
+    context.candidateIndex.get(left.candidate.candidateId)! -
+    context.candidateIndex.get(right.candidate.candidateId)!
   )
-  if (row.completeness === 'complete') metrics.score = row.score as number
-  return {
-    pairKey: row.taskId,
-    arm: row.candidateId,
-    ...(row.completeness === 'complete' ? { pass: row.pass as boolean } : {}),
-    metrics,
-  }
-}
-
-function summarizePairEvidence<TRow extends CrossSurfaceTaskRow>(
-  rows: TRow[],
-  leftComponentId: string,
-  rightComponentId: string,
-  field: 'fired' | 'effectObserved',
-): CrossSurfacePairEvidence {
-  const bothTaskIds: string[] = []
-  const leftOnlyTaskIds: string[] = []
-  const rightOnlyTaskIds: string[] = []
-  const neitherTaskIds: string[] = []
-  const unobservedTaskIds: string[] = []
-  for (const row of rows) {
-    const left = evidenceValue(row, leftComponentId, field)
-    const right = evidenceValue(row, rightComponentId, field)
-    if (left === null || right === null) unobservedTaskIds.push(row.taskId)
-    else if (left && right) bothTaskIds.push(row.taskId)
-    else if (left) leftOnlyTaskIds.push(row.taskId)
-    else if (right) rightOnlyTaskIds.push(row.taskId)
-    else neitherTaskIds.push(row.taskId)
-  }
-  return {
-    bothTaskIds,
-    leftOnlyTaskIds,
-    rightOnlyTaskIds,
-    neitherTaskIds,
-    unobservedTaskIds,
-  }
-}
-
-function relativeCosts<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  treatment: CrossSurfaceCandidateSummary,
-  comparator: CrossSurfaceCandidateSummary,
-): Record<string, CrossSurfaceRelativeCost> {
-  return Object.fromEntries(
-    context.input.costMetricOrder.map((metric) => {
-      const treatmentMedian = treatment.costs[metric]!.median
-      const comparatorMedian = comparator.costs[metric]!.median
-      return [
-        metric,
-        {
-          treatmentMedian,
-          comparatorMedian,
-          medianDelta: treatmentMedian - comparatorMedian,
-          medianRatio:
-            comparatorMedian === 0
-              ? treatmentMedian === 0
-                ? 1
-                : null
-              : treatmentMedian / comparatorMedian,
-        },
-      ]
-    }),
-  )
-}
-
-function withinCostLimits<TRow extends CrossSurfaceTaskRow>(
-  context: AnalysisContext<TRow>,
-  treatment: CrossSurfaceCandidateSummary,
-  baseline: CrossSurfaceCandidateSummary,
-): boolean {
-  const relative = relativeCosts(context, treatment, baseline)
-  return Object.entries(context.input.selection.maximumMedianCostRatioToBaseline).every(
-    ([metric, limit]) => {
-      const ratio = relative[metric]!.medianRatio
-      return ratio !== null && ratio <= limit
-    },
-  )
-}
-
-function distribution(values: number[]): CrossSurfaceDistribution {
-  const sorted = [...values].sort((left, right) => left - right)
-  const total = sorted.reduce((sum, value) => sum + value, 0)
-  const middle = Math.floor(sorted.length / 2)
-  const median =
-    sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
-  return {
-    n: sorted.length,
-    min: sorted[0]!,
-    median,
-    mean: total / sorted.length,
-    max: sorted[sorted.length - 1]!,
-    total,
-  }
-}
-
-function evidenceValue(
-  row: CrossSurfaceTaskRow,
-  componentId: string,
-  field: 'fired' | 'effectObserved',
-): boolean | null {
-  return row.componentEvidence.find((evidence) => evidence.componentId === componentId)![field]
-}
-
-function meanOrNull(values: number[]): number | null {
-  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function unique<T>(values: T[]): T[] {
-  return [...new Set(values)]
 }
