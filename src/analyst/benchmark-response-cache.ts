@@ -6,9 +6,9 @@ import { ValidationError } from '../errors'
 import {
   canonicalString,
   hashCanonical,
-  withLedgerFileLock,
   writeLedgerFileAtomically,
 } from '../ledger-core'
+import { withLedgerFileLock } from '../ledger-core/journal-file'
 import type { AnalystBenchmarkError } from './benchmark'
 
 const SHA256 = /^[a-f0-9]{64}$/

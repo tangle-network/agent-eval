@@ -1,7 +1,7 @@
 /** Campaign binding of the generic journal file layer to search-ledger errors. */
 
+import { appendLedgerLine } from '../ledger-core/journal-file'
 import {
-  appendLedgerLine,
   type FileLockResult,
   type LedgerFileContext,
   tryWithLedgerFileLock,

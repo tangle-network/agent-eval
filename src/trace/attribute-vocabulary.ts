@@ -30,8 +30,8 @@ export const LLM_CACHE_WRITE_TOKENS = 'llm.token_count.prompt_cache_write'
 export const LLM_CONTEXT_TOKENS = 'tangle.llm.context_tokens'
 export const LLM_COST_USD = 'llm.cost_usd'
 export const TOOL_NAME = 'tool.name'
-
-
+export const TOOL_ARGS_CAPTURED = 'tool.args_captured'
+export const TOOL_LATENCY_MS = 'tool.latency_ms'
 export const INPUT_VALUE = 'input.value'
 export const OUTPUT_VALUE = 'output.value'
 
@@ -51,7 +51,8 @@ export const LLM_CACHE_WRITE_TOKEN_ATTR_KEYS: readonly string[] = CACHE_WRITE_TO
  */
 export const LLM_COST_ATTR_KEYS: readonly string[] = Object.freeze([...COST_ATTR_KEYS, 'cost'])
 
-
+/** Explicit run-total cost keys safe to preserve on an untyped span. */
+export const RUN_COST_ATTR_KEYS = ['tangle.cost.usd', 'cost.usd'] as const
 
 export const TOOL_NAME_ATTR_KEYS: readonly string[] = CONTRACT_TOOL_NAME_ATTR_KEYS
 
