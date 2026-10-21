@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.217.1] — 2026-10-21
+
+- fix(release): follow the rl function rename in the package fixtures
+
 ## [0.217.0] — 2026-10-21
 
 **Breaking (0.x minor).**
