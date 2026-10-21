@@ -237,7 +237,7 @@ export function digestCanonical(value: unknown): string {
 
 /** RFC 8785 canonical JSON of the value's JSON document form — the byte form
  *  the receipt digests and compares against. */
-export function canonicalJson(value: unknown): string {
+export function canonicalJsonDocument(value: unknown): string {
   return canonicalString(jsonDocument(value))
 }
 

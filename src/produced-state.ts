@@ -14,7 +14,7 @@
  * requires; the runtime emits them, this module consumes them.
  */
 
-import type { Artifact } from './artifact-validator'
+import type { ValidatedArtifact } from './artifact-validator'
 import type { ProducedProposal, ProducedState } from './completion-verifier'
 
 /** A tool the agent invoked. */
@@ -82,7 +82,7 @@ function artifactKind(mimeType: string | undefined): string {
  * recover dropped events, or establish freshness beyond the supplied stream.
  */
 export function extractProducedState(events: readonly RuntimeEventLike[]): ProducedState {
-  const artifacts = new Map<string, Artifact>()
+  const artifacts = new Map<string, ValidatedArtifact>()
   const proposals = new Map<string, ProducedProposal>()
   const toolCalls: string[] = []
   const seenTools = new Set<string>()

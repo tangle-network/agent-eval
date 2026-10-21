@@ -17,7 +17,7 @@ import {
   type AnalystBenchmarkRunManifest,
   assertAnalystBenchmarkObservation,
   assertExactKeys,
-  canonicalJson,
+  canonicalJsonDocument,
   digestCanonical,
   isSha256,
   observationKey,
@@ -366,7 +366,7 @@ export async function readAndValidateResumeFiles(
   const storedLocalIdentitySha256 = digestCanonical(value.local)
   if (
     storedLocalIdentitySha256 !== currentLocalIdentitySha256 ||
-    canonicalJson(value.local) !== canonicalJson(localReceiptInput.local)
+    canonicalJsonDocument(value.local) !== canonicalJsonDocument(localReceiptInput.local)
   ) {
     throw new Error('benchmark local paths or model-owner module do not match the requested resume')
   }
@@ -439,7 +439,7 @@ async function readAndValidateManifestContent(
   if (
     currentIdentitySha256 !== value.identitySha256 ||
     currentLocalIdentitySha256 !== value.localIdentitySha256 ||
-    canonicalJson(currentIdentity) !== canonicalJson(value.identity)
+    canonicalJsonDocument(currentIdentity) !== canonicalJsonDocument(value.identity)
   ) {
     throw new Error(
       `benchmark resume configuration or inputs do not match ${ANALYST_BENCHMARK_MANIFEST_FILE}`,
