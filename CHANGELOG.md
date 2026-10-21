@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.217.1] — 2026-10-21
 
+0.217.0 was tagged but never published: its package fixture check failed. 0.217.1 is the first published release of the 0.217 changes; the breaking changes listed under 0.217.0 below apply to it.
+
 - fix(release): follow the rl function rename in the package fixtures
 
 ## [0.217.0] — 2026-10-21
