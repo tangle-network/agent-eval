@@ -14,7 +14,7 @@ import type {
   OptimizationModuleSource,
   OptimizationPackageSource,
   OptimizationPythonRuntime,
-} from './presets/compare-optimization-methods'
+} from './optimization-method'
 
 export interface ExternalOptimizerRuntimeIdentity<TPackage extends string> {
   python: OptimizationPythonRuntime

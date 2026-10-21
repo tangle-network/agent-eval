@@ -41,9 +41,9 @@ import {
 import {
   combineComparisonCosts,
   costFromLedgerSummary,
-  type OptimizationMethod,
   optimizationTokenUsageFromSummary,
-} from './presets/compare-optimization-methods'
+} from './optimization-cost'
+import type { OptimizationMethod } from './optimization-method'
 import { acquireSingleRunLock } from './single-run-lock'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type { CampaignCostMeter, Scenario } from './types'

@@ -6,7 +6,7 @@ import {
   isCandidateText,
   safePathComponent,
 } from './external-optimizer-process'
-import type { OptimizationMethodInput } from './presets/compare-optimization-methods'
+import type { OptimizationMethodInput } from './optimization-method'
 import { runCampaign } from './run-campaign'
 import { campaignBreakdown } from './score-utils'
 import { surfaceContentHash } from './surface-identity'

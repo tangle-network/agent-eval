@@ -3,13 +3,13 @@ import { openAutoPr } from '../campaign/auto-pr'
 import { campaignSplitDigest } from '../campaign/coverage'
 import { evaluationUnitMap } from '../campaign/final-evidence'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
-import { executeOptimizationMethod } from '../campaign/optimization-method'
 import {
   type ComparisonCost,
   combineComparisonCosts,
   costFromLedgerSummary,
-  type OptimizationMethodResult,
-} from '../campaign/presets/compare-optimization-methods'
+} from '../campaign/optimization-cost'
+import type { OptimizationMethodResult } from '../campaign/optimization-method'
+import { executeOptimizationMethod } from '../campaign/optimization-method'
 import { runFinalComparison } from '../campaign/presets/run-final-comparison'
 import { campaignMeasurementDigest, canonicalDigest } from '../campaign/provenance'
 import type { CampaignComparisonUnits } from '../campaign/score-utils'

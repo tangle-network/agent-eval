@@ -1,10 +1,7 @@
 import { join } from 'node:path'
 import { combineComparisonCosts } from './optimization-cost'
+import type { OptimizationMethod, OptimizationMethodComposition } from './optimization-method'
 import { executeOptimizationMethod } from './optimization-method'
-import type {
-  OptimizationMethod,
-  OptimizationMethodComposition,
-} from './presets/compare-optimization-methods'
 import { fsCampaignStorage } from './storage'
 import { surfaceContentHash } from './surface-identity'
 import type { MutableSurface, Scenario } from './types'

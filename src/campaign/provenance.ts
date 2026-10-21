@@ -33,10 +33,8 @@ import type { TraceSpanEvent } from '../hosted/types'
 import { summarizeAgentReceiptIntegrity } from '../integrity/backend-integrity'
 import { canonicalString, compareCodeUnits, hashCanonical } from '../ledger-core/canonical'
 import { assertCampaignSplitIdentity } from './coverage'
-import type {
-  ComparisonCost,
-  OptimizationMethodProvenance,
-} from './presets/compare-optimization-methods'
+import type { ComparisonCost } from './optimization-cost'
+import type { OptimizationMethodProvenance } from './optimization-method'
 import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
 import {
   type CampaignComparisonUnits,

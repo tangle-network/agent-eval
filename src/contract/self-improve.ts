@@ -24,7 +24,7 @@ import type {
   OptimizationMethod,
   OptimizationMethodProvenance,
   OptimizationMethodResult,
-} from '../campaign/presets/compare-optimization-methods'
+} from '../campaign/optimization-method'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,

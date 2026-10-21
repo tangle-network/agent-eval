@@ -1,27 +1,169 @@
-import { assertGepaCandidatePopulationSummary } from './gepa-candidate-population'
+/** Optimization method inputs, provenance, results, and comparison contracts. */
+
+import type { CostLedgerHandle } from '../cost-ledger'
+import type { ExternalOptimizerWireCounts } from './external-optimizer-contracts'
+import type {
+  ExternalOptimizerExecutionSummary,
+  ExternalOptimizerObservationSummary,
+} from './external-optimizer-observations'
+import {
+  assertGepaCandidatePopulationSummary,
+  type GepaCandidatePopulationSummary,
+} from './gepa-candidate-population'
 import { captureJudge } from './judge-snapshot'
 import {
   assertComparisonCost,
+  type ComparisonCost,
   combineComparisonCosts,
   createMethodCostScope,
+  type OptimizationTokenUsage,
 } from './optimization-cost'
-import type {
-  OptimizationMethod,
-  OptimizationMethodInput,
-  OptimizationMethodProvenance,
-  OptimizationMethodResult,
-} from './presets/compare-optimization-methods'
+import type { RunCampaignOptions } from './run-campaign'
 import {
   assertCompleteSearchHistory,
   assertSearchHistoryAdmissionOptions,
   type SearchHistoryAdmissionOptions,
   type SearchHistoryCoverageRow,
+  type SearchHistoryReceipt,
   searchHistoryCoverageRow,
   verifySearchHistoryArtifact,
 } from './search-history-receipt'
 import type { CampaignStorage } from './storage'
 import { surfaceContentHash } from './surface-identity'
-import type { Scenario } from './types'
+import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from './types'
+
+/** Shared campaign settings applied to every optimization method. */
+export type OptimizationMethodRunOptions<TScenario extends Scenario, TArtifact> = Omit<
+  RunCampaignOptions<TScenario, TArtifact>,
+  'costCeiling' | 'costLedger' | 'dispatch' | 'judges' | 'runDir' | 'scenarios' | 'seed'
+>
+
+export interface OptimizationPackageSource {
+  kind: 'package'
+  /** Whether package identity was inspected or supplied by caller code. */
+  evidence: 'observed' | 'declared'
+  package: string
+  version: string
+  sourceUrl?: string
+  revision?: string
+  /** SHA-256 of all installed module files observed before the run. */
+  sourceSha256?: string
+}
+
+export interface OptimizationModuleSource {
+  module: string
+  sourceSha256: string
+}
+
+export interface OptimizationPythonRuntime {
+  implementation: string
+  version: string
+}
+
+export interface OptimizationMethodProvenance {
+  /** External optimizer package. */
+  source: OptimizationPackageSource
+  /** Python bridge package that invoked the optimizer. */
+  bridge?: OptimizationPackageSource
+  /** Custom engine modules imported by the optimizer. */
+  modules?: OptimizationModuleSource[]
+  /** Python implementation used by the bridge process. */
+  python?: OptimizationPythonRuntime
+  /** Exact model identifier configured for optimizer-owned model calls. */
+  optimizerModel?: string
+  /** Stable public identity of the execution-owner callback. */
+  optimizerCallRef?: string
+  runId: string
+  /** Content identity shared by compatible resumptions. */
+  compatibleRunId?: string
+  resumed: boolean
+  /** Whether the run seed reached every external engine configuration. */
+  seedApplied?: boolean
+  /** Evaluations the local callback metered — the trusted count. */
+  evaluationCount: number
+  /**
+   * Evaluation total the external optimizer reported from its own counters.
+   * A difference from `evaluationCount` means upstream skipped, cached, or
+   * double-counted work; inspect before trusting upstream-derived budgets.
+   */
+  upstreamReportedEvaluations?: number
+  artifactDir: string
+  tokenUsage?: OptimizationTokenUsage
+  /** Candidates submitted to the callback, per-case scores, and refusals. */
+  observations?: ExternalOptimizerObservationSummary
+  /** Exact accepted GEPA candidates, parent indices, and selection scores. */
+  gepaCandidatePopulation?: GepaCandidatePopulationSummary
+  /** Opaque Runtime execution evidence for every invoked optimizer-model call. */
+  modelExecutions?: ExternalOptimizerExecutionSummary
+  /** Anthropic-endpoint proxy traffic from agent CLI engines, when enabled. */
+  anthropicEndpoint?: ExternalOptimizerWireCounts
+}
+
+/** Shared inputs for one optimization method. Final test data is absent. */
+export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> {
+  /** Surface every method starts from. */
+  readonly baselineSurface: MutableSurface
+  /** Evidence used to author or fit candidates. */
+  readonly trainScenarios: readonly TScenario[]
+  /** Data used for candidate acceptance, early stopping, and model selection. */
+  readonly selectionScenarios: readonly TScenario[]
+  /** Runs one scenario with a candidate surface. */
+  readonly dispatchWithSurface: (
+    surface: MutableSurface,
+    scenario: TScenario,
+    ctx: DispatchContext,
+  ) => Promise<TArtifact>
+  /** Scores artifacts produced by `dispatchWithSurface`. */
+  readonly judges: readonly JudgeConfig<TArtifact, TScenario>[]
+  /** Method-specific artifacts are written below this directory. */
+  readonly runDir: string
+  readonly seed: number
+  /** Shared defaults for every method. A method may override them explicitly. */
+  readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
+  /** Durable spend account shared by every method and final scoring. */
+  readonly costLedger: CostLedgerHandle
+  /** Invokes each method at the shared execution boundary, including composed children. */
+  invokeMethod?(
+    method: OptimizationMethod<TScenario, TArtifact>,
+    input: OptimizationMethodInput<TScenario, TArtifact>,
+  ): Promise<OptimizationMethodResult>
+  /** Maps this method's local surface into the complete outer candidate. */
+  readonly surfaceToRoot?: (surface: MutableSurface) => MutableSurface
+}
+
+/** Exact child results; costs and usage remain attributable to their owning methods. */
+export interface OptimizationMethodComposition {
+  kind: 'scoped' | 'sequential'
+  baselineSurfaceHash: string
+  stages: Array<{
+    name: string
+    baselineSurfaceHash: string
+    result: OptimizationMethodResult
+  }>
+}
+
+export interface OptimizationMethodResult {
+  /** Surface selected without using the final test partition. */
+  winnerSurface: MutableSurface
+  composition?: OptimizationMethodComposition
+  /** Optimization spend. Excludes final test scoring. */
+  cost: ComparisonCost
+  /** Optimization duration. Excludes final test scoring. */
+  durationMs?: number
+  /** Exact external implementation and run identity, when the method uses one. */
+  provenance?: OptimizationMethodProvenance
+  /** Bounded proof envelope over the canonical SearchLedger for this optimization. */
+  searchHistory?: SearchHistoryReceipt
+}
+
+/** A complete optimization method, including candidate generation and selection. */
+export interface OptimizationMethod<TScenario extends Scenario = Scenario, TArtifact = unknown> {
+  /** Unique, trimmed display name. Its normalized form must also be unique. */
+  name: string
+  optimize: (
+    input: OptimizationMethodInput<TScenario, TArtifact>,
+  ) => Promise<OptimizationMethodResult>
+}
 
 /** Both complete-method workflows use the same detached inputs, accounting, and evidence admission. */
 export async function executeOptimizationMethod<S extends Scenario, A>(

@@ -54,7 +54,7 @@ import { sha256Digest } from '../src/analyst/benchmark-verification-artifacts'
 import type {
   OptimizationMethodInput,
   OptimizationMethodRunOptions,
-} from '../src/campaign/presets/compare-optimization-methods'
+} from '../src/campaign/optimization-method'
 import { createRunCostLedger, fsCampaignStorage } from '../src/campaign/storage'
 import {
   FAMILY,

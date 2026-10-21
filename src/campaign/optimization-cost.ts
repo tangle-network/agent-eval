@@ -1,4 +1,9 @@
-import type { CostLedgerHandle, CostLedgerSummary, CostProvenance } from '../cost-ledger'
+import type {
+  CostLedgerHandle,
+  CostLedgerSummary,
+  CostProvenance,
+  CostReceipt,
+} from '../cost-ledger'
 
 /** Cost reported by a method or by final test scoring. */
 export interface ComparisonCost {
@@ -140,5 +145,48 @@ export function assertComparisonCost(cost: ComparisonCost, label: string): void 
   }
   if (cost.accountingComplete && provenance.kind === 'uncaptured') {
     throw new Error(`compareOptimizationMethods: ${label} cannot mark uncaptured cost as complete`)
+  }
+}
+
+export interface OptimizationTokenUsage {
+  /** All input tokens, including cache reads and cache creation. */
+  inputTokens: number
+  /** Input tokens served from a provider cache. */
+  cachedInputTokens?: number
+  /** Input tokens used to create or write a provider cache entry. */
+  cacheWriteInputTokens?: number
+  outputTokens: number
+  /** Reasoning tokens included in `outputTokens`. */
+  reasoningTokens?: number
+  totalTokens: number
+  calls: number
+}
+
+/** Preserve every optimizer token class while keeping total input and output explicit. */
+export function optimizationTokenUsageFromSummary(
+  summary: CostLedgerSummary,
+  receipts: readonly CostReceipt[],
+): OptimizationTokenUsage | undefined {
+  if (!summary.usageComplete) return undefined
+  if (receipts.length !== summary.totalCalls) {
+    throw new Error('optimization token usage receipt count does not match the cost summary')
+  }
+  const cachedInputTokens = summary.cachedTokens
+  const cacheWriteInputTokens = summary.cacheWriteTokens ?? 0
+  const inputTokens = summary.inputTokens + cachedInputTokens + cacheWriteInputTokens
+  const cacheReadComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cachedTokens !== undefined)
+  const cacheWriteComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.cacheWriteTokens !== undefined)
+  const reasoningComplete =
+    receipts.length === 0 || receipts.every((receipt) => receipt.reasoningTokens !== undefined)
+  return {
+    inputTokens,
+    ...(cacheReadComplete ? { cachedInputTokens } : {}),
+    ...(cacheWriteComplete ? { cacheWriteInputTokens } : {}),
+    outputTokens: summary.outputTokens,
+    ...(reasoningComplete ? { reasoningTokens: summary.reasoningTokens ?? 0 } : {}),
+    totalTokens: inputTokens + summary.outputTokens,
+    calls: summary.totalCalls,
   }
 }

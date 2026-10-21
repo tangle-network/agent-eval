@@ -25,9 +25,7 @@ import type {
   GoldMassWeight,
 } from './contract'
 import type { CostLedgerHandle } from '../../src/cost-ledger'
-import type {
-  OptimizationMethodResult,
-} from '../../src/campaign/presets/compare-optimization-methods'
+import type { OptimizationMethodResult } from '../../src/campaign/optimization-method'
 import type { createCampaignEvaluation } from './evaluation'
 import type { PreparedCampaignScenarios } from './scenarios'
 
