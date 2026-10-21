@@ -21,7 +21,7 @@ Calling `registered.decide()` does not automatically run admission, power, budge
 
 | Object | Entry point | Purpose |
 | --- | --- | --- |
-| Registered rules | [Rule types](../src/experiment/ast.ts) and [`ExperimentSpec`](../src/experiment/define.ts) | Describe admission, estimation, intervals, and decisions as data. |
+| Registered rules | [Rule types](../src/experiment/ast/) and [`ExperimentSpec`](../src/experiment/define.ts) | Describe admission, estimation, intervals, and decisions as data. |
 | Define / seal / execute | `defineExperiment`, `sealExperiment`, `amendExperiment`, `openSealedExperiment` | Validate, identify, and execute the registered rules. |
 | Cluster-aware power | `clusteredPower`, `assertDesignAdequate` | Assess a declared effect under a simulated outcome model and cluster-count policy. |
 | Denominator chain | `buildFunnel`, `executeAdmissionRule`, `composeFunnels`, `renderFunnelTable` | Reconcile retained and excluded evidence. |

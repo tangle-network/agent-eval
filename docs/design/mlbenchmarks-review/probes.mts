@@ -8,7 +8,7 @@ import { sequentialPairedGate } from '../../../src/campaign/gates/sequential.ts'
 import type { JudgeScore } from '../../../src/campaign/types.ts'
 import { HoldoutAuditor } from '../../../src/contamination-guard.ts'
 import { selfImprove } from '../../../src/contract/self-improve.ts'
-import { evaluatePowerFloorGate } from '../../../src/experiment/ast.ts'
+import { evaluatePowerFloorGate } from '../../../src/experiment/ast/validity.ts'
 import { compareCodeUnits, hashCanonical } from '../../../src/ledger-core/canonical.ts'
 import { correlationStudy } from '../../../src/meta-eval/correlation-study.ts'
 import { InMemoryOutcomeStore } from '../../../src/meta-eval/outcome-store.ts'
@@ -411,6 +411,7 @@ function powerFloor() {
   const gate = {
     kind: 'power-floor' as const,
     target: 0.8,
+    minimumEffect: 0.01,
     effectGrid: [0.01, 1],
     sim: { trials: 1, resamples: 1, seed: 1 },
   }
@@ -419,14 +420,13 @@ function powerFloor() {
     inputs: {
       gate,
       curve,
-      practicalEffectForInterpretation: 0.01,
+      practicalEffectForInterpretation: gate.minimumEffect,
       curveSource: 'Supplied deterministic fixture; no power simulation is run.',
     },
     results: evaluatePowerFloorGate('floor', gate, curve),
     limitations: [
-      'The inspected gate documents a maximum-over-grid structural feasibility check; this output matches that contract.',
-      'Passing this gate does not establish target power at the practical effect of 0.01.',
-      'The fixture powers are inputs, not measured or simulated power estimates.',
+      'The gate compares power at minimumEffect with target; power 0.1 at effect 0.01 fails despite maximum power 1.',
+      'The fixture powers are supplied diagnostic inputs, not measured or simulated estimates.',
     ],
   }
 }
