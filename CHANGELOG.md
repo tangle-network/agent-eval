@@ -4,6 +4,39 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.217.0] — 2026-10-21
+
+- refactor!: follow the rl function rename in the example, contract test and census
+- test: follow the renamed types and functions
+- chore: remove the one-off prune tooling
+- chore: regenerate the API census and re-pin the analyst digest
+- chore(hooks): chain the global ratchets entry point, not loc-ratchet alone (#1038)
+- test: delete the tests that only covered the removed names
+- refactor!: one name per concept across published types and functions
+- refactor!: keep the names other modules import, delete the pruned tests
+- refactor!: stop publishing names no tangle-network repo imports, and delete what that orphaned
+- wip: prune tooling v2
+- wip: prune tooling
+- chore: regenerate the API census and re-pin the analyst digest
+- refactor: import ContinuousAgreement from its owner, not a forwarding file
+- test: type the search matcher inline
+- refactor: delete the run-record store class, eval tools, cached judge and tool-span gate nothing runs
+- refactor: delete four scripts nothing runs or cites
+- chore: drop the waiver for the deleted TokenCounter
+- refactor: delete exports and declarations nothing imports
+- chore(analyst): re-pin the implementation digest after the internal renames
+- refactor: rename the internal side of three more name collisions
+- docs(search-policy): name AIDE's search_policy without a file path
+- chore(analyst): re-pin the current benchmark implementation digest
+- docs: regenerate the public API census
+- fix: drop unused isRecord imports; correct stale line references in two docs
+- refactor: one owner per duplicated name; rename what differs
+- adopt-stack merges after the required approval lands, instead of refusing in the first second (#1035)
+- docs: one root AGENTS.md map; CLAUDE.md imports it
+- docs: point stale doc references at current code; archive superseded records
+- adopt-stack runs the caller's own sync step after pinning (#1033)
+- One reusable workflow adopts each new Tangle stack release, peer ranges included (#1032)
+
 ## [0.216.1] — 2026-10-21
 
 - fix(experiment): declare the diagnostic target outcome direction
