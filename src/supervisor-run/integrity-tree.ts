@@ -1,6 +1,7 @@
 import { validateRolloutLine } from '../rollout/schema'
 import { evidence, issue, MAX_EXAMPLES } from './integrity-issues'
 import type { SupervisorRunIntegrityEvidence, SupervisorRunIntegrityIssue } from './integrity-types'
+import { nonEmptyString } from './source-facts'
 import type { SupervisorRunTree } from './types'
 
 interface NodeRecord {
@@ -21,10 +22,6 @@ interface NodeRecord {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function parentValue(raw: Record<string, unknown>): string | null | undefined {

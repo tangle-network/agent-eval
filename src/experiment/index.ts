@@ -104,52 +104,48 @@ export {
 } from '../statistics'
 // ── The registered-rule AST and its interpreters ─────────────────────
 export {
-  type AdmissionPartition,
-  type AdmissionRule,
-  type AdmissionStage,
   type BudgetRule,
-  type ComputedInterval,
+  evaluateHaltRule,
+  type HaltOutcome,
+  type HaltRule,
+  type MatchedBudgetRule,
+  type NLadderProjection,
+  projectNLadderBudget,
+  runUniformPassBudget,
+  type UniformPassDecision,
+  type UniformPassSchedule,
+} from './ast/budget'
+export {
   type Condition,
-  classifyReissue,
-  computeEstimand,
-  computeInterval,
   type DecisionBranch,
   type DecisionOutcome,
   type DecisionRule,
   type DerivedQuantities,
-  type Estimand,
-  type EstimandResult,
-  type EvidenceRecord,
   evaluateCondition,
-  evaluateHaltRule,
+  executeDecisionRule,
+} from './ast/decision'
+export { computeEstimand, type Estimand, type EstimandResult, type SetExpr } from './ast/estimand'
+export type { EvidenceRecord, JsonValue } from './ast/evidence'
+export { type ComputedInterval, computeInterval, type IntervalSpec } from './ast/interval'
+export { evaluatePredicate, type Predicate, readField } from './ast/predicate'
+export { classifyReissue, type ReissuePolicy, type ReissueVerdict } from './ast/reissue'
+export {
+  type AdmissionPartition,
+  type AdmissionRule,
+  type AdmissionStage,
+  runSelectionRule,
+  type SelectionRule,
+} from './ast/selection'
+export {
   evaluateIdentityGate,
   evaluateOracleDeterminismGate,
   evaluatePopulationReproducibilityGate,
   evaluatePowerFloorGate,
-  evaluatePredicate,
   evaluateProvenanceGate,
-  executeDecisionRule,
   type GateResult,
-  type HaltOutcome,
-  type HaltRule,
-  type IntervalSpec,
-  type JsonValue,
-  type MatchedBudgetRule,
-  type NLadderProjection,
   type Obligation,
-  type Predicate,
-  projectNLadderBudget,
-  type ReissuePolicy,
-  type ReissueVerdict,
-  readField,
-  runSelectionRule,
-  runUniformPassBudget,
-  type SelectionRule,
-  type SetExpr,
-  type UniformPassDecision,
-  type UniformPassSchedule,
   type ValidityGate,
-} from './ast'
+} from './ast/validity'
 // ── Matched-budget refusal ───────────────────────────────────────────
 export {
   type ArmRealizedBudget,

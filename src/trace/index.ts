@@ -7,6 +7,12 @@ export * from './otlp-attributes'
 export * from './query'
 export * from './raw-provider-sink'
 export * from './redact'
+export {
+  classifyKey,
+  detectCredential,
+  detectPersonalData,
+  normalizeKey,
+} from './redaction/detectors'
 export * from './schema'
 export * from './store'
 export * from './store-to-otlp'

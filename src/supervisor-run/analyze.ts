@@ -5,7 +5,9 @@
  * (`reader.ts` is one).
  */
 
+import { roundDecimal as round } from '../math/round-decimal'
 import { summarizeNumberSeries } from '../statistics'
+import { parsePatch } from './patch-stats'
 import {
   asRecord,
   parseJson,
@@ -25,33 +27,17 @@ import {
   type OutcomeMetrics,
   type PatchStats,
   type PerWorkerRow,
-  type RollupCellRow,
   type SpendMeasurements,
   type SteerBreakdown,
-  SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
   type SupervisorRunReport,
-  type SupervisorRunRollup,
   type SupervisorRunSources,
   type Unavailable,
   unavailable,
 } from './types'
 
-export {
-  asRecord,
-  type CloseRow,
-  parseJson,
-  parseJsonl,
-  parseSupervisorTree,
-  type SpawnRow,
-  type SteerAcknowledgementFact,
-  type SteerRequestFact,
-  type SupervisorJournalDialect,
-  type SupervisorTreeFacts,
-  type WorkerLogFacts,
-} from './source-facts'
-
 const NO_CACHE_COUNTERS = 'the journal carries no cache-token counters for this role'
+
 const NO_CACHE_BREAKDOWN =
   'Runtime recorded cacheBreakdownKnown:false — the provider reported a total without splitting cache reads from writes'
 
@@ -961,133 +947,4 @@ function registrationMentions(driverLog: string): number {
 function pickString(rec: Record<string, unknown> | null, key: string): string | null {
   const v = rec?.[key]
   return typeof v === 'string' ? v : null
-}
-
-export function round(v: number, digits: number): number {
-  const f = 10 ** digits
-  return Math.round(v * f) / f
-}
-
-/** Unified-diff stats. Counts `+++ b/<path>` targets, body +/- lines, and test-file touches. */
-export function parsePatch(text: string): PatchStats {
-  const files = new Set<string>()
-  const testFiles = new Set<string>()
-  let added = 0
-  let removed = 0
-  for (const line of text.split('\n')) {
-    if (line.startsWith('+++ ')) {
-      const p = line.slice(4).trim().replace(/^b\//, '')
-      if (p !== '/dev/null') {
-        files.add(p)
-        if (isTestPath(p)) testFiles.add(p)
-      }
-      continue
-    }
-    if (line.startsWith('--- ') || line.startsWith('diff --git') || line.startsWith('index ')) {
-      continue
-    }
-    if (line.startsWith('+')) added += 1
-    else if (line.startsWith('-')) removed += 1
-  }
-  return {
-    files: files.size,
-    linesAdded: added,
-    linesRemoved: removed,
-    testFilesTouched: [...testFiles].sort(),
-  }
-}
-
-function isTestPath(p: string): boolean {
-  const base = p.split('/').pop() ?? p
-  return (
-    /(^|\/)(tests?|__tests__|testing|spec)(\/|$)/.test(p) ||
-    /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) ||
-    /^test_.*\.py$/.test(base) ||
-    /_test\.py$/.test(base)
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Rollup across runs.
-// ---------------------------------------------------------------------------
-
-/**
- * Aggregate many supervisor-run reports. A metric no run could measure stays
- * `unavailable` rather than becoming a 0-valued mean, and cells whose steer
- * count was unavailable are counted separately from cells that measured zero.
- */
-export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): SupervisorRunRollup {
-  const known = <T>(vals: readonly Measured<T>[]): T[] =>
-    vals.filter((v): v is T => !isUnavailable(v))
-  const steerVals = known(reports.map((r) => r.orchestration.steers))
-  const waveVals = known(reports.map((r) => r.orchestration.waves))
-  const concVals = known(reports.map((r) => r.orchestration.maxConcurrency))
-  const utilVals = known(reports.map((r) => r.orchestration.workerUtilization))
-  const idleVals = known(reports.map((r) => r.orchestration.idlePct))
-  const spawnVals = known(reports.map((r) => r.orchestration.workersSpawned))
-  const acceptVals = known(reports.map((r) => r.decision.accepted))
-  const usdVals = known(reports.map((r) => r.economics.totalUsd))
-  const journalSpendVals = known(reports.map((r) => r.economics.spend.journalDerived.usd))
-  const closeSpendVals = known(reports.map((r) => r.economics.spend.closeRecord.usd))
-  const resolvedVals = known(reports.map((r) => r.outcome.judgeResolved))
-  const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0)
-  const mean = (xs: readonly number[]): Measured<number> =>
-    xs.length === 0 ? unavailable('no cell reported this metric') : round(sum(xs) / xs.length, 3)
-
-  const perCell: RollupCellRow[] = reports.map((r) => ({
-    instanceId: r.instanceId,
-    arm: r.arm,
-    steers: r.orchestration.steers,
-    waves: r.orchestration.waves,
-    utilization: r.orchestration.workerUtilization,
-    idlePct: r.orchestration.idlePct,
-    resolved: r.outcome.judgeResolved,
-    usd: r.economics.totalUsd,
-    ...(r.economics.resourceRecords === undefined
-      ? {}
-      : { resourceRecords: r.economics.resourceRecords }),
-  }))
-
-  return {
-    schema: SUPERVISOR_RUN_ROLLUP_SCHEMA,
-    cells: reports.length,
-    steersTotal:
-      steerVals.length === 0 ? unavailable('no cell reported a steer count') : sum(steerVals),
-    cellsWithSteers:
-      steerVals.length === 0
-        ? unavailable('no cell reported a steer count')
-        : steerVals.filter((n) => n > 0).length,
-    cellsWithUnavailableSteers: reports.filter((r) => isUnavailable(r.orchestration.steers)).length,
-    wavesMean: mean(waveVals),
-    maxConcurrencyMax:
-      concVals.length === 0 ? unavailable('no cell reported concurrency') : Math.max(...concVals),
-    utilizationMean: mean(utilVals),
-    idlePctMean: mean(idleVals),
-    workersSpawnedTotal:
-      spawnVals.length === 0 ? unavailable('no cell reported spawns') : sum(spawnVals),
-    acceptedTotal:
-      acceptVals.length === 0 ? unavailable('no cell reported acceptance') : sum(acceptVals),
-    usdTotal: usdVals.length === 0 ? unavailable('no cell reported spend') : round(sum(usdVals), 6),
-    spendUsd: {
-      journalDerived: {
-        value:
-          journalSpendVals.length === 0
-            ? unavailable('no cell measured journal-derived spend')
-            : round(sum(journalSpendVals), 6),
-        runs: journalSpendVals.length,
-      },
-      closeRecord: {
-        value:
-          closeSpendVals.length === 0
-            ? unavailable('no cell carried a close record')
-            : round(sum(closeSpendVals), 6),
-        runs: closeSpendVals.length,
-      },
-    },
-    resolvedCount:
-      resolvedVals.length === 0
-        ? unavailable('no cell reported a judge verdict')
-        : resolvedVals.filter((v) => v === true).length,
-    perCell,
-  }
 }

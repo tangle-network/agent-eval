@@ -10,7 +10,7 @@
  * analyzer and the rollout minter share it so a run never has two statuses.
  */
 
-import { asRecord } from './source-facts'
+import { asRecord, nonEmptyString as str } from './source-facts'
 import {
   type Measured,
   type SupervisorStatusSource,
@@ -52,10 +52,6 @@ export interface TerminalRecord {
    * other recorded terminal state; null when no terminal record exists.
    */
   readonly completed: boolean | null
-}
-
-function str(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function errorRecord(
