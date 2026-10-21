@@ -1,7 +1,7 @@
 import type { CostChannel, CostLedgerFilter, CostLedgerHandle } from '../cost-ledger'
 import type { AnalystUsageReceipt } from './types'
 
-export const DEFAULT_USAGE_SETTLEMENT_TIMEOUT_MS = 5_000
+const DEFAULT_USAGE_SETTLEMENT_TIMEOUT_MS = 5_000
 
 /** Convert one ledger channel's complete call set into one analyst receipt. */
 export function usageReceiptFromCostLedger(
@@ -30,7 +30,7 @@ export function usageReceiptFromCostLedger(
   }
 }
 
-export interface SettledUsageReceipt {
+interface SettledUsageReceipt {
   settled: boolean
   pendingCalls: number
   receipt: AnalystUsageReceipt

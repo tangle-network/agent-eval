@@ -58,7 +58,7 @@ export interface DatasetManifest {
   splitCounts: Record<DatasetSplit, number>
 }
 
-export interface SliceOptions {
+interface SliceOptions {
   split?: DatasetSplit
   difficulty?: DatasetDifficulty
   /** Number of scenarios (random sample, seeded). Omit to take all that match. */

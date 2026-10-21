@@ -21,7 +21,7 @@ import {
 export const EVIDENCE_RECEIPT_VERSION = '1.0.0' as const
 
 /** Closed promotion vocabulary. A typo or unknown future kind is never independent by default. */
-export const EVIDENCE_AUTHORITY_KINDS = [
+const EVIDENCE_AUTHORITY_KINDS = [
   'candidate-self-report',
   'independent-evaluator',
   'independent-replication',
@@ -31,7 +31,7 @@ export const EVIDENCE_AUTHORITY_KINDS = [
 
 export type EvidenceAuthorityKind = (typeof EVIDENCE_AUTHORITY_KINDS)[number]
 
-export const INDEPENDENT_EVIDENCE_AUTHORITY_KINDS = [
+const INDEPENDENT_EVIDENCE_AUTHORITY_KINDS = [
   'independent-evaluator',
   'independent-replication',
   'human-review',

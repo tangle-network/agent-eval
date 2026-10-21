@@ -29,7 +29,7 @@ export interface TestGradedScenario {
   tags?: Record<string, string>
 }
 
-export interface TestGradedRunOptions {
+interface TestGradedRunOptions {
   variantId?: string
   driver?: SandboxDriver
   /** Metadata recorded on the Run (codeSha, promptSha, modelFingerprint, seed). */

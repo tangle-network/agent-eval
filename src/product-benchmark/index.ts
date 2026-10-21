@@ -124,7 +124,7 @@ export interface ProductBenchmarkRecord {
   }
 }
 
-export interface ProductBenchmarkRunInput {
+interface ProductBenchmarkRunInput {
   readonly manifestPath: string
   readonly recordsPath: string
   readonly artifactRoot?: string
@@ -154,7 +154,7 @@ export interface ProductBenchmarkValidationReport {
   readonly missingArtifacts: readonly string[]
 }
 
-export interface ProductBenchmarkArtifactPaths {
+interface ProductBenchmarkArtifactPaths {
   readonly manifestPath: string
   readonly recordsPath: string
 }
@@ -603,10 +603,8 @@ export type {
   ProductBenchmarkSingleRunExportOptions,
 } from './export'
 export {
-  buildProductBenchmarkManifest,
   exportProductBenchmark,
   exportProductBenchmarkRuns,
   productBenchmarkMutableSurfaces,
   productBenchmarkRepoIdentity,
-  runRecordToProductBenchmarkRecord,
 } from './export'

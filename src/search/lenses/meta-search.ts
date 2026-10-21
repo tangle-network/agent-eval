@@ -714,7 +714,7 @@ function rankValue(value: number | null): number {
 }
 
 /** The signal's name, as a policy or a view reads it. */
-export const META_SEARCH_SIGNAL = 'metaSearch.bestPolicyConfiguration'
+const META_SEARCH_SIGNAL = 'metaSearch.bestPolicyConfiguration'
 
 const DEFAULT_GLYPH_NODES = 64
 

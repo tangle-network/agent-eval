@@ -94,12 +94,7 @@ export class VerificationError extends AgentEvalError {
   }
 }
 
-/** Replay cache cannot satisfy a request: miss with no fallback, sink lacks list(), unsupported URL. */
-export class ReplayError extends AgentEvalError {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super('replay', message, options)
-  }
-}
+
 
 /** Preserve an arbitrary thrown value as a public diagnostic message. */
 export function errorMessage(error: unknown): string {

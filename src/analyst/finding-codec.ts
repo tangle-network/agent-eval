@@ -26,10 +26,10 @@ import { coerceJson } from './parse-tolerant'
 export const FINDING_WIRE_CONTRACT_VERSION = 1
 
 /** Why one row was refused. Stable across languages: Python reports the same codes. */
-export type FindingRejectionCode = 'not-an-object' | 'schema' | 'invalid-subject' | 'row-limit'
+type FindingRejectionCode = 'not-an-object' | 'schema' | 'invalid-subject' | 'row-limit'
 
 /** A refused row, named precisely enough to repair or report. */
-export interface RejectedFindingRow {
+interface RejectedFindingRow {
   /** Position in the submitted array. */
   readonly index: number
   /** Dotted path to the offending field, `''` for the row itself. */
@@ -38,7 +38,7 @@ export interface RejectedFindingRow {
   readonly message: string
 }
 
-export interface DecodedFindingArray {
+interface DecodedFindingArray {
   readonly accepted: RawAnalystFinding[]
   readonly rejected: RejectedFindingRow[]
   /**

@@ -27,7 +27,7 @@ export interface RunScoreWeights {
   wallSeconds: number
 }
 
-export const DEFAULT_RUN_SCORE_WEIGHTS: RunScoreWeights = {
+const DEFAULT_RUN_SCORE_WEIGHTS: RunScoreWeights = {
   success: 4,
   goalProgress: 2,
   repoGroundedness: 1.5,

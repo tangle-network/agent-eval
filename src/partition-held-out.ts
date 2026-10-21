@@ -27,7 +27,7 @@ import { ValidationError } from './errors'
  *  silently invalidates the comparisons made against them. The other FNV-1a
  *  loops in this package mask differently and are not interchangeable with
  *  this one. */
-export function fnv1a32(input: string): number {
+function fnv1a32(input: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < input.length; i++) {
     h ^= input.charCodeAt(i) & 0xff

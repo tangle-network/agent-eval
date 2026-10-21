@@ -44,7 +44,7 @@ import {
 import type { DiagnosisSpan } from './spans'
 
 /** Span ids listed beside a result; the count carries the rest. */
-export const MAX_FIRST_FAILURE_IDS = 8
+const MAX_FIRST_FAILURE_IDS = 8
 
 const OUTCOME_ATTR = 'agent.outcome'
 

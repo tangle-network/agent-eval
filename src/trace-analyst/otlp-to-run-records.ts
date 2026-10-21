@@ -201,7 +201,7 @@ export function otlpToTraceRunRecords(
 }
 
 /** Parsed-row counterpart to {@link otlpToTraceRunRecords}. */
-export function otlpRowsToTraceRunRecords(
+function otlpRowsToTraceRunRecords(
   rows: Iterable<object>,
   opts: OtlpToRunRecordsOptions,
 ): OtlpTraceRunRecord[] {

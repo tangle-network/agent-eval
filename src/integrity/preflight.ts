@@ -44,7 +44,7 @@ import {
  */
 const REASONING_BUDGET_EXHAUSTED = /reasoning[\s_-]?budget[\s_-]?exhausted/i
 
-export interface ModelPreflight {
+interface ModelPreflight {
   /** The model id as supplied by the caller. */
   model: string
   /** Membership in the `{baseUrl}/models` served set. */
@@ -90,7 +90,7 @@ export type ModelEndpointCheck =
  */
 export type ModelEndpointRequest = (check: ModelEndpointCheck) => Promise<Response>
 
-export interface PreflightModelsOptions {
+interface PreflightModelsOptions {
   /** Caller-owned endpoint request. Agent Eval issues no provider HTTP itself. */
   request: ModelEndpointRequest
   /** Model ids to check. */
@@ -105,7 +105,7 @@ export interface PreflightModelsOptions {
   probeMaxTokens?: number
 }
 
-export interface PreflightOutcome {
+interface PreflightOutcome {
   succeeded: boolean
   value: ModelPreflight[] | null
   error: string | null
@@ -265,7 +265,7 @@ function describeFailure(r: ModelPreflight): string {
   return `${r.model}: probe answered by ${s?.served} (${s?.verdict})`
 }
 
-export interface AssertModelsServedOptions extends PreflightModelsOptions {
+interface AssertModelsServedOptions extends PreflightModelsOptions {
   /**
    * Accept a probe answered by a different model of the same provider family.
    * Default false. Only meaningful with `probe: true`.

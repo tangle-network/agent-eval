@@ -103,7 +103,7 @@ export function spanArguments(span: ContractSpan): ArgumentEvidence {
  *  or plain names. */
 export const TOOL_DEFINITIONS_ATTR = 'gen_ai.tool.definitions'
 
-export type OfferedTools =
+type OfferedTools =
   | { recorded: false }
   | { recorded: true; names: string[] }
   | { recorded: true; unreadable: string }

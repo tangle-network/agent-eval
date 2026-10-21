@@ -244,7 +244,7 @@ function admitHistory(
   return history
 }
 
-export function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
+function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
   assertResult(name, result, new Set())
 }
 

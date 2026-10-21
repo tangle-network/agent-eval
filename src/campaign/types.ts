@@ -399,7 +399,7 @@ export interface SurfaceProposer<TFindings = ProposalFinding> {
   decide?(args: { history: ReadonlyArray<GenerationRecord> }): { stop: boolean; reason?: string }
 }
 
-export interface OptimizerConfigBase {
+interface OptimizerConfigBase {
   populationSize: number
   maxGenerations: number
   surfaceExtractor: (profile: unknown) => MutableSurface

@@ -46,7 +46,7 @@ export interface AssertSingleBackendOptions {
   judgeLabel?: string
 }
 
-export type SingleBackendField = 'kind' | 'baseUrl' | 'model' | 'provider' | 'apiKeyPresence'
+type SingleBackendField = 'kind' | 'baseUrl' | 'model' | 'provider' | 'apiKeyPresence'
 
 export interface SingleBackendDivergence {
   field: SingleBackendField

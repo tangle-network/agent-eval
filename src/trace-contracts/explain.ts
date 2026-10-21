@@ -47,7 +47,7 @@ export function describeCheck(check: ArgumentCheck): string {
 }
 
 /** One line per rule, stating what it requires. */
-export function describeRule(rule: ContractRule): string {
+function describeRule(rule: ContractRule): string {
   switch (rule.kind) {
     case 'always':
       return `every span matches ${describePredicate(rule.p)}`

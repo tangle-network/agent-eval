@@ -57,19 +57,13 @@
  * `checkTraceContracts`.
  */
 
-export { type ArgumentRuleOptions, type OrderOptions, traceContract } from './builder'
+export { traceContract } from './builder'
 export { checkTraceContracts, evaluateTraceContract } from './evaluate'
 export { explainTraceContract } from './explain'
 export {
-  type AlternativeSpec,
   type ContractLintFinding,
   compileTraceContractSpec,
-  type LlmSpec,
   lintTraceContractSpec,
-  type PathSpec,
-  type RetriesSpec,
-  type ToolArgumentSpec,
-  type ToolsSpec,
   type TraceContractSpec,
 } from './spec'
 export * from './types'

@@ -97,7 +97,7 @@ const textOrNull = (value: unknown): string | null =>
   typeof value === 'string' && value.length > 0 ? value : null
 
 /** Read one Harbor task directory. Throws when `task.toml` or `instruction.md` is missing or malformed. */
-export async function readHarborTask(taskDir: string): Promise<HarborTaskPayload> {
+async function readHarborTask(taskDir: string): Promise<HarborTaskPayload> {
   const dir = resolve(taskDir)
   const config = parseToml(await readFile(join(dir, 'task.toml'), 'utf8')) as Record<
     string,

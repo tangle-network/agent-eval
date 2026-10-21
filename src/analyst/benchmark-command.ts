@@ -111,10 +111,10 @@ export interface AnalystBenchmarkCommandDependencies {
  * `prime` is the RLM coding agent reached through an OpenAI-compatible
  * cli-bridge (CodeTraceBench only; see docs/prime-analyst.md).
  */
-export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct' | 'prime'
+type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct' | 'prime'
 
 /** Bridge execution settings, present exactly when the analyst is `prime`. */
-export interface PrimeAnalystBridgeConfig {
+interface PrimeAnalystBridgeConfig {
   bridgeUrl: string
   repair: boolean
 }

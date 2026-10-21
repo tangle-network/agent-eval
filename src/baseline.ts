@@ -18,7 +18,7 @@ import { studentTQuantile } from './math/student-t'
 import { cohensD } from './statistics/effect-sizes'
 import { studentTTwoSidedPValue } from './statistics/inference'
 
-export interface MetricSamples {
+interface MetricSamples {
   /** Stable metric key (e.g. "overallScore", "firstTokenMs"). */
   metric: string
   /** Whether higher values are better. */

@@ -33,7 +33,7 @@ export interface EvalToolDef {
   handler: (args: unknown, ctx?: { signal?: AbortSignal }) => Promise<unknown>
 }
 
-export interface MakeEvalToolsConfig {
+interface MakeEvalToolsConfig {
   /** Judges available to `run_judges`. Omit to exclude the tool. */
   judges?: Array<JudgeConfig<unknown>>
   /** Host-side correctness checker for `verify_completion` (the third

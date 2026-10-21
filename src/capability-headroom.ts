@@ -35,7 +35,7 @@ export interface HeadroomInput {
  *  - 'gap': the baseline fails it — the comparison can see the capability here.
  *  - 'saturated': the baseline already passes it — no headroom.
  *  - 'unknown': every baseline outcome is unknown — fail-closed, not a gap. */
-export type HeadroomClass = 'gap' | 'saturated' | 'unknown'
+type HeadroomClass = 'gap' | 'saturated' | 'unknown'
 
 export interface TaskHeadroom {
   taskId: string

@@ -245,8 +245,6 @@ export function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 }
 
-export function isNonNegativeSafeInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= 0
-}
+
 
 export { isNonnegativeFiniteNumber as isNonNegativeFinite } from '../math/nonnegative-number'

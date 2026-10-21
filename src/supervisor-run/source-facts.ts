@@ -44,7 +44,7 @@ interface Tokens {
   breakdownKnown: boolean
 }
 
-export interface SpendLike {
+interface SpendLike {
   readonly resources?: Measured<readonly NamedResourceReceipt[]>
   tokens: Tokens
   /**

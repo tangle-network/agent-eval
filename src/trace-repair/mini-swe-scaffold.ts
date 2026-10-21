@@ -48,7 +48,7 @@ your_command_here
 Failure to follow these rules will cause your response to be rejected.
 `
 
-export interface InstanceMessageInput {
+interface InstanceMessageInput {
   /** The task statement, substituted verbatim. */
   task: string
   /**

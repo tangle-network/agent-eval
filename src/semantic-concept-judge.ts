@@ -112,7 +112,7 @@ export interface SemanticConceptJudgeResult {
  */
 export type ConceptWeightStrategy = 'mean' | 'complexity' | 'explicit'
 
-export const DEFAULT_COMPLEXITY_WEIGHTS: Record<ConceptComplexity, number> = {
+const DEFAULT_COMPLEXITY_WEIGHTS: Record<ConceptComplexity, number> = {
   render: 1.0,
   integrate: 2.0,
   compute: 2.5,

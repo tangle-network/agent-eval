@@ -95,7 +95,7 @@ interface LabelEntry {
   readonly incorrect_stages?: readonly { readonly incorrect_step_ids?: readonly number[] }[]
 }
 
-export function readLabelEntries(labelsPath: string): LabelEntry[] {
+function readLabelEntries(labelsPath: string): LabelEntry[] {
   const parsed: unknown = JSON.parse(readFileSync(labelsPath, 'utf8'))
   if (!Array.isArray(parsed)) throw new Error(`${labelsPath} is not a JSON array of label entries`)
   for (const entry of parsed) {

@@ -25,7 +25,7 @@ import {
   maximumChargeForLlmRequest,
 } from './llm-client'
 
-export interface PaidChatInput {
+interface PaidChatInput {
   /** Caller-owned transport. One `chat()` call. */
   chat: ChatClient
   /** The exact canonical request, including its JSON-mode or schema fields. */
@@ -40,13 +40,13 @@ export interface PaidChatInput {
   pricing?: CustomTokenPricing
 }
 
-export type PaidJsonChatInput = PaidChatInput
+type PaidJsonChatInput = PaidChatInput
 
-export type PaidChatResult =
+type PaidChatResult =
   | { succeeded: true; response: ChatResponse; receipt: CostReceipt }
   | { succeeded: false; error: Error; receipt?: CostReceipt }
 
-export type PaidJsonChatResult<T> =
+type PaidJsonChatResult<T> =
   | { succeeded: true; value: T; response: ChatResponse; receipt: CostReceipt }
   | { succeeded: false; error: Error; receipt?: CostReceipt }
 

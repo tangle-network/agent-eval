@@ -7,7 +7,7 @@
  */
 
 /** One OTLP `KeyValue`: the value is tagged with the protocol's type slot. */
-export interface OtlpAttribute {
+interface OtlpAttribute {
   key: string
   value: { stringValue?: string; intValue?: string; doubleValue?: number; boolValue?: boolean }
 }

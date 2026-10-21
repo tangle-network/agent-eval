@@ -55,7 +55,7 @@ export class Mutex {
   }
 }
 
-export interface MapConcurrentRangeOptions<R> {
+interface MapConcurrentRangeOptions<R> {
   count: number
   maxConcurrency: number
   label: string

@@ -233,7 +233,7 @@ export function buildReceipt(
   )
 }
 
-export function parseReceipt(value: unknown, path: string): CostReceipt {
+function parseReceipt(value: unknown, path: string): CostReceipt {
   try {
     return CostReceiptSchema.parse(value) as CostReceipt
   } catch (cause) {

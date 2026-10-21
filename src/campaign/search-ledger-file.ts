@@ -5,7 +5,6 @@ import {
   type FileLockResult,
   type LedgerFileContext,
   tryWithLedgerFileLock,
-  withLedgerFileLock,
 } from '../ledger-core'
 import { SearchLedgerIntegrityError } from './search-ledger-errors'
 
@@ -18,9 +17,7 @@ export function appendSearchLedgerLine(path: string, line: string): void {
   appendLedgerLine(path, line, SEARCH_LEDGER_FILE_CONTEXT)
 }
 
-export function withSearchLedgerFileLock<T>(ledgerPath: string, run: () => T): T {
-  return withLedgerFileLock(ledgerPath, SEARCH_LEDGER_FILE_CONTEXT, run)
-}
+
 
 export type { FileLockResult }
 

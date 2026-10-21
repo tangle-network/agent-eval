@@ -8,7 +8,7 @@ interface AttributeCarrier {
   attributes: Record<string, unknown>
 }
 
-export type TaskFailureLabels =
+type TaskFailureLabels =
   | { failureClass?: undefined; failureMode?: undefined }
   | { failureClass: 'success'; failureMode?: undefined }
   | { failureClass: Exclude<FailureClass, 'success'>; failureMode?: string }

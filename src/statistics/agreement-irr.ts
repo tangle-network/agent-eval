@@ -311,7 +311,7 @@ export function corpusInterRaterAgreementFromJudgeScores(
 }
 
 /** Agreement between two raters who each assigned one nominal label per item. */
-export interface NominalAgreement {
+interface NominalAgreement {
   /** Items both raters labeled. */
   n: number
   /** Share of items with identical labels. */

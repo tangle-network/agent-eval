@@ -242,7 +242,7 @@ export async function runProposeReviewAsControlLoop<State, Summary = unknown>(
   })
 }
 
-export function controlFailureClassFromVerification(
+function controlFailureClassFromVerification(
   verification: Verification,
 ): FailureClass | undefined {
   if (verification.pass) return undefined

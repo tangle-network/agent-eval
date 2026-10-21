@@ -36,7 +36,7 @@ import type {
   TraceSpan,
 } from './types'
 
-export interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
+interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   slot: { scenario: TScenario; rep: number; cellId: string; cellSeed: number }
   opts: RunCampaignOptions<TScenario, TArtifact>
   manifestHash: string

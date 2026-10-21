@@ -44,7 +44,7 @@ export function runScore(record: RunRecord): number | undefined {
   return trainingScore(record)
 }
 
-export interface RunRecordFilter {
+interface RunRecordFilter {
   experimentId?: string
   candidateId?: string
   scenarioId?: string
@@ -77,7 +77,7 @@ function matches(record: RunRecord, f: RunRecordFilter): boolean {
   return true
 }
 
-export interface CandidateComparison {
+interface CandidateComparison {
   a: string
   b: string
   /** Scenario ids present for BOTH candidates — the paired comparison set. */
@@ -115,7 +115,7 @@ export interface RunRecordBackend {
   load(): Promise<RunRecord[]>
 }
 
-export function inMemoryRunRecordBackend(initial: RunRecord[] = []): RunRecordBackend {
+function inMemoryRunRecordBackend(initial: RunRecord[] = []): RunRecordBackend {
   const rows = initial.map((r) => validateRunRecord(r))
   return {
     async append(record) {

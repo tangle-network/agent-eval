@@ -5,7 +5,7 @@ import type { CodeTraceFailureBlock, CodeTraceStepAssignment } from './benchmark
  * decision record persists: block coordinates plus how many consensus steps
  * the block's accepted steps cover.
  */
-export interface CodeTraceConsensusContributor {
+interface CodeTraceConsensusContributor {
   sample: number
   firstStep: number
   lastStep: number
@@ -14,7 +14,7 @@ export interface CodeTraceConsensusContributor {
   overlapSteps: number
 }
 
-export interface CodeTraceConsensusBlockDecision {
+interface CodeTraceConsensusBlockDecision {
   firstStep: number
   lastStep: number
   consequenceStep: number
@@ -26,7 +26,7 @@ export interface CodeTraceConsensusBlockDecision {
 }
 
 /** The full voting record: every step any sample accepted, and what won. */
-export interface CodeTraceConsensusDecision {
+interface CodeTraceConsensusDecision {
   samples: number
   threshold: number
   stepVotes: Array<{ step: number; votes: number; kept: boolean }>

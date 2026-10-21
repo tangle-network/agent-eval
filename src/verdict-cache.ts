@@ -131,12 +131,12 @@ export function fileVerdictCache(path: string): VerdictCacheStore {
 
 // ── cached judge wrapper ───────────────────────────────────────────────────
 
-export interface VerdictCacheStats {
+interface VerdictCacheStats {
   hits: number
   misses: number
 }
 
-export interface CachedJudgeOptions {
+interface CachedJudgeOptions {
   /** REQUIRED — part of the cache key. Bump on any change to the judge's
    *  prompt, model, ensemble, or scoring logic; silent judge upgrades must
    *  never serve stale verdicts. */
@@ -144,7 +144,7 @@ export interface CachedJudgeOptions {
 }
 
 /** The wrapped judge: same `JudgeConfig` seam, plus hit/miss observability. */
-export type CachedJudge<TArtifact, TScenario extends Scenario = Scenario> = JudgeConfig<
+type CachedJudge<TArtifact, TScenario extends Scenario = Scenario> = JudgeConfig<
   TArtifact,
   TScenario
 > & {

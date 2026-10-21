@@ -15,14 +15,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
   '1340bdb155f062be26028c367d5f65dcd470c3417bdf0ab615fa0fab121f3d72'
 
-/** The published benchmark evidence was produced at this package version, by
- * the retired one-shot direct runner, before trace analysts moved to the
- * recursive DSPy RLM engine. Both evidence digests below are historical facts
- * about that artifact: the current implementation and dependency manifest have
- * since changed, so they cannot describe the current engine. A fresh certified
- * run must replace the published evidence before any accuracy number is
- * attributed to the engine that ships today. */
-export const ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION = '0.137.0'
+
 
 export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
   '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'

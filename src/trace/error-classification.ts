@@ -2,7 +2,7 @@ import type { SpanKind } from '@tangle-network/agent-trace-contract'
 
 export type TraceErrorRole = SpanKind
 
-export interface TraceErrorSignal {
+interface TraceErrorSignal {
   id: string
   parentId?: string
   role: TraceErrorRole
@@ -10,7 +10,7 @@ export interface TraceErrorSignal {
   processRoot: boolean
 }
 
-export interface TraceErrorSummary {
+interface TraceErrorSummary {
   total: number
   execution: number
   process: number

@@ -90,9 +90,9 @@ export interface DiagnosisResult {
   engine: { name: 'agent-eval/diagnosis'; version: string }
 }
 
-export const DEFAULT_MAX_MODEL_TRACES = 6
+const DEFAULT_MAX_MODEL_TRACES = 6
 /** Runs with fewer spans carry too little for the model to read. */
-export const MIN_MODEL_SPANS = 3
+const MIN_MODEL_SPANS = 3
 
 export async function diagnoseSpans(
   spans: readonly unknown[],

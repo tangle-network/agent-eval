@@ -40,7 +40,7 @@ export const ANALYST_COMPARISON_METRICS = Object.keys(ANALYST_COMPARISON_METRIC_
 ]
 
 /** `'lower'` when a smaller value is the improvement. */
-export function analystComparisonMetricDirection(
+function analystComparisonMetricDirection(
   metric: AnalystComparisonMetric,
 ): 'higher' | 'lower' {
   return ANALYST_COMPARISON_METRIC_DIRECTION[metric]

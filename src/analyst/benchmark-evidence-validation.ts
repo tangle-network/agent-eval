@@ -30,7 +30,7 @@ const BENCHMARK_LABEL_PATH_MARKERS = [
   '\\ground_truth\\',
 ] as const
 
-export interface BenchmarkLabelLeakScan {
+interface BenchmarkLabelLeakScan {
   passed: true
   scannedBytes: number
   scannedValues: number
@@ -338,7 +338,7 @@ export function codeTraceStepFromEvidence(uri: string): { traceId: string; step:
   }
 }
 
-export function codeTraceStepEvidenceUri(traceId: string, step: number): string {
+function codeTraceStepEvidenceUri(traceId: string, step: number): string {
   return `trace://${encodeURIComponent(traceId)}/span/step-${step}`
 }
 

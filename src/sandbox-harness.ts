@@ -14,7 +14,7 @@
  */
 
 import { runBoundedProcess } from './bounded-process'
-import { ConfigError } from './errors'
+
 import type { TraceEmitter } from './trace/emitter'
 import type { SandboxSpan } from './trace/schema'
 
@@ -144,7 +144,7 @@ export function composeParsers(...parsers: TestOutputParser[]): TestOutputParser
 
 // ── Drivers ──────────────────────────────────────────────────────────
 
-export interface SubprocessSandboxDriverOptions {
+interface SubprocessSandboxDriverOptions {
   /**
    * Default cwd for all `exec` calls. Used when the per-call `HarnessConfig`
    * does not set its own `cwd`. Lets callers bind the driver to a working
@@ -213,28 +213,9 @@ export class SubprocessSandboxDriver implements SandboxDriver {
   }
 }
 
-export class DockerSandboxDriver implements SandboxDriver {
-  id = 'docker'
 
-  async exec(
-    phase: SandboxResult['phase'],
-    command: string,
-    config: HarnessConfig,
-  ): Promise<SandboxResult> {
-    if (!config.image) throw new ConfigError('DockerSandboxDriver requires config.image')
-    const sub = new SubprocessSandboxDriver()
-    const envArgs = Object.entries(config.env ?? {})
-      .map(([k, v]) => `-e ${shellQuote(k)}=${shellQuote(v)}`)
-      .join(' ')
-    const wrapped = `docker run --rm ${envArgs} ${shellQuote(config.image)} sh -c ${shellQuote(command)}`
-    return sub.exec(phase, wrapped, { ...config, env: undefined })
-  }
-}
 
-function shellQuote(v: string): string {
-  if (/^[A-Za-z0-9_\-/.@:=]+$/.test(v)) return v
-  return `'${v.replace(/'/g, `'\\''`)}'`
-}
+
 
 // ── Harness orchestration ────────────────────────────────────────────
 

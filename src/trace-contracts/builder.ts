@@ -16,17 +16,17 @@ import { assertContract, assertCount, assertOrder, assertRule } from './validate
 
 // ── Builder ───────────────────────────────────────────────────────────
 
-export interface OrderOptions {
+interface OrderOptions {
   order?: OrderMode
 }
 
-export interface ArgumentRuleOptions {
+interface ArgumentRuleOptions {
   pointer: string
   check: ArgumentCheck
   occurrence?: ArgumentOccurrence
 }
 
-export class TraceContractBuilder {
+class TraceContractBuilder {
   private readonly rules: ContractRule[] = []
   private readonly alternativeList: ContractAlternative[] = []
   private scopeRoot: SpanPredicate | undefined

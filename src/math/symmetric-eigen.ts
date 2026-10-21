@@ -9,7 +9,7 @@
  * matrices of at most a few dozen rows and unit-by-unit Gram matrices.
  */
 
-export interface SymmetricEigen {
+interface SymmetricEigen {
   /** Eigenvalues, largest first. */
   values: number[]
   /** `vectors[k]` is the unit eigenvector of `values[k]`. Its sign is fixed so

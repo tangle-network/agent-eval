@@ -128,7 +128,7 @@ export type PublicBenchmarkResponseCacheEntry =
       entrySha256: string
     })
 
-export type PublicBenchmarkResponseCacheInput =
+type PublicBenchmarkResponseCacheInput =
   | Omit<Extract<PublicBenchmarkResponseCacheEntry, { status: 'succeeded' }>, 'entrySha256'>
   | Omit<Extract<PublicBenchmarkResponseCacheEntry, { status: 'failed' }>, 'entrySha256'>
 

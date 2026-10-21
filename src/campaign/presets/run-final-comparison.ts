@@ -11,7 +11,7 @@ import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { renderSurfaceDiff, surfaceDispatchRef, surfaceHash } from '../surface-identity'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
 
-export interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
+interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
   extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch'> {
   baselineSurface: MutableSurface
   winnerSurface: MutableSurface

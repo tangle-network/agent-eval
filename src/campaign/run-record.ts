@@ -14,7 +14,7 @@ import { validateRunRecord } from '../run-record'
 import { mean } from '../statistics/mean'
 import type { CampaignCellResult, JudgeScore } from './types'
 
-export interface CampaignCellRunRecordOptions {
+interface CampaignCellRunRecordOptions {
   /** With `search`, this must be `searchCellRunId(search)`. */
   runId: string
   experimentId: string
@@ -35,7 +35,7 @@ export interface CampaignCellRunRecordOptions {
   traceRef?: RunTraceRef
 }
 
-export interface CampaignCellQualityProjection {
+interface CampaignCellQualityProjection {
   score?: number
   judgeScores?: JudgeScoresRecord
   successfulJudgeScores: Record<string, JudgeScore>
@@ -65,7 +65,7 @@ export class CampaignJudgeScoreShapeError extends TypeError {
   }
 }
 
-export interface CampaignCellExecutionEvidence {
+interface CampaignCellExecutionEvidence {
   terminalOutcome: RunTerminalOutcome
   executionErrorCount?: number
   judgeErrorCount?: number
@@ -211,7 +211,7 @@ export function campaignCellCostProvenance<TArtifact>(
   return { kind: provenance.kind, usd: provenance.usd }
 }
 
-export function campaignCellExecutionEvidence<TArtifact>(
+function campaignCellExecutionEvidence<TArtifact>(
   cell: CampaignCellResult<TArtifact>,
 ): CampaignCellExecutionEvidence {
   if (cell.errorStage === 'dispatch') {

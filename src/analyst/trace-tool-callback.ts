@@ -13,7 +13,7 @@ import {
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 
 import { isRecord } from '../llm-client/json'
-export interface TraceToolCallback {
+interface TraceToolCallback {
   url: string
   token: string
   calls: () => number
@@ -173,4 +173,3 @@ function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<un
     })
   })
 }
-

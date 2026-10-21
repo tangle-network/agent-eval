@@ -16,14 +16,14 @@ import type {
   OptimizationPythonRuntime,
 } from './optimization-method'
 
-export interface ExternalOptimizerRuntimeIdentity<TPackage extends string> {
+interface ExternalOptimizerRuntimeIdentity<TPackage extends string> {
   python: OptimizationPythonRuntime
   bridge: ExternalOptimizerPackageSource<'agent-eval-rpc'>
   optimizer: ExternalOptimizerPackageSource<TPackage>
   engineModules: OptimizationModuleSource[]
 }
 
-export interface ObservedExternalOptimizerRuntime {
+interface ObservedExternalOptimizerRuntime {
   source: OptimizationPackageSource
   bridge: OptimizationPackageSource
   modules: OptimizationModuleSource[]
@@ -93,7 +93,7 @@ export function assertExternalOptimizerRunBinding<TPackage extends string>(args:
   }
 }
 
-export function assertExternalOptimizerRuntimeIdentity<TPackage extends string>(
+function assertExternalOptimizerRuntimeIdentity<TPackage extends string>(
   value: unknown,
   expectedPackage: TPackage,
   label: string,

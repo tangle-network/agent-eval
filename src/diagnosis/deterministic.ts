@@ -23,16 +23,16 @@ import { type FirstFailure, rankFirstFailure } from './first-failure'
 import { type DiagnosisSpan, durationMs, toContractSpan } from './spans'
 
 /** Evidence ids cited per finding; the measure carries the full count. */
-export const MAX_EVIDENCE_PER_FINDING = 8
+const MAX_EVIDENCE_PER_FINDING = 8
 /**
  * Identical tool calls with no different tool call between them that count as
  * a repeated-call run. Model turns between the calls do not break the run: an
  * agent that calls, reads, and calls again with the same input is the waste
  * this detects.
  */
-export const REPEAT_RUN_LENGTH = 3
+const REPEAT_RUN_LENGTH = 3
 /** A tool is reported only once it has at least this many calls. */
-export const MIN_TOOL_CALLS = 3
+const MIN_TOOL_CALLS = 3
 
 /** The analysis each capability gates, as the report names it. */
 const CAPABILITY_ANALYSES: Record<string, string> = {

@@ -48,7 +48,6 @@ import { krige } from './landscape-surface'
 import { PLATEAU_METHOD, type SearchPlateau, searchPlateau } from './plateau'
 import { rankingSplit } from './shared'
 
-export { nearestNeighbours } from './landscape-basins'
 export type {
   LandscapeBasin,
   LandscapeData,
@@ -60,7 +59,6 @@ export type {
 export {
   lineageEdits,
   lineEditDistance,
-  profileTextLines,
   surfaceTextEdits,
   vectorEmbedding,
 } from './landscape-embeddings'

@@ -71,7 +71,7 @@ export interface ModelRunRecord {
   rows: number
 }
 
-export interface ModelPassResult {
+interface ModelPassResult {
   findings: DiagnosisFinding[]
   questions: ModelQuestion[]
   notes: ModelRowNote[]
@@ -83,7 +83,7 @@ export interface ModelPassResult {
   promptSha256: string
 }
 
-export interface ModelPassInput {
+interface ModelPassInput {
   subject: 'internal' | 'customer'
   focus?: string
   projects?: readonly string[]
@@ -105,7 +105,7 @@ const MAX_ROWS = 12
 const MAX_STRING = 400
 const SEVERITIES = new Set(['critical', 'high', 'medium', 'low'])
 
-export function modelQuestion(input: ModelPassInput): string {
+function modelQuestion(input: ModelPassInput): string {
   const focus = input.focus ? ` The owner's question: ${input.focus}` : ''
   const projects =
     input.projects && input.projects.length > 0
@@ -119,7 +119,7 @@ export function modelQuestion(input: ModelPassInput): string {
     : `Diagnose this agent run: find concrete failures, wasted work, and unsupported claims of success that cost the owner money, time, or correct results.${withheld}${projects}${focus}`
 }
 
-export function modelContractLines(subject: 'internal' | 'customer'): string[] {
+function modelContractLines(subject: 'internal' | 'customer'): string[] {
   const kinds =
     subject === 'internal' ? '"finding" | "question" | "operator"' : '"finding" | "question"'
   return [
@@ -421,7 +421,7 @@ interface RunSegment {
  * read as whole segments rather than silently truncated; which segments were
  * read and which were not is recorded by the caller.
  */
-export function segmentRun(
+function segmentRun(
   spans: readonly DiagnosisSpan[],
   attributeChars: number,
   contentIncluded: boolean,

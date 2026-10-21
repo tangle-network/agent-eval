@@ -1,6 +1,6 @@
 import { mapConcurrentRange } from '../concurrency'
 
-export interface MapPairedConcurrentOptions<T> {
+interface MapPairedConcurrentOptions<T> {
   count: number
   maxConcurrency: number
   label: string

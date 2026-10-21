@@ -8,7 +8,7 @@ import type { AnalystFinding, EvidenceRef } from './types'
 
 export type PolicyEditSchemaVersion = 'policy-edit/v1'
 
-export const POLICY_EDIT_AXES = [
+const POLICY_EDIT_AXES = [
   'carrier',
   'representation',
   'budget',
@@ -23,7 +23,7 @@ export const POLICY_EDIT_AXES = [
 
 export type PolicyEditAxis = (typeof POLICY_EDIT_AXES)[number]
 
-export const POLICY_EDIT_TARGET_SURFACES = [
+const POLICY_EDIT_TARGET_SURFACES = [
   'prompt',
   'tool-contract',
   'runtime-config',
@@ -238,7 +238,7 @@ export function policyEditsFromFindings(
   return edits
 }
 
-export function policyEditFromFinding(
+function policyEditFromFinding(
   finding: AnalystFinding,
   opts: FindingToPolicyEditOptions = {},
 ): PolicyEdit | null {
@@ -279,7 +279,7 @@ export function policyEditFromFinding(
   })
 }
 
-export function scorePolicyEditReadiness(
+function scorePolicyEditReadiness(
   edit: PolicyEdit,
   opts: PolicyEditAdmissionOptions = {},
 ): number {

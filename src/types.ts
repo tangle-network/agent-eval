@@ -160,7 +160,7 @@ export interface CompletionCriterion {
  *   relentless  — senior partner reviewing for a client who will litigate;
  *                 interrogates every claim, accepts nothing undefended.
  */
-export type PersonaRigor = 'cooperative' | 'demanding' | 'relentless'
+type PersonaRigor = 'cooperative' | 'demanding' | 'relentless'
 
 export interface PersonaConfig {
   id: string
@@ -216,13 +216,7 @@ export type JudgeFn = (chat: ChatClient, input: JudgeInput) => Promise<JudgeScor
 
 // ── E2E Test Types ──
 
-export interface TestResult {
-  name: string
-  passed: boolean
-  duration: number
-  detail?: string
-  checks: CheckResult[]
-}
+
 
 export interface CheckResult {
   name: string

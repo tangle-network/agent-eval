@@ -20,7 +20,7 @@ import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-recor
 import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
 /** Severity of an actionable finding attached to a run/trace. */
-export type AsiSeverity = 'info' | 'warning' | 'error' | 'critical'
+type AsiSeverity = 'info' | 'warning' | 'error' | 'critical'
 
 /** Actionable side-info — a diagnosed finding the loop can act on. */
 export interface ActionableSideInfo {

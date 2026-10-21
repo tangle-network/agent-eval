@@ -241,7 +241,7 @@ export interface HeldOutGateConfig {
 
 /** Which paired statistic a `HeldOutGate` verdict was decided on. One
  *  definition, shared with every other gate that decides a paired interval. */
-export type DeltaStatistic = PairedDecisionStatistic
+type DeltaStatistic = PairedDecisionStatistic
 
 export interface GateEvidence {
   /** Number of paired (candidate, baseline) holdout observations used. */

@@ -50,13 +50,13 @@ export interface RankTestOptions {
 }
 
 /** Maximum dynamic-programming cells used by an exact two-sample rank test. */
-export const MANN_WHITNEY_EXACT_MAX_STATES = 8_192
+const MANN_WHITNEY_EXACT_MAX_STATES = 8_192
 /** Maximum inner-loop transitions used by an exact two-sample rank test. */
-export const MANN_WHITNEY_EXACT_MAX_WORK = 250_000
+const MANN_WHITNEY_EXACT_MAX_WORK = 250_000
 /** Non-zero differences up to which the signed-rank null is enumerated exactly. */
-export const WILCOXON_EXACT_MAX_N = 20
+const WILCOXON_EXACT_MAX_N = 20
 /** Resamples used when a rank test falls back to Monte Carlo permutation. */
-export const DEFAULT_PERMUTATIONS = 100_000
+const DEFAULT_PERMUTATIONS = 100_000
 
 export interface MannWhitneyResult {
   /** `min(U_a, U_b)` — the conventional reported statistic. */

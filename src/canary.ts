@@ -32,7 +32,7 @@ import type { RunRecord } from './run-record'
 
 export type CanaryKind = 'silent_judge_fallback' | 'judge_calibration_drift' | 'distribution_shift'
 
-export type CanarySeverity = 'info' | 'warn' | 'error'
+type CanarySeverity = 'info' | 'warn' | 'error'
 
 export interface CanaryAlert {
   kind: CanaryKind

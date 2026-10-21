@@ -28,7 +28,7 @@ function quantile(sorted: number[], q: number): number {
   return sorted.length ? interpolatedQuantile(sorted, q) : 0
 }
 
-export function summariseRows<Output>(
+function summariseRows<Output>(
   rows: Row<Output>[],
   axisName: string,
   axisValue: string,

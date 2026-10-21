@@ -7,13 +7,13 @@ import {
 } from '../cost-ledger'
 import { mapPairedConcurrent } from './concurrent-map'
 
-export interface PaidPairedMeasurementResult<T> {
+interface PaidPairedMeasurementResult<T> {
   measurements: Array<{ baseline: T; candidate: T }>
   wallDurationMs: number
   cost: Exclude<CostProvenance, { kind: 'uncaptured' }>
 }
 
-export interface RunPaidPairedMeasurementOptions<T> {
+interface RunPaidPairedMeasurementOptions<T> {
   count: number
   maxConcurrency: number
   label: string
