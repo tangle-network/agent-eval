@@ -4,6 +4,45 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.216.1] — 2026-10-21
+
+- fix(experiment): declare the diagnostic target outcome direction
+- fix(experiment): record current probe refusals and reuse historical receipts
+- fix(experiment): migrate the documented AST probe to its owner
+- refactor(campaign): own optimization method contracts beside execution
+- refactor(search): separate meta-search rendering and share label formatting
+- refactor(control): separate execution contracts and evaluation policy
+- refactor(campaign): share cross-surface evidence projections
+- refactor(supervisor): isolate runtime source coverage and spending
+- refactor(experiment): put validation rules in their domain owners
+- refactor(supervisor): separate patch statistics and run rollups
+- refactor(campaign): isolate optimization surface execution state
+- refactor(traces): separate buffered OTLP decoding and error clusters
+- refactor: share redaction detectors and remove forwarding constructor
+- refactor: separate public API types and preserve runtime order
+- refactor(gepa): use the canonical seeded random generator
+- refactor(analysis): share arithmetic mean with domain empty fallback
+- refactor(tb): call the shared test-suite reader directly
+- refactor(reporting): reuse the canonical arithmetic mean
+- docs(search): preserve adaptive calibration declines in revision checks
+- docs(search): declare minimum effect for adaptive held-out proof
+- fix(tb-gated-stop): remove unused facade import after extraction
+- refactor: share measured comparison record assembly
+- refactor: share TerminalBench test suite traversal
+- refactor: separate measured comparison responsibilities
+- refactor: separate code agent intake responsibilities
+- refactor: separate llm client responsibilities
+- refactor: separate gepa analyst campaign responsibilities
+- refactor: separate landscape responsibilities
+- refactor: separate edit credit responsibilities
+- refactor: separate analyze runs responsibilities
+- refactor: separate tb gated stop responsibilities
+- refactor: separate summary report responsibilities
+- refactor: separate optimizer model proxy responsibilities
+- refactor: separate cost ledger responsibilities
+- refactor: separate skill manifold responsibilities
+- refactor: separate search runtime responsibilities
+
 ## [0.216.0] — 2026-10-20
 
 - factory: The pre-commit hook runs where no global hooks path is set (#1003)
