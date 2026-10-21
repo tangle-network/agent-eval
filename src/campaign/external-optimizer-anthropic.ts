@@ -1,7 +1,6 @@
 import type { ChatResponse } from '../analyst/chat-client'
 import type { LlmToolCall, LlmToolChoice, LlmToolDefinition } from '../llm-client'
-import { isRecord } from './external-optimizer-contracts'
-
+import { isRecord } from '../llm-client/json'
 /**
  * Translate between the Anthropic Messages API and the canonical owner-call
  * contract used by the metered optimizer model proxy.

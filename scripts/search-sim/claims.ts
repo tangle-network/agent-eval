@@ -1,6 +1,6 @@
 import { wilson } from '../../src/statistics/paired-binary'
 import { type SimArtifact, type SimOptions } from './types'
-import { ROOT, round } from './objective'
+import { ROOT_ARTIFACT, round } from './objective'
 import { interval, clopperPearson } from './statistics'
 import { memoryStore } from './store'
 import { runSimulation } from './run'
@@ -60,7 +60,7 @@ export async function claims(options: SimOptions, searches: number): Promise<Rec
       if (finalist.trueGain <= 0) falsePromotions += 1
     }
     if (claim.decision === 'ship') {
-      if (claim.selected!.quality - ROOT.quality > 0) trueClaims += 1
+      if (claim.selected!.quality - ROOT_ARTIFACT.quality > 0) trueClaims += 1
       else {
         falseClaims += 1
         falseClaimSeeds.push(seed)

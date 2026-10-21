@@ -171,7 +171,7 @@ export function standardization(matrix: ScoreMatrix): { center: number; scale: n
   return scale > 1e-12 ? { center, scale } : null
 }
 
-export interface Cell {
+export interface ManifoldCell {
   row: number
   unit: number
   /** The standardized per-unit mean (identity link). */
@@ -187,8 +187,8 @@ export function observedCells(
   rows: readonly number[],
   center: number,
   scale: number,
-): Cell[] {
-  const cells: Cell[] = []
+): ManifoldCell[] {
+  const cells: ManifoldCell[] = []
   for (const row of rows) {
     const { nodeId, observed, counts } = matrix.rows[row]!
     for (const [unit, value] of [...observed].sort(([left], [right]) => left - right)) {

@@ -12,6 +12,7 @@ import {
 } from '../campaign/external-optimizer-http'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 
+import { isRecord } from '../llm-client/json'
 export interface TraceToolCallback {
   url: string
   token: string
@@ -173,6 +174,3 @@ function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<un
   })
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

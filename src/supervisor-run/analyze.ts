@@ -10,7 +10,7 @@ import { summarizeNumberSeries } from '../statistics'
 import { parsePatch } from './patch-stats'
 import {
   asRecord,
-  parseJson,
+  parseJsonRecord,
   parseJsonl,
   parseSupervisorTree,
   type SpawnRow,
@@ -65,13 +65,13 @@ export function analyzeSupervisorRunSources(
   const haveJournal = src.journal !== null
   const tree = parseSupervisorTree(src)
   const state = tree.state
-  const result = parseJson(src.result)
-  const judge = parseJson(src.judge)
+  const result = parseJsonRecord(src.result)
+  const judge = parseJsonRecord(src.judge)
   // Runtime's terminal record is named on the report so a status never arrives unlabeled.
   const terminal = readTerminalRecord({
     state,
     result,
-    failure: src.failure === undefined ? undefined : parseJson(src.failure),
+    failure: src.failure === undefined ? undefined : parseJsonRecord(src.failure),
   })
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
   const rootSpawn =

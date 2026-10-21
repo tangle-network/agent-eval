@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { type ChatClient, type ChatResponse, createChatClient } from './analyst/chat-client'
-import type { Artifact } from './artifact-validator'
+import type { ValidatedArtifact } from './artifact-validator'
 import {
   type CompletionRequirement,
   type CorrectnessChecker,
@@ -48,7 +48,7 @@ function mockChat(handler: string | (() => Promise<ChatResponse> | ChatResponse)
   })
 }
 
-function artifact(path: string, content: string, kind = 'file'): Artifact {
+function artifact(path: string, content: string, kind = 'file'): ValidatedArtifact {
   return { kind, path, content }
 }
 

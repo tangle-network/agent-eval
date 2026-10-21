@@ -150,6 +150,3 @@ export function safeInteger(value: number, field: string): number {
   return value
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}

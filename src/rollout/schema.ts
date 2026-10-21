@@ -49,6 +49,7 @@
 
 import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 
+import { isRecord } from '../llm-client/json'
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 
 /** `agent` = a solo evaluation run (no multi-agent topology). */
@@ -370,9 +371,6 @@ export interface RolloutLine {
 // run-record validator's fail-loud discipline. Returns [] when the value
 // is a valid RolloutLine; otherwise one dotted-path error per defect.
 // ---------------------------------------------------------------------------
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
 
 const isNumberOrNull = (v: unknown): boolean => v === null || typeof v === 'number'
 const isNumberArray = (v: unknown): boolean =>

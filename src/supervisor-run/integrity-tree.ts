@@ -4,6 +4,7 @@ import type { SupervisorRunIntegrityEvidence, SupervisorRunIntegrityIssue } from
 import { nonEmptyString } from './source-facts'
 import type { SupervisorRunTree } from './types'
 
+import { isRecord } from '../llm-client/json'
 interface NodeRecord {
   readonly index: number
   readonly raw: Record<string, unknown>
@@ -18,10 +19,6 @@ interface NodeRecord {
   readonly profileId: string | null
   readonly completed: boolean | null
   readonly terminal: boolean | null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function parentValue(raw: Record<string, unknown>): string | null | undefined {

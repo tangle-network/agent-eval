@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { clusteredPower, defineExperiment, type EvidenceRecord } from '../../src/experiment'
 import { parseTaskOracleRegistry, stratumOf } from '../../src/trace-repair'
-import { TASK_ORACLES_PATH, MODEL, STEP_ALLOTMENT, ROWS_PER_CLUSTER, ADMITTED_STRATA } from './settings'
+import { TASK_ORACLES_PATH, TB_GATED_STOP_MODEL, STEP_ALLOTMENT, ROWS_PER_CLUSTER, ADMITTED_STRATA } from './settings'
 import { type CorpusRow, loadCorpus, admissionRecord, canonicalTrialRowIds, endStateScreen, divergenceRatio } from './corpus'
 
 // ── The registered design ────────────────────────────────────────────
@@ -178,7 +178,7 @@ export function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take
         id: 'blind-continue',
         role: 'control',
         pins: {
-          model: MODEL,
+          model: TB_GATED_STOP_MODEL,
           stepAllotment: STEP_ALLOTMENT,
           stopRule: 'spend-the-allotment-unconditionally',
           gradedAt: 'best-intermediate-state',
@@ -190,7 +190,7 @@ export function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take
         id: 'gated-continue',
         role: 'treatment',
         pins: {
-          model: MODEL,
+          model: TB_GATED_STOP_MODEL,
           stepAllotment: STEP_ALLOTMENT,
           stopRule: 'stop-when-held-out-check-passes',
           reallocation: 'unspent-budget-to-rows-still-failing',

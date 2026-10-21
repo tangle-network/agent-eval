@@ -20,7 +20,6 @@ import {
   assertNoBenchmarkLabelsInTrace,
 } from './benchmark-evidence-validation'
 import {
-  isRecord,
   type PreparedPublicAnalystBenchmark,
   type PublicAnalystBenchmarkDataset,
   type PublicBenchmarkDistributions,
@@ -29,6 +28,7 @@ import {
   positiveSafeInteger,
   safeInteger,
 } from './benchmark-public-types'
+import { isRecord } from '../llm-client/json'
 import {
   appendVerificationArtifactsToOtlp,
   DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,

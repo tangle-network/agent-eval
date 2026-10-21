@@ -47,6 +47,7 @@ import type {
 } from './analyst-arm'
 import { REPAIR_QUESTION, repairTaskPolicy } from './repair-prompt'
 
+import { isRecord } from '../llm-client/json'
 /**
  * Token the bridge reads to select the typed repair signature.
  *
@@ -405,10 +406,6 @@ function decodeRepairRow(
  */
 function engineUsage(modelCalls: number | null): RepairArmUsage {
   return { calls: modelCalls, inputTokens: null, outputTokens: null, costUsd: null }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function describe(value: unknown): string {

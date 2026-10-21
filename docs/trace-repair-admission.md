@@ -263,7 +263,7 @@ What they measured is stated instead, so a reader can price them.
 
 Two facts are measured, not inferred.
 
-`largest-eigenval` is graded in part by a wall-clock assertion (`assert dt < ref_dt`, `tests/test_outputs.py:111`), the only one across the four tasks the milestones sampled.
+`largest-eigenval` is graded in part by a wall-clock assertion (`assert dt < ref_dt`, line 111 of the task grader `test_outputs.py` (not in this repo)), the only one across the four tasks the milestones sampled.
 Certification re-graded each task's published image 16 times with nothing written between the runs — 8 on the untouched image and 8 after the reference solution, half of each under CPU contention — at the same image digests the milestones ran against.
 
 | task | replicates | units that flipped | worst per-unit flip | verdict |

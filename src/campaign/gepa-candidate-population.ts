@@ -4,8 +4,8 @@ import { contentHash } from '../verdict-cache'
 import {
   type ExternalTextCandidate,
   isExternalTextCandidate,
-  isRecord,
 } from './external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 
 export interface GepaCandidatePopulationSummary {

@@ -4,7 +4,7 @@ import { cholesky, choleskySolve } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import { mulberry32 } from '../../statistics/random'
 import type { SkillLink } from './skill-manifold-contract'
-import type { Cell, ScoreMatrix } from './skill-manifold-matrix'
+import type { ManifoldCell, ScoreMatrix } from './skill-manifold-matrix'
 
 /** The prior precision on a unit's log-odds intercept: N(0, 10²), weak
  * enough to leave any observed pass rate alone and strong enough to keep a
@@ -37,7 +37,7 @@ export interface Fit {
 /** The fit of `rank` axes under `link`. */
 export function factor(
   units: number,
-  cells: readonly Cell[],
+  cells: readonly ManifoldCell[],
   rank: number,
   ridge: number,
   link: SkillLink,
@@ -49,10 +49,10 @@ export function factor(
 
 function groupCells(
   units: number,
-  cells: readonly Cell[],
-): { byUnit: Cell[][]; byRow: Map<number, Cell[]> } {
-  const byUnit: Cell[][] = Array.from({ length: units }, () => [])
-  const byRow = new Map<number, Cell[]>()
+  cells: readonly ManifoldCell[],
+): { byUnit: ManifoldCell[][]; byRow: Map<number, ManifoldCell[]> } {
+  const byUnit: ManifoldCell[][] = Array.from({ length: units }, () => [])
+  const byRow = new Map<number, ManifoldCell[]>()
   for (const cell of cells) {
     byUnit[cell.unit]!.push(cell)
     const list = byRow.get(cell.row)
@@ -75,7 +75,7 @@ function seededLoadings(units: number, rank: number): number[][] {
  * loadings, then each unit's loading and (unpenalized) bias given the
  * coordinates, until the objective moves by less than 1e-7 of itself.
  */
-function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
+function factorLinear(units: number, cells: readonly ManifoldCell[], rank: number, ridge: number): Fit {
   const { byUnit, byRow: rowIds } = groupCells(units, cells)
   const bias = byUnit.map((list) =>
     list.length === 0 ? 0 : list.reduce((sum, cell) => sum + cell.z, 0) / list.length,
@@ -149,7 +149,7 @@ function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge
  * loadings (scaled by `ridge`), N(0, 10²) on each intercept, which keeps a
  * unit every node passed finite. A step moves no parameter by more than 4.
  */
-function factorLogistic(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
+function factorLogistic(units: number, cells: readonly ManifoldCell[], rank: number, ridge: number): Fit {
   const { byUnit, byRow: rowIds } = groupCells(units, cells)
   const bias = byUnit.map((list) => {
     let k = 0
@@ -227,7 +227,7 @@ function factorLogistic(units: number, cells: readonly Cell[], rank: number, rid
 /** One Newton step on a row's coordinates under the item-response model. */
 function newtonStep(
   point: readonly number[],
-  list: readonly Pick<Cell, 'unit' | 'k' | 'n'>[],
+  list: readonly Pick<ManifoldCell, 'unit' | 'k' | 'n'>[],
   loadings: readonly (readonly number[])[],
   bias: readonly number[],
   ridge: number,
@@ -259,7 +259,7 @@ function capped(step: readonly number[]): number[] {
 
 /** −log of the binomial likelihood of `k` passes in `n` at log-odds `eta`,
  * without the binomial coefficient: n·log(1 + e^η) − k·η, computed stably. */
-function binomialLoss(cell: Pick<Cell, 'k' | 'n'>, eta: number): number {
+function binomialLoss(cell: Pick<ManifoldCell, 'k' | 'n'>, eta: number): number {
   const softplus = Math.max(eta, 0) + Math.log1p(Math.exp(-Math.abs(eta)))
   return cell.n * softplus - cell.k * eta
 }
@@ -273,7 +273,7 @@ export function logistic(eta: number): number {
 /** A row's coordinates given the loadings: one ridge solve (identity), or
  * Newton steps to convergence (logit). */
 function solveRow(
-  list: readonly Pick<Cell, 'unit' | 'z' | 'k' | 'n'>[],
+  list: readonly Pick<ManifoldCell, 'unit' | 'z' | 'k' | 'n'>[],
   loadings: readonly (readonly number[])[],
   bias: readonly number[],
   rank: number,
@@ -311,14 +311,14 @@ export function predict(fit: Fit, point: readonly number[] | undefined, unit: nu
 }
 
 /** Squared error (identity) or binomial log loss (logit) of the fit on `cells`. */
-export function loss(fit: Fit, cells: readonly Cell[], link: SkillLink): number {
+export function loss(fit: Fit, cells: readonly ManifoldCell[], link: SkillLink): number {
   let total = 0
   for (const cell of cells)
     total += cellLoss(cell, predict(fit, fit.byRow.get(cell.row), cell.unit), link)
   return total
 }
 
-export function cellLoss(cell: Cell, eta: number, link: SkillLink): number {
+export function cellLoss(cell: ManifoldCell, eta: number, link: SkillLink): number {
   return link === 'identity' ? (cell.z - eta) ** 2 : binomialLoss(cell, eta)
 }
 

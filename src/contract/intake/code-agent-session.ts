@@ -7,7 +7,8 @@ import type {
   RunTokenUsage,
 } from '../../run-record'
 import { codexMetrics } from './code-agent-codex-metrics'
-import { isRecord, record, stringField } from './code-agent-fields'
+import { record, stringField } from './code-agent-fields'
+import { isRecord } from '../../llm-client/json'
 import {
   claudeCodeMetrics,
   kimiCodeMetrics,
@@ -30,7 +31,8 @@ import {
   type CodeAgentSessionSource,
   observeCodeAgentSession,
 } from './code-agent-observation'
-import { clamp01, resolveSessionCost } from './code-agent-session-metrics'
+import { resolveSessionCost } from './code-agent-session-metrics'
+import { clamp01 } from '../../run-score'
 import type {
   CodeAgentSessionIntakeOptions,
   CodeAgentSessionIntakeResult,

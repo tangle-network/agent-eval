@@ -1,4 +1,4 @@
-import { isRecord } from './external-optimizer-process'
+import { isRecord } from '../llm-client/json'
 import type { OptimizationPackageSource } from './optimization-method'
 
 export interface ExternalOptimizerPackageSource<TPackage extends string> {

@@ -1,5 +1,5 @@
 /** An artifact an agent produced, as completion and produced-state checks read it. */
-export interface Artifact {
+export interface ValidatedArtifact {
   /** Logical kind — validators type-guard on this */
   kind: 'file' | 'json' | 'text' | 'binary' | string
   /** Filesystem-style path, optional */

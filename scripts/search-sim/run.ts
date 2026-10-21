@@ -6,7 +6,7 @@ import { developmentClaim, SearchRecorder } from '../../src/campaign/search-ledg
 import { type SearchStateView } from '../../src/campaign/search-state'
 import { hashCanonical } from '../../src/ledger-core/canonical'
 import { type SimArtifact, type SimOptions } from './types'
-import { ROOT, unit, round, tasks, plantedName, rootOf, childOf, poolChild, draftChild, simulateCell } from './objective'
+import { ROOT_ARTIFACT, unit, round, tasks, plantedName, rootOf, childOf, poolChild, draftChild, simulateCell } from './objective'
 import { SEARCH_ID, SIM_SOURCE, PROPOSAL_USD, benchmark, judge, MAX_ATTEMPTS, allocationOf, policyOf } from './policy'
 import { type SimStore } from './store'
 import { checkLedger } from './ledger-audit'
@@ -265,7 +265,7 @@ export async function runSimulation(
       finalists: claimed.finalists.map((finalist) => ({
         nodeId: finalist.nodeId,
         name: truth(finalist.nodeId).name,
-        trueGain: round(truth(finalist.nodeId).quality - ROOT.quality),
+        trueGain: round(truth(finalist.nodeId).quality - ROOT_ARTIFACT.quality),
         /** The selection estimate against the root the finalist was chosen on. */
         selectionDelta:
           state

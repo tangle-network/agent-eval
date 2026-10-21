@@ -23,7 +23,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { ChatClient, ChatRequest } from './analyst/chat-client'
-import type { Artifact } from './artifact-validator'
+import type { ValidatedArtifact } from './artifact-validator'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { assertServedModel, ModelSubstitutionError } from './integrity/served-model'
 import { recoverTruncatedJson } from './json-recovery'
@@ -70,8 +70,8 @@ export interface ProducedProposal {
 
 /** Everything observable about what a run actually produced. */
 export interface ProducedState {
-  /** Persisted vault artifacts. Reuses the shared `Artifact` shape. */
-  artifacts: Artifact[]
+  /** Persisted vault artifacts. Reuses the shared `ValidatedArtifact` shape. */
+  artifacts: ValidatedArtifact[]
   /** Proposals / filings the agent created. */
   proposals: ProducedProposal[]
   /** Names of tools the agent invoked. */
@@ -279,7 +279,7 @@ interface Candidate {
 function artifactCandidates(
   req: CompletionRequirement,
   reqIndex: number,
-  artifacts: Artifact[],
+  artifacts: ValidatedArtifact[],
 ): Candidate[] {
   const reqText = `${req.title} ${req.category ?? ''}`
   const out: Candidate[] = []

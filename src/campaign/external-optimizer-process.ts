@@ -24,7 +24,6 @@ export {
   type ExternalTextEvaluationRequest,
   isCandidateText,
   isExternalTextCandidate,
-  isRecord,
   removeCredentialEnvironment,
   resolveExternalOptimizerCallbackLimits,
   resolveExternalOptimizerProcessLimits,

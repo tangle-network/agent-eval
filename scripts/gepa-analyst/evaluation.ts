@@ -14,18 +14,8 @@ import {
 } from '../../src/campaign/analyst-surface'
 import type { DispatchContext, JudgeConfig, MutableSurface } from '../../src/campaign/types'
 import type { TraceAnalysisStore } from '../../src/trace-analyst/store'
-import {
-  FAMILY,
-  MODEL,
-  BASE_URL,
-  PRICING,
-  ANALYSIS_TIMEOUT_MS,
-  EVAL_COST_PHASE,
-  DSPY_PYTHON,
-  API_KEY,
-  CONTRACT_BLOCK,
-  SCORE_LEDGER_PATH,
-} from './configuration'
+import { FAMILY, GEPA_ANALYST_MODEL, GEPA_ANALYST_BASE_URL, ANALYSIS_TIMEOUT_MS, EVAL_COST_PHASE, DSPY_PYTHON, API_KEY, CONTRACT_BLOCK, SCORE_LEDGER_PATH } from './configuration'
+import { ZAI_GLM_PRICING } from '../zai-glm-pricing'
 import type {
   GepaAnalystScenario,
   GepaAnalystArtifact,
@@ -49,13 +39,13 @@ export function createCampaignEvaluation(
   goldMassWeight: GoldMassWeight,
 ) {
   const engine = createDspyRlmTraceEngine({
-    baseUrl: BASE_URL,
+    baseUrl: GEPA_ANALYST_BASE_URL,
     apiKey: API_KEY!,
-    model: MODEL,
+    model: GEPA_ANALYST_MODEL,
     maxOutputTokens: 16_384,
     timeoutMs: ANALYSIS_TIMEOUT_MS,
     maxCostUsd: 1,
-    pricing: PRICING,
+    pricing: ZAI_GLM_PRICING,
     runner: { command: DSPY_PYTHON },
   })
   const limits = { maxIterations: 14, maxLlmCalls: 8, maxToolCalls: 80, maxOutputChars: 8_000 }
@@ -124,7 +114,7 @@ export function createCampaignEvaluation(
           confidence: finding.confidence,
           evidence_refs: evidenceRefsFromRawFinding(finding),
           recommended_action: finding.recommended_action,
-          metadata: { analysis_mode: 'recursive', engine: 'dspy-rlm', model: MODEL },
+          metadata: { analysis_mode: 'recursive', engine: 'dspy-rlm', model: GEPA_ANALYST_MODEL },
           produced_at: producedAt,
         }),
       )

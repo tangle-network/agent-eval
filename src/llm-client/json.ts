@@ -110,3 +110,8 @@ function parseJsonSafely<T>(
     throw new Error(`LLM returned non-JSON content (model=${model})`)
   }
 }
+
+/** A non-array object: the JSON object shape that model and export payloads are narrowed to. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

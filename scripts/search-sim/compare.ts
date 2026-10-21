@@ -1,6 +1,6 @@
 import { wilson } from '../../src/statistics/paired-binary'
 import { type SimOptions, type SimPolicy, isSimPolicy } from './types'
-import { ROOT, round, plantedName } from './objective'
+import { ROOT_ARTIFACT, round, plantedName } from './objective'
 import { memoryStore } from './store'
 import { runSimulation } from './run'
 import { interval, exactSignTest } from './statistics'
@@ -69,7 +69,7 @@ export async function compare(options: SimOptions, seeds: number, arms: readonly
   const planted = plantedName(options) !== null
   /** Half the planted gain above the root: a kept node at or above it carries
    * the gain, whether it is the planted node or a descendant that lost little. */
-  const halfGain = ROOT.quality + (options.deepGain ?? options.poolGap ?? 0) / 2
+  const halfGain = ROOT_ARTIFACT.quality + (options.deepGain ?? options.poolGap ?? 0) / 2
   const summarize = (index: number) => {
     const list = rows.map((row) => row.arms[index]!)
     const cells = list.map((row) => row.cells).sort((a, b) => a - b)
@@ -126,7 +126,7 @@ export async function compare(options: SimOptions, seeds: number, arms: readonly
           }
         : {}),
       meanKeptQuality: round(list.reduce((sum, row) => sum + row.quality, 0) / list.length),
-      keptBetterThanRoot: list.filter((row) => row.quality > ROOT.quality).length,
+      keptBetterThanRoot: list.filter((row) => row.quality > ROOT_ARTIFACT.quality).length,
       ledgerAuditsPassed: list.filter((row) => row.ledgerOk).length,
       /** Measured edges by the units they pair on against their parent. */
       edgePairs,

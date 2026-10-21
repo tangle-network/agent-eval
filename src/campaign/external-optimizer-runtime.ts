@@ -3,7 +3,7 @@ import type {
   ExternalOptimizerResumeMode,
   ExternalOptimizerRunnerCommand,
 } from './external-optimizer-contracts'
-import { isRecord } from './external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import {
   assertExternalOptimizerPackageSource,
   type ExternalOptimizerPackageSource,

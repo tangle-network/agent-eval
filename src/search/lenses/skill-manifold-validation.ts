@@ -4,14 +4,14 @@ import { mean } from '../../statistics/mean'
 import { plural, round9 } from './geometry'
 import { INSUFFICIENT_FROM } from './shared'
 import { METHODS, type SkillLink, type SkillManifoldData } from './skill-manifold-contract'
-import type { Cell, ScoreMatrix } from './skill-manifold-matrix'
+import type { ManifoldCell, ScoreMatrix } from './skill-manifold-matrix'
 import { cellLoss, factor, predict } from './skill-manifold-model'
 
 // ── Cross-validation ─────────────────────────────────────────────────
 
 export function crossValidate(
   matrix: ScoreMatrix,
-  cells: readonly Cell[],
+  cells: readonly ManifoldCell[],
   rankCap: number,
   folds: number,
   ridge: number,

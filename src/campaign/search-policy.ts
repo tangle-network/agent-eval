@@ -285,7 +285,7 @@ export interface AideOptions {
 }
 
 /**
- * AIDE's search policy (`aide/agent.py`, `search_policy`) with three changes
+ * AIDE's search_policy with three changes
  * for noisy scores.
  *
  * 1. **Draft** while fewer than `drafts` nodes were drafted: the root is the

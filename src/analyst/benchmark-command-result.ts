@@ -6,9 +6,9 @@ import {
 import {
   type AnalystBenchmarkArtifact,
   type AnalystBenchmarkRunManifest,
-  canonicalJson,
+  canonicalJsonDocument,
   observationKey,
-  parseJson,
+  parseJsonText,
 } from './benchmark-command-artifact'
 import { readRegularFile } from './benchmark-command-persistence'
 import { assertAnalystBenchmarkArtifact } from './benchmark-command-validation'
@@ -20,7 +20,7 @@ import { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export async function readAnalystBenchmarkArtifact(
   path: string,
 ): Promise<AnalystBenchmarkArtifact> {
-  const value = parseJson(await readRegularFile(path, 'analyst benchmark result'), path)
+  const value = parseJsonText(await readRegularFile(path, 'analyst benchmark result'), path)
   assertAnalystBenchmarkArtifact(value, 'analyst benchmark result')
   return value
 }
@@ -106,7 +106,7 @@ export function assertCompletedArtifactMatchesRun(
       dependencyLockSha256: config.dependencyLockSha256,
     },
   }
-  if (canonicalJson(artifact.inputs) !== canonicalJson(expectedInputs)) {
+  if (canonicalJsonDocument(artifact.inputs) !== canonicalJsonDocument(expectedInputs)) {
     throw new Error('completed benchmark result inputs do not match the run manifest')
   }
 
@@ -122,14 +122,14 @@ export function assertCompletedArtifactMatchesRun(
     provenance.startedAt !== manifest.createdAt ||
     !Number.isFinite(Date.parse(provenance.endedAt)) ||
     Date.parse(provenance.endedAt) < Date.parse(provenance.startedAt) ||
-    canonicalJson(provenance.dataset) !==
-      canonicalJson({
+    canonicalJsonDocument(provenance.dataset) !==
+      canonicalJsonDocument({
         id: expectedDatasetId,
         revision: config.datasetRevision,
         split: config.datasetSplit,
       }) ||
     provenance.caseCount !== inputs.selectedCaseIds.length ||
-    canonicalJson(provenance.runnerIds) !== canonicalJson(config.runnerIds) ||
+    canonicalJsonDocument(provenance.runnerIds) !== canonicalJsonDocument(config.runnerIds) ||
     provenance.repetitions !== config.repetitions ||
     provenance.maxConcurrency !== Math.min(config.concurrency, expectedCount) ||
     provenance.runnerOrderSeed !== config.seed ||
@@ -154,7 +154,7 @@ export function assertCompletedArtifactMatchesRun(
       observations.filter((observation) => observation.runnerId === runnerId),
     ),
   )
-  if (canonicalJson(artifact.result.summaries) !== canonicalJson(expectedSummaries)) {
+  if (canonicalJsonDocument(artifact.result.summaries) !== canonicalJsonDocument(expectedSummaries)) {
     throw new Error('completed benchmark summaries do not match durable observations')
   }
 
@@ -165,21 +165,21 @@ export function assertCompletedArtifactMatchesRun(
       seed: config.seed,
     }),
   ]
-  if (canonicalJson(artifact.comparisons) !== canonicalJson(expectedComparisons)) {
+  if (canonicalJsonDocument(artifact.comparisons) !== canonicalJsonDocument(expectedComparisons)) {
     throw new Error('completed benchmark comparisons do not match durable observations')
   }
 
   if (config.dataset === 'codetracebench') {
     if (
-      canonicalJson(artifact.codeTraceCalibration) !==
-        canonicalJson(summarizeCodeTraceCalibration(artifact.result)) ||
+      canonicalJsonDocument(artifact.codeTraceCalibration) !==
+        canonicalJsonDocument(summarizeCodeTraceCalibration(artifact.result)) ||
       artifact.agentRxCalibration !== undefined
     ) {
       throw new Error('completed CodeTraceBench calibration does not match durable observations')
     }
   } else if (
-    canonicalJson(artifact.agentRxCalibration) !==
-      canonicalJson(summarizeAgentRxCalibration(artifact.result, AGENT_RX_UPSTREAM_REVISION)) ||
+    canonicalJsonDocument(artifact.agentRxCalibration) !==
+      canonicalJsonDocument(summarizeAgentRxCalibration(artifact.result, AGENT_RX_UPSTREAM_REVISION)) ||
     artifact.codeTraceCalibration !== undefined
   ) {
     throw new Error('completed AgentRx calibration does not match durable observations')
@@ -196,11 +196,11 @@ export function assertSameObservations(
     )
   }
   const expectedByKey = new Map(
-    expected.map((observation) => [observationKey(observation), canonicalJson(observation)]),
+    expected.map((observation) => [observationKey(observation), canonicalJsonDocument(observation)]),
   )
   for (const observation of actual) {
     const key = observationKey(observation)
-    if (expectedByKey.get(key) !== canonicalJson(observation)) {
+    if (expectedByKey.get(key) !== canonicalJsonDocument(observation)) {
       throw new Error(
         `benchmark result does not match durable observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}'`,
       )

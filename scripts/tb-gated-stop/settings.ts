@@ -16,11 +16,9 @@ export const TASK_ORACLES_PATH = join(import.meta.dirname, '../..', 'benchmarks'
  * retired id registers a model the run never uses. The `servedModel` gate reads
  * the id the seat reports on the reply and aborts on any disagreement.
  */
-export const MODEL = 'glm-5.3'
+export const TB_GATED_STOP_MODEL = 'glm-5.3'
 
-export const BASE_URL = 'https://api.z.ai/api/coding/paas/v4/chat/completions'
-
-export const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
+export const TB_GATED_STOP_BASE_URL = 'https://api.z.ai/api/coding/paas/v4/chat/completions'
 
 /** At most three in flight on this seat, so a 429 storm cannot be mistaken for a slow model. */
 export const SEAT_CONCURRENCY = 3
@@ -42,7 +40,7 @@ export const GRADE_TIMEOUT_MS = 420_000
  * difference. That dilutes the contrast toward null, so the ceiling is set
  * above the draw's projected spend rather than at it.
  */
-export const COST_CEILING_USD = 40
+export const TB_GATED_STOP_COST_CEILING_USD = 40
 
 /** Per-row model steps the blind arm spends whatever the check says. */
 export const STEP_ALLOTMENT = 8

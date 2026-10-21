@@ -5,26 +5,15 @@ import type {
 } from '../../src/campaign/gepa-optimization-method'
 import { gepaOptimizationMethod } from '../../src/campaign/gepa-optimization-method'
 import { loadOptimizerExecutionOwner } from '../../examples/_shared/optimizer-execution-owner'
-import {
-  FAMILY,
-  RECIPE_KIND,
-  SEED,
-  MODEL,
-  PRICING,
-  MAX_EVALUATIONS,
-  MAX_PROPOSER_COST_USD,
-  GEPA_TIMEOUT_MS,
-  REFLECTION_MINIBATCH_SIZE,
-  GEPA_PYTHON,
-  CONTRACT_BLOCK,
-} from './configuration'
+import { FAMILY, RECIPE_KIND, SEED, GEPA_ANALYST_MODEL, MAX_EVALUATIONS, MAX_PROPOSER_COST_USD, GEPA_TIMEOUT_MS, REFLECTION_MINIBATCH_SIZE, GEPA_PYTHON, CONTRACT_BLOCK } from './configuration'
+import { ZAI_GLM_PRICING } from '../zai-glm-pricing'
 import type { GepaAnalystScenario, GepaAnalystArtifact, GoldMassWeight } from './contract'
 
 export async function createCampaignMethod(
   selectionScenarios: readonly GepaAnalystScenario[],
   goldMassWeight: GoldMassWeight,
 ) {
-  const optimizerExecution = await loadOptimizerExecutionOwner(MODEL)
+  const optimizerExecution = await loadOptimizerExecutionOwner(GEPA_ANALYST_MODEL)
 
   const round2Objective =
     'Rewrite the analysis policy of a recursive coding-trace analyst so it localizes every ' +
@@ -169,7 +158,7 @@ export async function createCampaignMethod(
       : 'codetracebench-analyst-instructions-r2',
     recipe,
     optimizer: {
-      model: MODEL,
+      model: GEPA_ANALYST_MODEL,
       ...optimizerExecution,
       budget: {
         maxCostUsd: MAX_PROPOSER_COST_USD,
@@ -178,7 +167,7 @@ export async function createCampaignMethod(
         maxResponseBytes: 4_000_000,
         maxOutputTokensPerRequest: 16_384,
         maxReasoningTokensPerRequest: 32_768,
-        pricing: PRICING,
+        pricing: ZAI_GLM_PRICING,
       },
     },
     timeoutMs: GEPA_TIMEOUT_MS,

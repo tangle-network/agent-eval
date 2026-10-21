@@ -5,7 +5,7 @@ import { hashCanonical } from '../../src/ledger-core/canonical'
 import { type SimArtifact, type SimOptions } from './types'
 import { SIM_SOURCE, benchmark } from './policy'
 
-export const ROOT: SimArtifact = { name: 'root', quality: 0.5, trainShift: 0, heldShift: 0 }
+export const ROOT_ARTIFACT: SimArtifact = { name: 'root', quality: 0.5, trainShift: 0, heldShift: 0 }
 
 /** Uniform [0, 1) from the seed and a key: the simulator's only randomness. */
 export function unit(seed: number, ...key: Array<string | number>): number {
@@ -54,9 +54,9 @@ function geometric(options: SimOptions): boolean {
 /** The root artifact: the additive default, plus text, skills and a basin
  * under the geometry options. */
 export function rootOf(options: SimOptions): SimArtifact {
-  if (!geometric(options)) return ROOT
+  if (!geometric(options)) return ROOT_ARTIFACT
   return {
-    ...ROOT,
+    ...ROOT_ARTIFACT,
     lines: Array.from({ length: 8 }, (_, index) => `root line ${index}`),
     ...(options.skills > 0 ? { skill: new Array<number>(options.skills).fill(0) } : {}),
     ...(options.ceiling !== null ? { basin: 0 } : {}),
@@ -159,19 +159,19 @@ function deepChild(parent: SimArtifact, name: string, options: SimOptions) {
   if (depth > 0) {
     const quality =
       depth === options.deepDepth
-        ? ROOT.quality + gain
+        ? ROOT_ARTIFACT.quality + gain
         : options.deepRamp
-          ? ROOT.quality + (gain * depth) / options.deepDepth
-          : ROOT.quality
+          ? ROOT_ARTIFACT.quality + (gain * depth) / options.deepDepth
+          : ROOT_ARTIFACT.quality
     const label = depth === options.deepDepth ? `planted +${gain} at depth ${depth}` : `path ${name}`
     return {
-      artifact: { ...ROOT, name, quality: round(quality) } satisfies SimArtifact,
+      artifact: { ...ROOT_ARTIFACT, name, quality: round(quality) } satisfies SimArtifact,
       label,
       rationale: `${label}, from ${parent.name}`,
     }
   }
   const artifact: SimArtifact = {
-    ...ROOT,
+    ...ROOT_ARTIFACT,
     name,
     quality: round(parent.quality - 0.1 * unit(options.seed, 'deep-step', name)),
     ...defect(name, options),
@@ -218,7 +218,7 @@ export function poolChild(index: number, options: SimOptions) {
     return { artifact, label, rationale: `${label}, independent of its parent` }
   }
   const step = planted ? options.poolGap! : -0.1 * unit(options.seed, 'pool', name)
-  const artifact: SimArtifact = { ...ROOT, name, quality: round(ROOT.quality + step) }
+  const artifact: SimArtifact = { ...ROOT_ARTIFACT, name, quality: round(ROOT_ARTIFACT.quality + step) }
   const label = planted ? `planted pool child +${options.poolGap}` : `pool child ${name}`
   return { artifact, label, rationale: `${label}, independent of its parent` }
 }
@@ -234,7 +234,7 @@ export function draftChild(index: number, options: SimOptions) {
     ...rootOf(options),
     name,
     quality: round(
-      ROOT.quality + (options.nullSteps ? 0 : -0.05 + 0.1 * unit(options.seed, 'draft', name)),
+      ROOT_ARTIFACT.quality + (options.nullSteps ? 0 : -0.05 + 0.1 * unit(options.seed, 'draft', name)),
     ),
     lines: Array.from({ length: 8 }, (_, line) => `${name} line ${line}`),
     ...defect(name, options),

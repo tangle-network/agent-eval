@@ -31,10 +31,6 @@ export function defaultStepUri(trajectoryId: string, step: number): string {
   return `trace://${encodeURIComponent(trajectoryId)}/span/step-${step}`
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 export function positiveStep(value: number, field: string): number {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new RangeError(`${field} must be a positive safe integer`)

@@ -1,5 +1,6 @@
 import type { RunSplitTag } from './run-record'
 
+import { isRecord } from './llm-client/json'
 export interface RuntimeTrajectoryHookEvent {
   id: string
   runId: string
@@ -151,10 +152,6 @@ function runtimeTrajectoryRecordKey<TRecord extends RuntimeTrajectoryRecord>(
     stringOrUndefined(record.id) ??
     `record[${index}]`
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

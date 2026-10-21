@@ -28,7 +28,7 @@ import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrit
 import type { RunRecord } from '../../src/run-record'
 import { positiveIntegerEnv, positiveNumberEnv, tokenPricingFromEnv } from '../_shared/env'
 import {
-  type Artifact,
+  type ExtractionArtifact,
   BASELINE_SURFACE,
   type ExtractScenario,
   extractionJudge,
@@ -217,11 +217,11 @@ const optimizerRunner = {
 function createMethods(owners: {
   gepa?: OptimizerExecutionOwner
   skillopt?: OptimizerExecutionOwner
-}): OptimizationMethod<ExtractScenario, Artifact>[] {
-  const methods: OptimizationMethod<ExtractScenario, Artifact>[] = []
+}): OptimizationMethod<ExtractScenario, ExtractionArtifact>[] {
+  const methods: OptimizationMethod<ExtractScenario, ExtractionArtifact>[] = []
   if (selectedNames.includes('gepa')) {
     methods.push(
-      gepaOptimizationMethod<ExtractScenario, Artifact>({
+      gepaOptimizationMethod<ExtractScenario, ExtractionArtifact>({
         name: 'gepa',
         objective: PROPOSER_TARGET,
         background:
@@ -241,7 +241,7 @@ function createMethods(owners: {
   }
   if (selectedNames.includes('skillopt')) {
     methods.push(
-      skillOptOptimizationMethod<ExtractScenario, Artifact>({
+      skillOptOptimizationMethod<ExtractScenario, ExtractionArtifact>({
         name: 'skillopt',
         objective: PROPOSER_TARGET,
         background:
@@ -273,7 +273,7 @@ function describeScenario(scenario: ExtractScenario) {
   }
 }
 
-function describeArtifact(artifact: Artifact) {
+function describeArtifact(artifact: ExtractionArtifact) {
   return {
     output: artifact.text,
     parsed: artifact.parsed,
@@ -301,7 +301,7 @@ async function main() {
   console.log(`Worker model: ${MODEL}`)
   console.log(`Cases: train=${TRAIN.length} selection=${SELECTION.length} final=${TEST.length}`)
 
-  const comparison = await compareOptimizationMethods<ExtractScenario, Artifact>({
+  const comparison = await compareOptimizationMethods<ExtractScenario, ExtractionArtifact>({
     methods,
     baselineSurface: BASELINE_SURFACE,
     trainScenarios: TRAIN,

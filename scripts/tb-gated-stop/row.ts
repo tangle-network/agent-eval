@@ -1,6 +1,7 @@
 import { injectedTestOracle, MINI_SWE_SYSTEM_MESSAGE, parseAction, renderFormatErrorObservation, renderInstanceMessage, renderObservation, renderTimeoutObservation, submissionOf } from '../../src/trace-repair'
 import { parseRecordedReturncode } from '../../src/trajectory-replay/steps'
-import { PRICING, STEP_TIMEOUT_SECONDS, REPLAY_TIMEOUT_MS, GRADE_TIMEOUT_MS } from './settings'
+import { STEP_TIMEOUT_SECONDS, REPLAY_TIMEOUT_MS, GRADE_TIMEOUT_MS } from './settings'
+import { ZAI_GLM_PRICING } from '../zai-glm-pricing'
 import { type CorpusRow } from './corpus'
 import { type TaskFixture, openContainer } from './container'
 import { callModel } from './model'
@@ -166,8 +167,8 @@ export async function runRow(options: RunRowOptions): Promise<RowRun> {
     await session.close()
   }
   record.costUsd =
-    (record.promptTokens / 1e6) * PRICING.inputUsdPerMillion +
-    (record.completionTokens / 1e6) * PRICING.outputUsdPerMillion
+    (record.promptTokens / 1e6) * ZAI_GLM_PRICING.inputUsdPerMillion +
+    (record.completionTokens / 1e6) * ZAI_GLM_PRICING.outputUsdPerMillion
   record.wallMs = Date.now() - startedMs
   return record
 }

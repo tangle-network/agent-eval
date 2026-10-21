@@ -26,7 +26,7 @@ import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrit
 import type { RunRecord } from '../../src/run-record'
 import { positiveIntegerEnv, positiveNumberEnv, tokenPricingFromEnv } from '../_shared/env'
 import {
-  type Artifact,
+  type ExtractionArtifact,
   type ExtractScenario,
   extractionJudge,
   makeExtractionWorker,
@@ -171,7 +171,7 @@ const optimizerCall = openAiCompatibleExecutionOwner({
   timeoutMs: CALL_TIMEOUT_MS,
 })
 
-const gepa = gepaOptimizationMethod<ExtractScenario, Artifact>({
+const gepa = gepaOptimizationMethod<ExtractScenario, ExtractionArtifact>({
   name: 'gepa',
   objective:
     'Improve the system prompt so the agent extracts merchant, amount, date, and category ' +
@@ -202,7 +202,7 @@ const gepa = gepaOptimizationMethod<ExtractScenario, Artifact>({
 
 // ── One call: search, held-out re-score, release decision ───────────────
 async function main() {
-  const result = await selfImprove<ExtractScenario, Artifact>({
+  const result = await selfImprove<ExtractScenario, ExtractionArtifact>({
     agent: (surface, s, ctx) => worker(String(surface), s, ctx),
     scenarios,
     judge: extractionJudge(scenarios),

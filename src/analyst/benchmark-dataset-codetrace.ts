@@ -11,11 +11,11 @@ import type {
 import {
   assertStepWithinRange,
   defaultStepUri,
-  isRecord,
   nonEmpty,
   positiveStep,
   predictionConfidence,
 } from './benchmark-dataset-utils'
+import { isRecord } from '../llm-client/json'
 import { type AnalystFinding, makeFinding } from './types'
 
 export function codeTraceBenchCase<TInput>(
