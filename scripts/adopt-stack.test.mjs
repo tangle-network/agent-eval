@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,10 +20,10 @@ async function latest(name) {
   return (await response.json()).version
 }
 
-function dryRun(fixture) {
+function dryRun(fixture, ...extra) {
   const manifest = join(fixtures, fixture, 'package.json')
   const before = readFileSync(manifest, 'utf8')
-  const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, fixture), '--dry-run', '--json'], { encoding: 'utf8' })
+  const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, fixture), '--dry-run', '--json', ...extra], { encoding: 'utf8' })
   expect(result.status, result.stderr).toBe(0)
   expect(readFileSync(manifest, 'utf8')).toBe(before)
   return { plan: JSON.parse(result.stdout), pkg: JSON.parse(before) }
@@ -63,6 +63,23 @@ describe('adopt-stack --dry-run against npm', () => {
     expectAdopted(plan, pkg, '@tangle-network/agent-runtime', version)
     // Alias pins such as agent-eval-0204 (npm:@tangle-network/agent-eval@0.204.0) stay as written.
     expect(plan.edits.some((edit) => !edit.name.startsWith('@tangle-network/'))).toBe(false)
+  }, 60_000)
+
+  test('a post-pin command sees the pinned manifest and its second file joins the plan', async () => {
+    const version = await latest('@tangle-network/agent-eval')
+    // Like agent-app's template pins: a second file derived from the adopted pins.
+    const sync = `node -e "const p = require('./package.json'); require('node:fs').mkdirSync('template', { recursive: true }); require('node:fs').writeFileSync('template/_package.json', JSON.stringify(p.devDependencies))"`
+    const { plan, pkg } = dryRun('agent-knowledge', '--post-pin', sync)
+    expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
+    expect(plan.postPin).toEqual({ command: sync, changed: ['template/_package.json'] })
+    expect(existsSync(join(fixtures, 'agent-knowledge', 'template'))).toBe(false)
+  }, 60_000)
+
+  test('a failing post-pin command fails the run with its output', () => {
+    const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, 'agent-knowledge'), '--dry-run', '--post-pin', 'echo peer floors stale >&2; exit 3'], { encoding: 'utf8' })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/post-pin `echo peer floors stale >&2; exit 3` exited 3; nothing was committed:\npeer floors stale/)
+    expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
   test('the human plan names the pull request and changes nothing', () => {
@@ -139,7 +156,7 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
     const adopt = (gate, ...extra) => {
       const work = join(root, `work-${++runs}`)
       git(root, 'clone', '-q', remote, work)
-      return spawnSync(process.execPath, [script, '--gate', gate, '--default-branch', 'main', ...extra], { cwd: work, env, encoding: 'utf8' })
+      return { work, ...spawnSync(process.execPath, [script, '--gate', gate, '--default-branch', 'main', ...extra], { cwd: work, env, encoding: 'utf8' }) }
     }
     const pass = 'echo gate >> "$GATE_LOG"'
     const fail = 'echo gate >> "$GATE_LOG"; exit 1'
@@ -148,6 +165,8 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
       git(root, 'init', '-q', '--bare', '-b', 'main', remote)
       git(root, 'init', '-q', '-b', 'main', seed)
       pinBrand('1.25.0')
+      // A tracked file the post-pin command rewrites, like agent-app's peer floors.
+      writeFileSync(join(seed, 'floors.json'), '{}\n')
       writeFileSync(join(seed, 'pnpm-workspace.yaml'), 'autoInstallPeers: false\nminimumReleaseAgeExclude:\n  - "@tangle-network/*"\n')
       execFileSync('pnpm', ['install', '--lockfile-only'], { cwd: seed, env, stdio: 'pipe' })
       git(seed, 'add', '.')
@@ -187,13 +206,28 @@ describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
       expect(retried.status, retried.stderr).toBe(0)
       expect(marker()).toEqual([changedPlan, 'pass'])
       expect(gates()).toBe(3)
+      const retriedHead = branchHead()
 
-      const merged = adopt(pass, '--merge')
+      // A failing post-pin command fails the run with its output before the
+      // gate, the branch switch or any commit; the proposal stays as it was.
+      const mainHead = git(root, 'ls-remote', remote, 'refs/heads/main').split(/\s/)[0]
+      const refused = adopt(pass, '--post-pin', 'echo peer floors stale >&2; exit 3')
+      expect(refused.status).toBe(1)
+      expect(refused.stderr).toMatch(/post-pin `echo peer floors stale >&2; exit 3` exited 3; nothing was committed:\npeer floors stale/)
+      expect([gates(), branchHead(), marker()]).toEqual([3, retriedHead, [changedPlan, 'pass']])
+      expect([git(refused.work, 'branch', '--show-current'), git(refused.work, 'rev-parse', 'HEAD')]).toEqual(['main', mainHead])
+
+      // A post-pin command is part of the plan, so it re-gates; the files it
+      // creates or edits join the adoption commit and the pull request body.
+      const sync = `node -e "const fs = require('node:fs'), pins = JSON.stringify(require('./package.json').devDependencies); fs.writeFileSync('template.json', pins); fs.writeFileSync('floors.json', pins)"`
+      const merged = adopt(pass, '--merge', '--post-pin', sync)
       expect(merged.status, merged.stderr).toBe(0)
       expect(gates()).toBe(4)
       expect(prs()[0]).toMatchObject({ state: 'merged', mergedHead: branchHead() })
+      expect(prs()[0].body).toContain(`Post-pin: \`${sync}\` changed \`floors.json\`, \`template.json\`.`)
       const adopted = JSON.parse(git(remote, 'show', `${branchHead()}:package.json`))
       expect(adopted.devDependencies[brand]).toBe(latestBrand)
+      for (const file of ['template.json', 'floors.json']) expect(JSON.parse(git(remote, 'show', `${branchHead()}:${file}`))[brand]).toBe(latestBrand)
       expect(git(remote, 'log', '-1', '--format=%an', branchHead())).toBe('github-actions[bot]')
     } finally {
       rmSync(root, { recursive: true, force: true })

@@ -17,6 +17,7 @@
 #       uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@main
 #       with:
 #         gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+#         post-pin: pnpm sync:pins
 #         runs-on: '["self-hosted", "beelink"]'
 #         default-branch: master
 #         merge: true
@@ -40,6 +41,10 @@ on:
         default: ''
       gate:
         description: "The caller's acceptance command, run from its checkout after the install"
+        type: string
+        default: ''
+      post-pin:
+        description: "The caller's own sync step, run from its checkout after the pins and install and before the gate; the files it changes join the adoption commit"
         type: string
         default: ''
       runs-on:
@@ -104,7 +109,8 @@ jobs:
           GH_TOKEN: ${{ secrets.token || github.token }}
           PACKAGES: ${{ inputs.packages }}
           GATE: ${{ inputs.gate }}
+          POST_PIN: ${{ inputs.post-pin }}
           DEFAULT_BRANCH: ${{ inputs.default-branch }}
           MERGE: ${{ inputs.merge && '--merge' || '' }}
           DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
-        run: node ../adopt-stack/scripts/adopt-stack.mjs --packages "$PACKAGES" --gate "$GATE" --default-branch "$DEFAULT_BRANCH" $MERGE $DRY_RUN
+        run: node ../adopt-stack/scripts/adopt-stack.mjs --packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --default-branch "$DEFAULT_BRANCH" $MERGE $DRY_RUN

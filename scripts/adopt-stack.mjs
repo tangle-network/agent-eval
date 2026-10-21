@@ -32,16 +32,25 @@
 // latest is refused the same way. An unparseable range in an adopted release's
 // own peers is skipped with a warning instead of aborting every package.
 //
+// `--post-pin CMD` runs the caller's own sync step (template pins, peer floors
+// and other rules only the caller knows) in its checkout after the pins and the
+// lockfile are written and before the gate. Every file it changes is committed
+// in the adoption commit and listed in the pull request body; the command is
+// part of the plan hash, so changing it re-gates. A failing command fails the
+// run with its output before anything is committed. A dry run runs it in a
+// throwaway copy of the pinned manifest without an install and lists the files
+// it would change.
+//
 // The semver subset below is hand-written because the script runs from a
 // sparse checkout in each caller with no installed dependencies.
 //
 // usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b] [--gate CMD]
-//          [--default-branch main] [--merge] [--dry-run] [--json]
+//          [--post-pin CMD] [--default-branch main] [--merge] [--dry-run] [--json]
 // Without --dry-run it needs git, gh (GH_TOKEN with contents and pull-requests:
 // write) and the caller's package manager.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -270,9 +279,13 @@ export function titleOf(edits) {
   return `chore(deps): adopt ${pin.name} ${pin.version}`
 }
 
-/** A digest of the edits alone, so the same plan always hashes the same. */
-export function planHash(edits) {
+/**
+ * A digest of the edits and the post-pin command, so the same plan always
+ * hashes the same. Without a post-pin command the hash is the edits' alone.
+ */
+export function planHash(edits, postPin = '') {
   const rows = edits.map(({ file, section, name, from, to }) => [file, section, name, from, to]).map((row) => JSON.stringify(row)).sort()
+  if (postPin) rows.push(JSON.stringify(['post-pin', postPin]))
   return createHash('sha256').update(rows.join('\n')).digest('hex').slice(0, 16)
 }
 
@@ -298,21 +311,69 @@ function install(dir) {
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
 
-function body(result, gate, hash, outcome, head) {
+/** Files under `dir` that differ from the index or are untracked, with a digest of each (null when deleted). */
+function dirty(dir) {
+  const list = (argv) => out('git', argv, dir).split('\0').filter(Boolean)
+  const paths = new Set([...list(['diff', '--name-only', '-z', '--relative']), ...list(['ls-files', '--others', '--exclude-standard', '-z'])])
+  return new Map([...paths].map((path) => [path, digest(join(dir, path))]))
+}
+
+/** A file's content digest; a symlink (pnpm links directories) by its target, a nested repository as itself. */
+function digest(path) {
+  const stat = lstatSync(path, { throwIfNoEntry: false })
+  if (!stat) return null
+  if (stat.isSymbolicLink()) return `link:${readlinkSync(path)}`
+  if (!stat.isFile()) return 'directory'
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+/**
+ * Run the caller's post-pin command in `dir` and return the files it changed,
+ * so files already dirty before it (the pins, the lockfile) count only when it
+ * changed them again. A non-zero exit throws with the command's output.
+ */
+function postPin(dir, command) {
+  const before = dirty(dir)
+  // Everything goes to stderr, so a --json plan on stdout stays parseable.
+  console.error(`adopt-stack: post-pin: ${command}`)
+  const ran = spawnSync('bash', ['-c', command], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  process.stderr.write(ran.stdout + ran.stderr)
+  if (ran.status !== 0) {
+    throw new Error(`post-pin \`${command}\` ${ran.status === null ? `died (${ran.signal ?? ran.error?.message})` : `exited ${ran.status}`}; nothing was committed:\n${`${ran.stdout}${ran.stderr}`.trim()}`)
+  }
+  return [...dirty(dir)].filter(([path, digest]) => before.get(path) !== digest).map(([path]) => path).sort()
+}
+
+/** The files `postPin` would change, run in a throwaway copy of `dir` holding the pinned manifest; no install runs. */
+function previewPostPin(dir, result, command) {
+  const copy = mkdtempSync(join(tmpdir(), 'adopt-stack-post-pin-'))
+  try {
+    cpSync(dir, copy, { recursive: true, filter: (source) => !/(^|[\\/])(\.git|node_modules)$/.test(source) })
+    // The copy's index records the tree before the pins, like the caller's checkout.
+    if (!run('git', ['init', '-q'], copy) || !run('git', ['add', '-A'], copy)) throw new Error('could not prepare the post-pin preview copy')
+    write(copy, result)
+    return postPin(copy, command)
+  } finally {
+    rmSync(copy, { recursive: true, force: true })
+  }
+}
+
+function body(result, gate, hash, outcome, head, synced) {
   const rows = result.edits.map((e) => `| \`${e.name}\` | ${e.file} ${e.section} | \`${e.from}\` | \`${e.to}\` | ${e.why} |`)
   return [
     `Adopts the newest ${SCOPE}* releases (agent-eval scripts/adopt-stack.mjs, run by .github/workflows/adopt-stack.yml).`,
     '',
     '| package | where | from | to | why |', '|---|---|---|---|---|', ...rows, '',
+    ...(synced.command ? [`Post-pin: \`${synced.command}\` ${synced.files.length ? `changed ${synced.files.map((file) => `\`${file}\``).join(', ')}` : 'changed no files'}.`, ''] : []),
     `Gate: \`${gate}\` on ${head.slice(0, 12)}: ${outcome === 'gate-fail' ? 'failed' : 'passed'}.`,
     '',
     `<!-- adopt-stack:plan=${hash} result=${outcome} -->`,
   ].join('\n')
 }
 
-async function deliver(dir, result, { gate, defaultBranch, merge }) {
+async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge }) {
   const title = titleOf(result.edits)
-  const hash = planHash(result.edits)
+  const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body']))[0]
   const recorded = MARKER.exec(open?.body ?? '')
@@ -320,18 +381,20 @@ async function deliver(dir, result, { gate, defaultBranch, merge }) {
 
   write(dir, result)
   install(dir)
+  const synced = { command, files: command ? postPin(dir, command) : [] }
   const base = out('git', ['rev-parse', 'HEAD'], dir)
   log(`gate: ${gate}`)
   const green = run('bash', ['-c', gate], dir)
 
   const files = ['package.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
-  if (!run('git', ['switch', '-q', '-C', BRANCH], dir) || !run('git', ['add', '--', ...files], dir)) throw new Error('could not stage the adoption')
+  // -A stages a file the post-pin command deleted.
+  if (!run('git', ['switch', '-q', '-C', BRANCH], dir) || !run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
   if (!run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
   // The adoption branch belongs to this workflow; a newer plan replaces its head.
   if (!run('git', ['push', '-q', '--force', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
-  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head))
+  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced))
   let number = open?.number
   if (number) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
   else {
@@ -354,7 +417,7 @@ async function deliver(dir, result, { gate, defaultBranch, merge }) {
   }
   const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
   if (merged.status !== 0) {
-    writeFileSync(bodyFile, body(result, gate, hash, 'merge-refused', head))
+    writeFileSync(bodyFile, body(result, gate, hash, 'merge-refused', head, synced))
     gh(['pr', 'edit', String(number), '--body-file', bodyFile])
     comment(`Gate passed on ${head.slice(0, 12)}, but the merge was refused:\n\n\`\`\`\n${(merged.stderr || merged.stdout).trim()}\n\`\`\`\n\nNo admin merge or protection bypass was attempted.`)
     throw new Error(`merging #${number} was refused`)
@@ -368,6 +431,7 @@ function options(argv) {
     dir: resolve(value('--dir', '.')),
     packages: value('--packages', '').split(/[\s,]+/).filter(Boolean),
     gate: value('--gate', '').trim(),
+    postPin: value('--post-pin', '').trim(),
     defaultBranch: value('--default-branch', 'main'),
     merge: argv.includes('--merge'),
     dryRun: argv.includes('--dry-run'),
@@ -378,6 +442,9 @@ function options(argv) {
 async function main() {
   const opts = options(process.argv.slice(2))
   const result = await plan(opts.dir, opts.packages)
+  if (opts.dryRun && opts.postPin && result.edits.length) {
+    result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
+  }
   const { files: _files, ...printable } = result
   if (opts.json) {
     console.log(JSON.stringify(printable, null, 2))
@@ -386,10 +453,11 @@ async function main() {
     for (const p of result.packages) log(`${p.name}: npm latest ${p.latest}${p.target !== p.latest ? `, held at ${p.target} (${p.why})` : ''}`)
     for (const h of result.held) if (!result.packages.some((p) => p.name === h.name)) log(`${h.name}: sibling moves to ${h.target} (${h.why})`)
     for (const e of result.edits) log(`${e.file} ${e.section} ${e.name}: ${e.from} -> ${e.to} (${e.why})`)
+    if (result.postPin) log(`post-pin would change ${result.postPin.changed.join(', ') || 'no files'} (given the pinned manifest, without an install)`)
   }
   for (const warning of result.warnings) console.error(`adopt-stack: warning: ${warning}`)
   if (!result.edits.length) return log('nothing to adopt')
-  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits)})${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
+  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits, opts.postPin)})${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
   if (!opts.gate) throw new Error('--gate is required without --dry-run')
   await deliver(opts.dir, result, opts)
 }
