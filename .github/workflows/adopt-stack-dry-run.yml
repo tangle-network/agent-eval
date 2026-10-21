@@ -1,6 +1,8 @@
 # Exercise the reusable adoption workflow on every push. agent-eval's own
-# @tangle-network ranges already cover npm latest, so the plan is usually empty;
-# this proves the workflow wiring and the pushed script against the registry.
+# @tangle-network ranges already cover npm latest, so its plan is usually empty
+# and this caller proves only the workflow wiring and the pushed script against
+# the registry. scripts/adopt-stack.test.mjs proves the plans (two recorded
+# caller manifests) and the delivery path (local git remote, stand-in gh).
 name: Adopt stack (dry run)
 
 on:

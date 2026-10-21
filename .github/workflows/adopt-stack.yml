@@ -22,6 +22,10 @@
 #         merge: true
 #       secrets: inherit
 #
+# Each caller runs scripts/adopt-stack.mjs from agent-eval `stack-ref` (default
+# main) with a write-scoped token; pin `uses:` and `stack-ref` to a sha to take
+# script changes only on purpose.
+#
 # A merge made with the default workflow token starts no push workflow in the
 # caller. Pass a `token` secret (a PAT or app token) when the merge must trigger
 # deploys; otherwise the job's own token is used.

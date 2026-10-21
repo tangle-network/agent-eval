@@ -6,30 +6,42 @@
 //
 // Rules carried over from gtm-agent scripts/agent-app-bump.mjs and
 // discovery-lab .github/workflows/runtime-bump.yml:
-// - One open adoption branch (`chore/adopt-stack`). A newer plan replaces its
-//   head; an open pull request for the same plan is left alone.
+// - One open adoption branch (`chore/adopt-stack`). The pull request body
+//   records a hash of the plan's edits and the last result. A run skips only
+//   when the open pull request records the same hash and a passed gate (and
+//   `--merge` is off); any other plan, a failed gate or a refused merge is
+//   re-gated and replaces the head. A missing or edited marker counts as a
+//   different plan, so the failure mode is one extra gate run.
 // - Commits use the Actions bot identity, because self-hosted runners have no
 //   git identity and the first discovery-lab bumps died at their first commit.
 // - The new releases' peer ranges decide the sibling pins: a sibling the caller
 //   pins outside an adopted release's peer range moves to the newest version
 //   inside every such range, even when that holds it below npm latest.
-// - The install uses a fresh metadata cache, because a shared pnpm cache can
-//   predate a release that npm already serves.
+// - The adopted versions are exact pins, so the install refetches metadata for
+//   a version its cache has not seen; no cache override is needed.
 // - It merges only a head whose base is still the default branch head, so the
 //   merged tree is the one the gate passed. No admin merge is attempted.
 //
 // Widening keeps the lower bound of the range's last alternative and moves its
-// upper bound to the next breaking release after latest: <0.(m+1).0 for a 0.m.x
-// release, <(M+1).0.0 for M.x.y with M >= 1 (agent-knowledge and
-// agent-interface are past 1.0, so refusing majors would park the same
-// deliveries). A range that already covers latest is left as written.
+// upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
+// unless a sibling rule holds it lower; a peer never claims a version the gate
+// did not run. A range that already covers the version is left as written.
+// Packages past 1.0 (agent-knowledge, agent-interface) are pinned like any
+// other, but a range that excludes a new major is refused with a non-zero exit:
+// a major is a breaking release a person widens on purpose. A prerelease npm
+// latest is refused the same way. An unparseable range in an adopted release's
+// own peers is skipped with a warning instead of aborting every package.
+//
+// The semver subset below is hand-written because the script runs from a
+// sparse checkout in each caller with no installed dependencies.
 //
 // usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b] [--gate CMD]
 //          [--default-branch main] [--merge] [--dry-run] [--json]
 // Without --dry-run it needs git, gh (GH_TOKEN with contents and pull-requests:
 // write) and the caller's package manager.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -39,6 +51,7 @@ const BRANCH = 'chore/adopt-stack'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com']
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
 const EXACT = /^\d+\.\d+\.\d+$/
+const MARKER = /<!-- adopt-stack:plan=([0-9a-f]+) result=(pass|gate-fail|merge-refused) -->/
 
 // ---- semver: release versions and the range grammar package.json uses ----
 
@@ -50,11 +63,6 @@ function release(text) {
 
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 const format = (v) => v.join('.')
-
-/** The next version that semver treats as breaking after `v`. */
-function nextBreaking(v) {
-  return v[0] > 0 ? [v[0] + 1, 0, 0] : [0, v[1] + 1, 0]
-}
 
 /** A partial version such as `1`, `1.2`, `1.2.x` as [major, minor|null, patch|null]. */
 function partial(text) {
@@ -95,6 +103,16 @@ function comparators(alternative) {
   return out
 }
 
+/** Whether every alternative of `range` is in the grammar above. */
+function parses(range) {
+  try {
+    for (const alternative of range.split('||')) comparators(alternative)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Whether release version `version` satisfies `range` (`||`, caret, tilde, x and hyphen ranges). */
 export function satisfies(version, range) {
   const v = release(version)
@@ -111,12 +129,13 @@ export function widenRange(range, latest) {
   const v = release(latest)
   if (!v) throw new Error(`${latest} is not a release version`)
   if (satisfies(latest, range)) return range
+  if (v[0] > 0) throw new Error(`"${range}" excludes ${latest}, a new major release; widen it by hand`)
   const alternatives = range.split('||').map((part) => part.trim())
   const lower = comparators(alternatives.at(-1)).filter(([op]) => op === '>=').map(([, bound]) => bound)
     .sort(compare).at(-1)
   if (!lower) throw new Error(`cannot widen "${range}": its last alternative has no lower bound`)
   if (compare(lower, v) > 0) throw new Error(`cannot widen "${range}": its lower bound is above ${latest}`)
-  alternatives[alternatives.length - 1] = `>=${format(lower)} <${format(nextBreaking(v))}`
+  alternatives[alternatives.length - 1] = `>=${format(lower)} <0.${v[1] + 1}.0`
   return alternatives.join(' || ')
 }
 
@@ -192,10 +211,15 @@ export async function plan(dir, requested = []) {
     if (name.startsWith(SCOPE) && name !== pkg.name) pinned.set(name, spec)
   }
   const constraints = new Map()
+  const warnings = []
   for (const name of names) {
     const { latest } = targets.get(name)
     for (const [peer, range] of Object.entries((await doc(name)).versions[latest]?.peerDependencies ?? {})) {
       if (!pinned.has(peer) || peer === name) continue
+      if (!parses(range)) {
+        warnings.push(`${name}@${latest} peers ${peer} "${range}", a range this script cannot read; that constraint is skipped`)
+        continue
+      }
       constraints.set(peer, [...(constraints.get(peer) ?? []), { by: `${name}@${latest}`, range }])
     }
   }
@@ -217,8 +241,9 @@ export async function plan(dir, requested = []) {
   for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
     const entry = targets.get(name)
     if (!entry || !names.includes(name)) continue
-    const to = widenRange(range, entry.latest)
-    if (to !== range) edits.push({ file: 'package.json', section: 'peerDependencies', name, from: range, to, version: entry.latest, why: `upper bound widened to include npm latest ${entry.latest}` })
+    const to = widenRange(range, entry.target)
+    const pinnedAt = entry.target === entry.latest ? `npm latest ${entry.target}` : `${entry.target}, the version pinned`
+    if (to !== range) edits.push({ file: 'package.json', section: 'peerDependencies', name, from: range, to, version: entry.target, why: `upper bound widened to include ${pinnedAt}` })
   }
   const workspacePath = join(dir, 'pnpm-workspace.yaml')
   const workspace = existsSync(workspacePath) ? catalogEdits(readFileSync(workspacePath, 'utf8'), targets) : { edits: [] }
@@ -229,16 +254,26 @@ export async function plan(dir, requested = []) {
     held: [...targets].filter(([name, entry]) => !names.includes(name) || entry.target !== entry.latest)
       .map(([name, entry]) => ({ name, ...entry })),
     edits,
+    warnings,
     files: { manifestText, pkg, workspaceText: workspace.text },
   }
 }
 
-/** One package: `chore(deps): adopt <package> <version>`; several share one pull request. */
+/**
+ * The pull request title, a label only: `chore(deps): adopt <package> <version>`
+ * for one package; several share one pull request. planHash is its identity.
+ */
 export function titleOf(edits) {
   const names = [...new Set(edits.map((edit) => edit.name))]
   if (names.length > 1) return `chore(deps): adopt ${names.length} ${SCOPE}* packages`
   const pin = edits.find((edit) => edit.section !== 'peerDependencies') ?? edits[0]
   return `chore(deps): adopt ${pin.name} ${pin.version}`
+}
+
+/** A digest of the edits alone, so the same plan always hashes the same. */
+export function planHash(edits) {
+  const rows = edits.map(({ file, section, name, from, to }) => [file, section, name, from, to]).map((row) => JSON.stringify(row)).sort()
+  return createHash('sha256').update(rows.join('\n')).digest('hex').slice(0, 16)
 }
 
 // ---- effects ----
@@ -257,32 +292,31 @@ function write(dir, result) {
 
 function install(dir) {
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
-    const cache = mkdtempSync(join(tmpdir(), 'adopt-stack-metadata-'))
-    try {
-      if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir, { PNPM_CONFIG_CACHE_DIR: cache })) throw new Error('pnpm install failed for the new pins')
-    } finally {
-      rmSync(cache, { recursive: true, force: true })
-    }
+    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
   } else if (existsSync(join(dir, 'package-lock.json'))) {
     if (!run('npm', ['install', '--prefer-online'], dir)) throw new Error('npm install failed for the new pins')
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
 
-function body(result, gate, green, head) {
+function body(result, gate, hash, outcome, head) {
   const rows = result.edits.map((e) => `| \`${e.name}\` | ${e.file} ${e.section} | \`${e.from}\` | \`${e.to}\` | ${e.why} |`)
   return [
     `Adopts the newest ${SCOPE}* releases (agent-eval scripts/adopt-stack.mjs, run by .github/workflows/adopt-stack.yml).`,
     '',
     '| package | where | from | to | why |', '|---|---|---|---|---|', ...rows, '',
-    `Gate: \`${gate}\` on ${head.slice(0, 12)}: ${green ? 'passed' : 'failed'}.`,
+    `Gate: \`${gate}\` on ${head.slice(0, 12)}: ${outcome === 'gate-fail' ? 'failed' : 'passed'}.`,
+    '',
+    `<!-- adopt-stack:plan=${hash} result=${outcome} -->`,
   ].join('\n')
 }
 
 async function deliver(dir, result, { gate, defaultBranch, merge }) {
   const title = titleOf(result.edits)
+  const hash = planHash(result.edits)
   const gh = (argv) => out('gh', argv, dir)
-  const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,title']))[0]
-  if (open?.title === title) return log(`#${open.number} already proposes "${title}"`)
+  const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body']))[0]
+  const recorded = MARKER.exec(open?.body ?? '')
+  if (recorded?.[1] === hash && recorded[2] === 'pass' && !merge) return log(`#${open.number} already proposes plan ${hash} and passed its gate`)
 
   write(dir, result)
   install(dir)
@@ -297,7 +331,7 @@ async function deliver(dir, result, { gate, defaultBranch, merge }) {
   if (!run('git', ['push', '-q', '--force', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
-  writeFileSync(bodyFile, body(result, gate, green, head))
+  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head))
   let number = open?.number
   if (number) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
   else {
@@ -308,7 +342,7 @@ async function deliver(dir, result, { gate, defaultBranch, merge }) {
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
   if (!green) {
-    comment(`Gate \`${gate}\` failed on ${head.slice(0, 12)}. Left open for a fix; the next release replaces this head.`)
+    comment(`Gate \`${gate}\` failed on ${head.slice(0, 12)}. Left open; the next run re-gates it.`)
     throw new Error(`#${number} failed its gate`)
   }
   if (!merge) return log('merge is off; left open')
@@ -320,6 +354,8 @@ async function deliver(dir, result, { gate, defaultBranch, merge }) {
   }
   const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
   if (merged.status !== 0) {
+    writeFileSync(bodyFile, body(result, gate, hash, 'merge-refused', head))
+    gh(['pr', 'edit', String(number), '--body-file', bodyFile])
     comment(`Gate passed on ${head.slice(0, 12)}, but the merge was refused:\n\n\`\`\`\n${(merged.stderr || merged.stdout).trim()}\n\`\`\`\n\nNo admin merge or protection bypass was attempted.`)
     throw new Error(`merging #${number} was refused`)
   }
@@ -351,8 +387,9 @@ async function main() {
     for (const h of result.held) if (!result.packages.some((p) => p.name === h.name)) log(`${h.name}: sibling moves to ${h.target} (${h.why})`)
     for (const e of result.edits) log(`${e.file} ${e.section} ${e.name}: ${e.from} -> ${e.to} (${e.why})`)
   }
+  for (const warning of result.warnings) console.error(`adopt-stack: warning: ${warning}`)
   if (!result.edits.length) return log('nothing to adopt')
-  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}"${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
+  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits)})${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
   if (!opts.gate) throw new Error('--gate is required without --dry-run')
   await deliver(opts.dir, result, opts)
 }
