@@ -8,7 +8,8 @@ import { sequentialPairedGate } from '../../../src/campaign/gates/sequential.ts'
 import type { JudgeScore } from '../../../src/campaign/types.ts'
 import { HoldoutAuditor } from '../../../src/contamination-guard.ts'
 import { selfImprove } from '../../../src/contract/self-improve.ts'
-import { evaluatePowerFloorGate } from '../../../src/experiment/ast.ts'
+import { ValidationError } from '../../../src/errors.ts'
+import { evaluatePowerFloorGate } from '../../../src/experiment/ast/validity.ts'
 import { compareCodeUnits, hashCanonical } from '../../../src/ledger-core/canonical.ts'
 import { correlationStudy } from '../../../src/meta-eval/correlation-study.ts'
 import { InMemoryOutcomeStore } from '../../../src/meta-eval/outcome-store.ts'
@@ -21,7 +22,8 @@ import { TraceEmitter } from '../../../src/trace/emitter.ts'
 import { InMemoryTraceStore } from '../../../src/trace/store.ts'
 
 // These diagnostics record behavior without asserting that a defect must remain.
-const reviewedBaseRevision = 'fe1cc5111aab5d588bf7db3a3785325635937a91'
+const reviewedObservations = JSON.parse(await readFile(new URL('./observations.json', import.meta.url), 'utf8'))
+const reviewedBaseRevision = reviewedObservations.reviewedBaseRevision
 const command = 'pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts'
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const sourcePaths = ['src', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json']
@@ -223,6 +225,13 @@ async function adaptationPairing() {
   const b = await runAdaptationCurve<{ scenarioId: string; score: number }>({
     scenarios: scenariosB, ks, reps, runner,
   })
+  let comparison: ReturnType<typeof compareAdaptationCurves> | { refused: true; code: string; message: string }
+  try {
+    comparison = compareAdaptationCurves(a, b, { seed: 1 })
+  } catch (error) {
+    if (!(error instanceof ValidationError) || !error.message.includes('scenario pairs differ')) throw error
+    comparison = { refused: true, code: error.code, message: error.message }
+  }
   return {
     inputs: {
       scenariosA,
@@ -234,7 +243,7 @@ async function adaptationPairing() {
       sameRunnerForBothArms: true,
       bootstrapSeed: 1,
     },
-    results: compareAdaptationCurves(a, b, { seed: 1 }),
+    results: comparison,
     limitations: [
       'The two arms differ in task difficulty; zero task identities overlap.',
       'This probes the adaptation helper, not the separately implemented campaign paired comparison.',
@@ -278,6 +287,7 @@ async function negativeOutcomeDirection() {
   }))
   const runs: RunRecord[] = []
   const outcomes = new InMemoryOutcomeStore()
+  const targetOutcome = { id: 'success_rate', direction: 'higher-is-better' as const }
   for (const [i, row] of rows.entries()) {
     const runId = `direction-fixture-${i}`
     runs.push({
@@ -307,14 +317,14 @@ async function negativeOutcomeDirection() {
   const report = await rubricPredictiveValidity({
     runs,
     outcomes,
-    outcomeMetrics: ['success_rate'],
+    outcomeMetrics: [targetOutcome],
     rubrics: ['quality'],
     seed: 1,
     bootstrapResamples: 100,
   })
   const researcher = new PredictiveValidityResearcher({
     outcomes,
-    outcomeMetrics: ['success_rate'],
+    targetOutcome,
     rubrics: ['quality'],
   })
   const researcherReport = await researcher.runValidityCheck(runs)
@@ -325,8 +335,7 @@ async function negativeOutcomeDirection() {
       n: rows.length,
       rows,
       rubric: 'quality',
-      outcome: 'success_rate',
-      desiredOutcomeDirection: 'increase',
+      outcome: targetOutcome,
       seed: 1,
       bootstrapResamples: 100,
       researcherBootstrapResamples: 500,
@@ -347,9 +356,8 @@ async function negativeOutcomeDirection() {
       },
     },
     limitations: [
-      'Magnitude-based bucketing is intentional in existing tests, despite contradictory interface prose.',
-      'A negative association can be desirable for an outcome such as failure rate; direction needs explicit interpretation.',
-      'The researcher recommends increasing rubric weight despite its negative association with desired success rate; it does not execute or deploy that recommendation.',
+      'The desired outcome direction is explicit; association remains descriptive and does not authorize a rubric change.',
+      'The researcher reports recommendations; this diagnostic does not execute or deploy them.',
       'Constructed perfect correlation establishes neither causal validity nor held-out predictive performance.',
     ],
   }
@@ -411,6 +419,7 @@ function powerFloor() {
   const gate = {
     kind: 'power-floor' as const,
     target: 0.8,
+    minimumEffect: 0.01,
     effectGrid: [0.01, 1],
     sim: { trials: 1, resamples: 1, seed: 1 },
   }
@@ -419,14 +428,13 @@ function powerFloor() {
     inputs: {
       gate,
       curve,
-      practicalEffectForInterpretation: 0.01,
+      practicalEffectForInterpretation: gate.minimumEffect,
       curveSource: 'Supplied deterministic fixture; no power simulation is run.',
     },
     results: evaluatePowerFloorGate('floor', gate, curve),
     limitations: [
-      'The inspected gate documents a maximum-over-grid structural feasibility check; this output matches that contract.',
-      'Passing this gate does not establish target power at the practical effect of 0.01.',
-      'The fixture powers are inputs, not measured or simulated power estimates.',
+      'The gate compares power at minimumEffect with target; power 0.1 at effect 0.01 fails despite maximum power 1.',
+      'The fixture powers are supplied diagnostic inputs, not measured or simulated estimates.',
     ],
   }
 }
@@ -454,23 +462,7 @@ const observations = {
     sequentialDependence: await sequentialDependence(),
     powerFloor: powerFloor(),
   },
-  separateVerificationAtReviewedBase: {
-    provenance: 'Historical checks at reviewedBaseRevision; this diagnostic does not rerun them.',
-    sourceRevision: reviewedBaseRevision,
-    checks: [
-      { command: 'pnpm typecheck', result: 'passed' },
-      { command: 'pnpm build', result: 'passed' },
-      { command: 'pnpm verify:package', result: 'passed' },
-    ],
-    tests: {
-      command: 'pnpm test -- tests/experiment/preregistration-acceptance.test.ts tests/experiment/power.test.ts tests/contamination-guard.test.ts tests/rl-predictive-validity-researcher.test.ts tests/rubric-predictive-validity.test.ts tests/meta-eval.test.ts',
-      observedScope: 'The package command expanded to the full Vitest suite.',
-      files: { passed: 399, skipped: 2 },
-      tests: { passed: 5876, skipped: 3 },
-      result: 'passed',
-    },
-    limitation: 'Passing repository checks do not establish correctness of the counterexample behaviors recorded above.',
-  },
+  separateVerificationAtReviewedBase: reviewedObservations.separateVerificationAtReviewedBase,
 }
 
 console.log(JSON.stringify(observations, null, 2))
