@@ -53,7 +53,6 @@ export type {
   CodeAgentSessionObservation,
   CodeAgentSessionSource,
   CodeAgentSessionTerminalStatus,
-  ObserveCodeAgentSessionOptions,
 } from './code-agent-observation'
 export { observeCodeAgentSession } from './code-agent-observation'
 export type {

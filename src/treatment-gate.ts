@@ -38,12 +38,12 @@
  * fail-closed for harnesses where tool capture is guaranteed.
  */
 
-import type { ToolSpan } from './trace/schema'
-import type { BehavioralMetrics } from './trace-analyst/behavioral-metrics'
+
+
 
 /** A tool-name matcher: does this tool name belong to the treatment under test?
  *  The caller supplies it — the substrate ships no `search` (or any) literal. */
-export type ToolMatcher = (toolName: string) => boolean
+type ToolMatcher = (toolName: string) => boolean
 
 export interface TreatmentGateInput {
   /** Tool-call counts by tool name — exactly `computeTraceMetrics(spans).toolHistogram`.
@@ -125,38 +125,6 @@ export function gateTreatmentApplied(
   return { applied: true, gated: false, matchedCalls, observedTools }
 }
 
-/**
- * Convenience: gate from an already-computed `BehavioralMetrics` (the common
- * case — analysts already hold `computeTraceMetrics(spans)` for the run). Reads
- * the metrics' `toolHistogram`; does no re-derivation.
- */
-export function gateTreatmentFromMetrics(
-  metrics: Pick<BehavioralMetrics, 'toolHistogram'>,
-  matches: ToolMatcher,
-  opts?: TreatmentGateOptions,
-): TreatmentGate {
-  return gateTreatmentApplied({ toolHistogram: metrics.toolHistogram, matches }, opts)
-}
 
-/**
- * Convenience: gate from the trace store's canonical `ToolSpan[]` (e.g. the
- * result of `toolSpans(store, runId)`). Counts by `toolName` — the typed
- * tool-call field — so it needs no OTLP attribute extraction.
- */
-export function gateTreatmentFromToolSpans(
-  toolSpans: readonly ToolSpan[],
-  matches: ToolMatcher,
-  opts?: TreatmentGateOptions,
-): TreatmentGate {
-  const toolHistogram: Record<string, number> = {}
-  for (const s of toolSpans) {
-    if (s.toolName) toolHistogram[s.toolName] = (toolHistogram[s.toolName] ?? 0) + 1
-  }
-  return gateTreatmentApplied({ toolHistogram, matches }, opts)
-}
 
-/** Measurable runs count toward the objective; treatment-not-applied runs are
- *  excluded (like infra-loss), NOT counted as treatment failures. This is a
- *  partition over the existing exclusion-flag pattern — it adds no new
- *  classification enum. */
-export type TreatmentClass = 'measurable' | 'treatment-not-applied'
+

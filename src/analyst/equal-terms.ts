@@ -5,13 +5,13 @@ import { ValidationError } from '../errors'
  * per-kind check runs. Arm kinds (analyst definitions, repair arms) extend
  * the comparison with their own fields; the refusals here are the floor.
  */
-export interface DeclarativeArmTerms {
+interface DeclarativeArmTerms {
   readonly id: string
   /** Bounded repair turns the arm earns on a malformed reply. */
   readonly repairTurns: number
 }
 
-export interface EqualDeclarativeTerms {
+interface EqualDeclarativeTerms {
   readonly ids: readonly string[]
   readonly repairTurns: number
 }

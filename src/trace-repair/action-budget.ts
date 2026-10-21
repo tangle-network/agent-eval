@@ -49,7 +49,7 @@ export const SCAFFOLD_INTERVENTION_BUDGET: InterventionBudget = Object.freeze({
  * identical to the no-op control, and paying rollouts to rediscover that
  * wastes the corpus.
  */
-export const NO_OP_ACTIONS: readonly string[] = Object.freeze([
+const NO_OP_ACTIONS: readonly string[] = Object.freeze([
   ':',
   'true',
   '/bin/true',

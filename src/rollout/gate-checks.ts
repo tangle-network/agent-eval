@@ -124,7 +124,7 @@ export interface GateCheck {
  * A value the gate cannot read as a number is not evidence the reward is
  * cleared; it is the absence of that evidence, and the gate fails closed on it.
  */
-export type RewardReading =
+type RewardReading =
   /** `null`/`undefined` — a labeled gap, which is never a positive signal. */
   | { kind: 'absent' }
   /** A number at or below zero: the gate's own verdict, applied. */
@@ -455,9 +455,9 @@ export type GateCheckDisposition =
   /** Deliberately not applied here; `because` states the reason. */
   | { readonly kind: 'omit'; readonly because: string }
 
-export const enforced: GateCheckDisposition = { kind: 'enforce' }
-export const repairedBy = (by: string): GateCheckDisposition => ({ kind: 'repair', by })
-export const omittedBecause = (because: string): GateCheckDisposition => ({
+const enforced: GateCheckDisposition = { kind: 'enforce' }
+const repairedBy = (by: string): GateCheckDisposition => ({ kind: 'repair', by })
+const omittedBecause = (because: string): GateCheckDisposition => ({
   kind: 'omit',
   because,
 })

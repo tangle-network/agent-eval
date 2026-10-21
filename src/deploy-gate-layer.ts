@@ -21,7 +21,7 @@ import type { Layer, LayerResult } from './multi-layer-verifier'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export type DeployFamily = 'frontend-static' | 'nextjs' | 'remix' | 'fullstack-ts'
+type DeployFamily = 'frontend-static' | 'nextjs' | 'remix' | 'fullstack-ts'
 
 export interface DeployRunResult {
   ok: boolean

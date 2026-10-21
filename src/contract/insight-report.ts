@@ -31,7 +31,7 @@
 import type { RunTerminalOutcome } from '../run-record'
 import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
 import type { FailureClass } from '../trace/schema'
-import type { ContinuousAgreement } from './insight-types-fwd'
+import type { ContinuousAgreement } from '../judge-calibration'
 
 // ── Top-level report ────────────────────────────────────────────────
 

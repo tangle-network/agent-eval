@@ -94,7 +94,7 @@ export function vectorEmbedding(
  * lines it changed rather than the whole prompt. Object keys are visited in
  * code-unit order.
  */
-export function profileTextLines(value: unknown, path = '$'): string[] {
+function profileTextLines(value: unknown, path = '$'): string[] {
   if (typeof value === 'string') {
     const parts = value.split('\n')
     return parts.length === 1

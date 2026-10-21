@@ -21,7 +21,7 @@ export interface OtlpFlatLine {
   events?: Array<{ name: string; timeUnixNano?: string; attributes?: Record<string, unknown> }>
 }
 
-export interface CreateOtlpFlatLineInput {
+interface CreateOtlpFlatLineInput {
   traceId: string
   spanId: string
   parentSpanId: string | null

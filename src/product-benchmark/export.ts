@@ -455,7 +455,7 @@ function existsArtifact(artifactRoot: string, value: string): boolean {
 // ── Record + manifest construction ───────────────────────────────────
 
 /** Map one RunRecord row to a validated product benchmark record. */
-export function runRecordToProductBenchmarkRecord(
+function runRecordToProductBenchmarkRecord(
   record: RunRecord,
   runDir: string,
   artifactRoot: string,
@@ -580,7 +580,7 @@ function uniqueScenarioRecords(
 }
 
 /** Derive the bundle manifest from already-normalized records. */
-export function buildProductBenchmarkManifest(
+function buildProductBenchmarkManifest(
   records: readonly ProductBenchmarkRecord[],
   options: Pick<
     ProductBenchmarkExportOptions,

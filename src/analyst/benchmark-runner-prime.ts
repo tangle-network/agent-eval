@@ -93,16 +93,16 @@ export interface PrimeBenchmarkRunnerOptions {
   transport?: PrimeBridgeTransport
 }
 
-export class PrimeBridgeTransportError extends Error {}
-export class PrimeBridgeHttpError extends Error {
+class PrimeBridgeTransportError extends Error {}
+class PrimeBridgeHttpError extends Error {
   readonly status: number
   constructor(status: number, bodySnippet: string) {
     super(`bridge HTTP ${status}: ${bodySnippet}`)
     this.status = status
   }
 }
-export class PrimeMalformedReplyError extends Error {}
-export class PrimeTraceProjectionError extends Error {}
+class PrimeMalformedReplyError extends Error {}
+class PrimeTraceProjectionError extends Error {}
 
 /**
  * Short-strings rule: long reply strings get corrupted when the bridge splices
@@ -262,7 +262,7 @@ export function createPrimeBenchmarkRunner(
 // ── Inline execution strategy ───────────────────────────────────────
 
 /** The transport half of an inline-projection binding: the bridge endpoint. */
-export interface InlineBridgeTransports {
+interface InlineBridgeTransports {
   /** OpenAI-compatible bridge base URL. */
   baseUrl: string
   /** Bridge model id. */

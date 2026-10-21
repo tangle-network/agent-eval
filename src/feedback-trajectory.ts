@@ -15,10 +15,7 @@ import {
 export type {
   AnalystFindingDigest,
   AnalystMissedIssue,
-  AnalystReviewCounts,
   AnalystReviewDecision,
-  AnalystReviewQuality,
-  AnalystReviewSource,
   AnalystRunDigest,
 } from './feedback-trajectory-review'
 export { analystFindingDigest, analystRunDigest } from './feedback-trajectory-review'
@@ -152,7 +149,7 @@ export interface FeedbackOptimizerRow {
   metadata?: Record<string, unknown>
 }
 
-export interface FeedbackReplayResult {
+interface FeedbackReplayResult {
   trajectoryId: string
   pass: boolean
   score?: number
@@ -161,7 +158,7 @@ export interface FeedbackReplayResult {
   metadata?: Record<string, unknown>
 }
 
-export interface FeedbackReplayAdapter {
+interface FeedbackReplayAdapter {
   replay(
     trajectory: FeedbackTrajectory,
   ):
@@ -566,7 +563,7 @@ export function withAssignedFeedbackSplit(
   }
 }
 
-export function feedbackTrajectoryToDatasetScenario(
+function feedbackTrajectoryToDatasetScenario(
   trajectory: FeedbackTrajectory,
 ): DatasetScenario {
   const withSplit = withAssignedFeedbackSplit(trajectory)

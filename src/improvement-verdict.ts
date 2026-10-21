@@ -24,7 +24,7 @@ import { ValidationError } from './errors'
 
 /** Verdict for one candidate relative to its parent. ITERATE is the neutral
  *  "keep collecting reps / no parent to compare against" state. */
-export type ExperimentVerdict = 'KEEP' | 'ITERATE' | 'NOISE' | 'REGRESSION'
+type ExperimentVerdict = 'KEEP' | 'ITERATE' | 'NOISE' | 'REGRESSION'
 
 /** A single repetition of a candidate run, carrying the score the verdict is
  *  computed on plus any free-form per-rep metrics the consumer wants kept. */

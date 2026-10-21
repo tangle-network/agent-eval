@@ -106,7 +106,7 @@ export interface Researcher {
   evaluateChange(plan: ExperimentPlan): Promise<ExperimentResult>
 }
 
-export interface CallbackResearcherOptions {
+interface CallbackResearcherOptions {
   inspectFailures: Researcher['inspectFailures']
   proposeChange: Researcher['proposeChange']
   applyChange: Researcher['applyChange']

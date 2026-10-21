@@ -117,7 +117,7 @@ export type SearchBlobPutResponse = z.infer<typeof SearchBlobPutResponseSchema>
 
 const UTF8 = new TextEncoder()
 
-export function searchLedgerLinesByteLength(lines: readonly string[]): number {
+function searchLedgerLinesByteLength(lines: readonly string[]): number {
   let bytes = 0
   for (const line of lines) bytes += UTF8.encode(line).byteLength
   return bytes

@@ -175,21 +175,3 @@ export function buildTraceAnalysisToolDescriptors(
     idempotent: true,
   }))
 }
-
-export function traceAnalystFunctionGroup(options: BuildTraceAnalysisToolsOptions): {
-  namespace: string
-  title: string
-  selectionCriteria: string
-  description: string
-  functions: TraceAnalysisToolDescriptor[]
-} {
-  return {
-    namespace: TRACE_ANALYST_TOOL_NAMESPACE,
-    title: 'Trace Analysis',
-    selectionCriteria: 'Use for any inspection of OTLP-shaped trace data.',
-    description:
-      'Discovery, narrowing, and bounded deep reads over a JSONL trace dataset. ' +
-      'Always call getDatasetOverview first.',
-    functions: buildTraceAnalysisToolDescriptors(options),
-  }
-}

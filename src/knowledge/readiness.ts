@@ -12,7 +12,7 @@ import type {
   UserQuestion,
 } from './types'
 
-export interface ScoreKnowledgeReadinessOptions {
+interface ScoreKnowledgeReadinessOptions {
   taskId: string
   requirements: KnowledgeRequirement[]
   evidenceIds?: string[]

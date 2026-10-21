@@ -8,14 +8,14 @@
 
 import { type ChatClient, createChatClient } from './analyst/chat-client'
 
-export interface CliLlmConfig {
+interface CliLlmConfig {
   /** Judge transport for the wire handlers. Absent when no provider is configured. */
   chat?: ChatClient
   model?: string
 }
 
 /** The endpoint the binary resolved from its environment. */
-export interface CliProviderRoute {
+interface CliProviderRoute {
   baseUrl: string
   apiKey: string
   model?: string

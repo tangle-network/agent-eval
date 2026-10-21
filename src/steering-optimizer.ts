@@ -1,7 +1,7 @@
 import { aggregateRunScore, type RunScore, type RunScoreWeights } from './run-score'
 import type { SteeringBundle } from './steering'
 
-export type SteeringOptimizerBackend = 'pairwise'
+type SteeringOptimizerBackend = 'pairwise'
 
 export interface SteeringOptimizationRow {
   variantId: string
@@ -11,7 +11,7 @@ export interface SteeringOptimizationRow {
   metadata?: Record<string, unknown>
 }
 
-export interface SteeringOptimizationSelector {
+interface SteeringOptimizationSelector {
   backend: SteeringOptimizerBackend
   signature?: string
   labels?: string[]
@@ -27,7 +27,7 @@ export interface SteeringOptimizationResult {
   skipped?: boolean
 }
 
-export interface SteeringOptimizerConfig {
+interface SteeringOptimizerConfig {
   weights?: Partial<RunScoreWeights>
 }
 

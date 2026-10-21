@@ -31,7 +31,7 @@ import { FeedbackTrajectorySchema, JudgeRequestSchema, TracesIngestRequestSchema
 
 const STARTED_AT = Date.now()
 
-export interface CreateAppOptions {
+interface CreateAppOptions {
   /** Stores wired to the ingestion endpoints. */
   stores?: IngestionStores
   /**

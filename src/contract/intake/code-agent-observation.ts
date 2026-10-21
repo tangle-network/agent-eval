@@ -66,7 +66,7 @@ export interface CodeAgentSessionObservation {
   actions: CodeAgentSessionAction[]
 }
 
-export interface ObserveCodeAgentSessionOptions {
+interface ObserveCodeAgentSessionOptions {
   source: CodeAgentSessionSource
   entries: unknown[]
   sourcePath?: string
@@ -638,7 +638,7 @@ function completeClaudeTools(content: unknown[], calls: Map<string, CodeAgentSes
   }
 }
 
-export interface CodexItemEvent {
+interface CodexItemEvent {
   eventType: 'item.started' | 'item.completed'
   item: Record<string, unknown>
 }

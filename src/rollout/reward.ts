@@ -133,7 +133,7 @@ export function trainingReward(record: Scored): { reward: number | null; gated: 
  * row without anyone noticing it had never consulted the gate. The wire schema
  * now requires the flag, and this pair is how a producer states it.
  */
-export interface RolloutRewardFields {
+interface RolloutRewardFields {
   reward: number | null
   realness_gated: boolean
   /**

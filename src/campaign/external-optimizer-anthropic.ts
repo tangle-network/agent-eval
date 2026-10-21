@@ -44,7 +44,7 @@ interface TranslatedMessage {
   toolCallId?: string
 }
 
-export interface TranslatedAnthropicRequest {
+interface TranslatedAnthropicRequest {
   request: {
     model: string
     messages: TranslatedMessage[]

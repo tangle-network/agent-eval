@@ -16,7 +16,7 @@
 
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'
 
-export interface AntiSlopConfig {
+interface AntiSlopConfig {
   /** Domain label — appears in the JudgeScore output */
   domain?: string
 
@@ -45,7 +45,7 @@ export interface AntiSlopConfig {
   penaltyWeights?: Partial<Record<SlopCategory, number>>
 }
 
-export type SlopCategory =
+type SlopCategory =
   | 'banned_phrase'
   | 'banned_opening'
   | 'hedging'
@@ -111,13 +111,13 @@ export function createAntiSlopJudge(config: AntiSlopConfig = {}): JudgeFn {
   return judge
 }
 
-export interface AntiSlopIssue {
+interface AntiSlopIssue {
   category: SlopCategory
   detail: string
   example?: string
 }
 
-export interface AntiSlopReport {
+interface AntiSlopReport {
   /** 0–10 score; 10 is clean, lower values mean more slop. */
   score: number
   issues: AntiSlopIssue[]

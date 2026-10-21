@@ -13,7 +13,7 @@
 
 import type { FailureClass } from '../trace/schema'
 
-export type DetectorSeverity = 'info' | 'warn' | 'critical'
+type DetectorSeverity = 'info' | 'warn' | 'critical'
 
 /** A normalized step a detector folds over. Fields are optional; each detector reads only what it
  *  needs (repeated-action → `actionFingerprint`; no-progress → `stateFingerprint` + `score`;
@@ -94,7 +94,7 @@ export function repeatedActionDetector(opts: RepeatedActionOptions = {}): Stream
   }
 }
 
-export interface NoProgressOptions {
+interface NoProgressOptions {
   /** Signal once state is unchanged AND score is flat for this many CONSECUTIVE steps (default 3).
    *  `<= 0` disables the signal. */
   readonly maxNoProgress?: number

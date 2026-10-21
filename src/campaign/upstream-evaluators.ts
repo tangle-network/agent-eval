@@ -32,7 +32,7 @@ export type AutoevalsScorerLike<TInput extends Record<string, unknown>> = (
   context: UpstreamEvaluationContext,
 ) => AutoevalsScoreLike | Promise<AutoevalsScoreLike>
 
-export interface UpstreamEvaluationContext {
+interface UpstreamEvaluationContext {
   readonly signal: AbortSignal
   readonly callId?: string
 }

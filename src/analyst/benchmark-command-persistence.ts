@@ -49,7 +49,7 @@ export interface AnalystBenchmarkOutputPaths {
 
 export const ANALYST_BENCHMARK_INITIALIZATION_COMPLETE_FILE = 'initialization-complete.json'
 
-export interface AnalystBenchmarkProgress {
+interface AnalystBenchmarkProgress {
   observations: AnalystBenchmarkObservation[]
   nextSequence: number
   previousRowSha256: string | null

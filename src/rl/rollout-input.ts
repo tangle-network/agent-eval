@@ -24,7 +24,7 @@ export function trainableLineReward(line: MintedRolloutLine): number | null {
 }
 
 /** The anti-Goodhart flag as it travels on the line. */
-export function isLineRealnessGated(line: MintedRolloutLine): boolean {
+function isLineRealnessGated(line: MintedRolloutLine): boolean {
   return line.outcome.realness_gated === true
 }
 
@@ -141,7 +141,7 @@ function resolveInvocation(index: InvocationIndex, id: string): Resolution {
 }
 
 /** What the admission rule did, item by item — the count a caller has to be able to see. */
-export interface AdmissionAudit<T> {
+interface AdmissionAudit<T> {
   admitted: T[]
   /** Items dropped because a referenced invocation was realness-gated. */
   gatedDrops: number
@@ -190,7 +190,7 @@ export interface AdmissionAudit<T> {
  *
  * Pure: it reports what it dropped and prints nothing.
  */
-export function auditInvocationAdmission<T>(
+function auditInvocationAdmission<T>(
   items: readonly T[],
   idsOf: (item: T) => readonly string[],
   context: RolloutLineContext | undefined | null,

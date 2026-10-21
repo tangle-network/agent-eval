@@ -39,7 +39,7 @@ export interface PairedHoldout {
 }
 
 /** Campaign cell IDs append a numeric repetition after the scenario's full ID. */
-export function scenarioIdFromCellId(cellId: string): string {
+function scenarioIdFromCellId(cellId: string): string {
   const separator = cellId.lastIndexOf(':')
   const repetition = cellId.slice(separator + 1)
   if (

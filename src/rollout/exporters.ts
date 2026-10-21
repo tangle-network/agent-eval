@@ -105,9 +105,9 @@ export interface TrainingExportOptions {
  * SFT deliberately has no such option — an SFT row is an imitation target and
  * a gamed trajectory must never appear in one at any weight.
  */
-export type GatedLineDisposition = 'exclude' | 'zero-and-flag'
+type GatedLineDisposition = 'exclude' | 'zero-and-flag'
 
-export interface SignedSignalExportOptions extends TrainingExportOptions {
+interface SignedSignalExportOptions extends TrainingExportOptions {
   /** Disposition for non-trainable lines. Default 'exclude'. */
   gatedLines?: GatedLineDisposition
 }

@@ -821,7 +821,7 @@ function pct(value: number | null): string {
   return value === null ? '—' : `${(value * 100).toFixed(1)}%`
 }
 
-export function renderBatchReport(report: ReplayBatchReport): string {
+function renderBatchReport(report: ReplayBatchReport): string {
   const lines: string[] = []
   const { headline, totals } = report
   lines.push('# Replay-verify batch report')

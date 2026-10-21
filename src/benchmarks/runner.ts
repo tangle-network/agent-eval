@@ -130,7 +130,7 @@ export async function runBenchmarkAdapter<TPayload = unknown, TArtifact = string
   return { scenarios, campaign, report, reportJsonPath, reportMarkdownPath }
 }
 
-export async function loadBenchmarkScenarios<TPayload>(
+async function loadBenchmarkScenarios<TPayload>(
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, unknown>,
   splits: readonly RunSplitTag[] = ['search', 'dev', 'holdout'],
 ): Promise<Array<BenchmarkScenario<TPayload>>> {
@@ -162,7 +162,7 @@ export async function loadBenchmarkScenarios<TPayload>(
   return out
 }
 
-export function benchmarkAdapterJudge<TPayload, TArtifact>(
+function benchmarkAdapterJudge<TPayload, TArtifact>(
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, TArtifact>,
 ): JudgeConfig<TArtifact, BenchmarkScenario<TPayload>> {
   const benchmarkId = benchmarkIdFor(adapter)

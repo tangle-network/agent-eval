@@ -53,7 +53,7 @@ import {
 } from './types'
 import { assertContract, assertRule } from './validate'
 
-export interface ToolArgumentSpec {
+interface ToolArgumentSpec {
   tool: string
   /** RFC 6901 JSON Pointer into the call's arguments; `''` is the whole value. */
   pointer: string
@@ -66,7 +66,7 @@ export interface ToolArgumentSpec {
   type?: ArgumentType
 }
 
-export interface ToolsSpec {
+interface ToolsSpec {
   /** Each must be called at least once. */
   required?: string[]
   /** None may be called. */
@@ -88,7 +88,7 @@ export interface ToolsSpec {
   enforced?: true
 }
 
-export interface RetriesSpec {
+interface RetriesSpec {
   /** Tools that change nothing outside the run: repeating a call is safe. */
   reads?: string[]
   /** Tools that change state outside the run: a repeated call must carry one
@@ -96,7 +96,7 @@ export interface RetriesSpec {
   writes?: RetryWrite[]
 }
 
-export interface LlmSpec {
+interface LlmSpec {
   maxCalls?: number
   /** Input plus output tokens across LLM calls; an unrecorded count fails. */
   maxTotalTokens?: number
@@ -105,7 +105,7 @@ export interface LlmSpec {
 }
 
 /** The checks one path carries: the base contract or one alternative. */
-export interface PathSpec {
+interface PathSpec {
   run?: RunChecks
   tools?: ToolsSpec
   llm?: LlmSpec
@@ -114,7 +114,7 @@ export interface PathSpec {
   rules?: ContractRule[]
 }
 
-export interface AlternativeSpec extends PathSpec {
+interface AlternativeSpec extends PathSpec {
   id: string
 }
 

@@ -11,7 +11,7 @@
 
 import { estimateCost } from './metrics'
 
-export interface TokenSpec {
+interface TokenSpec {
   inputTokens: number
   outputTokens: number
   cachedTokens?: number

@@ -34,16 +34,16 @@ import { join, relative, sep } from 'node:path'
 import { type Node, parseSync, visitorKeys } from 'oxc-parser'
 
 /** The two fields whose raw reads only `rollout/reward.ts` may spell. */
-export const GUARDED_FIELDS: readonly string[] = ['holdoutScore', 'searchScore']
+const GUARDED_FIELDS: readonly string[] = ['holdoutScore', 'searchScore']
 
 /** How the read was spelled. Reported so a failure names the bypass shape. */
-export type ScoreReadKind =
+type ScoreReadKind =
   | 'property-access'
   | 'element-access'
   | 'destructure'
   | 'dynamic-field-name'
 
-export interface ScoreReadSite {
+interface ScoreReadSite {
   /** Path relative to the scanned root, with `/` separators. */
   file: string
   /** 1-based line of the read. */
@@ -197,7 +197,7 @@ export function findRawScoreReadsInSource(file: string, source: string): ScoreRe
 }
 
 /** Recursively collect `.ts` sources, skipping tests and declaration files. */
-export function guardedSourceFiles(root: string, includeTests = false): string[] {
+function guardedSourceFiles(root: string, includeTests = false): string[] {
   const out: string[] = []
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir).sort()) {

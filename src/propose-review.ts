@@ -138,7 +138,7 @@ export interface ProposeReviewConfig<State, Summary = unknown> {
   fallbackInstruction?: string
 }
 
-export interface ProposeReviewShot<State, Summary = unknown> {
+interface ProposeReviewShot<State, Summary = unknown> {
   shot: number
   state: State
   verification: Verification
@@ -415,7 +415,7 @@ export async function runProposeReview<State, Summary = unknown>(
 
 // ── Reviewer helper (LLM-backed) ─────────────────────────────────────
 
-export type LlmJsonCall = (req: { system: string; user: string }) => Promise<unknown>
+type LlmJsonCall = (req: { system: string; user: string }) => Promise<unknown>
 
 export interface LlmReviewerConfig<State, Summary = unknown> {
   callJson: LlmJsonCall

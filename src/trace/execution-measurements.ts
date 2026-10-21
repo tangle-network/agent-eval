@@ -10,7 +10,7 @@ import {
   RUN_COST_ATTR_KEYS,
 } from './otlp-attributes'
 
-export interface ExecutionMeasurementSpan {
+interface ExecutionMeasurementSpan {
   id: string
   parentId?: string
   attributes: Record<string, unknown>
@@ -35,7 +35,7 @@ export interface MeasurementCoverage {
   complete: boolean
 }
 
-export interface ExecutionMeasurements {
+interface ExecutionMeasurements {
   tokenUsage: RunTokenUsage
   modelCallCount: number
   callSpanIds: string[]

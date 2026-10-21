@@ -12,7 +12,7 @@ const nullableIdentifier = identifier.nullable()
 const stringArray = z.array(z.string())
 const filterValues = z.array(identifier).max(TRACE_ANALYSIS_LIMITS.filterValues)
 
-export const traceFiltersSchema = z
+const traceFiltersSchema = z
   .object({
     has_errors: z.boolean().optional(),
     service_names: filterValues.optional(),

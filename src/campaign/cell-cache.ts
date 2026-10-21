@@ -177,7 +177,7 @@ export function cacheIssueRequiresExplicitRerun(reason: CacheIssueReason): boole
   )
 }
 
-export interface InvalidCachedCell {
+interface InvalidCachedCell {
   cellId: string
   reason: CacheIssueReason
   detail?: string

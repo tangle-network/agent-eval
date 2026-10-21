@@ -187,7 +187,7 @@ function connectComponents(
   return edges.map((set) => [...set].sort((left, right) => left - right))
 }
 
-export function nearestNeighbours(points: readonly (readonly number[])[], k: number): number[][] {
+function nearestNeighbours(points: readonly (readonly number[])[], k: number): number[][] {
   const n = points.length
   const adjacency: Set<number>[] = Array.from({ length: n }, () => new Set<number>())
   if (n < 2 || k < 1) return adjacency.map(() => [])

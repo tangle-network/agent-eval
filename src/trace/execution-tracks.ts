@@ -1,4 +1,4 @@
-export interface ExecutionLane {
+interface ExecutionLane {
   key: string
   scopeKey: string
   start: number | null

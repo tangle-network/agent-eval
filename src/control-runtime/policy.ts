@@ -49,7 +49,7 @@ export function normalizeBudget(input: Partial<ControlBudget> | undefined): Cont
   return budget
 }
 
-export function allCriticalPassed(evals: ControlEvalResult[]): boolean {
+function allCriticalPassed(evals: ControlEvalResult[]): boolean {
   return evals.every(
     (result) => result.passed || (result.severity !== 'critical' && result.severity !== 'error'),
   )

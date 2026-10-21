@@ -28,7 +28,7 @@ export const GEPA_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
  * `optimizer.anthropicEndpoint: true` their model traffic is metered through
  * the loopback proxy's Anthropic route instead of being refused.
  */
-export const GEPA_AGENT_CLI_ENGINES: ReadonlySet<string> = new Set(['autoresearch', 'meta_harness'])
+const GEPA_AGENT_CLI_ENGINES: ReadonlySet<string> = new Set(['autoresearch', 'meta_harness'])
 
 export function gepaRecipeHasAgentCliEngine(recipe: GepaOptimizationRecipe): boolean {
   return recipeEngineOptions(recipe).some((run) => GEPA_AGENT_CLI_ENGINES.has(run.engine))

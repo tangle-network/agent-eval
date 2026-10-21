@@ -6,7 +6,7 @@ interface EvaluationBudgetState {
   accepted: number
 }
 
-export interface ExternalOptimizerRunBudget {
+interface ExternalOptimizerRunBudget {
   runKey: string
   attemptId: string
   runTags: Readonly<Record<string, string>>

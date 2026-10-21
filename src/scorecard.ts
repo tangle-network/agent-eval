@@ -156,7 +156,7 @@ export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): Scorecar
 // ── Storage ──────────────────────────────────────────────────────────
 
 /** Append cell entries to the JSONL scorecard log. Creates the file/dir. */
-export function appendScorecard(logPath: string, lines: ScorecardLogLine[]): void {
+function appendScorecard(logPath: string, lines: ScorecardLogLine[]): void {
   if (lines.length === 0) return
   mkdirSync(dirname(logPath), { recursive: true })
   appendFileSync(logPath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`)

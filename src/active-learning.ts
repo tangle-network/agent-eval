@@ -21,7 +21,7 @@ import { classifyFailure } from './failure-taxonomy'
 import type { Run } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
-export type SynthesisReason =
+type SynthesisReason =
   | 'high-variance'
   | 'undersampled'
   | 'failure-cluster'

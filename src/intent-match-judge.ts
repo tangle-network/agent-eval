@@ -33,7 +33,7 @@ import {
 } from './cost-ledger'
 import type { LlmCallRequest } from './llm-client'
 
-export const INTENT_MATCH_JUDGE_VERSION = 'intent-match-judge-v1-2026-04-24'
+const INTENT_MATCH_JUDGE_VERSION = 'intent-match-judge-v1-2026-04-24'
 
 export interface IntentMatchInput {
   /** The full natural-language prompt the agent was handed. */
