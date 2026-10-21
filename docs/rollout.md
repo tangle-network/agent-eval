@@ -145,7 +145,7 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 
 ## Harbor ATIF-v1.7 interchange
 
-[Agent Trajectory Interchange Format](https://www.harborframework.com/docs/agents/trajectory-format) (normative RFC: `harbor-framework/harbor` `rfcs/0001-trajectory-format.md`) is the portability format for agent trajectories.
+[Agent Trajectory Interchange Format](https://www.harborframework.com/docs/agents/trajectory-format) (normative RFC: `harbor-framework/harbor`) is the portability format for agent trajectories.
 It is both a source and a sink of the hourglass, and it sits below the waist in both directions: `toHarborTrajectory` reads `RolloutLine[]`, `fromHarborTrajectory` writes `RolloutLine[]`.
 
 **ATIF models no reward, no judge verdict, and no task/split coordinates.**

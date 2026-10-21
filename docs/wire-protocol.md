@@ -252,7 +252,7 @@ Each invocation is one process: Node startup adds ~500 ms. For more than a few c
 
 - **Python**: source lives in [`clients/python`](https://github.com/tangle-network/agent-eval/tree/main/clients/python). Auto-detects HTTP, falls back to subprocess. Version-locked to npm.
 - **TypeScript**: import directly from `@tangle-network/agent-eval` (no wire round-trip needed in-process).
-- **Rust / Go / Other**: generate from `dist/openapi.json`. PRs welcome to add an officially-maintained client.
+- **Rust / Go / Other**: generate from the OpenAPI document the npm build emits. PRs welcome to add an officially-maintained client.
 
 ## Adding a method
 

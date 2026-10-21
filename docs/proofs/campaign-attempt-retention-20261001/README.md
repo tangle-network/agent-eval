@@ -44,8 +44,8 @@ Run [qualify.mjs](artifacts/current/qualify.mjs) with these environment variable
 
 - `PROOF_ROOT`: a new output directory.
 - `BASELINE_ROOT`: the preserved predecessor evidence directory containing `before-resume`.
-- `EVAL_MODULE`: the candidate's built `dist/campaign/index.js`.
-- `EVAL_COST_MODULE`: the candidate's built `dist/index.js`.
+- `EVAL_MODULE`: the candidate's built campaign entry point.
+- `EVAL_COST_MODULE`: the candidate's built package entry point (`main` in `package.json`).
 
 Build, typecheck, and package verification completed successfully.
 No unit tests were added or run.

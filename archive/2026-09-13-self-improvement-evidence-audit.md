@@ -1,4 +1,4 @@
-# Evidence audit: selfImprove and optimizer benefit
+# 2026-09-13 evidence audit: selfImprove and optimizer benefit (archived)
 
 Historical runs contain gains, nulls, and regressions.
 They do not establish optimizer superiority over a direct edit or current-branch improvement across tasks.
@@ -15,7 +15,7 @@ Current-branch fixture tests are distinct from all historical model results belo
 
 Paths below are relative to the repository root unless stated otherwise.
 
-- All 10 [registry records](../../evidence/INDEX.md): 2 `CERTIFIED`, 6 `MEASURED-ONCE`, 1 `RESOLVED-NULL`, and 1 `UNVERIFIED`.
+- All 10 [registry records](../evidence/INDEX.md): 2 `CERTIFIED`, 6 `MEASURED-ONCE`, 1 `RESOLVED-NULL`, and 1 `UNVERIFIED`.
   These are registry labels; this audit did not recertify those records.
 - The archived extraction comparison, its original implementation, and 20 optimization-related notebook records.
 - Four committed CodeTraceBench result files, both certification reports, and both preregistrations.
@@ -35,7 +35,7 @@ The following referenced raw artifacts were unavailable locally:
 - `examples/findings-ablation/index.ts` and the referenced session scratch artifacts for bridge and CAD proofs.
 
 The registry's `.evolve/certification-2026-08-02-preregistration.md` reference is stale.
-The committed replacement is [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/preregistration.md](../../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/preregistration.md).
+The committed replacement is [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/preregistration.md](../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/preregistration.md).
 
 ## Model-backed evidence
 
@@ -59,7 +59,7 @@ The findings and extraction records are related demonstrations and must not be c
 
 ### June extraction: exact limitations
 
-Artifact: [examples/compare-optimization-methods/results/deepseek-chat-20260601.json](../../examples/compare-optimization-methods/results/deepseek-chat-20260601.json).
+Artifact: [examples/compare-optimization-methods/results/deepseek-chat-20260601.json](../examples/compare-optimization-methods/results/deepseek-chat-20260601.json).
 It was created at `a648fae334c740d8e0f368e81f68ae933cdb1135` under `examples/compare-drivers-canonical/results/`.
 The current directory name does not identify the historical optimizer implementation.
 
@@ -107,8 +107,8 @@ The archived `honestVerdict: 'lift-proven'` is not valid current certification o
 
 Full source reports and all measured fields:
 
-- [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/README.md](../../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/README.md) and `preregistration.md`.
-- [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/README.md](../../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/README.md) and `preregistration.md`.
+- [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/README.md](../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/README.md) and `preregistration.md`.
+- [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/README.md](../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/README.md) and `preregistration.md`.
 - `.evolve/experiments.jsonl`, lines 26, 29, 33, 34, and 41.
 
 Round 1 used real Python GEPA at historical script revision `0eb2e32`, with 40 evaluations on 10 train and 6 selection cases.
@@ -161,10 +161,10 @@ Historical comparison deltas and intervals therefore remain documented evidence 
 
 | Label | Committed raw result | Run identity SHA256 |
 | --- | --- | --- |
-| G/h2 | [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-holdout2.json](../../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-holdout2.json) | `24883695f29e0b928f3a55d000e985682d18f810eb63c2c70b00e95418a34fac` |
-| G/s3 | [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-split3.json](../../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-split3.json) | `417161b661138fb03977e475ae76be22e54d2153b32bb1842c0a6dde49ecc200` |
-| Stock/OH | [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-openhands.json](../../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-openhands.json) | `30d80958be3d71f56a780850c7791cb4d078a8d98bc696140181611f94f7be95` |
-| Stock/T2 | [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-terminus2.json](../../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-terminus2.json) | `abda3035ded04b3625981b2073d6b24a152fb4223836471481d4858f8a9589a3` |
+| G/h2 | [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-holdout2.json](../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-holdout2.json) | `24883695f29e0b928f3a55d000e985682d18f810eb63c2c70b00e95418a34fac` |
+| G/s3 | [benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-split3.json](../benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/result-split3.json) | `417161b661138fb03977e475ae76be22e54d2153b32bb1842c0a6dde49ecc200` |
+| Stock/OH | [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-openhands.json](../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-openhands.json) | `30d80958be3d71f56a780850c7791cb4d078a8d98bc696140181611f94f7be95` |
+| Stock/T2 | [benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-terminus2.json](../benchmarks/trace-analysis/codetracebench-crossfamily-cert-20260802/result-stock-terminus2.json) | `abda3035ded04b3625981b2073d6b24a152fb4223836471481d4858f8a9589a3` |
 
 | Label | Observations / cases / clusters | Positive / negative / unlabeled observations | Positive-label TP / FP / FN | Recomputed micro F1 | Model calls | Estimated model cost |
 | --- | --- | --- | --- | ---: | ---: | ---: |
@@ -260,4 +260,4 @@ Historical useful-task optimization has produced gains, nulls, and regressions.
 The evidence supports testing automated evaluation engineering through explicit outcome checks and independent confirmation.
 It does not support claiming universal self-improvement, optimizer superiority over a direct edit, or current-branch model-quality lift.
 
-See [evaluation integrity](../evaluation-integrity.md) for the public API and the book chapters motivating its methodology.
+See [evaluation integrity](../docs/evaluation-integrity.md) for the public API and the book chapters motivating its methodology.

@@ -5,7 +5,7 @@
 thresholds and result policy. Review identity includes authored option order; request JSON is
 not sorted before dispatch. Missing or partial negative evidence cannot become a clean review.
 
-The optional `examples/jev-behavior-review.ts` recipe covers reward gaming, evaluator tampering,
+The optional behavior-review recipe (its example file is not in this tree) covers reward gaming, evaluator tampering,
 policy/authorization/data-boundary breaches, injection-following, contradicted completion,
 oversight bypass, matched-baseline anomalies and cross-run behavior. It composes the existing
 `jevAnalyst`; the taxonomy is not installed in the generic evaluator and is not a calibrated

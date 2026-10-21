@@ -22,7 +22,7 @@ node benchmarks/trace-repair/tools/assay-tbench-corpus.mjs \
 - `--data-dir` holds the `train-*.parquet` shards and receives both report files. Default: `~/bench-cache/tbench-20260808`.
 - `--tb2` points at a `harbor-framework/terminal-bench-2` clone. Default: `<data-dir>/tb2`.
 - `--check-images` reads image manifests from Docker Hub, which rate-limits anonymous callers. `--images-json` replays a manifest capture instead, and the report records which of the two produced its numbers.
-- `--verify-task NAME` runs the real grading loop on one task: grade the untouched image, apply the reference `solution/solve.sh`, re-grade. It adds the "Grading mechanism proven end-to-end" section. Without the flag that section is absent.
+- `--verify-task NAME` runs the real grading loop on one task: grade the untouched image, apply the task's reference solution (`solve.sh` in the task image), re-grade. It adds the "Grading mechanism proven end-to-end" section. Without the flag that section is absent.
 
 A full pass over both shards takes about 10 seconds.
 `--verify-task` adds the task's own solve time, roughly 3 minutes for `gcode-to-text`.
@@ -97,7 +97,7 @@ Exit status is 0 only when every named task certified.
 ### What it asserts
 
 Phase A grades the untouched image and must score 0.
-Phase B applies the reference `solution/solve.sh`, re-grades, and must score 1.
+Phase B applies the task's reference solution (`solve.sh` in the task image), re-grades, and must score 1.
 Phase C re-grades both containers with nothing written between the runs and must measure no flip.
 
 | verdict | meaning |

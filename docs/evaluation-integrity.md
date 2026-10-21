@@ -189,7 +189,7 @@ For outcome associations and direct score calibration, use [the outcome-validity
 
 These integrity checks establish execution and measurement behavior.
 They do not establish that a particular optimizer improves agents across domains.
-The [historical evidence audit](./design/self-improvement-evidence-audit.md) records prior gains, nulls, regressions, and their limits.
+The [historical evidence audit](../archive/2026-09-13-self-improvement-evidence-audit.md) records prior gains, nulls, regressions, and their limits.
 
 For a benefit experiment, define the user behavior and useful effect before search.
 Compare the starting agent, a direct edit or simple search baseline, and the proposed improvement method at equal actual resources.

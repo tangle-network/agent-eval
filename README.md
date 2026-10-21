@@ -149,7 +149,7 @@ See [evaluation integrity](./docs/evaluation-integrity.md) for the complete API 
 
 These controls check the evidence behind a result.
 They do not establish that an optimizer beats a direct edit or simple search.
-The [historical evidence audit](./docs/design/self-improvement-evidence-audit.md) records prior gains, failed transfer, and missing comparisons.
+The [historical evidence audit](./archive/2026-09-13-self-improvement-evidence-audit.md) records prior gains, failed transfer, and missing comparisons.
 
 Set `searchHistoryPolicy: 'require-complete'` when a method's search must be closed, with every cell, operation and node accounted for, before final evidence is exposed.
 The [search ledger](./docs/search-ledger.md) records every search as nodes, edges and cells, and its receipt is the bounded proof.
