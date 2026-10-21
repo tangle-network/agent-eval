@@ -8,6 +8,7 @@ import { sequentialPairedGate } from '../../../src/campaign/gates/sequential.ts'
 import type { JudgeScore } from '../../../src/campaign/types.ts'
 import { HoldoutAuditor } from '../../../src/contamination-guard.ts'
 import { selfImprove } from '../../../src/contract/self-improve.ts'
+import { ValidationError } from '../../../src/errors.ts'
 import { evaluatePowerFloorGate } from '../../../src/experiment/ast/validity.ts'
 import { compareCodeUnits, hashCanonical } from '../../../src/ledger-core/canonical.ts'
 import { correlationStudy } from '../../../src/meta-eval/correlation-study.ts'
@@ -21,7 +22,8 @@ import { TraceEmitter } from '../../../src/trace/emitter.ts'
 import { InMemoryTraceStore } from '../../../src/trace/store.ts'
 
 // These diagnostics record behavior without asserting that a defect must remain.
-const reviewedBaseRevision = 'fe1cc5111aab5d588bf7db3a3785325635937a91'
+const reviewedObservations = JSON.parse(await readFile(new URL('./observations.json', import.meta.url), 'utf8'))
+const reviewedBaseRevision = reviewedObservations.reviewedBaseRevision
 const command = 'pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts'
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const sourcePaths = ['src', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json']
@@ -223,6 +225,13 @@ async function adaptationPairing() {
   const b = await runAdaptationCurve<{ scenarioId: string; score: number }>({
     scenarios: scenariosB, ks, reps, runner,
   })
+  let comparison: ReturnType<typeof compareAdaptationCurves> | { refused: true; code: string; message: string }
+  try {
+    comparison = compareAdaptationCurves(a, b, { seed: 1 })
+  } catch (error) {
+    if (!(error instanceof ValidationError) || !error.message.includes('scenario pairs differ')) throw error
+    comparison = { refused: true, code: error.code, message: error.message }
+  }
   return {
     inputs: {
       scenariosA,
@@ -234,7 +243,7 @@ async function adaptationPairing() {
       sameRunnerForBothArms: true,
       bootstrapSeed: 1,
     },
-    results: compareAdaptationCurves(a, b, { seed: 1 }),
+    results: comparison,
     limitations: [
       'The two arms differ in task difficulty; zero task identities overlap.',
       'This probes the adaptation helper, not the separately implemented campaign paired comparison.',
@@ -454,23 +463,7 @@ const observations = {
     sequentialDependence: await sequentialDependence(),
     powerFloor: powerFloor(),
   },
-  separateVerificationAtReviewedBase: {
-    provenance: 'Historical checks at reviewedBaseRevision; this diagnostic does not rerun them.',
-    sourceRevision: reviewedBaseRevision,
-    checks: [
-      { command: 'pnpm typecheck', result: 'passed' },
-      { command: 'pnpm build', result: 'passed' },
-      { command: 'pnpm verify:package', result: 'passed' },
-    ],
-    tests: {
-      command: 'pnpm test -- tests/experiment/preregistration-acceptance.test.ts tests/experiment/power.test.ts tests/contamination-guard.test.ts tests/rl-predictive-validity-researcher.test.ts tests/rubric-predictive-validity.test.ts tests/meta-eval.test.ts',
-      observedScope: 'The package command expanded to the full Vitest suite.',
-      files: { passed: 399, skipped: 2 },
-      tests: { passed: 5876, skipped: 3 },
-      result: 'passed',
-    },
-    limitation: 'Passing repository checks do not establish correctness of the counterexample behaviors recorded above.',
-  },
+  separateVerificationAtReviewedBase: reviewedObservations.separateVerificationAtReviewedBase,
 }
 
 console.log(JSON.stringify(observations, null, 2))
