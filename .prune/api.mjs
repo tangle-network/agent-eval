@@ -47,6 +47,7 @@ function modExports(file, seen = new Set()) {
 
 // ── step 1: strip dropped names from entry files ──
 let removed = 0; const unresolvedLocal = []
+const explicitSeen = (program) => { const s = new Set(); for (const n of program.body) if (n.type === 'ExportNamedDeclaration') for (const x of n.specifiers ?? []) s.add(x.exported.name ?? x.exported.value); return s }
 for (const f of entryFiles) {
   const t = rd(f); const { program } = parse(f, t); const ed = []
   for (const n of program.body) {
@@ -73,7 +74,9 @@ for (const f of entryFiles) {
       if (!dropped.length || n.exportKind === 'type') continue
       removed += dropped.length
       const keepV = vals.filter((nm) => !DROP.has(nm)); const types = [...ex].filter(([, k]) => k === 'type').map(([nm]) => nm)
-      const out = []
+      const seen = explicitSeen(program); const out = []
+      for (const nm of keepV.slice()) if (seen.has(nm)) keepV.splice(keepV.indexOf(nm), 1)
+      for (const nm of types.slice()) if (seen.has(nm)) types.splice(types.indexOf(nm), 1)
       if (keepV.length) out.push('export { ' + keepV.sort().join(', ') + ' } from ' + src)
       if (types.length) out.push('export type { ' + types.sort().join(', ') + ' } from ' + src)
       ed.push([n.start, n.end, out.join('\n')])
@@ -94,6 +97,11 @@ const outside = sh("git grep -lE '.' -- examples scripts benchmarks docs README.
 // names a file outside src consumes (guard): word set from examples/scripts/benchmarks
 const guardWords = new Set()
 for (const m of sh("git grep -ohE '[A-Za-z_$][A-Za-z0-9_$]*' -- examples scripts benchmarks ':!*.test.*' ':!*.md' ':!*.json'").split('\n')) guardWords.add(m)
+const PROTECTED = (f) => /^tests\//.test(f) || /invariant|guard|boundary|implementation|parity|golden|certif|integrity|contract|property|calibration/.test(f)
+for (const f of sh("git ls-files 'src/**/*.test.ts' 'src/*.test.ts' 'tests/**' 'scripts/**/*.test.*'").split('\n')) {
+  if (!f || !PROTECTED(f) || !fs.existsSync(f)) continue
+  for (const w of rd(f).match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []) guardWords.add(w)
+}
 const docWords = new Set()
 for (const m of sh("git grep -ohE '`[A-Za-z_$][A-Za-z0-9_$]*`' -- README.md AGENTS.md .claude docs ':!docs/public-api.md' ':!docs/proofs' ':!docs/changes'").split('\n')) docWords.add(m.replace(/`/g, ''))
 
@@ -142,7 +150,31 @@ function deleteUnused(onlyTests) {
   }
   return acted
 }
-for (let i = 0; i < 25; i++) { const a = deleteUnused(false); log('round', i, 'deleted', a); if (!a) break }
+const DANGLING = /^((?:src)\/[^()]+)\((\d+),(\d+)\): error TS(2305|2459|2724): (.*)$/gm
+function danglingReexports() {
+  const { list } = tscDiags(DANGLING)
+  const byFile = new Map(); for (const d of list) { if (/\.test\./.test(d.f)) continue; byFile.set(d.f, [...(byFile.get(d.f) || []), d]) }
+  let acted = 0
+  for (const [f, ds] of byFile) {
+    const t = rd(f); const { program } = parse(f, t); const ls = lineStarts(t); const ed = []; const rm = new Map()
+    for (const d of ds) {
+      const pos = ls[d.line - 1] + d.col - 1
+      const top = program.body.find((s) => pos >= s.start && pos < s.end)
+      if (!top || top.type !== 'ExportNamedDeclaration' || !top.specifiers?.length) continue
+      const sp = top.specifiers.find((x) => pos >= x.start && pos < x.end); if (!sp) continue
+      rm.set(top, [...(rm.get(top) || []), sp])
+    }
+    for (const [top, sps] of rm) {
+      const keep = top.specifiers.filter((x) => !sps.includes(x))
+      if (!keep.length) ed.push([top.start, top.end, ''])
+      else ed.push([top.start, top.end, t.slice(top.start, top.specifiers[0].start) + keep.map((x) => t.slice(x.start, x.end)).join(', ') + t.slice(top.specifiers.at(-1).end, top.end)])
+      acted += sps.length
+    }
+    if (ed.length) apply(f, ed)
+  }
+  return acted
+}
+for (let i = 0; i < 40; i++) { const a = danglingReexports(); const b = deleteUnused(false); log('round', i, 'dangling', a, 'deleted', b); if (!a && !b) break }
 
 // ── step 3: tests that only covered removed names ──
 const MISSING = /^((?:src|tests)\/[^()]+\.ts)\((\d+),(\d+)\): error TS(2305|2459|2724|2304|2614|2339|2724): (.*)$/gm
@@ -151,7 +183,7 @@ for (let i = 0; i < 25; i++) {
   const { out, list } = tscDiags(MISSING)
   const fileNames = new Map()
   for (const d of list) {
-    if (!/\.test\.ts$|^tests\//.test(d.f)) continue
+    if (!/\.test\.ts$/.test(d.f) || PROTECTED(d.f)) continue
     const m = d.msg.match(/'([^']+)'/g)?.map((x) => x.slice(1, -1)) ?? []
     const nm = d.code === '2304' ? [m[0]] : d.code === '2305' || d.code === '2724' ? [m[1] ?? m[0]] : [m[1] ?? m[0]]
     const set = fileNames.get(d.f) ?? new Set(); for (const x of nm) if (x && /^[A-Za-z_$][\w$]*$/.test(x)) set.add(x); fileNames.set(d.f, set)
@@ -180,7 +212,7 @@ for (let i = 0; i < 25; i++) {
   for (let j = 0; j < 8; j++) { if (!deleteUnused(true)) break }
 }
 for (let j = 0; j < 8; j++) { if (!deleteUnused(true)) break }
-for (let i = 0; i < 25; i++) { const a = deleteUnused(false); if (!a) break }
+for (let i = 0; i < 40; i++) { const a = danglingReexports(); const b = deleteUnused(false); if (!a && !b) break }
 
 console.log('@@PATCH-BEGIN'); console.log(sh('git add -A -N . ; git diff -- . ":!.prune"')); console.log('@@PATCH-END')
 console.log(sh('git diff --shortstat -- . ":!.prune"'))
