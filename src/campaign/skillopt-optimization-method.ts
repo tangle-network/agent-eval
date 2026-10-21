@@ -39,13 +39,13 @@ import {
   mapExternalScenarios,
 } from './external-text-optimization'
 import { recordSkillOptSearch } from './gepa-search-import'
-import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
   combineComparisonCosts,
   costFromLedgerSummary,
-  type OptimizationMethod,
   optimizationTokenUsageFromSummary,
-} from './presets/compare-optimization-methods'
+} from './optimization-cost'
+import type { OptimizationMethod } from './optimization-method'
+import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import type { SearchHistoryReceipt } from './search-history-receipt'
 import type { SearchRunIdentity } from './search-ledger-recording'
 import {

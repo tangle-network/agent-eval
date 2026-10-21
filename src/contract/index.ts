@@ -108,21 +108,22 @@ export {
   type GepaRunnerCommand,
   gepaOptimizationMethod,
 } from '../campaign/gepa-optimization-method'
+export type { ComparisonCost, OptimizationTokenUsage } from '../campaign/optimization-cost'
+export type {
+  OptimizationMethod,
+  OptimizationMethodInput,
+  OptimizationMethodProvenance,
+  OptimizationMethodResult,
+  OptimizationPackageSource,
+} from '../campaign/optimization-method'
 export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,
 } from '../campaign/optimizer-model'
 export {
   type CompareOptimizationMethodsOptions,
-  type ComparisonCost,
   compareOptimizationMethods,
-  type OptimizationMethod,
   type OptimizationMethodComparison,
-  type OptimizationMethodInput,
-  type OptimizationMethodProvenance,
-  type OptimizationMethodResult,
-  type OptimizationPackageSource,
-  type OptimizationTokenUsage,
 } from '../campaign/presets/compare-optimization-methods'
 export {
   type SkillOptOptimizationMethodConfig,

@@ -261,6 +261,22 @@ export {
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
 export {
+  type ComparisonCost,
+  combineComparisonCosts,
+  costFromLedgerSummary,
+  type OptimizationTokenUsage,
+  optimizationTokenUsageFromSummary,
+} from './optimization-cost'
+export type {
+  OptimizationMethod,
+  OptimizationMethodComposition,
+  OptimizationMethodInput,
+  OptimizationMethodProvenance,
+  OptimizationMethodResult,
+  OptimizationMethodRunOptions,
+  OptimizationPackageSource,
+} from './optimization-method'
+export {
   scopedOptimizationMethod,
   sequentialOptimizationMethod,
 } from './optimization-method-composition'
@@ -271,22 +287,10 @@ export type {
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareOptimizationMethodsOptions,
-  type ComparisonCost,
-  combineComparisonCosts,
   compareOptimizationMethods,
-  costFromLedgerSummary,
-  type OptimizationMethod,
   type OptimizationMethodComparison,
-  type OptimizationMethodComposition,
-  type OptimizationMethodInput,
   type OptimizationMethodPairwise,
-  type OptimizationMethodProvenance,
-  type OptimizationMethodResult,
-  type OptimizationMethodRunOptions,
   type OptimizationMethodScore,
-  type OptimizationPackageSource,
-  type OptimizationTokenUsage,
-  optimizationTokenUsageFromSummary,
 } from './presets/compare-optimization-methods'
 export {
   makePlaybackDispatch,

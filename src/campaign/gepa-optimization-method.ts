@@ -56,13 +56,13 @@ import {
 } from './gepa-optimization-config'
 import { assertGepaBridgeOutput, type GepaBridgeOutput } from './gepa-optimization-result'
 import { recordGepaSearch } from './gepa-search-import'
-import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
   combineComparisonCosts,
   costFromLedgerSummary,
-  type OptimizationMethod,
   optimizationTokenUsageFromSummary,
-} from './presets/compare-optimization-methods'
+} from './optimization-cost'
+import type { OptimizationMethod } from './optimization-method'
+import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import type { SearchHistoryReceipt } from './search-history-receipt'
 import type { SearchAttemptAccounting } from './search-ledger'
 import type { SearchRunIdentity } from './search-ledger-recording'

@@ -7,7 +7,7 @@ import type {
   ExternalOptimizationExample,
   ExternalTextEvaluationResponse,
 } from './external-text-evaluation'
-import type { OptimizationPackageSource } from './presets/compare-optimization-methods'
+import type { OptimizationPackageSource } from './optimization-method'
 import type { CampaignCostMeter, Scenario } from './types'
 
 export interface ExternalTextOptimizerContext {

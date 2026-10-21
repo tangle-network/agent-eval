@@ -5,9 +5,15 @@
  * data and compared with paired confidence intervals.
  */
 
+/** Optimization method inputs, provenance, results, and comparison contracts. */
+
+/** Equal-budget optimization followed by final measurements and paired method comparisons. */
+
+/** Comparison admission, disjoint partitions, and isolated method/final measurement inputs. */
+
 import { combineAbortSignals } from '../../abort-signal'
 import { mapConcurrent } from '../../concurrency'
-import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
+import type { CostLedgerHandle } from '../../cost-ledger'
 import {
   type CampaignEvidenceContext,
   createCampaignEvidenceReceipt,
@@ -23,29 +29,9 @@ import {
   decidePairedPromotion,
   type PairedPromotionDecision,
 } from '../../paired-promotion-decision'
+import { mean as arithmeticMean } from '../../statistics/mean'
 import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
-import type { ExternalOptimizerWireCounts } from '../external-optimizer-contracts'
-import type {
-  ExternalOptimizerExecutionSummary,
-  ExternalOptimizerObservationSummary,
-} from '../external-optimizer-observations'
-import type { GepaCandidatePopulationSummary } from '../gepa-candidate-population'
-import { captureJudge } from '../judge-snapshot'
-import {
-  type ComparisonCost,
-  combineComparisonCosts,
-  costFromLedgerSummary,
-} from '../optimization-cost'
-import { executeOptimizationMethod } from '../optimization-method'
-
-export {
-  type ComparisonCost,
-  combineComparisonCosts,
-  costFromLedgerSummary,
-} from '../optimization-cost'
-export { assertOptimizationResult } from '../optimization-method'
-
 import {
   assertIndependentEvaluationSplit,
   captureFinalEvidencePolicy,
@@ -55,6 +41,20 @@ import {
   type FinalEvidenceUse,
   reserveFinalEvidence,
 } from '../final-evidence'
+import { captureJudge } from '../judge-snapshot'
+import {
+  type ComparisonCost,
+  combineComparisonCosts,
+  costFromLedgerSummary,
+} from '../optimization-cost'
+import {
+  executeOptimizationMethod,
+  type OptimizationMethod,
+  type OptimizationMethodComposition,
+  type OptimizationMethodInput,
+  type OptimizationMethodProvenance,
+  type OptimizationMethodRunOptions,
+} from '../optimization-method'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
@@ -62,7 +62,6 @@ import {
   assertSearchHistoryAdmissionOptions,
   type SearchHistoryAdmissionOptions,
   type SearchHistoryCoverage,
-  type SearchHistoryReceipt,
 } from '../search-history-receipt'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceContentHash } from '../surface-identity'
@@ -73,153 +72,6 @@ import type {
   MutableSurface,
   Scenario,
 } from '../types'
-
-/** Shared campaign settings applied to every optimization method. */
-export type OptimizationMethodRunOptions<TScenario extends Scenario, TArtifact> = Omit<
-  RunCampaignOptions<TScenario, TArtifact>,
-  'costCeiling' | 'costLedger' | 'dispatch' | 'judges' | 'runDir' | 'scenarios' | 'seed'
->
-
-export interface OptimizationPackageSource {
-  kind: 'package'
-  /** Whether package identity was inspected or supplied by caller code. */
-  evidence: 'observed' | 'declared'
-  package: string
-  version: string
-  sourceUrl?: string
-  revision?: string
-  /** SHA-256 of all installed module files observed before the run. */
-  sourceSha256?: string
-}
-
-export interface OptimizationModuleSource {
-  module: string
-  sourceSha256: string
-}
-
-export interface OptimizationPythonRuntime {
-  implementation: string
-  version: string
-}
-
-export interface OptimizationTokenUsage {
-  /** All input tokens, including cache reads and cache creation. */
-  inputTokens: number
-  /** Input tokens served from a provider cache. */
-  cachedInputTokens?: number
-  /** Input tokens used to create or write a provider cache entry. */
-  cacheWriteInputTokens?: number
-  outputTokens: number
-  /** Reasoning tokens included in `outputTokens`. */
-  reasoningTokens?: number
-  totalTokens: number
-  calls: number
-}
-
-export interface OptimizationMethodProvenance {
-  /** External optimizer package. */
-  source: OptimizationPackageSource
-  /** Python bridge package that invoked the optimizer. */
-  bridge?: OptimizationPackageSource
-  /** Custom engine modules imported by the optimizer. */
-  modules?: OptimizationModuleSource[]
-  /** Python implementation used by the bridge process. */
-  python?: OptimizationPythonRuntime
-  /** Exact model identifier configured for optimizer-owned model calls. */
-  optimizerModel?: string
-  /** Stable public identity of the execution-owner callback. */
-  optimizerCallRef?: string
-  runId: string
-  /** Content identity shared by compatible resumptions. */
-  compatibleRunId?: string
-  resumed: boolean
-  /** Whether the run seed reached every external engine configuration. */
-  seedApplied?: boolean
-  /** Evaluations the local callback metered — the trusted count. */
-  evaluationCount: number
-  /**
-   * Evaluation total the external optimizer reported from its own counters.
-   * A difference from `evaluationCount` means upstream skipped, cached, or
-   * double-counted work; inspect before trusting upstream-derived budgets.
-   */
-  upstreamReportedEvaluations?: number
-  artifactDir: string
-  tokenUsage?: OptimizationTokenUsage
-  /** Candidates submitted to the callback, per-case scores, and refusals. */
-  observations?: ExternalOptimizerObservationSummary
-  /** Exact accepted GEPA candidates, parent indices, and selection scores. */
-  gepaCandidatePopulation?: GepaCandidatePopulationSummary
-  /** Opaque Runtime execution evidence for every invoked optimizer-model call. */
-  modelExecutions?: ExternalOptimizerExecutionSummary
-  /** Anthropic-endpoint proxy traffic from agent CLI engines, when enabled. */
-  anthropicEndpoint?: ExternalOptimizerWireCounts
-}
-
-/** Shared inputs for one optimization method. Final test data is absent. */
-export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> {
-  /** Surface every method starts from. */
-  readonly baselineSurface: MutableSurface
-  /** Evidence used to author or fit candidates. */
-  readonly trainScenarios: readonly TScenario[]
-  /** Data used for candidate acceptance, early stopping, and model selection. */
-  readonly selectionScenarios: readonly TScenario[]
-  /** Runs one scenario with a candidate surface. */
-  readonly dispatchWithSurface: (
-    surface: MutableSurface,
-    scenario: TScenario,
-    ctx: DispatchContext,
-  ) => Promise<TArtifact>
-  /** Scores artifacts produced by `dispatchWithSurface`. */
-  readonly judges: readonly JudgeConfig<TArtifact, TScenario>[]
-  /** Method-specific artifacts are written below this directory. */
-  readonly runDir: string
-  readonly seed: number
-  /** Shared defaults for every method. A method may override them explicitly. */
-  readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
-  /** Durable spend account shared by every method and final scoring. */
-  readonly costLedger: CostLedgerHandle
-  /** Invokes each method at the shared execution boundary, including composed children. */
-  invokeMethod?(
-    method: OptimizationMethod<TScenario, TArtifact>,
-    input: OptimizationMethodInput<TScenario, TArtifact>,
-  ): Promise<OptimizationMethodResult>
-  /** Maps this method's local surface into the complete outer candidate. */
-  readonly surfaceToRoot?: (surface: MutableSurface) => MutableSurface
-}
-
-/** Exact child results; costs and usage remain attributable to their owning methods. */
-export interface OptimizationMethodComposition {
-  kind: 'scoped' | 'sequential'
-  baselineSurfaceHash: string
-  stages: Array<{
-    name: string
-    baselineSurfaceHash: string
-    result: OptimizationMethodResult
-  }>
-}
-
-export interface OptimizationMethodResult {
-  /** Surface selected without using the final test partition. */
-  winnerSurface: MutableSurface
-  composition?: OptimizationMethodComposition
-  /** Optimization spend. Excludes final test scoring. */
-  cost: ComparisonCost
-  /** Optimization duration. Excludes final test scoring. */
-  durationMs?: number
-  /** Exact external implementation and run identity, when the method uses one. */
-  provenance?: OptimizationMethodProvenance
-  /** Bounded proof envelope over the canonical SearchLedger for this optimization. */
-  searchHistory?: SearchHistoryReceipt
-}
-
-/** A complete optimization method, including candidate generation and selection. */
-export interface OptimizationMethod<TScenario extends Scenario = Scenario, TArtifact = unknown> {
-  /** Unique, trimmed display name. Its normalized form must also be unique. */
-  name: string
-  optimize: (
-    input: OptimizationMethodInput<TScenario, TArtifact>,
-  ) => Promise<OptimizationMethodResult>
-}
 
 export interface OptimizationMethodScore {
   evidence?: { baseline: EvidenceReceipt; winner: EvidenceReceipt }
@@ -400,7 +252,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       scenarios: opts.testScenarios.map((scenario) => structuredClone(scenario)),
       dispatch: (scenario, ctx) =>
         opts.dispatchWithSurface(structuredClone(measuredSurface), scenario, ctx),
-      dispatchRef: finalDispatchRef(opts, measuredSurface),
+      dispatchRef: `compareOptimizationMethods:${callerDispatchRef(opts)}:${surfaceContentHash(measuredSurface)}`,
       runDir: `${resolvedRunDir}/${tag}`,
     })
     assertCompleteCampaign(
@@ -524,7 +376,28 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     opts.costCeiling,
     'optimization',
   )
-  const testCostPhase = finalCostPhase(opts, baselineSurface, optimized, seed)
+  const testCostIdentity = contentHash({
+    baseline: surfaceContentHash(baselineSurface),
+    winners: optimized.map((winner) => ({
+      name: winner.name,
+      surface: surfaceContentHash(winner.winnerSurface),
+    })),
+    testScenarios: opts.testScenarios,
+    judges: opts.judges.map((judge) => ({
+      name: judge.name,
+      dimensions: judge.dimensions,
+      version:
+        judge.judgeVersion ??
+        contentHash({
+          score: judge.score.toString(),
+          appliesTo: judge.appliesTo?.toString() ?? null,
+        }),
+    })),
+    dispatch: callerDispatchRef(opts),
+    seed,
+    reps: opts.reps ?? 1,
+  })
+  const testCostPhase = `compareOptimizationMethods.test:${testCostIdentity}`
   const finalEvidence = opts.finalEvidence
     ? await exposeFinalEvidence(opts.finalEvidence, opts.claim, opts.testScenarios, [
         baselineSurface,
@@ -667,6 +540,10 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       producers: Object.freeze(optimized.map((result) => result.searchHistoryCoverage)),
     }),
   }
+}
+
+function mean(xs: number[]): number {
+  return xs.length === 0 ? 0 : arithmeticMean(xs)
 }
 
 function assertReportedCostWithinCeiling(
@@ -821,11 +698,7 @@ function assertComparisonControls<TScenario extends Scenario, TArtifact>(
       `compareOptimizationMethods: resamples must be a positive safe integer no greater than 1000000, got ${String(resamples)}`,
     )
   }
-  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
-    throw new Error(
-      `compareOptimizationMethods: confidence must be a finite number in (0,1), got ${String(confidence)}`,
-    )
-  }
+  assertConfidence(confidence)
   const minimumResamples = minimumBootstrapResamples(
     confidence,
     (opts.methods.length * (opts.methods.length + 1)) / 2,
@@ -929,10 +802,6 @@ function assertComparisonPartitions<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function mean(xs: number[]): number {
-  return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
-}
-
 function slug(name: string): string {
   return (
     name
@@ -989,74 +858,8 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   })
 }
 
-function finalCostPhase<TScenario extends Scenario, TArtifact>(
-  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
-  baselineSurface: MutableSurface,
-  winners: readonly { name: string; winnerSurface: MutableSurface }[],
-  seed: number,
-): string {
-  const identity = contentHash({
-    baseline: surfaceContentHash(baselineSurface),
-    winners: winners.map((winner) => ({
-      name: winner.name,
-      surface: surfaceContentHash(winner.winnerSurface),
-    })),
-    testScenarios: opts.testScenarios,
-    judges: opts.judges.map((judge) => ({
-      name: judge.name,
-      dimensions: judge.dimensions,
-      version:
-        judge.judgeVersion ??
-        contentHash({
-          score: judge.score.toString(),
-          appliesTo: judge.appliesTo?.toString() ?? null,
-        }),
-    })),
-    dispatch: callerDispatchRef(opts),
-    seed,
-    reps: opts.reps ?? 1,
-  })
-  return `compareOptimizationMethods.test:${identity}`
-}
-
-function finalDispatchRef<TScenario extends Scenario, TArtifact>(
-  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
-  surface: MutableSurface,
-): string {
-  return `compareOptimizationMethods:${callerDispatchRef(opts)}:${surfaceContentHash(surface)}`
-}
-
 function callerDispatchRef<TScenario extends Scenario, TArtifact>(
   opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
 ): string {
   return (opts.dispatchRef ?? opts.dispatchWithSurface.name) || 'anonymous'
-}
-
-/** Preserve every optimizer token class while keeping total input and output explicit. */
-export function optimizationTokenUsageFromSummary(
-  summary: CostLedgerSummary,
-  receipts: readonly CostReceipt[],
-): OptimizationTokenUsage | undefined {
-  if (!summary.usageComplete) return undefined
-  if (receipts.length !== summary.totalCalls) {
-    throw new Error('optimization token usage receipt count does not match the cost summary')
-  }
-  const cachedInputTokens = summary.cachedTokens
-  const cacheWriteInputTokens = summary.cacheWriteTokens ?? 0
-  const inputTokens = summary.inputTokens + cachedInputTokens + cacheWriteInputTokens
-  const cacheReadComplete =
-    receipts.length === 0 || receipts.every((receipt) => receipt.cachedTokens !== undefined)
-  const cacheWriteComplete =
-    receipts.length === 0 || receipts.every((receipt) => receipt.cacheWriteTokens !== undefined)
-  const reasoningComplete =
-    receipts.length === 0 || receipts.every((receipt) => receipt.reasoningTokens !== undefined)
-  return {
-    inputTokens,
-    ...(cacheReadComplete ? { cachedInputTokens } : {}),
-    ...(cacheWriteComplete ? { cacheWriteInputTokens } : {}),
-    outputTokens: summary.outputTokens,
-    ...(reasoningComplete ? { reasoningTokens: summary.reasoningTokens ?? 0 } : {}),
-    totalTokens: inputTokens + summary.outputTokens,
-    calls: summary.totalCalls,
-  }
 }

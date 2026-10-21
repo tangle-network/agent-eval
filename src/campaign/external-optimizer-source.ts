@@ -1,5 +1,5 @@
 import { isRecord } from './external-optimizer-process'
-import type { OptimizationPackageSource } from './presets/compare-optimization-methods'
+import type { OptimizationPackageSource } from './optimization-method'
 
 export interface ExternalOptimizerPackageSource<TPackage extends string> {
   package: TPackage
