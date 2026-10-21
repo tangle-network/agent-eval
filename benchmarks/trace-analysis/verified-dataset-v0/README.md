@@ -18,10 +18,10 @@ Source pins (embedded per row and in the manifest):
 
 | source | sha256 |
 | --- | --- |
-| `replay-batch/run2-20260802/batch-report.json` | `be6236dce691ea9df7c850040c995dd1f2274aaf559c45836c726bc480288fb3` |
+| run2 batch report, 2026-08-02 (not committed here) | `be6236dce691ea9df7c850040c995dd1f2274aaf559c45836c726bc480288fb3` |
 | `ctb-holdout-labels.json` (holdout-1) | `53af5ffe3962f3378f2d65419b92b8a56fe7d6c8efc619a0bc2b8f0872bc4f83` |
 | `ctb-holdout2-labels.json` (holdout-2) | `2db46579b7993edc376acbbcacf67a1d0ddfcdb94e28930c2bb8dfcf1dc32fb2` |
-| `split3/ctb-split3-labels.json` (split3) | `d0347ec7a5ec9a07bd3fcd16aa06b07bcb33ffabca39cb0b0f7a564fb500ae08` |
+| split3 labels file (not committed here) (split3) | `d0347ec7a5ec9a07bd3fcd16aa06b07bcb33ffabca39cb0b0f7a564fb500ae08` |
 
 Run2 composition (n=22): 16 reproduced, 13 signature-strict, fix arms 9 flipped / 2 not-flipped / 5 generation-failed / 6 not-attempted.
 Per corpus — holdout-1: 4 rows (2 reproduced, 1 flipped); holdout-2: 9 (9, 7); split3: 9 (5, 1).

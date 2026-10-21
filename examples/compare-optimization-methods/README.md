@@ -114,7 +114,7 @@ The [budget helper](../_shared/optimizer-model-budget.ts) exposes additional req
 
 ## Inspect the artifacts
 
-The script writes `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrors it to `.evolve/compare-optimization-methods/latest.json`.
+The script writes `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrors it to a `latest.json` in the same directory.
 Raw campaign artifacts remain under the timestamped directory.
 The summary contains selected surfaces, final scores, lift intervals, cost status, configured limits, optimizer provenance, and available token usage.
 Read `comparison.pairwise` and each method's decision before interpreting its rank as evidence of a difference.

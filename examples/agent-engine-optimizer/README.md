@@ -1,7 +1,7 @@
 # Let A Coding Agent Drive The Optimization
 
 This example runs `selfImprove()` with GEPA's `autoresearch` engine.
-The engine drives a real `claude` CLI subprocess that reads the candidate, edits it, and scores each attempt through `./eval.sh`.
+The engine drives a real `claude` CLI subprocess that reads the candidate, edits it, and scores each attempt through the example's deterministic judge.
 Every CLI model call routes through Agent Eval's loopback proxy, so the whole agent session is metered, budgeted, and receipted.
 
 ## When To Use It

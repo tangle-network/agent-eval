@@ -1,6 +1,6 @@
 # Statistics: adoption decisions
 
-This is the standing decision record for `src/statistics.ts` and the estimators layered on it.
+This is the standing decision record for `src/statistics/` and the estimators layered on it.
 It answers three questions: which statistic is trustworthy, where each number comes from, and what a caller is allowed to ask for at 3–10 repetitions per arm.
 The API itself is documented in [`concepts.md`](../concepts.md); this file records *why* each statistic is kept, fixed, or refused.
 
@@ -100,12 +100,12 @@ These 17 matched their references with zero mismatches and stay as they are, pin
 | `cliffsDelta` | keep-with-CI-oracle | Matched a hand-computed `(#gt − #lt)/(n₁n₂)` reference exactly (`0.312500`). Note the orientation is *after over before*, the opposite sign to the textbook `δ` written over `(a, b)`; the docstring states this and the parameter names `(before, after)` carry it. |
 | `pairedCohensDz` | keep-with-CI-oracle | Matched `mean(d)/sd(d)` exactly (`2.184070`). It is the only function in the module that handles the zero-variance degenerate case correctly, returning `null` with a docstring explaining that the standardized effect is undefined rather than an arbitrarily large finite number. Treat it as the reference behaviour the other degenerate branches should adopt. |
 | `weightedMean`, `partialCredit`, `weightedComposite`, `interpretCliffs`, `normalizeScores` | keep-with-CI-oracle | Arithmetic and thresholding, verified by direct evaluation (`weightedMean` of `[{1,w2},{4,w1}]` is `2.000000`; `partialCredit(3,4)` is `0.750000`). |
-| `welchsTTest`, `compareToBaseline` (`src/baseline.ts`) | keep-with-CI-oracle, **covered** | Correct, and previously unguarded: no test file imported either, which is the structural reason a duplicated broken CDF survived here. It is exported publicly and it gates improved / regressed / stable verdicts. Now pinned against `scipy.stats.ttest_ind(equal_var=False)` in the oracle fixture and exercised through `compareToBaseline` in `tests/statistics.test.ts`. |
+| `welchsTTest`, `compareToBaseline` (`src/baseline.ts`) | keep-with-CI-oracle, **covered** | Correct, and previously unguarded: no test file imported either, which is the structural reason a duplicated broken CDF survived here. It is exported publicly and it gates improved / regressed / stable verdicts. Now pinned against `scipy.stats.ttest_ind(equal_var=False)` in the oracle fixture and exercised through `compareToBaseline` in a statistics test file that is no longer in the tree. |
 
 ## Public surface change
 
 `normalCdf` and `studentTCdf` were private on `origin/main` and are now exported with explicit accuracy contracts.
-`baseline.ts` owns the single Welch implementation, and `contract/analyze-runs.ts` consumes that result instead of carrying another normal-approximation copy.
+`baseline.ts` owns the single Welch implementation, and `src/contract/analyze-runs.ts` consumes that result instead of carrying another normal-approximation copy.
 That is the right trade: one implementation with one accuracy contract beats three copies of which two were wrong.
 It also means both functions are now public API and owe callers a stated accuracy bound.
 `normalCdf` is documented at `7.5e-8` absolute.
@@ -290,18 +290,18 @@ That is why the option stays optional — a required seed would push the caller 
 
 | Site | Formula | Consumer | Seed source |
 | --- | --- | --- | --- |
-| `statistics/internal.ts` `makeRng` | mulberry32 | every resampling path in `src/statistics` | caller seed, else FNV-1a over the IEEE-754 bytes of the observations |
-| `statistics/descriptive.ts` `confidenceInterval` | percentile bootstrap | reported interval | `makeRng(opts.seed, scores)` |
-| `statistics/paired-tests.ts` `pairedBootstrap` | paired percentile bootstrap | promotion intervals | `makeRng(opts.seed, deltas)` |
-| `statistics/rank-tests.ts` `mannWhitneyU`, `wilcoxonSignedRank` | permutation null | exact rank-test p | `makeRng(opts.seed, …)`, order-independent for the symmetric two-sample case |
+| `src/statistics/internal.ts` `makeRng` | mulberry32 | every resampling path in `src/statistics` | caller seed, else FNV-1a over the IEEE-754 bytes of the observations |
+| `src/statistics/descriptive.ts` `confidenceInterval` | percentile bootstrap | reported interval | `makeRng(opts.seed, scores)` |
+| `src/statistics/paired-tests.ts` `pairedBootstrap` | paired percentile bootstrap | promotion intervals | `makeRng(opts.seed, deltas)` |
+| `src/statistics/rank-tests.ts` `mannWhitneyU`, `wilcoxonSignedRank` | permutation null | exact rank-test p | `makeRng(opts.seed, …)`, order-independent for the symmetric two-sample case |
 | `promotion-gate.ts` | bootstrap over the two arms | ship / hold verdict | `options.seed`, else `hashSeed(baseline, candidate)` |
 | `held-out-gate.ts` | delegates to `pairedBootstrap` | held-out gate verdict | caller seed, else the paired observations |
 | `summary-report.ts` `bayesianBootstrapMeanSamples` | Dirichlet-weight bootstrap | reported posterior and gain histogram | `makeRng(seed, deltas)` |
-| `meta-eval/rubric-predictive-validity.ts` `bootstrapCi` | percentile bootstrap of Pearson r | rubric verdict (`load_bearing` / `informative`) | `makeRng(input.seed, xs, ys)` |
-| `meta-eval/correlation-study.ts` `bootstrapPearsonCi` | percentile bootstrap of Pearson r | reported correlation CI | `makeRng(options.seed, xs, ys)` |
-| `campaign/search-policy.ts` `aide` | Thompson draw over node posteriors, the debug coin, the debug and uniform draws | the parent an expansion extends (spends budget, claims nothing) | `mulberry32(seed ^ imul(completed expansions + 1, 0x9e3779b1) ^ salt)`, a pure function of the ledger |
-| `rl/adaptation-eval.ts` `compareAdaptationCurves` | bootstrap of per-k mean deltas | per-k CI and AUC delta | `makeRng(opts.seed, a-means, b-means)` |
-| `campaign/gates/sequential.ts` | seeded Fisher-Yates over paired deltas | exchangeability guard before the e-process | `shuffleSeed`, default 1337, data-independent by construction |
+| `src/meta-eval/rubric-predictive-validity.ts` `bootstrapCi` | percentile bootstrap of Pearson r | rubric verdict (`load_bearing` / `informative`) | `makeRng(input.seed, xs, ys)` |
+| `src/meta-eval/correlation-study.ts` `bootstrapPearsonCi` | percentile bootstrap of Pearson r | reported correlation CI | `makeRng(options.seed, xs, ys)` |
+| `src/campaign/search-policy.ts` `aide` | Thompson draw over node posteriors, the debug coin, the debug and uniform draws | the parent an expansion extends (spends budget, claims nothing) | `mulberry32(seed ^ imul(completed expansions + 1, 0x9e3779b1) ^ salt)`, a pure function of the ledger |
+| `src/rl/adaptation-eval.ts` `compareAdaptationCurves` | bootstrap of per-k mean deltas | per-k CI and AUC delta | `makeRng(opts.seed, a-means, b-means)` |
+| `src/campaign/gates/sequential.ts` | seeded Fisher-Yates over paired deltas | exchangeability guard before the e-process | `shuffleSeed`, default 1337, data-independent by construction |
 
 ### Draws that reach no result
 
@@ -319,9 +319,9 @@ These stay on `Math.random`. Each produces an identifier or a retry delay; no re
 
 ### What changed in this pass
 
-Five byte-identical private copies of mulberry32 existed alongside the canonical one, in `meta-eval/rubric-predictive-validity.ts`, `rl/active-curriculum.ts`, `rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`.
+Five byte-identical private copies of mulberry32 existed alongside the canonical one, in `src/meta-eval/rubric-predictive-validity.ts`, `src/rl/active-curriculum.ts`, `src/rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`.
 Four of them fell back to `Math.random` when the caller passed no seed, so four reported statistics were silently non-reproducible.
-`meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and had no seed option at all.
+`src/meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and had no seed option at all.
 All six now route through `makeRng`, and `correlationStudy` gained the `seed` option its sibling already had.
 `Math.random` references in `src/` fell from 19 to 10, and none of the remaining ten is result-bearing.
 
@@ -334,7 +334,7 @@ The audit in #411 counted assertions that prove nothing, module mocks, and condi
 - *A guard's accept case.* `assertLlmRoute`, `assertNoHiddenLeak`, `assertCapabilityHeadroom`, `assertMultishotShotResult`, `assertMatchedMethodLimits`, `assertGateReport`, `assertAnalystBenchmarkObservation`, `assertDeterministicOracle`, `assertDenominatorIntact`, and `assertJsonValue` return nothing. For these the no-throw IS the assertion: it pins the false-positive boundary of a fail-closed gate, and a gate that refuses a legal input is as broken as one that admits an illegal one. Each sits next to a `toThrow` sibling that proves the refusal. Kept.
 - *A value-returning call.* `validateRunRecord` and friends return the validated value, so the no-throw discarded the only thing worth checking. Converted to assert the returned value.
 
-**Module mocks.** 5 sites, each now carrying a one-line justification in its file header: four wrap a `node:` builtin to reproduce a race or an absent native binding that a real filesystem cannot be timed into (`trace/store.test.ts`, `analyst/benchmark-verification-artifacts.test.ts`, `analyst/benchmark-command-public-data.test.ts`, `rollout/readers/opencode-sqlite-lazy.test.ts`); one replaces the provider call in the wire handler test, which is about request validation and error mapping (`tests/wire/handlers.test.ts`).
+**Module mocks.** 5 sites, each now carrying a one-line justification in its file header: four wrap a `node:` builtin to reproduce a race or an absent native binding that a real filesystem cannot be timed into (`src/trace/store.test.ts`, `src/analyst/benchmark-verification-artifacts.test.ts`, `src/analyst/benchmark-command-public-data.test.ts`, the opencode-sqlite lazy-reader test (no longer in the tree)); one replaces the provider call in the wire handler test, which is about request validation and error mapping (`tests/wire/handlers.test.ts`).
 
 **Conditional skips.** 6 sites, all environment-gated, none silent:
 

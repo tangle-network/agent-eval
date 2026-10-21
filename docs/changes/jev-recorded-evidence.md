@@ -21,4 +21,4 @@ No live validation is relaxed. The shared implementation has one question/result
 
 Consumer order: publish the actual package version containing this export, update affected dependency pins/lockfiles, then replace archive-only calls to the live request validator. Do not invent a version or install an unpublished source import. Preserve output-vs-text consistency checks, tenant authorization, served-model policy, receipt ownership and the existing action archive. A historical decoder is not permission to repeat paid work.
 
-`tests/jev-recorded-request.test.ts` writes an observation to disk, reads it twice through the real parsers, rejects contradictory results, and confirms that the live path still rejects historical-only requests. No provider, database, scheduler, migration or new package dependency is added.
+The recorded-request test, which is no longer in this tree, writes an observation to disk, reads it twice through the real parsers, rejects contradictory results, and confirms that the live path still rejects historical-only requests. No provider, database, scheduler, migration or new package dependency is added.

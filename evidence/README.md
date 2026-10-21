@@ -8,7 +8,7 @@ This directory is the canonical registry for measured claims about our agents, p
 - **A measured claim that anyone will cite later gets a record here.**
   One JSON file per claim in [`records/`](./records/), validated by the exported schema (`evidenceRegistryRecordSchema` from `@tangle-network/agent-eval/experiment`).
 - **The registry lives in agent-eval** because the measurement substrate owns evidence legitimacy.
-  Every other repo keeps at most a pointer file (`docs/EVIDENCE.md`, three lines: "measured results for this repo live in agent-eval `evidence/`; do not restate numbers here").
+  Every other repo keeps at most a three-line pointer file (its only content: "measured results for this repo live in agent-eval `evidence/`; do not restate numbers here").
 - **Humans read [`INDEX.md`](./INDEX.md); machines read `records/*.json`.**
   The index is generated (`pnpm run evidence:render`) and drift-checked (`pnpm run evidence:check`, inside `verify:package`), so prose can never drift from data.
 - **Session diaries stay diaries.** `.evolve/experiments.jsonl` remains the append-only lab notebook.

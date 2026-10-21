@@ -491,7 +491,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
   Each question is one `runTraceAnalyst` call, so a finding still needs its minimum distinct citations (default 2), each resolvable in the store.
   The verifier reads the claim through `citedSpansOnly`, a store that exposes exactly the cited spans and refuses every wider read; a finding it does not support is returned with `verified: false`.
   One failed question never stops the others; its failure is its outcome.
-  It is the question runner of the agent-runtime continuation panel (discovery `docs/38-one-loop-and-continuation.md`, section 5), and `traces ask` can call the same code.
+  It is the question runner of the agent-runtime continuation panel (discovery discovery note 38, section 5), and `traces ask` can call the same code.
 
 ### Changed
 
@@ -663,7 +663,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
 - **The rule-list redactor is replaced by the redaction core.** Removed `DEFAULT_REDACTION_RULES`, `RedactionRule`, `redactString` and `redactValue` (root and `/traces`), and `/diagnosis` `DIAGNOSIS_SECRET_RULES`, `holdsSecret`, `redactSecrets`, `redactSecretsDeep`, `SECRET_ASSIGNMENT_PATTERN` and their types. `RedactionReport` now has `byDetector` and `findings` instead of `byRule`, and `REDACTION_VERSION` is `2.0.0`. **Migration:** `redactValue(v)` becomes `redact(v).value`, `redactString(s).output` becomes `redactText(s)`, and a custom rule list becomes `knownSecrets` or a case in the corpus. `defaultProviderRedactor` now runs the core, so a credential header keeps its name with a `[REDACTED:credential-key]` value, and `redactedFields` holds JSON Pointers.
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
 - `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
-- The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
+- The unit tests in the trace-contracts test; `traces check` over recorded sessions is the proof.
 
 ## [0.187.2] — 2026-09-24
 
@@ -1219,7 +1219,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
 
 - Every byte-identical private copy of a shared primitive now routes through one owner. No public export changes and no behavior changes.
   - `mulberry32` had five implementations: the exported owner in `src/statistics/random.ts`, named private copies in `src/trajectory-replay/batch.ts` and `src/judge-calibration.ts`, and unnamed inline copies in `src/rl/contamination.ts` (`shuffleOrder`) and `src/fuzz/explorer.ts` (`FuzzExplorer.rng`). The copies used `seed >>> 0` where the owner uses `seed | 0` — the same 32 bits, so the streams are identical (verified over 150,000 draws across 15 seeds). All four are deleted. The replay fix-case sample, the judge-calibration bootstrap, the contamination probe's order-shuffle perturbation, and the fuzz explorer now inherit the owner's refusal of a non-finite seed instead of silently seeding from `NaN >>> 0 === 0`. `src/statistics/random.test.ts` pins the stream with known-answer vectors, so a future edit to the PRNG cannot silently move an already-published statistic.
-  - `toAttributes` and `msToNs` were byte-identical in `src/trace/otel.ts` and `src/trace/otel-export.ts`. Both exporters emit the same `OtlpSpan`, so two copies of the value-tagging rule meant the same attribute could be typed differently depending on which exporter ran. They are now `toOtlpAttributes` and `msToUnixNano` in the private `src/trace/otlp-encoding.ts`.
+  - `toAttributes` and `msToNs` were byte-identical in `src/trace/otel.ts` and the removed OTel exporter module. Both exporters emit the same `OtlpSpan`, so two copies of the value-tagging rule meant the same attribute could be typed differently depending on which exporter ran. They are now `toOtlpAttributes` and `msToUnixNano` in the private `src/trace/otlp-encoding.ts`.
   - `cryptoRandomId` / `cryptoEventId` / `cryptoId` were three byte-identical id mints in `src/trace/emitter.ts`, `src/llm-client.ts`, and `src/builder-eval/builder-session.ts`. Each carried a `Date.now()`-plus-`Math.random()` fallback that is unreachable on every runtime this package supports (`engines.node >= 20`, where `globalThis.crypto.randomUUID` is always present). One private `newRecordId` in `src/record-id.ts` replaces all three, and the weaker id path is gone.
 
 ---
@@ -1281,7 +1281,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
   - `createChatClient` loses its `router`, `direct-provider`, and `cli-bridge` variants. `custom`, `sandbox-sdk`, and `mock` remain, and `ChatTransport` narrows to those three.
   - The root barrel no longer exports `callLlm`, `callLlmJson`, `LlmClient`, `LlmClientOptions`, `assertLlmRoute`, `LlmRouteRequirements`, or `probeLlm`. `assertLlmRoute` and `probeLlm` are deleted outright: the caller holds the endpoint, so the caller owns both the route check and the reachability probe. The canonical contract stays public — `LlmCallRequest`, `LlmCallResult` (including `logprobs`, `toolCalls`, `servedModel`), `LlmMessage`, `LlmUsage`, `costReceiptFromLlm`, `costReceiptFromLlmError`, `maximumChargeForLlmRequest`, `isTransientLlmError`, `stripFencedJson`.
   - `createOpenAiCompatibleExecutionOwner` is gone from `/campaign`. Agent Runtime already owns that role with `profileOptimizerModelCall`, which executes one exact `AgentProfile` and reports profile-digest evidence; two owners for one role was the defect. `examples/_shared/openai-compatible-owner.ts` is the caller-side reference implementation, and it is example code, not a published export.
-  - `multishot/router.ts` is deleted with `routerCompletion`, `requireRouterApiKey`, and `defaultRouterBaseUrl`. `runMultishot`, `runMultishotMatrix`, and `runJudge` now require a caller-supplied `MultishotTransport`; `JudgeConfig.transport` is required and `JUDGE_MODEL` is no longer read from the environment. `MultishotToolExecutor` receives `{ transport, signal }` instead of `{ apiKey, baseUrl, signal }`, and the optional `toolTransport` names the leg the built-in delegate tools run on. `estimateRouterCost` is now `estimateMultishotCost` in `multishot/cost.ts`.
+  - the multishot router module is deleted with `routerCompletion`, `requireRouterApiKey`, and `defaultRouterBaseUrl`. `runMultishot`, `runMultishotMatrix`, and `runJudge` now require a caller-supplied `MultishotTransport`; `JudgeConfig.transport` is required and `JUDGE_MODEL` is no longer read from the environment. `MultishotToolExecutor` receives `{ transport, signal }` instead of `{ apiKey, baseUrl, signal }`, and the optional `toolTransport` names the leg the built-in delegate tools run on. `estimateRouterCost` is now `estimateMultishotCost` in `src/multishot/cost.ts`.
   - `preflightModels` and `assertModelsServed` take `request: ModelEndpointRequest` instead of `baseUrl` and `apiKey`. Agent Eval asks for a `list-models` or a `probe` check and reads the `Response`, so status, the provider's own `error.message`, `budgetExhausted`, and served-model substitution stay exactly as detectable as before.
   - `runIntentMatchJudge`, `runSemanticConceptJudge`, `handleJudge`, `dispatchRpc`, and `createApp` take `chat: ChatClient` (plus optional `pricing`) instead of `llm: LlmClientOptions`. `/v1/judge` refuses with `llm_not_configured` (503) when no transport is configured, which replaces the old route assertion.
   - The internal OpenAI-compatible client has no default endpoint. `DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'` is deleted and `baseUrl` is required, so a misconfigured caller fails loudly instead of silently billing the public router — the failure `assertLlmRoute` existed to catch, now unrepresentable.
@@ -1323,7 +1323,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
 
 ### Fixed
 
-- Every result-bearing random draw is seeded (#411, criterion 2). Five byte-identical private copies of `mulberry32` lived beside the canonical one, in `meta-eval/rubric-predictive-validity.ts`, `rl/active-curriculum.ts`, `rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`; four fell back to `Math.random` when the caller passed no seed, so the rubric verdict, the Thompson allocation, the adaptation-curve intervals, and the reported posterior were silently non-reproducible. `meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and offered no seed at all. All six now route through `makeRng`, which derives the seed from the observations when the caller supplies none, so the same input reproduces the same interval; `correlationStudy` gains the `seed` option its sibling already had. `Math.random` references in `src/` fall from 19 to 10, and every remaining one produces an identifier or a retry delay that no reported number reads. The seat-by-seat audit table is in `docs/design/statistics-decisions.md`.
+- Every result-bearing random draw is seeded (#411, criterion 2). Five byte-identical private copies of `mulberry32` lived beside the canonical one, in `src/meta-eval/rubric-predictive-validity.ts`, `src/rl/active-curriculum.ts`, `src/rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`; four fell back to `Math.random` when the caller passed no seed, so the rubric verdict, the Thompson allocation, the adaptation-curve intervals, and the reported posterior were silently non-reproducible. `src/meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and offered no seed at all. All six now route through `makeRng`, which derives the seed from the observations when the caller supplies none, so the same input reproduces the same interval; `correlationStudy` gains the `seed` option its sibling already had. `Math.random` references in `src/` fall from 19 to 10, and every remaining one produces an identifier or a retry delay that no reported number reads. The seat-by-seat audit table is in `docs/design/statistics-decisions.md`.
 - Two documentation fences imported `@tangle-network/agent-eval/../src/trace-repair`, which cannot resolve; they now import `@tangle-network/agent-eval/trace-repair`. Three fences that are not TypeScript — an object fragment, a call elided as `{ ... }`, and a method sketch — are marked `text`.
 
 ### Changed
@@ -1357,7 +1357,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
 
 - `runOptimization({ searchLedger })` and `selfImprove({ searchLedger })` record the candidate search into the canonical `SearchLedger` and return a bounded `searchHistory` receipt (#633). The loop emits the plan (slots = generations x populationSize, one candidate-generation operation per generation, one selection operation, one task per designed scenario-replicate cell), one registration per candidate carrying the exact parent surface it mutated, one attempt per scored cell with the cell's own outcome and accounting, one decision per candidate, and the terminal event. `FileSearchLedger` now has a first-party caller in its own package. The terminal event is appended only when canonical replay accounts for the whole planned denominator, so an interrupted or partly unscored search reports the gap instead of claiming a closed search.
 - `search-plan-extended`: a rolling search appends candidate slots and operations to an existing plan instead of opening a second ledger. Replay merges the first plan with every extension, the generation invariant continues across rounds, and the planless refusal is unchanged. The planned task denominator stays frozen.
-- `gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's own candidate population — its parent graph and per-scenario selection scores — into the same ledger through `recordCandidatePopulationSearch()`. `compareOptimizationMethods({ searchHistoryPolicy: 'require-complete' })` now accepts a first-party method, which is what `docs/search-history-receipts.md` promised.
+- `gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's own candidate population — its parent graph and per-scenario selection scores — into the same ledger through `recordCandidatePopulationSearch()`. `compareOptimizationMethods({ searchHistoryPolicy: 'require-complete' })` now accepts a first-party method, which is what the search-history receipts note promised.
 
 ---
 
@@ -1421,7 +1421,7 @@ Prepared but never published; 0.210.0 is the first release that carries these ch
   - `foreign-agent-quickstart` moved to the standard `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` variables and declares `expectUsage: 'off'` for its unmetered demo transport.
   - Optimizer examples (`self-improve-optimizer`, `compare-optimization-methods`, GSM8K, AppWorld) encode the measured GEPA lessons: `LLM_BASE_URL` is required (no silent `api.openai.com` default), every GEPA engine run pins `reflection_lm_kwargs: { num_retries: 0 }` via the shared `examples/_shared/gepa-reflection.ts`, worker `maxTokens` is env-tunable with a reasoning-model headroom note, and `GEPA_MAX_EVALUATIONS` documents the >= train-partition-size floor.
   - Model ids refreshed across examples: retired `gpt-4o`/`gpt-4.1-mini`/`claude-sonnet-4-6` literals replaced with served ids (`deepseek-v4-flash`, `glm-5.3`; RunRecord literals carry the required snapshot suffix).
-  - Removed `examples/benchmarks/appworld/halo_chat.py` and `halo-chat.sh`: launchers for an external analysis engine that no documented example references. `run-bench.ts` requires `APPWORLD_DIR` explicitly instead of defaulting to a machine-local path.
+  - Removed the AppWorld halo chat launcher and `halo-chat.sh`: launchers for an external analysis engine that no documented example references. `run-bench.ts` requires `APPWORLD_DIR` explicitly instead of defaulting to a machine-local path.
 
 ---
 
@@ -1515,14 +1515,14 @@ One repository still names three of them. `starter-foundry` imports `runAssertio
 
 ### Removed
 
-- `decideNextUserTurn`, `DecideNextUserTurnOpts` and `buildDriverSystemPrompt`, with `src/driver.ts` and the `user-simulation-driver` example. A role written as a code function cannot be optimized, and a persona driver is an `AgentProfile` on a graph edge, not a packaged function. All five first-party callers now own the role in their own repositories, where the prompt is product data they can change and measure: gtm-agent, legal-agent, insurance-agent, workcomp-agent and creative-agent.
-- `ConvergenceTracker` and `src/convergence.ts`. Its only caller was `AgentDriver`, which 0.145.22 deleted, and it never reached the barrel. `analyzeSeries` in `src/series-convergence.ts` is unaffected — it reads drift across runs, not progress within one.
+- `decideNextUserTurn`, `DecideNextUserTurnOpts` and `buildDriverSystemPrompt`, with the driver module and the `user-simulation-driver` example. A role written as a code function cannot be optimized, and a persona driver is an `AgentProfile` on a graph edge, not a packaged function. All five first-party callers now own the role in their own repositories, where the prompt is product data they can change and measure: gtm-agent, legal-agent, insurance-agent, workcomp-agent and creative-agent.
+- `ConvergenceTracker` and the convergence tracker module. Its only caller was `AgentDriver`, which 0.145.22 deleted, and it never reached the barrel. `analyzeSeries` in `src/series-convergence.ts` is unaffected — it reads drift across runs, not progress within one.
 - `PersonaConfig.feedbackPatterns`, the `FeedbackPattern` type, and `PersonaConfig.driverModel`. `feedbackPatterns` told `AgentDriver` which product approvals to reject, and `driverModel` picked its driver model; with the class gone nothing reads either, in this package or in any repository that depends on it. A field that advertises behaviour the package no longer has is worse than no field.
 - Nothing else on the public surface changes. `PersonaConfig` and `DriverState` stay: a harness that writes its own driver still describes a persona and a produced state with them.
 
 ### Migration
 
-A caller that drove a conversation with `decideNextUserTurn` owns two things now: the system prompt that states what its simulated professional demands, and one priced call that turns the transcript into the next message. Both stay reachable from this package — `CostLedger.runPaidCall` prices and attributes the call, `maximumChargeForLlmRequest` caps it, `costReceiptFromLlm` records it, and `assertServedModel` (published in 0.145.22) holds the transport to the model id it was asked for. gtm-agent's `eval/lib/persona-driver.ts` is the worked example.
+A caller that drove a conversation with `decideNextUserTurn` owns two things now: the system prompt that states what its simulated professional demands, and one priced call that turns the transcript into the next message. Both stay reachable from this package — `CostLedger.runPaidCall` prices and attributes the call, `maximumChargeForLlmRequest` caps it, `costReceiptFromLlm` records it, and `assertServedModel` (published in 0.145.22) holds the transport to the model id it was asked for. gtm-agent's the eval persona driver is the worked example.
 
 A caller pinned below 0.145.22 cannot import `assertServedModel`. Check what the pinned version did before porting: `decideNextUserTurn` did not call the guard before the 0.145.x line, so a port that omits it there matches the pinned behaviour exactly.
 ## [0.146.0] — 2026-08-16
@@ -1798,7 +1798,7 @@ Breaking release: the deep clean. The measured consumer-import census is the com
 
 ### Changed
 
-- `src/statistics.ts` is now the `src/statistics/` directory (12 focused modules); every existing import specifier still compiles.
+- the statistics module is now the `src/statistics/` directory (12 focused modules); every existing import specifier still compiles.
 - `runCampaign` internals split into phase modules; its import path and options are unchanged.
 - Every verifier lands in `DefaultVerdict`, with `certification` naming what certified the verdict (checker identity, strategy, assumptions, evidence digest).
 
@@ -2656,10 +2656,10 @@ threshold and should be re-run on this release.
   (`outcome.realness.gated`) existed in exactly one function, `rolloutReward`, called from exactly one
   place — `mintRolloutRows`. The same derivation, `outcome.holdoutScore ?? outcome.searchScore`, was
   hand-rolled at 20 other sites with no gate. Six of those sites feed exported training data: the GRPO
-  default reward and the SFT row metadata (`rl/exporters.ts`), the DPO preference ordering
-  (`rl/preferences.ts`), the probabilistic verifiable-reward fallback (`rl/verifiable-reward.ts`), the
-  corpus `minScore` filter (`rl/corpus.ts`), and the published datasheet's reward statistics
-  (`rl/dataset.ts`). A gamed run therefore trained at its claimed score, and in DPO it became the
+  default reward and the SFT row metadata (`src/rl/exporters.ts`), the DPO preference ordering
+  (`src/rl/preferences.ts`), the probabilistic verifiable-reward fallback (`src/rl/verifiable-reward.ts`), the
+  corpus `minScore` filter (`src/rl/corpus.ts`), and the published datasheet's reward statistics
+  (`src/rl/dataset.ts`). A gamed run therefore trained at its claimed score, and in DPO it became the
   *chosen* side of a pair against its honest sibling. Every one of those six now derives its reward
   through the gate.
 
@@ -2673,7 +2673,7 @@ threshold and should be re-run on this release.
   allocation need the ungated number, and gating a detector's proxy would make it report "clean" on
   precisely the population being gamed — so the fix names the choice rather than removing it.
 - A regression test (`src/rollout/reward-invariant.test.ts`) with two halves: a source-level check that
-  the bare derivation appears nowhere outside `rollout/reward.ts`, and a behavioural check that pushes
+  the bare derivation appears nowhere outside `src/rollout/reward.ts`, and a behavioural check that pushes
   one gated record with a 0.95 score through mint, GRPO, SFT, DPO, verifiable reward, the dataset
   bundle, and the corpus filter, asserting 0 in each. Against the pre-fix tree the source check reports
   21 offending lines and 7 of the 10 tests fail.
@@ -2684,7 +2684,7 @@ threshold and should be re-run on this release.
   Use `trainingReward` for score derivation or `rolloutRewardFields` when producing a rollout outcome.
 - The 14 analysis, reporting, and detection sites that legitimately want the raw number now call
   `observedScore` explicitly. Behaviour is unchanged at all 14, including the two sites that
-  deliberately prefer the search split (`rl/active-curriculum.ts`, via the new `ScorePreference`
+  deliberately prefer the search split (`src/rl/active-curriculum.ts`, via the new `ScorePreference`
   argument). (`description-length-gate.ts` reads through `runTaskScore`, which 0.127.0 stripped of
   its obsolete `raw.score` fallback.)
 
@@ -2731,10 +2731,10 @@ unchanged.
   `HeldOutGate` gets the same treatment: gated runs are dropped from both sides before pairing, with
   `evidence.realnessGatedRuns` surfacing how many. Never a silent 0 — a shrunken denominator has to say
   by how much.
-- **Ten remaining hand-rolled derivations routed by classification**: `rl/sim-fidelity.ts` (×2, RAW —
+- **Ten remaining hand-rolled derivations routed by classification**: `src/rl/sim-fidelity.ts` (×2, RAW —
   gating a sim-vs-production divergence measure would report the simulator as more faithful precisely
-  where it is gamed), `belief-state/code-agent-corpus.ts` (GATED — its output becomes corpus labels),
-  `eval-trace-store.ts` (GATED, above), `contract/analyze-runs.ts` (×3, RAW), `summary-report.ts` (×4,
+  where it is gamed), the belief-state code-agent corpus module (GATED — its output becomes corpus labels),
+  `eval-trace-store.ts` (GATED, above), `src/contract/analyze-runs.ts` (×3, RAW), `summary-report.ts` (×4,
   RAW), `release-confidence.ts` (RAW), `held-out-gate.ts` (RAW, over an already-degated set).
 - **`trainingReward` no longer collapses an unscored record to 0.** It returns `reward: null`, matching
   the schema's own "a labeled gap, never 0" rule; a gated run still returns 0, because that IS a
@@ -2814,7 +2814,7 @@ unchanged.
 
 ### Fixed — unrelated flake encountered on the way
 
-- `node:sqlite` is loaded through `createRequire` in `rollout/readers/opencode-sqlite.ts` and its test.
+- `node:sqlite` is loaded through `createRequire` in `src/rollout/readers/opencode-sqlite.ts` and its test.
   esbuild and Vite both rewrite an `import()` of a builtin and strip the `node:` prefix, producing a bogus
   `sqlite` package lookup; composing the specifier at runtime did not reliably defeat it, so the failure
   moved between workers whenever a test file was added. A require obtained from `createRequire` is not an
@@ -2872,7 +2872,7 @@ Artifacts that carry run ids without embedded reward state still require explici
 
 #### Deliberately NOT gated
 
-`rl/reward-hacking.ts` reads the deterministic reward through the new
+`src/rl/reward-hacking.ts` reads the deterministic reward through the new
 `VerifiableRewardExtractionOptions.applyRealnessGate: false`, which preserves its previous behaviour
 exactly. Its `judge_drift` and `reward_disagreement` signals measure the GAP between the judge reward
 and the deterministic one; a deterministic reward another gate already forced to 0 opens that gap by
@@ -2883,7 +2883,7 @@ empty options object gates — the opt-out is explicit and greppable.
 ### Known, not fixed here
 
 - `description-length-gate.ts` gives a gated run claiming `score: 1.0` the largest possible improvement
-  to its objective, and `product-benchmark/export.ts` publishes a gated run with `pass: true`. Each
+  to its objective, and `src/product-benchmark/export.ts` publishes a gated run with `pass: true`. Each
   site carries a comment naming the hole.
 - `extractVerifiableReward(report)` — the `VerificationReport` signature — cannot gate and does not
   claim to: `realness` lives on the `RunRecord`, not on the report. Documented on the function.
@@ -3473,7 +3473,7 @@ Additive (new exports + optional fields only); no consumer bump required.
 
 ### Added
 
-- **FAPO proposer policy** in the campaign proposer family — feeds `runImprovementLoop` / `runCampaign` proposer-driven self-improvement (`gepaProposer` at `src/campaign/proposers/gepa.ts`).
+- **FAPO proposer policy** in the campaign proposer family — feeds `runImprovementLoop` / `runCampaign` proposer-driven self-improvement (`gepaProposer` at the GEPA proposer module).
 
 ### Changed
 
@@ -3515,8 +3515,8 @@ One clean, canonical version of five generic patterns the fleet kept hand-rollin
 
 ### Added
 
-- **`ExperimentTracker` + `improvementVerdict` + `computeExperimentStats` (root).** Git-provenanced experiment log with N-rep stats (`median` / `mean` / `min` / `max` / `iqr` / `stddev` / `passRate` / `n` + a `stable` flag) and a `KEEP` / `REGRESSION` / `NOISE` / `ITERATE` verdict against a parent. Provenance (`ProvenanceReader`, default `gitProvenanceReader`) and persistence (`ExperimentStore`, with `inMemoryExperimentStore` + `fileExperimentStore`) are injected, so the stats + verdict are pure and unit-testable without a repo or disk. Thresholds (`keepThreshold` / `regressionThreshold` / `iqrUnstableAbove` / `stddevUnstableAbove` / `minRepsForVerdict`) are configurable. Replaces the per-agent `tests/eval/lib/experiment-tracker.ts` copies (tax / insurance / legal).
-- **`EvalTraceStore` + `runScore` (root).** JSONL save / query / compare over the analysis-time `RunRecord` row: `query(filter)`, `getBest(scenarioId)`, and `compareRuns(a, b)` (paired on matched scenarios, best-score-per-scenario). Persistence is injected via `RunRecordBackend` (`inMemoryRunRecordBackend` / `jsonlRunRecordBackend`, which fail loud on a malformed line). Does NOT fork `FileSystemTraceStore` (the rich TraceSchema-v1 span store) — it is the analysis projection beside it. Replaces the hand-rolled `tests/eval/lib/trace-store.ts` copies.
+- **`ExperimentTracker` + `improvementVerdict` + `computeExperimentStats` (root).** Git-provenanced experiment log with N-rep stats (`median` / `mean` / `min` / `max` / `iqr` / `stddev` / `passRate` / `n` + a `stable` flag) and a `KEEP` / `REGRESSION` / `NOISE` / `ITERATE` verdict against a parent. Provenance (`ProvenanceReader`, default `gitProvenanceReader`) and persistence (`ExperimentStore`, with `inMemoryExperimentStore` + `fileExperimentStore`) are injected, so the stats + verdict are pure and unit-testable without a repo or disk. Thresholds (`keepThreshold` / `regressionThreshold` / `iqrUnstableAbove` / `stddevUnstableAbove` / `minRepsForVerdict`) are configurable. Replaces the per-agent the eval experiment tracker copies (tax / insurance / legal).
+- **`EvalTraceStore` + `runScore` (root).** JSONL save / query / compare over the analysis-time `RunRecord` row: `query(filter)`, `getBest(scenarioId)`, and `compareRuns(a, b)` (paired on matched scenarios, best-score-per-scenario). Persistence is injected via `RunRecordBackend` (`inMemoryRunRecordBackend` / `jsonlRunRecordBackend`, which fail loud on a malformed line). Does NOT fork `FileSystemTraceStore` (the rich TraceSchema-v1 span store) — it is the analysis projection beside it. Replaces the hand-rolled the eval trace store copies.
 - **`CostLedger` + `costForUsage` + `modelPriceKey` (root).** Per-run token + USD accounting folded over the substrate's `resolveModelPricing` / `isModelPriced`, with an explicit `costUnknown` axis so a $0 from an unpriced model is never mistaken for a measured free run. Classifies spend by channel (`agent` / `judge` / `verifier` / …), surfaces `unpricedModels` + `fullyPriced`, and computes `costPerCompletedTask`. Generalizes physim's `costForUsage` / `modelPriceKey` and the tax / gtm / agent-builder copies.
 - **`extractUsage` + `extractUsageFromSse` + `extractUsageFromResponse` (`/traces` + root).** Token-usage extraction from a chat-completions response or an SSE stream — OpenAI / Anthropic / camelCase shapes, cache-read tokens, and per-chunk SSE accumulation — returning `null` (not a silent zero) when no usage is present. `captureFetchToRawSink` gains an optional `onUsage` callback that emits the parsed usage off each response (reusing the body it already reads — no extra clone), so a caller folds usage → cost without re-cloning. Replaces the insurance / legal / gtm `raw-capture.ts` copies.
 - **`partitionHeldOut` + `assignHeldOutTag` + `hashToUnit` + `fnv1a32` (root).** Deterministic FNV-1a id+seed held-out splitter. `assignHeldOutTag` stamps a single id; `partitionHeldOut` splits a whole id list into disjoint search / holdout sets and fails loud on duplicate ids, empty input, an under-floor holdout (`minHoldout` / `minSearch` significance floor), or an out-of-range `holdoutFraction`. Generalizes agent-builder's `deterministicSplit` and the frontier persona-splitter; complements the existing 3-way benchmark `deterministicSplit` in `/benchmarks`.
@@ -3667,7 +3667,7 @@ An adversarial review of a real "ship +4.0 lift" decision found it was a **tripl
 ### Fixed / Added
 
 - **No-op guard** (`runImprovementLoop`) — when the winner is byte-identical to the baseline (no candidate beat the training baseline, empty diff), the loop now forces `hold` and skips the meaningless baseline-vs-itself holdout pass, instead of shipping the noise delta.
-- **Statistical held-out gate** — `defaultProductionGate`'s held-out check is now a **paired bootstrap CI**, not a point estimate. It pairs candidate vs baseline holdout cells by **full `cellId` (`scenario:rep`)** — never averaging reps away — and ships only when the CI lower bound clears `deltaThreshold` (default 0 ⇒ confidently positive). Below `minProductiveRuns` (default 3) paired observations it HOLDS with `few_runs` rather than reading a degenerate interval. (New module `src/campaign/gates/statistical-heldout.ts`; reuses `pairedBootstrap` from `src/statistics.ts`.)
+- **Statistical held-out gate** — `defaultProductionGate`'s held-out check is now a **paired bootstrap CI**, not a point estimate. It pairs candidate vs baseline holdout cells by **full `cellId` (`scenario:rep`)** — never averaging reps away — and ships only when the CI lower bound clears `deltaThreshold` (default 0 ⇒ confidently positive). Below `minProductiveRuns` (default 3) paired observations it HOLDS with `few_runs` rather than reading a degenerate interval. (New module `src/campaign/gates/statistical-heldout.ts`; reuses `pairedBootstrap` from `src/statistics/`.)
 - **Per-dimension regression guard (anti-Goodhart)** — `criticalDimensions` + `regressionTolerance` on `DefaultProductionGateOptions`. The gate HOLDS if any guarded dimension's paired-delta CI lower bound falls below −tolerance, even when the net composite rose. Tolerance auto-scales (0.05 on [0,1], 5 on 0-100) so a default expressed for one scale isn't a silent no-op on the other.
 - **Exports** `pairHoldout`, `heldoutSignificance`, `dimensionRegressions`, `detectScale` from `/campaign`.
 
@@ -3705,7 +3705,7 @@ Closes the optimizer-completeness gap (#101/#100). `gepaDriver` was reflection-o
 
 ### Added
 
-- **GEPA Pareto frontier + combine-complementary-lessons (#101).** `runOptimization` now accumulates every scored surface as a per-scenario objective vector and recomputes the non-dominated set before each generation, handing it to the driver as `ctx.paretoParents` (new `ParetoParent` type). A surface uniquely best on one hard scenario survives even when its mean composite is lower. `gepaDriver` spends one population slot merging the frontier parents' complementary strengths (toggle via `combineParents`, default on; fires only when the frontier has >1 member). `RunOptimizationResult.paretoFrontier` exposes the final frontier. Dominance is computed by the package-canonical `paretoFrontier` (`src/pareto.ts`) — the parallel `src/campaign/pareto.ts` fork has been deleted (one dominance implementation).
+- **GEPA Pareto frontier + combine-complementary-lessons (#101).** `runOptimization` now accumulates every scored surface as a per-scenario objective vector and recomputes the non-dominated set before each generation, handing it to the driver as `ctx.paretoParents` (new `ParetoParent` type). A surface uniquely best on one hard scenario survives even when its mean composite is lower. `gepaDriver` spends one population slot merging the frontier parents' complementary strengths (toggle via `combineParents`, default on; fires only when the frontier has >1 member). `RunOptimizationResult.paretoFrontier` exposes the final frontier. Dominance is computed by the package-canonical `paretoFrontier` (`src/pareto.ts`) — the parallel the campaign Pareto module fork has been deleted (one dominance implementation).
 - **SkillOpt patch-mode driver + `runSkillOpt` preset (#100)** (Microsoft, arXiv:2605.23904). `skillOptDriver` proposes BOUNDED add/delete/replace patches to one skill document (`applySkillPatch`, `SkillPatch`); `runSkillOpt` is the held-out-gated epoch hill-climb: reflect on TRAIN weaknesses → propose ≤ `editBudget` ops → score on the held-out split → ACCEPT only on STRICT held-out improvement, else buffer the rejected edit; with edit-budget annealing (the "textual learning rate") and a slow-update meta note. The held-out composite is monotonically non-decreasing by construction — a regression can never ship. Proposals reflect on train evidence only (no held-out leakage).
 - **`compareDrivers` head-to-head lift benchmark (the forcing function).** Runs N optimizer entries on ONE corpus, scores the baseline + every promoted surface UNIFORMLY on the same held-out scenarios, and reports per-driver lift + paired-bootstrap CI + pairwise "which driver wins" CIs, ranked (cost breaks a lift tie). Ships `gepaReflectionEntry` / `gepaParetoEntry` / `skillOptEntry` to wire the real optimizers. Optimizer quality is now a number with a confidence interval — a driver regression turns a build red instead of going invisible.
 - **`campaignMeanComposite` / `campaignBreakdown`** (`score-utils`) — the one definition of "composite of a campaign" + per-scenario/dimension breakdown, now shared by `runOptimization`, `runSkillOpt`, and `compareDrivers` (extracted from `runOptimization`'s private copies).
@@ -3775,7 +3775,7 @@ Pure additive/doc surface (`expectUsage` defaults to non-breaking `'warn'`). Ful
 
 ### Architectural context
 
-Part of the self-improvement-protocol design (`docs/design/self-improvement-protocol.md`). This is 0.53.0 of the roadmap that ends at 1.0.0 (profile-versioning + composite driver) and 1.1.0 (empirical-proof publication).
+Part of the self-improvement-protocol design (the self-improvement protocol design). This is 0.53.0 of the roadmap that ends at 1.0.0 (profile-versioning + composite driver) and 1.1.0 (empirical-proof publication).
 
 ### Notes
 
@@ -3797,9 +3797,9 @@ After cloning and reading the actual SkillOpt source (microsoft/SkillOpt) and th
 
 ### Added
 
-- **`docs/specs/driver-honest-spec.md`** — primary-source comparison vs GEPA and SkillOpt. Quotes the actual source. Names 13 deviations between 0.51.0's `skillOptDriver` and the real SkillOpt pipeline.
-- **`docs/specs/hermes-self-improvement-audit.md`** — corrected audit after cloning NousResearch/hermes-agent. Hermes has two loops, not one: the 7-day curator (housekeeping) AND a per-turn `background_review` fork that uses **user corrective feedback as a first-class skill-update signal** ("stop doing X", "you always do Y"). Signal source we don't capture today.
-- **`docs/specs/profile-versioning.md`** — architecture for the offline/online drift problem. Symmetric-fork framing (both writers are peers, neither is the authority). `AgentProfileVersion` content-hashing, `ProfileDiff` patch/replace types, 4-way `DriftGateDecision` (ship-substrate / ship-harness / merge / inconclusive), opt-in `driftPolicy` (ignore / reject-on-drift / benchmark-branches), four conflict-resolution cases including semantic-duplication detection. Phase 0 forcing-function experiment specified.
+- **the driver honesty spec** — primary-source comparison vs GEPA and SkillOpt. Quotes the actual source. Names 13 deviations between 0.51.0's `skillOptDriver` and the real SkillOpt pipeline.
+- **the Hermes self-improvement audit** — corrected audit after cloning NousResearch/hermes-agent. Hermes has two loops, not one: the 7-day curator (housekeeping) AND a per-turn `background_review` fork that uses **user corrective feedback as a first-class skill-update signal** ("stop doing X", "you always do Y"). Signal source we don't capture today.
+- **the profile-versioning spec** — architecture for the offline/online drift problem. Symmetric-fork framing (both writers are peers, neither is the authority). `AgentProfileVersion` content-hashing, `ProfileDiff` patch/replace types, 4-way `DriftGateDecision` (ship-substrate / ship-harness / merge / inconclusive), opt-in `driftPolicy` (ignore / reject-on-drift / benchmark-branches), four conflict-resolution cases including semantic-duplication detection. Phase 0 forcing-function experiment specified.
 
 ### Where we beat the prior art (now named explicitly)
 
@@ -3807,7 +3807,7 @@ Our `defaultProductionGate` uses paired bootstrap CI + Cohen's d + MDE + p-value
 
 ### Notes
 
-`gepaDriver({ constraints })` covers every use case the deleted `skillOptDriver` covered. The single `skillOptDriver` test file was removed; 13 new tests under `tests/gepa-driver-constraints.test.ts` cover the absorbed behavior + the unconstrained baseline behavior. Full suite 1444 / 1444 green.
+`gepaDriver({ constraints })` covers every use case the deleted `skillOptDriver` covered. The single `skillOptDriver` test file was removed; 13 new tests under the GEPA driver constraints test cover the absorbed behavior + the unconstrained baseline behavior. Full suite 1444 / 1444 green.
 
 ---
 
@@ -3898,8 +3898,8 @@ Docs-only patch. No code changes, no behavior changes, no API surface changes vs
 
 ### Added
 
-- `src/adapters/otel.ts` — generic OTel→hosted bridge (`createOtelBridge` / `OtelBridge` / `OtelBridgeOptions`). Stringifies array-valued attributes instead of dropping them.
-- `src/contract/diff.ts` — `keyForCell` uses `JSON.stringify([scenarioId, rep])` (no separator collisions); `Number.isFinite` coercion on dimension deltas (no NaN propagating to dashboards).
+- the OTel-to-hosted bridge module — generic OTel→hosted bridge (`createOtelBridge` / `OtelBridge` / `OtelBridgeOptions`). Stringifies array-valued attributes instead of dropping them.
+- the contract diff module — `keyForCell` uses `JSON.stringify([scenarioId, rep])` (no separator collisions); `Number.isFinite` coercion on dimension deltas (no NaN propagating to dashboards).
 - `examples/hosted-ingest-server/server.ts` — `REFERENCE_RECEIVER_START=1|0` env var as the primary start signal; idempotency cache prunes on read with the wire-spec 24h TTL.
 
 ### Changed
@@ -3909,7 +3909,7 @@ Docs-only patch. No code changes, no behavior changes, no API surface changes vs
 
 ### Removed
 
-- `src/adapters/traceai.ts` — replaced by `src/adapters/otel.ts`. No back-compat shim.
+- the traceai adapter — replaced by the OTel-to-hosted bridge module. No back-compat shim.
 
 ---
 
@@ -3918,8 +3918,8 @@ Docs-only patch. No code changes, no behavior changes, no API surface changes vs
 ### Added
 
 - `src/verdict.ts` — `DefaultVerdict` substrate primitive (moved DOWN from agent-runtime).
-- `src/contract/diff.ts` — `diffRuns` / `diffGenerations` / `diffRunBaselineToWinner` for v3-vs-v4 dashboard rendering, CI reporting, and any consumer comparing improvement-loop output.
-- `src/adapters/traceai.ts` — OTel→hosted bridge (renamed to `otel.ts` in 0.49.0).
+- the contract diff module — `diffRuns` / `diffGenerations` / `diffRunBaselineToWinner` for v3-vs-v4 dashboard rendering, CI reporting, and any consumer comparing improvement-loop output.
+- the traceai adapter — OTel→hosted bridge (renamed to `otel.ts` in 0.49.0).
 - `tests/hosted-roundtrip.test.ts` — proves wire-format binary compat between client and reference receiver.
 - Python `HostedClient` (`clients/python/src/agent_eval_rpc/hosted.py`) — TS↔Python wire-format parity with bearer auth, idempotency, and exponential backoff on 5xx/408/429.
 - `CLAUDE.md` repo-layering rule: agent-eval is the substrate; agent-runtime + agent-knowledge depend on it; the reverse is forbidden.
@@ -4006,7 +4006,7 @@ aggregate improved?*
   contract into `RunRecord` rows and `runEvalCampaign` so every campaign row
   is keyed by `(profile, scenario, seed)` end-to-end. (#79)
 - **Stats consolidation** — `pairedBootstrap`, power analysis, and the
-  paired/Welch primitives now all live in `src/statistics.ts`. (#73)
+  paired/Welch primitives now all live in `src/statistics/`. (#73)
 - **LLM retry classifier unified** across `llm-client` and `judge-retry`
   via `isTransientLlmError`. (#74)
 - **`pr-review-benchmark` source committed** — the module was exported from
@@ -4051,8 +4051,8 @@ tag/npm drift.
 ### Republish of 0.31.0 — dist drift fix
 
 The `v0.31.0` tag's npm tarball shipped a stale `dist/` — `JudgeScoresRecord`
-was missing from `dist/index.d.ts` and the `recordOutcome.judgeScores`
-propagation never made it into `dist/index.js`, even though the source on
+was missing from the built `index.d.ts` and the `recordOutcome.judgeScores`
+propagation never made it into the built `index.js`, even though the source on
 the tagged commit had both. Consumers that bumped to `^0.31.0` got a
 typecheck failure on `RunOutcome.judgeScores` (since the type wasn't
 re-exported) and a silent drop on the wire (since the campaign runner
@@ -4062,8 +4062,8 @@ Cause: a build artifact picked up by the publish workflow predated the
 source merge. The retag forces a clean `pnpm build` and republish; this
 patch carries no source change beyond the version bump.
 
-Verified after this tag: `dist/index.d.ts` contains `JudgeScoresRecord`,
-`dist/index.js` propagates `outcome.judgeScores` end-to-end via
+Verified after this tag: the built `index.d.ts` contains `JudgeScoresRecord`,
+the built `index.js` propagates `outcome.judgeScores` end-to-end via
 `recordOutcome.judgeScores`, and a downstream `pnpm install
 @tangle-network/agent-eval@0.31.1` types-clean against the shape
 documented in 0.31.0.
@@ -4107,7 +4107,7 @@ Every `perJudge[judge][dim]` and every `perDimMean[dim]` and the
 `composite` must be finite numbers — the NaN-as-silent-zero bug class
 banned by `CLAUDE.md` cannot pass the boundary. `failedJudges` must be
 an array of non-empty strings; `notes` must be a string. Round-trip
-tested in `tests/run-record.test.ts`.
+tested in the run-record test.
 
 ### Fail-loud contract
 
@@ -4229,7 +4229,7 @@ different formulas with different domains of validity.
 
 ### Added
 
-- **`corpusInterRaterAgreement(records, opts?)`** (`src/statistics.ts`) —
+- **`corpusInterRaterAgreement(records, opts?)`** (`src/statistics/`) —
   takes a flat list of `{itemId, judgeName, dimension, score}` records.
   For each dimension, pivots to the [n_items × n_judges] matrix of items
   every judge rated and delegates to `continuousAgreement` (ICC(2,1) +
@@ -4369,7 +4369,7 @@ clean primitive that wires them together end-to-end.
 
 ### Added
 
-- **`runProductionLoop({ ... })`** (`src/production-loop.ts`,
+- **`runProductionLoop({ ... })`** (the production loop module,
   `@experimental`) — one call = one cycle. Ingests production traces
   and feedback, clusters failures, runs evolve against the worst
   cluster, gates with `HeldOutGate` + `evaluateReleaseConfidence`
@@ -4379,7 +4379,7 @@ clean primitive that wires them together end-to-end.
   the primitive doesn't own scheduling.
 
 - **`proposeAutomatedPullRequest(client, input)`** + two transports
-  (`src/auto-pr.ts`, `@experimental`):
+  (`src/campaign/auto-pr.ts`, `@experimental`):
     - `httpGithubClient({ token, ... })` — direct REST against
       `api.github.com`, no extra deps. Idempotent on branch name:
       existing open PRs are returned, not duplicated.
@@ -4473,7 +4473,7 @@ first-touch usability and contract clarity. The visible deltas:
   `contamination`, `compute-curves`. Experimental: `process-reward`,
   `adversarial`, `active-curriculum`, `reward-hacking`, `adaptation-eval`,
   `exporters`, `rl-campaign`, `predictive-validity-researcher`, `auto-research`.
-  Tags are visible in IDE hover and emitted into `dist/rl.d.ts` so consumers
+  Tags are visible in IDE hover and emitted into the built `rl.d.ts` so consumers
   can see the contract at the call site.
 
 ### Added
@@ -4551,12 +4551,12 @@ is now demonstrably real, not aspirational.
   because it's the cleanest fit between agent-eval's exporters and
   prime-rl's entrypoints (DPO/PRM go to TRL; offline GRPO requires a
   custom verifiers env — both called out in the README).
-- **`docs/three-package-architecture.md`** — the contracts between
+- **the three-package architecture note** — the contracts between
   agent-eval, agent-knowledge, agent-runtime. Dependency direction (both
   consume agent-eval; agent-eval imports neither), shared data
   interchange (RunRecord, Scenario, KnowledgeBundle), and known
   contract gaps tracked as follow-ups.
-- **`docs/auto-research-loop-end-to-end.md`** — the runnable composition
+- **the auto-research loop end-to-end note** — the runnable composition
   pattern with the explicit invariants every iteration must preserve
   (canonical RunRecord with scenarioId, capture wired by construction,
   stable comparator, deterministic mutator).
@@ -4868,7 +4868,7 @@ Locked at `agent-eval-rpc==0.21.0` to match the npm package.
 - Knowledge readiness recommended actions now honor non-blocking gap
   acquisition modes such as `ask_user`, `search_web`, `query_connector`, and
   `inspect_repo`.
-- Npm builds now generate `dist/openapi.json`, and the package exports
+- Npm builds now generate the built `openapi.json`, and the package exports
   `@tangle-network/agent-eval/openapi.json`.
 - Npm and Python client versions are locked at `0.20.9`.
 
@@ -5034,7 +5034,7 @@ The v0.15 primitives were framed as "paper-grade" but most are production-rigor 
 - `paretoFigure` → `paretoChart`
 - `gainDistributionFigure` → `gainHistogram`
 - `PaperTable` / `PaperTableOptions` / `PaperTableRow` types → `SummaryTable` / `SummaryTableOptions` / `SummaryTableRow`
-- File: `src/paper-report.ts` → `src/summary-report.ts`
+- File: the paper-report module → `src/summary-report.ts`
 
 ### Migration
 
@@ -5086,7 +5086,7 @@ optimization with held-out promotion gates.
   - `deterministicSplit(itemId, seed?)`: stable 60/20/20 split via
     FNV-1a hash. Default seed `agent-eval-v1`.
 - **`summaryTable`, `paretoChart`, `gainHistogram`**
-  (`sr./summary-report.ts`) — Table 1 + Pareto + gain-distribution specs.
+  (`src/summary-report.ts`) — Table 1 + Pareto + gain-distribution specs.
   Returns data structures (markdown table, point lists, histogram bins);
   caller picks the plotting library.
 - **`runCanaries`** (`src/canary.ts`) — three liveness canaries:
@@ -5094,7 +5094,7 @@ optimization with held-out promotion gates.
   judge calibration drift (KS test on confidence distribution), eval-set
   distribution shift (chi-square on category bucket counts).
 - **`pairedBootstrap`, `pairedWilcoxon`, `bhAdjust`**
-  (`src/paired-stats.ts`) — paper-style aliases + the missing paired
+  (the paired-stats module) — paper-style aliases + the missing paired
   bootstrap CI primitive. Deterministic with optional seed.
 
 ### Notes

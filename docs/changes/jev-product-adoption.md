@@ -9,7 +9,7 @@ Native extension metadata is preserved, not projected away; lossy non-JSON metad
 before consumers persist an apparently valid but changed observation. Already-paid receipts remain
 recorded when answer validation fails.
 
-`examples/jev-decision-benchmark.ts` compares caller-defined classifier configurations with the
+The decision-benchmark recipe (its example file is not in this tree) compares caller-defined classifier configurations with the
 existing matrix runner. It separates independent expected labels from model input, retains
 abstention, records complete observations and paid failures, and groups results by configuration.
 It is a recipe, not another optimizer or universal scoring policy.

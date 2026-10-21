@@ -1,4 +1,4 @@
-# Trace analyst benchmark
+# 2026-07-31 trace analyst benchmark report (superseded by codetracebench-glm52-certified-20260801)
 
 ## Run
 
