@@ -61,7 +61,7 @@ describe('gateTreatmentApplied', () => {
   it('matcher is a pure parameter — different matcher flips the verdict on the same histogram', () => {
     const hist = { Read: 3, web_search: 2 }
     expect(gateTreatmentApplied({ toolHistogram: hist, matches: matchesBrowser }).gated).toBe(true)
-    const matchesSearch: ToolMatcher = (t) => /search/i.test(t)
+    const matchesSearch = (name: string) => /search/i.test(name)
     expect(gateTreatmentApplied({ toolHistogram: hist, matches: matchesSearch }).gated).toBe(false)
   })
 })
