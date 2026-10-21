@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
-import { computeInterval, type IntervalSpec } from '../../src/experiment/ast'
+import { computeInterval, type IntervalSpec } from '../../src/experiment/ast/interval'
 import {
   defineExperiment,
   type ExperimentSpec,

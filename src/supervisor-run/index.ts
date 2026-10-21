@@ -14,19 +14,7 @@
  * the same row type solo rollouts use, joined by `parent_rollout_id`.
  */
 
-export {
-  analyzeSupervisorRunSources,
-  type CloseRow,
-  parsePatch,
-  parseSupervisorTree,
-  rollupSupervisorRuns,
-  type SpawnRow,
-  type SteerAcknowledgementFact,
-  type SteerRequestFact,
-  type SupervisorJournalDialect,
-  type SupervisorTreeFacts,
-  type WorkerLogFacts,
-} from './analyze'
+export { analyzeSupervisorRunSources } from './analyze'
 export {
   type ClaudeCodeReaderOptions,
   claudeCodeSupervisorRunReader,
@@ -43,6 +31,7 @@ export {
   type SupervisorRunIntegritySeverity,
   type SupervisorRunSourceOnlyCheckCode,
 } from './integrity'
+export { parsePatch } from './patch-stats'
 export {
   analyzeSupervisorRun,
   findSupervisorRunDirs,
@@ -61,12 +50,23 @@ export {
   type SupervisorRunReportFormat,
 } from './report-command'
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
+export { rollupSupervisorRuns } from './rollup'
 export {
   isRuntimeSupervisorRunDir,
   type RuntimeReaderOptions,
   readRuntimeSupervisorRun,
   runtimeSupervisorRunReader,
 } from './runtime-reader'
+export {
+  type CloseRow,
+  parseSupervisorTree,
+  type SpawnRow,
+  type SteerAcknowledgementFact,
+  type SteerRequestFact,
+  type SupervisorJournalDialect,
+  type SupervisorTreeFacts,
+  type WorkerLogFacts,
+} from './source-facts'
 export {
   NO_TERMINAL_RECORD,
   RUNTIME_FAILED_STATUS,
