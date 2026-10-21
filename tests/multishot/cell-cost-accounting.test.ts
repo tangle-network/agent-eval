@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { type ConversationJudgeInput, type JudgeConfig, type MultishotJudges, type MultishotPersona, type MultishotResult, type MultishotShape, type MultishotShot, type MultishotTransport, runMultishotMatrix } from '../../src/multishot/index'
+import { type ConversationJudgeInput, type MultishotJudgeConfig, type MultishotJudges, type MultishotPersona, type MultishotResult, type MultishotShape, type MultishotShot, type MultishotTransport, runMultishotMatrix } from '../../src/multishot/index'
 
 interface TestPersona extends MultishotPersona {
   id: string
@@ -47,7 +47,7 @@ function judgeTransport(options: { reportCost: boolean }): MultishotTransport {
 function conversationJudge(
   transport: MultishotTransport,
   model = 'openai/gpt-4o-mini',
-): JudgeConfig<ConversationJudgeInput<TestPersona>> {
+): MultishotJudgeConfig<ConversationJudgeInput<TestPersona>> {
   return {
     name: 'conversation',
     transport,
