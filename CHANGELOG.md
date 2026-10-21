@@ -6,6 +6,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.216.1] — 2026-10-21
 
+- fix(experiment): declare the diagnostic target outcome direction
+- fix(experiment): record current probe refusals and reuse historical receipts
+- fix(experiment): migrate the documented AST probe to its owner
 - refactor(campaign): own optimization method contracts beside execution
 - refactor(search): separate meta-search rendering and share label formatting
 - refactor(control): separate execution contracts and evaluation policy
