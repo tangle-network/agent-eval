@@ -13,7 +13,8 @@
 
 import type { DatasetScenario } from './dataset'
 import { Dataset } from './dataset'
-import { detectCredential, detectPersonalData, redactText } from './trace/redact'
+import { redactText } from './trace/redact'
+import { detectCredential, detectPersonalData } from './trace/redaction/detectors'
 
 export type RedTeamCategory =
   | 'prompt_injection_direct'
