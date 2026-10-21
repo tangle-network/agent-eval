@@ -107,7 +107,7 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
         buildRlDataset,
         extractPreferences,
         toGrpoRows,
-        toSftRows,
+        toSftRowsWithLookups,
         type VerifiableRewardSource,
       } from '@tangle-network/agent-eval/rl'
       import {
@@ -234,7 +234,7 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
       // @ts-expect-error GRPO accepts only MintedRolloutLine[]
       const removedGrpoRecordInput: Parameters<typeof toGrpoRows>[0] = removedRecordInputs
       // @ts-expect-error SFT accepts only MintedRolloutLine[]
-      const removedSftRecordInput: Parameters<typeof toSftRows>[0] = removedRecordInputs
+      const removedSftRecordInput: Parameters<typeof toSftRowsWithLookups>[0] = removedRecordInputs
       // @ts-expect-error preference extraction accepts only MintedRolloutLine[]
       const removedPreferenceRecordInput: Parameters<typeof extractPreferences>[0] = removedRecordInputs
       // @ts-expect-error dataset packaging accepts only MintedRolloutLine[]
