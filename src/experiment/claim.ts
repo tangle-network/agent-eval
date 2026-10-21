@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { ValidationError } from '../errors'
 import { compareCodeUnits } from '../ledger-core/canonical'
-import { type EvidenceRecord, readField } from './ast'
+import type { EvidenceRecord } from './ast/evidence'
+import { readField } from './ast/predicate'
 
 const nonEmpty = z
   .string()
