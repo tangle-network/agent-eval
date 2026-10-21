@@ -17,7 +17,7 @@ export * from './adversarial'
 export { GRADER_REFERENCE_PHRASES, checkerReadSignal, claimIntegrityDigest, claimIntegritySystemOneReview, claimIntegrityTraceQuestions, claimIntegrityVerdict, farmingSignal, graderReferenceSignal, monitorSignal, parseSourceScopeReferee, refereeSignal, ruleHolds, scopeSignals, sourceScopeRefereeMessages, systemOneSignal } from './claim-integrity'
 export type { ClaimIntegrityPolicy, ClaimIntegritySystemOneOptions, ClaimIntegritySystemOneQuestions, ClaimIntegrityVerdict, FarmingOptions, IntegrityClaim, IntegrityEvidence, IntegritySignal, IntegritySignalId, IntegritySignalKind, RefereeVerdict, ScopeCondition, ScopeOperator, ScopeRule, ScopeValue, SourceExcerpt, SourceScope, SourceScopeRefereeAnswer, TrajectoryEvent } from './claim-integrity'
 /** @stable Compute curves: best-of-N, self-consistency, Pareto frontier across budgets. */
-export { bestOfN, paretoFrontier } from './compute-curves'
+export { bestOfN, paretoCostScoreFrontier } from './compute-curves'
 export type { ComputeBestOfNOptions, ComputeBestOfNResult, ComputeCurve, ComputeCurveBudget, ComputeCurvePoint, ParetoPointInput, RunComputeCurveOptions, SelfConsistencyOptions, SelfConsistencyResult } from './compute-curves'
 /** @stable Held-out perturbation probes for benchmark contamination (paired Wilcoxon). */
 export { runContaminationProbe } from './contamination'
@@ -29,7 +29,7 @@ export type { CorpusAppendResult, CorpusRecord, HarvestOptions } from './corpus'
 export { buildRlDataset, validateDatasetFormats } from './dataset'
 export type { DatasetFormat, RewardKind, RewardStats, RlDatasetBundle, RlDatasetConfig, RlDatasetManifest, RlDatasetStats } from './dataset'
 /** Trainer-format exporters (HuggingFace datasets, JSONL, parquet). */
-export { toDpoRows, toGrpoRows, toPrmRows, toSftJsonl, toSftRows } from './exporters'
+export { toDpoRows, toGrpoRows, toPrmRows, toSftJsonl, toSftRowsWithLookups } from './exporters'
 export type { DpoExportRow, DpoLineContext, DpoLookups, GrpoExportRow, GrpoLookups, PrmExportRow, PrmLineContext, PrmLookups, RolloutLineContext, SftExportRow, SftLookups, StepRewardJsonlRow, TrainingLineSelectionOptions } from './exporters'
 /** @stable Off-policy value estimation: IPS, SNIPS, doubly-robust. */
 export { doublyRobust, inverseProbabilityWeighting, selfNormalizedImportanceWeighting } from './off-policy'
@@ -59,7 +59,7 @@ export { extractVerifiableReward, extractVerifiableRewardsFromRecords } from './
 export type { VerifiableReward, VerifiableRewardExtractionOptions, VerifiableRewardSource } from './verifiable-reward'
 /** Execution-verified gold labels joined into RL-ready rows (replay-verify batches → trainer input). */
 export { loadVerifiedFindingsDataset } from './verified-findings-dataset'
-export type { BuildVerifiedFindingRowArgs, CaseVerdictDetail, FixOutcome, GoldLabelEntry, NormalizedStep, PrefixDivergence, ReplayBatchCase, ReplayBatchFix, ReplayBatchReport, TrajectoryStep, VerifiedFindingFix, VerifiedFindingRow, VerifiedFindingsCorpusSource, VerifiedFindingsDataset, VerifiedFindingsSource, VerifiedFindingsSummary } from './verified-findings-dataset'
+export type { BuildVerifiedFindingRowArgs, CaseVerdictDetail, FixOutcome, GoldLabelEntry, NormalizedStep, RecordedPrefixDivergence, ReplayBatchCase, ReplayBatchFix, ReplayBatchReportFile, DatasetTrajectoryStep, VerifiedFindingFix, VerifiedFindingRow, VerifiedFindingsCorpusSource, VerifiedFindingsDataset, VerifiedFindingsSource, VerifiedFindingsSummary } from './verified-findings-dataset'
 
 // ── Deployment-outcome store (predictive-validity calibration) ──────
 // Promoted to public so external consumers don't have to inline the

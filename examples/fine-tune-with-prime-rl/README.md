@@ -28,7 +28,7 @@ agent-eval campaign
   → filter to high-quality runs (rejection sampling SFT)
   → mintRolloutRows(records, traceStore)
   → MintedRolloutLine[]
-  → toSftRows({ promptOf, completionOf, systemOf })
+  → toSftRowsWithLookups({ promptOf, completionOf, systemOf })
   → JSONL on disk
   → prime-rl SFT trainer
   → fine-tuned checkpoint

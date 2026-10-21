@@ -10,7 +10,7 @@
 
 import type { EvalRecord } from './cube'
 import { buildCoverage, distribution } from './cube'
-import type { ArchiveEntry, CapsuleData, Cell, CoverageCell, Distribution, Finding } from './types'
+import type { ArchiveEntry, CapsuleData, Cell, CoverageCell, Distribution, FuzzFinding } from './types'
 
 export interface BuildCapsuleInput<S> {
   target: string
@@ -20,7 +20,7 @@ export interface BuildCapsuleInput<S> {
   /** The objective's notable threshold — drives findingRate. */
   threshold: number
   archive: ArchiveEntry<S>[]
-  findings: Finding<S>[]
+  findings: FuzzFinding<S>[]
   candidateFindings: number
   runsUsed: number
   /** Known-dollar / unknown-run split — present only when cost tracking was
@@ -144,7 +144,7 @@ function heatmapHtml(coverage: CoverageCell[]): string {
   return `<div class="grid">${sorted.map((c) => tile(c, Object.values(c.cell.coords).join(' · '))).join('')}</div>`
 }
 
-function findingsHtml<S>(findings: Finding<S>[], limit: number): string {
+function findingsHtml<S>(findings: FuzzFinding<S>[], limit: number): string {
   if (findings.length === 0)
     return `<p class="none">No verified findings — the target held across every covered cell.</p>`
   return findings

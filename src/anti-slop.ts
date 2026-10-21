@@ -10,14 +10,14 @@
  *   - Unused opening formulas ("Great question!")
  *   - Length bounds (too short to be useful, too long to be read)
  *
- * Produces a JudgeScore in the same shape as LLM judges so it composes into
+ * Produces a DimensionJudgeScore in the same shape as LLM judges so it composes into
  * any `JudgeFn` array transparently.
  */
 
-import type { JudgeFn, JudgeInput, JudgeScore } from './types'
+import type { JudgeFn, JudgeInput, DimensionJudgeScore } from './types'
 
 interface AntiSlopConfig {
-  /** Domain label — appears in the JudgeScore output */
+  /** Domain label — appears in the DimensionJudgeScore output */
   domain?: string
 
   /** Case-insensitive substrings that must not appear. Each occurrence = penalty. */
@@ -90,7 +90,7 @@ export function createAntiSlopJudge(config: AntiSlopConfig = {}): JudgeFn {
     },
   }
 
-  const judge: JudgeFn = async (_tc, input: JudgeInput): Promise<JudgeScore[]> => {
+  const judge: JudgeFn = async (_tc, input: JudgeInput): Promise<DimensionJudgeScore[]> => {
     const outputs = input.turns.map((t) => t.agentResponse ?? '')
     const report = analyzeAntiSlop(outputs, conf)
     return [

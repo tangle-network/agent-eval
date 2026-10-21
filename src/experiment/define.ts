@@ -51,7 +51,7 @@ import {
   evaluatePopulationReproducibilityGate,
   evaluatePowerFloorGate,
   evaluateProvenanceGate,
-  type GateResult,
+  type ValidityGateResult,
   type Obligation,
   powerFloorProblems,
   type ValidityGate,
@@ -411,7 +411,7 @@ async function assertSealIntact(sealed: SealedExperiment): Promise<void> {
 // ── Sealed execution ─────────────────────────────────────────────────
 
 /** Evidence a gate executor consumes, discriminated to match the gate kind. */
-export type GateEvidence =
+export type ExperimentGateEvidence =
   | { kind: 'oracle-determinism'; repsByState: Record<string, readonly boolean[]> }
   | {
       kind: 'population-reproducibility'
@@ -437,9 +437,9 @@ export interface RegisteredExperiment {
   /** Run a registered selection rule. Filter-of bases resolve to sealed subsets. */
   select(name: string, records: readonly EvidenceRecord[], options: { idField: string }): string[]
   /** Evaluate a registered validity gate on evidence of the matching kind. */
-  gate(name: string, evidence: GateEvidence): GateResult
+  gate(name: string, evidence: ExperimentGateEvidence): ValidityGateResult
   /** Evaluate the registered halt rule over gate results. */
-  halt(gates: readonly GateResult[]): HaltOutcome
+  halt(gates: readonly ValidityGateResult[]): HaltOutcome
   /** Execute the registered uniform-pass budget schedule. */
   runUniformPassBudget(measuredPassCosts: readonly number[]): UniformPassSchedule
   /** Project the registered n-ladder budget. */
@@ -499,11 +499,11 @@ export async function openSealedExperiment(
           return evaluateOracleDeterminismGate(
             name,
             gate,
-            (evidence as Extract<GateEvidence, { kind: 'oracle-determinism' }>).repsByState,
+            (evidence as Extract<ExperimentGateEvidence, { kind: 'oracle-determinism' }>).repsByState,
           )
         case 'population-reproducibility': {
           const populations = evidence as Extract<
-            GateEvidence,
+            ExperimentGateEvidence,
             { kind: 'population-reproducibility' }
           >
           return evaluatePopulationReproducibilityGate(name, gate, populations)
@@ -512,19 +512,19 @@ export async function openSealedExperiment(
           return evaluateProvenanceGate(
             name,
             gate,
-            (evidence as Extract<GateEvidence, { kind: 'provenance-assertion' }>).provenance,
+            (evidence as Extract<ExperimentGateEvidence, { kind: 'provenance-assertion' }>).provenance,
           )
         case 'identity':
           return evaluateIdentityGate(
             name,
             gate,
-            evidence as Extract<GateEvidence, { kind: 'identity' }>,
+            evidence as Extract<ExperimentGateEvidence, { kind: 'identity' }>,
           )
         case 'power-floor':
           return evaluatePowerFloorGate(
             name,
             gate,
-            (evidence as Extract<GateEvidence, { kind: 'power-floor' }>).curve,
+            (evidence as Extract<ExperimentGateEvidence, { kind: 'power-floor' }>).curve,
           )
       }
     },

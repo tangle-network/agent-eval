@@ -3,7 +3,7 @@
  * Export agent-eval run records through canonical rollout lines to prime-rl SFT JSONL.
  *
  * Reads `--runs <ndjson-file>` of `RunRecord`s, filters to high-quality
- * completions, projects through `toSftRows` into the messages-list format
+ * completions, projects through `toSftRowsWithLookups` into the messages-list format
  * prime-rl's SFT trainer consumes, and writes:
  *   - `<out>` — the JSONL training file
  *   - `<out-basename>.prime-rl-sft.toml` — a runnable prime-rl SFT config
@@ -19,13 +19,13 @@
  * The essential pieces are:
  *   1. Reading `RunRecord`s
  *   2. Minting them with `mintRolloutRows(...)`
- *   3. `toSftRows(...)` and `toSftJsonl(...)`
+ *   3. `toSftRowsWithLookups(...)` and `toSftJsonl(...)`
  *   4. Writing a templated TOML
  */
 
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { toSftJsonl, toSftRows } from '../../src/rl/exporters'
+import { toSftJsonl, toSftRowsWithLookups } from '../../src/rl/exporters'
 import { mintRolloutRows } from '../../src/rollout/mint'
 import { type RunRecord, runTaskScore } from '../../src/run-record'
 import { InMemoryTraceStore } from '../../src/trace/store'
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
     }
     return text
   }
-  const rows = await toSftRows(rolloutLines, {
+  const rows = await toSftRowsWithLookups(rolloutLines, {
     promptOf: (runId) => textOf(runId, args.promptKey),
     completionOf: (runId) => textOf(runId, args.completionKey),
     systemOf: args.systemKey

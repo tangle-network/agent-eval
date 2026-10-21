@@ -1,5 +1,5 @@
 import { ValidationError } from '../../errors'
-import type { GateResult } from './validity'
+import type { ValidityGateResult } from './validity'
 
 /** Checks as prerequisites: any named gate failing refuses the spend. */
 export interface HaltRule {
@@ -14,7 +14,7 @@ export interface HaltOutcome {
   failedGates: string[]
 }
 
-export function evaluateHaltRule(halt: HaltRule, gates: readonly GateResult[]): HaltOutcome {
+export function evaluateHaltRule(halt: HaltRule, gates: readonly ValidityGateResult[]): HaltOutcome {
   const seen = new Map(gates.map((g) => [g.id, g]))
   const missing = halt.when.gates.filter((id) => !seen.has(id))
   if (missing.length > 0) {

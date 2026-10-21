@@ -10,7 +10,7 @@
 // engines happen to interleave their microtasks.
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { JudgeConfig } from '../judges'
+import type { MultishotJudgeConfig } from '../judges'
 import type { RunMultishotMatrixOptions } from '../matrix'
 import type {
   MultishotPersona,
@@ -159,7 +159,7 @@ function judge<TInput>(
   name: string,
   buildPrompt: (input: TInput) => string,
   transport: MultishotTransport,
-): JudgeConfig<TInput> {
+): MultishotJudgeConfig<TInput> {
   return {
     name,
     transport,

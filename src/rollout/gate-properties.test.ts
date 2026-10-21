@@ -40,7 +40,7 @@ import {
   toDpoRows,
   toGrpoRows,
   toPrmRows,
-  toSftRows as toRlSftRows,
+  toSftRowsWithLookups as toRlSftRows,
 } from '../rl/exporters'
 import { type PreferenceTriple, toAnthropicFormat, toTRLFormat } from '../rl/preferences'
 import type { PrmTrainingTriple, StepReward } from '../rl/process-reward'
@@ -467,12 +467,12 @@ function stepRewardOf(runId: string): StepReward {
  * an id without a probe does not compile and a probe cannot be quietly dropped.
  */
 const EXPORTER_IDS = [
-  'waist/toSftRows',
+  'waist/toSftRowsWithLookups',
   'waist/toRewardRows',
   'waist/toVerifiersRolloutOutputs',
   'waist/toRftItems',
   'rl/toGrpoRows',
-  'rl/toSftRows',
+  'rl/toSftRowsWithLookups',
   'rl/toDpoRows',
   'rl/toPrmRows',
   'rl/stepRewardsToJsonl',
@@ -525,7 +525,7 @@ const DATASET_CONFIG: RlDatasetConfig = {
 }
 
 const EXPORTERS: { readonly [K in ExporterId]: ExporterProbe } = {
-  'waist/toSftRows': {
+  'waist/toSftRowsWithLookups': {
     needsFs: false,
     run: async (i) =>
       // The widest legitimate surface: no quality floor, held-out admitted —
@@ -542,7 +542,7 @@ const EXPORTERS: { readonly [K in ExporterId]: ExporterProbe } = {
   },
   'waist/toRftItems': { needsFs: false, run: async (i) => toRftItems(i.lines) },
   'rl/toGrpoRows': { needsFs: false, run: (i) => toGrpoRows(i.lines, LOOKUPS) },
-  'rl/toSftRows': { needsFs: false, run: (i) => toRlSftRows(i.lines, LOOKUPS) },
+  'rl/toSftRowsWithLookups': { needsFs: false, run: (i) => toRlSftRows(i.lines, LOOKUPS) },
   'rl/toDpoRows': {
     needsFs: false,
     run: (i) => toDpoRows(i.triples, LOOKUPS, { lines: i.lines }),

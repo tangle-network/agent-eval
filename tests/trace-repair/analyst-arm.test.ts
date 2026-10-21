@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { SCAFFOLD_INTERVENTION_BUDGET } from '../../src/trace-repair/action-budget'
 import {
   askRepairArm,
-  type RepairArm,
+  type RepairAnalystArm,
   type RepairArmAffordance,
   type RepairArmCertification,
   type RepairArmReply,
@@ -52,7 +52,7 @@ function stubArm(
     budget?: typeof SCAFFOLD_INTERVENTION_BUDGET
     promptContract?: readonly string[]
   } = {},
-): RepairArm {
+): RepairAnalystArm {
   return {
     declaration: {
       id,
@@ -92,7 +92,7 @@ describe('repair arm contract', () => {
 
   it('hands an arm a request that carries only the blinded prefix', async () => {
     let seen: unknown
-    const arm: RepairArm = {
+    const arm: RepairAnalystArm = {
       declaration: stubArm('a').declaration,
       async ask(request) {
         seen = request

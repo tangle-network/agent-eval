@@ -53,7 +53,7 @@ import type {
 import type { SearchStateView } from '../../campaign/search-state'
 import { compareCodeUnits, hashCanonical } from '../../ledger-core/canonical'
 import { roundDecimal as round } from '../../math/round-decimal'
-import { type LensResult, rankingSplit, type SampleSummary, summarizeSamples } from './shared'
+import { type LensResult, rankingSplit, type LensSampleSummary, summarizeSamples } from './shared'
 
 /** The configuration that ran a search, as its ledger records it. */
 export interface SearchPolicyGenome {
@@ -694,7 +694,7 @@ function best(
   }
 }
 
-function fromSummary(summary: SampleSummary): MetaSearchConfigurationEstimate {
+function fromSummary(summary: LensSampleSummary): MetaSearchConfigurationEstimate {
   return {
     basis: 'searches',
     n: summary.n,

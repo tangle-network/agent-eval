@@ -148,7 +148,7 @@ describe('evaluateReleaseConfidence', () => {
     expect(conflicting.promote).toBe(false)
   })
 
-  it('counts explicit task failures as failures even when their scores are high', () => {
+  it('counts explicit task failures even when their scores are high', () => {
     const scorecard = evaluateReleaseConfidence({
       target: 'explicit-task-failures',
       dataset: manifest,

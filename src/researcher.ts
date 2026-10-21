@@ -30,7 +30,7 @@
  * (e.g. `Researcher2`) so existing implementations keep working.
  */
 
-import type { GateDecision } from './held-out-gate'
+import type { HeldOutGateDecision } from './held-out-gate'
 import type { RunRecord, RunSplitTag } from './run-record'
 
 /** A diagnosed failure mode with the run-IDs that exhibit it. */
@@ -79,7 +79,7 @@ export interface ExperimentPlan {
 export interface ExperimentResult {
   plan: ExperimentPlan
   runs: RunRecord[]
-  gateDecision: GateDecision
+  gateDecision: HeldOutGateDecision
 }
 
 /**

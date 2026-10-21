@@ -1,6 +1,6 @@
 /** Evidence-based report verdicts, recommendations, and methodology. */
 
-import type { GateDecision } from './held-out-gate'
+import type { HeldOutGateDecision } from './held-out-gate'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
 import type {
   ResearchReportCandidate,
@@ -77,7 +77,7 @@ export function classifyCandidate(
     comparator: string | null
     posterior: ReturnType<typeof pairedPosterior> | null
     point?: ParetoPoint
-    gateDecision?: GateDecision
+    gateDecision?: HeldOutGateDecision
     split: 'search' | 'holdout'
     fdr: number
     minPairs: number

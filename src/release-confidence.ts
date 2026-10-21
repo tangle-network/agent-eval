@@ -14,7 +14,7 @@
 
 import type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 import { ValidationError, VerificationError } from './errors'
-import type { GateDecision } from './held-out-gate'
+import type { HeldOutGateDecision } from './held-out-gate'
 import { isRealnessGated, observedSplitScore } from './rollout/reward'
 import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
 import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
@@ -92,7 +92,7 @@ export interface ReleaseConfidenceInput {
   scenarios?: readonly DatasetScenario[]
   runs?: readonly RunRecord[]
   traces?: readonly ReleaseTraceEvidence[]
-  gateDecision?: GateDecision | null
+  gateDecision?: HeldOutGateDecision | null
   thresholds?: ReleaseConfidenceThresholds
 }
 
@@ -158,7 +158,7 @@ export interface ReleaseConfidenceScorecard {
   issues: ReleaseConfidenceIssue[]
   metrics: ReleaseConfidenceMetrics
   dataset: DatasetManifest | null
-  gateDecision: GateDecision | null
+  gateDecision: HeldOutGateDecision | null
   summary: string
 }
 
@@ -456,7 +456,7 @@ function checkReliability(
 }
 
 function checkGeneralization(
-  gateDecision: GateDecision | null,
+  gateDecision: HeldOutGateDecision | null,
   thresholds: Required<ReleaseConfidenceThresholds>,
   metrics: ReleaseConfidenceMetrics,
   issues: ReleaseConfidenceIssue[],

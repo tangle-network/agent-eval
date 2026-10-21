@@ -4,7 +4,7 @@
  * One engine searches a space of inputs against a target, scores each run with a
  * multi-objective verdict, keeps a quality-diversity archive, and admits only
  * findings that pass the validity gates. Adversarial fuzzing is the headline
- * preset (`fuzzAgent`); swapping the `Objective` re-points the same engine at
+ * preset (`fuzzAgent`); swapping the `FuzzObjective` re-points the same engine at
  * novelty search, curriculum growth, or user-simulation.
  *
  * Two kinds of coordinates, deliberately distinct:
@@ -70,13 +70,13 @@ export type Evaluator<S> = (scenario: S, cell: Cell) => Promise<Evaluation>
 // ── pluggable policies (each has ≥2 real implementations or it isn't here) ────
 
 /** Context a proposer sees — prior elites + findings let a skill-backed proposer steer. */
-export interface ProposeContext<S> {
+export interface FuzzProposeContext<S> {
   cell: Cell
   seeds: S[]
   /** Current archive elites whose input cell matches. */
   elites: S[]
   /** Verified findings so far (read-only) — probe new gaps, not re-found ones. */
-  findings: ReadonlyArray<Finding<S>>
+  findings: ReadonlyArray<FuzzFinding<S>>
   /** How many candidates to propose. */
   count: number
   rng: () => number
@@ -92,14 +92,14 @@ export interface ProposeContext<S> {
  * is the scenario generator in the behavior-fuzzing loop. `SurfaceProposer` is
  * THE optimization proposer.
  */
-export type MutationProposer<S> = (ctx: ProposeContext<S>) => Promise<S[]> | S[]
+export type MutationProposer<S> = (ctx: FuzzProposeContext<S>) => Promise<S[]> | S[]
 
 /**
  * What "interesting" means. `interest` in [0,1]; a candidate is notable (gate-
  * checked, reported) when `interest >= threshold`. `adversarialObjective` (low
  * score is interesting) and `noveltyObjective` (far from the archive) ship.
  */
-export interface Objective {
+export interface FuzzObjective {
   kind: string
   interest(ev: Evaluation, ctx: ObjectiveContext): number
   /** Default 0.5. */
@@ -125,7 +125,7 @@ export interface ValidityGates<S> {
 // ── findings + coverage + capsule ─────────────────────────────────────────────
 
 /** A gate-verified, minimized finding — the unit the capsule reports. */
-export interface Finding<S> {
+export interface FuzzFinding<S> {
   id: string
   cell: Cell
   scenario: S
@@ -190,7 +190,7 @@ export interface CapsuleData<S> {
   generatedAt?: string
   coverage: CoverageCell[]
   /** Verified findings, sorted by descending interest. */
-  findings: Finding<S>[]
+  findings: FuzzFinding<S>[]
   /** QD archive elites (binned by input × measured coords). */
   archive: ArchiveEntry<S>[]
   /** Post-harden lift, filled by a second pass after an improvement. */
@@ -244,7 +244,7 @@ export interface RunCost {
 export type ExploreEvent<S> =
   | { type: 'cell-allocated'; cell: Cell; count: number }
   | { type: 'evaluated'; cell: Cell; scenario: S; evaluation: Evaluation }
-  | { type: 'finding'; finding: Finding<S> }
+  | { type: 'finding'; finding: FuzzFinding<S> }
   | { type: 'eval-error'; cell: Cell; scenarioId: string; message: string }
   | { type: 'round'; runsUsed: number; budget: number }
 
@@ -266,7 +266,7 @@ export interface ExploreOptions<S> {
   /** Measured behavior coords appended to the archive bin. Default: input cell only. */
   descriptor?: (scenario: S, ev: Evaluation) => Record<string, string>
   /** What "interesting" means. Default: `adversarialObjective(0.5)`. */
-  objective?: Objective
+  objective?: FuzzObjective
   /** Validity gates. Default pass-through. */
   gates?: ValidityGates<S>
   /** Budget steering across input cells. `variance` chases uncertainty; `uniform` is the unsteered ablation baseline. Default `variance`. */

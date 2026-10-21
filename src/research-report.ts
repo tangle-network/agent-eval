@@ -1,6 +1,6 @@
 /** Assemble research report evidence, guidance, figures, and rendered documents. */
 
-import type { GateDecision } from './held-out-gate'
+import type { HeldOutGateDecision } from './held-out-gate'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
 import { hashJson } from './pre-registration'
 import { renderResearchHtml } from './reporting-html'
@@ -73,7 +73,7 @@ export interface ResearchReportOptions {
    */
   mdeAlpha?: number
   /** Optional held-out gate decisions keyed by candidate id. */
-  gateDecisions?: Record<string, GateDecision>
+  gateDecisions?: Record<string, HeldOutGateDecision>
   /** Optional failure clusters from failureClusterView. */
   failureClusters?: FailureClusterReport
   /** Build gain histograms for these candidates. Defaults to all non-comparator candidates. */

@@ -184,7 +184,7 @@ export interface GrpoExportRow {
  * On the line path a realness-gated line stays in its group at reward 0 rather
  * than being dropped. 0 is the honest label for a faked success and is usable
  * signal; removing the line would also move the group's baseline, just in the
- * other direction. (SFT differs — see `toSftRows`.)
+ * other direction. (SFT differs — see `toSftRowsWithLookups`.)
  */
 export async function toGrpoRows(
   lines: MintedRolloutLine[],
@@ -289,7 +289,7 @@ export interface SftExportRow {
  * says which path a row took. A captured transcript whose every turn is copied
  * context yields no row rather than a lookup-built substitute.
  */
-export async function toSftRows(
+export async function toSftRowsWithLookups(
   lines: MintedRolloutLine[],
   lookups: SftLookups,
 ): Promise<SftExportRow[]> {

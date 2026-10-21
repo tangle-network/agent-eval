@@ -36,7 +36,7 @@ export type ValidityGate =
     }
   | { kind: 'identity'; field: 'served-model'; op: 'basename-eq'; onFail: 'abort' }
 
-export interface GateResult {
+export interface ValidityGateResult {
   id: string
   passed: boolean
   evidence: JsonValue
@@ -50,7 +50,7 @@ export function evaluateOracleDeterminismGate(
   id: string,
   gate: Extract<ValidityGate, { kind: 'oracle-determinism' }>,
   repsByState: Record<string, readonly boolean[]>,
-): GateResult {
+): ValidityGateResult {
   const evidence: Record<string, JsonValue> = {}
   let passed = true
   for (const [state, reps] of Object.entries(repsByState)) {
@@ -71,7 +71,7 @@ export function evaluatePopulationReproducibilityGate(
   id: string,
   gate: Extract<ValidityGate, { kind: 'population-reproducibility' }>,
   populations: { left: readonly EvidenceRecord[]; right: readonly EvidenceRecord[] },
-): GateResult {
+): ValidityGateResult {
   const rightByKey = new Map(populations.right.map((r) => [String(readField(r, gate.joinOn)), r]))
   const changed: string[] = []
   for (const left of populations.left) {
@@ -93,7 +93,7 @@ export function evaluateProvenanceGate(
   id: string,
   gate: Extract<ValidityGate, { kind: 'provenance-assertion' }>,
   provenance: EvidenceRecord,
-): GateResult {
+): ValidityGateResult {
   const passed = evaluatePredicate(gate.claim, provenance)
   return { id, passed, evidence: { claimHolds: passed } }
 }
@@ -103,7 +103,7 @@ export function evaluateIdentityGate(
   id: string,
   _gate: Extract<ValidityGate, { kind: 'identity' }>,
   identities: { pinned: string; served: string },
-): GateResult {
+): ValidityGateResult {
   const basename = (s: string): string => s.split('/').pop() ?? s
   const passed = basename(identities.pinned) === basename(identities.served)
   return {
@@ -122,7 +122,7 @@ export function evaluatePowerFloorGate(
   id: string,
   gate: Extract<ValidityGate, { kind: 'power-floor' }>,
   curve: readonly { effect: number; power: number }[],
-): GateResult {
+): ValidityGateResult {
   const problems = powerFloorProblems(gate)
   if (problems.length > 0) {
     throw new ValidationError(`evaluatePowerFloorGate: ${problems.join('; ')}`)

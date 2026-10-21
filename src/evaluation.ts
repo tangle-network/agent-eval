@@ -30,7 +30,7 @@ export interface EvaluationContext {
   onReceipt?: (receipt: CostReceipt) => void | Promise<void>
 }
 
-export type Evaluator<I, O> = (
+export type CostedEvaluator<I, O> = (
   input: I,
   context?: EvaluationContext,
 ) => Promise<EvaluationResult<O>>
@@ -47,7 +47,7 @@ export interface EvaluatorOptions<I, O> {
 }
 
 /** A metered function, independent of providers, question formats, and application policy. */
-export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): Evaluator<I, O> {
+export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): CostedEvaluator<I, O> {
   const defaults = { ...options }
   const ledger = defaults.costLedger ?? new CostLedger()
   return async (input, context = {}) => {
@@ -80,7 +80,7 @@ export interface EvaluationJudgeOptions<A, S extends Scenario, O> {
   name: string
   version: string
   dimensions: JudgeConfig<A, S>['dimensions']
-  evaluate: Evaluator<{ artifact: A; scenario: S }, O>
+  evaluate: CostedEvaluator<{ artifact: A; scenario: S }, O>
   map: (value: O, input: { artifact: A; scenario: S }) => JudgeScore | Promise<JudgeScore>
   /** Persist the complete observation before reducing it to a verdict. */
   record?: (

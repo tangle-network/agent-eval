@@ -117,7 +117,7 @@ describe('public-surface contract for consumers', () => {
   it('exports the rl subpath surface consumers depend on', () => {
     const missing = RL_SYMBOLS.filter((name) => (rl as Record<string, unknown>)[name] === undefined)
     expect(missing, `missing rl subpath exports: ${missing.join(', ')}`).toEqual([])
-    expect(typeof (rl as Record<string, unknown>).toSftRows).toBe('function')
+    expect(typeof (rl as Record<string, unknown>).toSftRowsWithLookups).toBe('function')
     expect(typeof (rl as Record<string, unknown>).runRLCampaign).toBe('function')
   })
 

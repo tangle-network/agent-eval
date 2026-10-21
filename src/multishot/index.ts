@@ -13,7 +13,7 @@ export {
 
 export {
   DEFAULT_JUDGE_MODEL,
-  type JudgeConfig,
+  type MultishotJudgeConfig,
   type JudgeDimension,
   type JudgeRunResult,
   type JudgeScore,
