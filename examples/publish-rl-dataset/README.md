@@ -10,7 +10,7 @@ Request GRPO only when every scenario has at least two rewarded completions.
 
 ## What `buildRlDataset` adds over the raw exporters
 
-The format exporters (`toGrpoRows` / `toSftRows` / `toDpoRows`) produce
+The format exporters (`toGrpoRows` / `toSftRowsWithLookups` / `toDpoRows`) produce
 trainer-ready shapes. `buildRlDataset` composes them and attaches the
 provenance a buyer checks first:
 
