@@ -4,7 +4,7 @@ import { relative, resolve, sep } from 'node:path'
 import { compareCodeUnits } from '../ledger-core/canonical'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import {
-  createOtlpBufferTraceStore,
+  BufferTraceStore,
   DEFAULT_MAX_TRACE_FILE_BYTES,
   otlpTextToTraceAnalysisStore,
 } from '../trace-analyst/store-otlp'
@@ -349,7 +349,7 @@ async function indexSelectedSingleTraceFiles(
   >()
   for (const path of files) {
     const snapshot = await readImmutableInputSnapshot(path, DEFAULT_MAX_TRACE_FILE_BYTES)
-    const store = createOtlpBufferTraceStore(snapshot.bytes)
+    const store = new BufferTraceStore(snapshot.bytes)
     const overview = await store.getOverview()
     if (overview.total_traces !== 1 || overview.sample_trace_ids.length !== 1) {
       throw new Error(

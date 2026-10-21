@@ -11,16 +11,15 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 import { AgentEvalError } from '../errors'
-import { TraceAnalysisValidationError } from './errors'
-import { compileSearchRegex } from './store'
 import {
-  OtlpFileTraceStore,
-  otlpTextToTraceAnalysisStore,
+  TraceAnalysisValidationError,
   TraceFileMalformedError,
   TraceFileMissingError,
   TraceFileTooLargeError,
   TraceNotFoundError,
-} from './store-otlp'
+} from './errors'
+import { compileSearchRegex } from './store'
+import { OtlpFileTraceStore, otlpTextToTraceAnalysisStore } from './store-otlp'
 
 const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
   .pathname

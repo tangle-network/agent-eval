@@ -162,6 +162,9 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/trace-analyst/store-boundary.ts',
   'src/trace-analyst/store-bounds.ts',
   'src/trace-analyst/store-contract.ts',
+  'src/trace-analyst/store-otlp-buffered.ts',
+  'src/trace-analyst/store-otlp-error-clusters.ts',
+  'src/trace-analyst/store-otlp-search-offset.ts',
   'src/trace-analyst/store-otlp.ts',
   'src/trace-analyst/store-schemas.ts',
   'src/trace-analyst/store.ts',
@@ -175,7 +178,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '849b2ea1f9255721cb7feb601ab96fadbff3993d51f79c33ac688afd03d24336'
+  '844ec972fed51a6bec586e7add900b54d27645f56b22636c9b98e49a829c9aff'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
