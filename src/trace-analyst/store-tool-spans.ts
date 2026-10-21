@@ -3,7 +3,8 @@ import { applyToolSpanOtlpAttributes, OPENINFERENCE_SPAN_KIND } from '../trace/o
 import { createOtlpFlatLine, epochMillisToIso, spanStatusToOtlp } from '../trace/otlp-flat'
 import type { ToolSpan } from '../trace/schema'
 import type { TraceAnalysisStore } from './store'
-import { createOtlpBufferTraceStore, type ToolSpansToTraceAnalysisStoreOptions } from './store-otlp'
+import { BufferTraceStore } from './store-otlp'
+import type { ToolSpansToTraceAnalysisStoreOptions } from './store-otlp-buffered'
 
 /** Missing tool spans cannot distinguish a tool-free run from broken capture. */
 export class ToolTraceMissingError extends CaptureIntegrityError {
@@ -61,7 +62,7 @@ export function toolSpansToTraceAnalysisStore(
     }
   })
 
-  return createOtlpBufferTraceStore(Buffer.from(`${lines.join('\n')}\n`, 'utf8'), options)
+  return new BufferTraceStore(Buffer.from(`${lines.join('\n')}\n`, 'utf8'), options)
 }
 
 function assertToolSpanIdentity(span: ToolSpan, index: number): void {
