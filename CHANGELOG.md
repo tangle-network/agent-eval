@@ -16,7 +16,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - 442 value exports no `tangle-network` repository imports are no longer published (1,663 → 1,221 across subpaths; the list is the diff of `docs/public-api.md` in #1039). Consumer sweep: all 105 non-archived org repos on 2026-10-21.
 - Published names renamed so one name means one concept (#1040): `/multishot` `JudgeConfig` → `MultishotJudgeConfig`; `/wire` `FeedbackTrajectory`, `TraceEvent`, `FailureMode`, `RubricDimension` → `WireFeedbackTrajectory`, `WireTraceEvent`, `WireFailureMode`, `WireRubricDimension`; `/systemone` `Evaluator` → `CostedEvaluator`; `/rl` `toSftRows` → `toSftRowsWithLookups`, `paretoFrontier` → `paretoCostScoreFrontier`; plus type-only renames in `/fuzz`, `/experiment`, `/traces`, `/search`, `/trace-repair`, `/campaign`.
-- Consumer repos that import a renamed name: gtm-agent, tax-agent, super-agent, legal-agent, creative-agent. Their rename PRs are linked from the GitHub release notes.
+- Consumer repos that import a renamed name, and the PRs that moved them to 0.217.1 (all merged 2026-10-21): [legal-agent#509](https://github.com/tangle-network/legal-agent/pull/509), [tax-agent#615](https://github.com/tangle-network/tax-agent/pull/615), [creative-agent#687](https://github.com/tangle-network/creative-agent/pull/687), [gtm-agent#1864](https://github.com/tangle-network/gtm-agent/pull/1864), [super-agent#36](https://github.com/tangle-network/super-agent/pull/36).
 
 - refactor!: follow the rl function rename in the example, contract test and census
 - test: follow the renamed types and functions
