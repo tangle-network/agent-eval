@@ -6,6 +6,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.217.0] — 2026-10-21
 
+**Breaking (0.x minor).**
+
+- 442 value exports no `tangle-network` repository imports are no longer published (1,663 → 1,221 across subpaths; the list is the diff of `docs/public-api.md` in #1039). Consumer sweep: all 105 non-archived org repos on 2026-10-21.
+- Published names renamed so one name means one concept (#1040): `/multishot` `JudgeConfig` → `MultishotJudgeConfig`; `/wire` `FeedbackTrajectory`, `TraceEvent`, `FailureMode`, `RubricDimension` → `WireFeedbackTrajectory`, `WireTraceEvent`, `WireFailureMode`, `WireRubricDimension`; `/systemone` `Evaluator` → `CostedEvaluator`; `/rl` `toSftRows` → `toSftRowsWithLookups`, `paretoFrontier` → `paretoCostScoreFrontier`; plus type-only renames in `/fuzz`, `/experiment`, `/traces`, `/search`, `/trace-repair`, `/campaign`.
+- Consumer repos that import a renamed name: gtm-agent, tax-agent, super-agent, legal-agent, creative-agent. Their rename PRs are linked from the GitHub release notes.
+
 - refactor!: follow the rl function rename in the example, contract test and census
 - test: follow the renamed types and functions
 - chore: remove the one-off prune tooling
