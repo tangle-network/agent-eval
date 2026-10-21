@@ -123,7 +123,7 @@ export function verifyRuntimeImports(appDir) {
       '--eval',
       `
         const rl = await import('@tangle-network/agent-eval/rl')
-        for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRows', 'runRLCampaign']) {
+        for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRowsWithLookups', 'runRLCampaign']) {
           if (!(name in rl)) throw new Error('missing rl export ' + name)
         }
         if ('isTrainingRunEligible' in rl) {
