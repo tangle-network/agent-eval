@@ -26,13 +26,12 @@
  */
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
-import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
+import type { JudgeScore } from './campaign/types'
 import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 // ── canonical JSON + content hash ─────────────────────────────────────────
 
-/** Key scheme of every entry `cachedJudge` writes. */
-export const VERDICT_CACHE_KEY_SCHEME = 'v2'
+
 
 /**
  * Canonical JSON (RFC 8785): object keys sorted recursively, so two
@@ -60,16 +59,7 @@ export interface VerdictCacheStore {
   set(key: string, score: JudgeScore): Promise<void> | void
 }
 
-/** Process-local Map-backed store. */
-export function inMemoryVerdictCache(): VerdictCacheStore {
-  const entries = new Map<string, JudgeScore>()
-  return {
-    get: (key) => entries.get(key),
-    set: (key, score) => {
-      entries.set(key, score)
-    },
-  }
-}
+
 
 interface VerdictCacheLine {
   key: string
@@ -131,68 +121,10 @@ export function fileVerdictCache(path: string): VerdictCacheStore {
 
 // ── cached judge wrapper ───────────────────────────────────────────────────
 
-interface VerdictCacheStats {
-  hits: number
-  misses: number
-}
 
-interface CachedJudgeOptions {
-  /** REQUIRED — part of the cache key. Bump on any change to the judge's
-   *  prompt, model, ensemble, or scoring logic; silent judge upgrades must
-   *  never serve stale verdicts. */
-  judgeVersion: string
-}
 
-/** The wrapped judge: same `JudgeConfig` seam, plus hit/miss observability. */
-type CachedJudge<TArtifact, TScenario extends Scenario = Scenario> = JudgeConfig<
-  TArtifact,
-  TScenario
-> & {
-  stats(): VerdictCacheStats
-}
 
-/**
- * Wrap a `JudgeConfig` so repeat judgments of the same artifact are served
- * from the store instead of re-invoking `score()`. The wrapper is generic
- * over the judge's own type parameters and preserves `appliesTo` — it is a
- * drop-in replacement anywhere a `JudgeConfig` is accepted.
- *
- * A judge that throws is NOT cached: the error propagates and the next
- * attempt re-judges (caching a failure would pin a transient outage forever).
- */
-export function cachedJudge<TArtifact, TScenario extends Scenario = Scenario>(
-  judge: JudgeConfig<TArtifact, TScenario>,
-  store: VerdictCacheStore,
-  options: CachedJudgeOptions,
-): CachedJudge<TArtifact, TScenario> {
-  if (typeof options.judgeVersion !== 'string' || options.judgeVersion.trim() === '') {
-    throw new Error('cachedJudge: judgeVersion is required and must be a non-empty string')
-  }
-  const stats: VerdictCacheStats = { hits: 0, misses: 0 }
-  const wrapped: CachedJudge<TArtifact, TScenario> = {
-    name: judge.name,
-    dimensions: judge.dimensions,
-    judgeVersion: options.judgeVersion,
-    async score(input) {
-      const key = `${VERDICT_CACHE_KEY_SCHEME}:${contentHash({
-        artifact: canonicalJson(input.artifact),
-        scenarioId: input.scenario.id,
-        judgeName: judge.name,
-        dimensions: judge.dimensions,
-        judgeVersion: options.judgeVersion,
-      })}`
-      const cached = await store.get(key)
-      if (cached !== undefined) {
-        stats.hits += 1
-        return cached
-      }
-      const score = await judge.score(input)
-      await store.set(key, score)
-      stats.misses += 1
-      return score
-    },
-    stats: () => ({ ...stats }),
-  }
-  if (judge.appliesTo) wrapped.appliesTo = judge.appliesTo
-  return wrapped
-}
+
+
+
+

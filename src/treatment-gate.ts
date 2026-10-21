@@ -38,12 +38,12 @@
  * fail-closed for harnesses where tool capture is guaranteed.
  */
 
-import type { ToolSpan } from './trace/schema'
+
 
 
 /** A tool-name matcher: does this tool name belong to the treatment under test?
  *  The caller supplies it — the substrate ships no `search` (or any) literal. */
-export type ToolMatcher = (toolName: string) => boolean
+type ToolMatcher = (toolName: string) => boolean
 
 export interface TreatmentGateInput {
   /** Tool-call counts by tool name — exactly `computeTraceMetrics(spans).toolHistogram`.
@@ -127,19 +127,4 @@ export function gateTreatmentApplied(
 
 
 
-/**
- * Convenience: gate from the trace store's canonical `ToolSpan[]` (e.g. the
- * result of `toolSpans(store, runId)`). Counts by `toolName` — the typed
- * tool-call field — so it needs no OTLP attribute extraction.
- */
-export function gateTreatmentFromToolSpans(
-  toolSpans: readonly ToolSpan[],
-  matches: ToolMatcher,
-  opts?: TreatmentGateOptions,
-): TreatmentGate {
-  const toolHistogram: Record<string, number> = {}
-  for (const s of toolSpans) {
-    if (s.toolName) toolHistogram[s.toolName] = (toolHistogram[s.toolName] ?? 0) + 1
-  }
-  return gateTreatmentApplied({ toolHistogram, matches }, opts)
-}
+
