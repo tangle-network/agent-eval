@@ -4,7 +4,7 @@
  * two have driven opposite conclusions about the same architecture.
  */
 
-import { round } from './analyze'
+import { roundDecimal as round } from '../math/round-decimal'
 import {
   isUnavailable,
   type Measured,

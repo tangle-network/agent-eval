@@ -101,8 +101,8 @@ export {
   otlpTextToTraceAnalysisStore,
   type SpanRecordsToTraceAnalysisStoreOptions,
   spanRecordsToTraceAnalysisStore,
-  type ToolSpansToTraceAnalysisStoreOptions,
 } from './store-otlp'
+export type { ToolSpansToTraceAnalysisStoreOptions } from './store-otlp-buffered'
 export { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'
 export type {
   BuildTraceAnalysisToolsOptions,
