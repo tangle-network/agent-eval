@@ -26,7 +26,7 @@ import { ValidationError } from '../errors'
 import type { ActionPayloadKind } from './action-budget'
 import { type InterventionBudget, SCAFFOLD_INTERVENTION_BUDGET } from './action-budget'
 import type {
-  RepairArm,
+  RepairAnalystArm,
   RepairArmAffordance,
   RepairArmCertification,
   RepairArmReply,
@@ -70,7 +70,7 @@ export interface CompletionRepairArmOptions {
   readonly certification: RepairArmCertification
 }
 
-export function createCompletionRepairArm(options: CompletionRepairArmOptions): RepairArm {
+export function createCompletionRepairArm(options: CompletionRepairArmOptions): RepairAnalystArm {
   if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0) {
     throw new ValidationError(
       `repair arm '${options.id}' timeoutMs must be a positive safe integer, got ${options.timeoutMs}`,

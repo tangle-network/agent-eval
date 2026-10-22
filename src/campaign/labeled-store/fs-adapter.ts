@@ -50,7 +50,7 @@ export interface FsLabeledScenarioStoreOptions {
 }
 
 /** Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. */
-export class LabeledScenarioStoreError extends Error {
+class LabeledScenarioStoreError extends Error {
   constructor(
     public readonly code: string,
     message: string,

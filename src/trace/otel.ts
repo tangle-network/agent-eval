@@ -20,7 +20,7 @@ import type { Run, Span, TraceEvent } from './schema'
 import type { TraceStore } from './store'
 import { spanIdForWire, traceIdForWire } from './wire-ids'
 
-export const OTEL_AGENT_EVAL_SCOPE = { name: '@tangle-network/agent-eval', version: '0.3.0' }
+const OTEL_AGENT_EVAL_SCOPE = { name: '@tangle-network/agent-eval', version: '0.3.0' }
 
 export interface OtlpSpan {
   traceId: string

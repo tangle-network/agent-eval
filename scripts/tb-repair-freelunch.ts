@@ -29,26 +29,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import {
-  type ContinuationMessage,
-  type ContinuationRollout,
-  createDockerContinuationEnvironment,
-  definePinnedContinuationPolicy,
-  injectedTestOracle,
-  MINI_SWE_SYSTEM_MESSAGE,
-  nodeProcessRunner,
-  type OracleDeterminismVerdict,
-  parseTaskOracleRegistry,
-  type PinnedContinuationPolicy,
-  type RepairSession,
-  renderInstanceMessage,
-  renderObservation,
-  runContinuation,
-  type TaskOracleRegistry,
-  type TestOracle,
-  type TestSuiteFile,
-  testSuiteDigest,
-} from '../src/trace-repair'
+import { type ContinuationMessage, type ContinuationRollout, createDockerContinuationEnvironment, definePinnedContinuationPolicy, injectedTestOracle, nodeProcessRunner, type OracleDeterminismVerdict, parseTaskOracleRegistry, type PinnedContinuationPolicy, type RepairSession, runContinuation, type TaskOracleRegistry, type TestOracle, type TestSuiteFile } from '../src/trace-repair'
+import { MINI_SWE_SYSTEM_MESSAGE, renderInstanceMessage, renderObservation } from '../src/trace-repair/mini-swe-scaffold'
+import { testSuiteDigest } from '../src/trace-repair/test-oracle'
 import type { RecordedTrajectoryStep } from '../src/trajectory-replay/steps'
 import { routerContinuationModel } from './tb-repair-freelunch-model'
 import { readTerminalBenchTestSuite } from './terminal-bench-test-suite'

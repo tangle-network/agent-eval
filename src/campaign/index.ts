@@ -18,7 +18,7 @@ export type {
   ReferenceEquivalenceJudgeOptions,
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
-export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
+
 export type { SeriesDistribution } from '../statistics'
 // ── The search kernel: policies, allocation, executor and proposer ports ──
 export {
@@ -32,24 +32,14 @@ export {
   uniform,
 } from './allocation'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
-export {
-  type BuildTraceAnalystSurfaceDispatchOptions,
-  buildTraceAnalystSurfaceDispatch,
-  type TraceAnalystArtifact,
-  type TraceAnalystScenario,
-  traceAnalystQualityJudge,
+export type {
+  BuildTraceAnalystSurfaceDispatchOptions,
+  TraceAnalystArtifact,
+  TraceAnalystScenario,
 } from './analyst-surface'
 // ── Auto-PR ──────────────────────────────────────────────────────────
-export {
-  type OpenAutoPrOptions,
-  type OpenAutoPrResult,
-  openAutoPr,
-} from './auto-pr'
-export {
-  type CacheIssueReason,
-  type CacheRead,
-  readCachedCell,
-} from './cell-cache'
+export type { OpenAutoPrOptions, OpenAutoPrResult } from './auto-pr'
+export type { CacheIssueReason, CacheRead } from './cell-cache'
 export {
   buildCellSchedule,
   type CellScheduleSlot,
@@ -58,7 +48,6 @@ export {
 export { measureCampaignCost } from './cost-breakdown'
 export {
   assertCampaignDesign,
-  assertCampaignSplitIdentity,
   type CampaignCoverage,
   campaignCoverage,
   campaignScenarioIdentity,
@@ -139,8 +128,6 @@ export type {
 export {
   DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
   DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS,
-  resolveExternalOptimizerCallbackLimits,
-  resolveExternalOptimizerProcessLimits,
 } from './external-optimizer-process'
 export { decodeExternalTextCandidate } from './external-text-evaluation'
 export {
@@ -201,7 +188,7 @@ export {
 export {
   type SequentialDecideFn,
   type SequentialDecideOptions,
-  type SequentialDecision,
+  type SequentialGateDecision,
   type SequentialObservation,
   type SequentialPairedGate,
   type SequentialPairedGateOptions,
@@ -211,7 +198,6 @@ export {
 } from './gates/sequential'
 export {
   type DimensionRegression,
-  detectScale,
   dimensionRegressions,
   type HeldoutSignificance,
   type HeldoutSignificanceOptions,
@@ -242,31 +228,21 @@ export {
   type GepaPopulationImport,
   importExternalEvaluations,
   importGepaPopulation,
-  recordGepaSearch,
-  recordSkillOptSearch,
 } from './gepa-search-import'
 // ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
-export {
-  classifyUngroundedLiterals,
-  type RolloutArgumentDiff,
-  type RolloutArgumentDiffOptions,
-  type RolloutCall,
-  rolloutArgumentDiff,
-  type ScoredRollout,
-  type UngroundedLiteralReport,
+export type {
+  RolloutArgumentDiff,
+  RolloutArgumentDiffOptions,
+  RolloutCall,
+  ScoredRollout,
+  UngroundedLiteralReport,
 } from './grounded-reflection'
-export {
-  FsLabeledScenarioStore,
-  type FsLabeledScenarioStoreOptions,
-  LabeledScenarioStoreError,
-} from './labeled-store/fs-adapter'
+export type { FsLabeledScenarioStoreOptions } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
 export {
   type ComparisonCost,
-  combineComparisonCosts,
   costFromLedgerSummary,
   type OptimizationTokenUsage,
-  optimizationTokenUsageFromSummary,
 } from './optimization-cost'
 export type {
   OptimizationMethod,
@@ -294,7 +270,6 @@ export {
   type OptimizationMethodScore,
 } from './presets/compare-optimization-methods'
 export {
-  makePlaybackDispatch,
   type PlaybackContext,
   type PlaybackDriver,
   type PlaybackStep,
@@ -322,7 +297,6 @@ export {
 } from './presets/run-optimization'
 export {
   type ProfileDispatchFn,
-  ProfileMatrixError,
   type ProfileSummary,
   type RunProfileMatrixOptions,
   type RunProfileMatrixResult,
@@ -345,8 +319,6 @@ export {
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
-  buildLoopProvenanceRecord,
-  campaignMeasurementDigest,
   canonicalDigest,
   type EmitLoopProvenanceArgs,
   type EmitLoopProvenanceResult,
@@ -357,11 +329,6 @@ export {
   type LoopProvenanceEvidence,
   type LoopProvenanceOptimizationMethod,
   type LoopProvenanceRecord,
-  loopProvenanceArgsFromResult,
-  loopProvenanceSpans,
-  provenanceRecordPath,
-  provenanceSpansPath,
-  verifyLoopProvenanceRecord,
 } from './provenance'
 export {
   createRetainedDispatch,
@@ -378,13 +345,12 @@ export {
   type RunCampaignOptions,
   runCampaign,
 } from './run-campaign'
-export { resolveRunDir, tangleTracesRoot } from './run-dir.js'
+export { resolveRunDir } from './run-dir.js'
 // ── Discriminative holdout selection (drop saturated ties) ───────────
 export {
   type DiscriminationScore,
   type ScenarioSignal,
   scoreDiscrimination,
-  selectDiscriminative,
 } from './scenario-selection'
 export {
   type CampaignBreakdown,
@@ -412,7 +378,6 @@ export {
 } from './search-claim'
 // ── Compact proof over a search ledger ─────────────────────────────────
 export {
-  assertCompleteSearchHistory,
   assertSearchHistoryMatchesState,
   type CreateSearchHistoryReceiptInput,
   createSearchHistoryReceipt,
@@ -422,15 +387,12 @@ export {
   type SearchHistoryCoverageRow,
   type SearchHistoryPolicy,
   type SearchHistoryReceipt,
-  SearchHistoryRequiredError,
-  searchHistoryCoverageRow,
   verifySearchHistoryArtifact,
   verifySearchHistoryReceipt,
 } from './search-history-receipt'
 export {
   type RunSearchOptions,
   runSearch,
-  SEARCH_KERNEL_SOURCE,
   type SearchArtifactCodec,
   type SearchCellResult,
   type SearchCellWork,
@@ -443,7 +405,6 @@ export {
   type SearchProposerPort,
   type SearchRunResult,
   searchDivergence,
-  searchExpansionIndex,
   searchPolicyView,
 } from './search-kernel'
 // ── Search ledger: nodes, edges and cells of one search ────────────────
@@ -482,7 +443,6 @@ export {
   type SearchFailureReason,
   type SearchLedger,
   type SearchLedgerAppendResult,
-  SearchLedgerConflictError,
   type SearchLedgerEntry,
   SearchLedgerError,
   type SearchLedgerEvent,
@@ -595,7 +555,6 @@ export {
 } from './surface-identity'
 export {
   isTransientTransportFailure,
-  quotaExhaustedUntil,
   type TransientFailureOptions,
   transientDispatchFailure,
 } from './transient-failure'
@@ -644,14 +603,14 @@ export type {
   SurfaceProposer,
   TraceSpan,
 } from './types'
-export { isProposedCandidate, labelTrustRank } from './types'
+export { isProposedCandidate } from './types'
 export type {
   AutoevalsScoreLike,
   AutoevalsScorerLike,
   PhoenixEvaluationResultLike,
   PhoenixEvaluatorLike,
 } from './upstream-evaluators'
-export { autoevalsScorerJudge, phoenixEvaluatorJudge } from './upstream-evaluators'
+
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type CodeSurfaceVerification,
@@ -661,5 +620,4 @@ export {
   verifyCodeSurface,
   type Worktree,
   type WorktreeAdapter,
-  WorktreeAdapterError,
 } from './worktree'

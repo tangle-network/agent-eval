@@ -13,7 +13,7 @@ export {
 
 export {
   DEFAULT_JUDGE_MODEL,
-  type JudgeConfig,
+  type MultishotJudgeConfig,
   type JudgeDimension,
   type JudgeRunResult,
   type JudgeScore,
@@ -34,27 +34,6 @@ export {
   runMultishotMatrix,
 } from './matrix'
 export { type MultishotShot, type RunMultishotOptions, runMultishot } from './multishot'
-export {
-  defaultMultishotDriverSystemPrompt,
-  defaultMultishotOpener,
-  defaultShapeFromProfile,
-  renderPersonaFacts,
-} from './shape-defaults'
+export { defaultShapeFromProfile } from './shape-defaults'
 
-export {
-  assertMultishotShotResult,
-  type MultishotArtifact,
-  MultishotDriverEmptyError,
-  MultishotFatalToolError,
-  type MultishotMessage,
-  type MultishotPersona,
-  type MultishotResult,
-  type MultishotShape,
-  MultishotShotResultError,
-  type MultishotToolDefinition,
-  type MultishotToolExecutor,
-  type MultishotTransport,
-  type MultishotTransportRequest,
-  type MultishotTransportResponse,
-  type MultishotTransportToolCall,
-} from './types'
+export { assertMultishotShotResult, type MultishotArtifact, MultishotDriverEmptyError, MultishotFatalToolError, type MultishotMessage, type MultishotPersona, type MultishotResult, type MultishotShape, type MultishotToolDefinition, type MultishotToolExecutor, type MultishotTransport, type MultishotTransportRequest, type MultishotTransportResponse, type MultishotTransportToolCall } from './types'

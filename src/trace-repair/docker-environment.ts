@@ -126,35 +126,7 @@ const BACKSTOP_SECONDS = 10
 /** `timeout` reports this when it stopped the command. */
 const TIMEOUT_EXIT_CODE = 124
 
-/**
- * Arguments that create a container the policy accepts. `--network none` is
- * not optional: a continuation with network access could install what the
- * recorded run could not, and the arms would no longer differ only by the
- * intervention.
- */
-export function dockerRunArgs(input: {
-  image: string
-  name: string
-  cwd: string
-  containerLifetime?: string
-  executable?: string
-}): string[] {
-  return [
-    input.executable ?? DEFAULT_EXECUTABLE,
-    'run',
-    '-d',
-    '--name',
-    input.name,
-    '--network',
-    'none',
-    '-w',
-    input.cwd,
-    '--rm',
-    input.image,
-    'sleep',
-    input.containerLifetime ?? '2h',
-  ]
-}
+
 
 export function createDockerContinuationEnvironment(
   options: DockerContinuationEnvironmentOptions,

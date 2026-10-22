@@ -3,12 +3,14 @@ import {
   CostCallConflictError,
   CostCeilingReachedError,
   CostLedger,
+  type CostLedgerHandle,
   CostLedgerPersistenceError,
   CostReceiptCaptureError,
   CostReservationExceededError,
   type CustomTokenPricing,
 } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
+import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark'
 import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
 import {
@@ -30,9 +32,10 @@ import {
   type AnalystDefinition,
   AnalystExpressivenessError,
   type ReplVariableConsensusPort,
+  type ReplVariableEvidenceBinding,
 } from './definition'
 import { createDspyRlmTraceEngine, type DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
-import type { TraceAnalystLimits } from './engine'
+import type { TraceAnalysisEngine, TraceAnalystLimits } from './engine'
 import {
   evidenceRefsFromRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
@@ -223,16 +226,44 @@ export function rlmEngineLimits(config: PublicAnalystBenchmarkModelConfig): Trac
 
 // ── Repl-variable execution strategy ────────────────────────────────
 
-/**
- * Compile a repl-variable definition into a runnable recursive-engine arm over
- * the caller-owned model path. The question, instructions, tool group, and
- * iteration limits come from the definition; the engine, model proxy, sampling
- * loop, and abstention floor are transport machinery.
- */
-export function runReplVariableAnalystDefinition(
+type ReplVariableBinding = ReplVariableEvidenceBinding<CodeTraceStepAssignment>
+type BenchmarkContext = Parameters<AnalystBenchmarkRunner<AnalystRunInputs>['analyze']>[1]
+
+/** What one compiled repl-variable arm shares across every case it analyzes. */
+interface ReplVariableArm {
+  readonly definition: AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment>
+  readonly binding: ReplVariableBinding
+  readonly config: PublicAnalystBenchmarkModelConfig
+  readonly area: string
+  readonly samples: number
+  readonly costLedger: CostLedgerHandle
+  readonly engine: TraceAnalysisEngine
+  readonly traceDefinition: TraceAnalystDefinition
+  readonly abstentionFallbackRunner: AnalystBenchmarkRunner<AnalystRunInputs>
+}
+
+/** One case's identity and what its analysis has produced so far, kept for the error path. */
+interface ReplVariableCase {
+  readonly context: BenchmarkContext
+  readonly trajectoryId: string
+  readonly tags: { benchmarkCaseId: string; benchmarkRepetition: string }
+  usage: AnalystUsageReceipt | undefined
+  rawFindings: AnalystFinding[]
+}
+
+/** Totals a multi-sample case accumulates across its samples. */
+interface SampleTotals {
+  readonly sampleRuns: Array<Record<string, unknown>>
+  readonly sampleAssignments: CodeTraceStepAssignment[][]
+  modelCalls: number
+  toolCalls: number
+}
+
+/** Refuse a definition or transport the repl-variable strategy cannot execute exactly as declared. */
+function checkReplVariableDefinition(
   definition: AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment>,
   config: PublicAnalystBenchmarkModelConfig,
-): AnalystBenchmarkRunner<AnalystRunInputs> {
+) {
   const { projection, binding } = definition
   if (projection.mode !== 'repl-variable' || binding.kind !== 'repl-variable') {
     throw new AnalystExpressivenessError(
@@ -282,18 +313,15 @@ export function runReplVariableAnalystDefinition(
         `bound transport runs ${JSON.stringify(effectiveLimits)}; the declaration must state what executes`,
     )
   }
-  const costLedger = config.costLedger ?? new CostLedger()
-  const samples = config.dspyRlm?.samples ?? 1
-  if (!Number.isSafeInteger(samples) || samples < 1) {
-    throw new RangeError('dspyRlm.samples must be a positive safe integer')
-  }
-  if (samples > 1 && binding.consensus === undefined) {
-    throw new AnalystExpressivenessError(
-      `samples > 1 needs a consensus port; definition '${definition.id}' declares none`,
-    )
-  }
-  const pricing = config.pricing ?? pricingForModel(config.model)
-  const engine = createDspyRlmTraceEngine({
+  return { binding, instructions, area, limits, toolGroup: projection.toolGroup }
+}
+
+/** The recursive engine over the caller-owned model path, with only the configured options set. */
+function createReplVariableEngine(
+  config: PublicAnalystBenchmarkModelConfig,
+  pricing: CustomTokenPricing,
+): TraceAnalysisEngine {
+  return createDspyRlmTraceEngine({
     call: config.call,
     callRef: config.callRef,
     recordExecution: config.recordExecution,
@@ -335,7 +363,29 @@ export function runReplVariableAnalystDefinition(
       : { traceToolTimeoutMs: config.dspyRlm.traceToolTimeoutMs }),
     ...(config.dspyRlm?.runner ? { runner: config.dspyRlm.runner } : {}),
   } satisfies DspyRlmTraceEngineOptions)
-  const protocolSha256 = definition.protocolSha256
+}
+
+/** Validate the definition and transport, then build the engine, ledger and abstention floor. */
+function compileReplVariableArm(
+  definition: AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment>,
+  config: PublicAnalystBenchmarkModelConfig,
+): ReplVariableArm {
+  const { binding, instructions, area, limits, toolGroup } = checkReplVariableDefinition(
+    definition,
+    config,
+  )
+  const costLedger = config.costLedger ?? new CostLedger()
+  const samples = config.dspyRlm?.samples ?? 1
+  if (!Number.isSafeInteger(samples) || samples < 1) {
+    throw new RangeError('dspyRlm.samples must be a positive safe integer')
+  }
+  if (samples > 1 && binding.consensus === undefined) {
+    throw new AnalystExpressivenessError(
+      `samples > 1 needs a consensus port; definition '${definition.id}' declares none`,
+    )
+  }
+  const pricing = config.pricing ?? pricingForModel(config.model)
+  const engine = createReplVariableEngine(config, pricing)
   const traceDefinition: TraceAnalystDefinition = {
     id: binding.traceAnalystId,
     description: definition.description,
@@ -343,7 +393,7 @@ export function runReplVariableAnalystDefinition(
     version: definition.version,
     question: definition.question,
     instructions,
-    toolGroup: projection.toolGroup,
+    toolGroup,
     limits,
   }
   // Abstention floor: shares this arm's cost ledger so a fallback call's spend
@@ -354,233 +404,289 @@ export function runReplVariableAnalystDefinition(
   const { instructionsOverride: _rlmOnlyOverride, ...directConfig } = config
   void _rlmOnlyOverride
   const abstentionFallbackRunner = binding.abstentionFallback({ ...directConfig, costLedger })
+  return {
+    definition,
+    binding,
+    config,
+    area,
+    samples,
+    costLedger,
+    engine,
+    traceDefinition,
+    abstentionFallbackRunner,
+  }
+}
 
+/** Stamp the engine's raw rows as findings; `extra` metadata sits between the model and the subject block. */
+function stampFindings(
+  arm: ReplVariableArm,
+  rows: readonly RawAnalystFinding[],
+  extra: Record<string, unknown>,
+): AnalystFinding[] {
+  const { definition, binding, config, area } = arm
+  const producedAt = new Date().toISOString()
+  return rows.map((finding) =>
+    makeFinding({
+      analyst_id: definition.id,
+      area,
+      subject: finding.subject,
+      claim: finding.claim,
+      rationale: finding.rationale,
+      severity: finding.severity,
+      confidence: finding.confidence,
+      evidence_refs: evidenceRefsFromRawFinding(finding),
+      recommended_action: finding.recommended_action,
+      metadata: {
+        ...binding.findingBaseMetadata,
+        model: config.model,
+        ...extra,
+        // Block coordinates from the subject grammar, so a row retained
+        // by a failed or empty case still carries its block metadata.
+        ...(binding.metadataFromSubject?.(finding.subject) ?? {}),
+      },
+      produced_at: producedAt,
+    }),
+  )
+}
+
+/** Metadata that records a direct abstention-floor call, or nothing when none fired. */
+function abstentionFallbackMetadata(
+  fallback: AnalystBenchmarkOutput | undefined,
+): Record<string, unknown> {
+  if (!fallback) return {}
+  return {
+    abstentionFallback: 'direct',
+    ...(fallback.metadata ? { abstentionFallbackMetadata: fallback.metadata } : {}),
+    ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
+  }
+}
+
+/** Run one engine sample of a multi-sample case and fold it into the totals. */
+async function runReplVariableSample(
+  arm: ReplVariableArm,
+  run: ReplVariableCase,
+  store: TraceAnalysisStore,
+  sample: number,
+  totals: SampleTotals,
+): Promise<void> {
+  const { definition, binding, costLedger } = arm
+  const { context, tags } = run
+  const caseUsageFilter = { channel: 'analyst' as const, tags }
+  let sampleUsage: AnalystUsageReceipt | undefined
+  const completed = await runTraceAnalyst({
+    definition: arm.traceDefinition,
+    engine: arm.engine,
+    store,
+    context: {
+      runId: context.caseId,
+      // A distinct correlation id per sample tags each sample's
+      // provider calls individually in the shared ledger, while the
+      // case and repetition tags keep all k samples' spend — and a
+      // fallback's — on this one case.
+      correlationId: `${context.caseId}:${context.repetition}:sample-${sample}`,
+      costLedger,
+      costPhase: binding.costPhase,
+      tags,
+      recordUsage: (receipt) => {
+        sampleUsage = receipt
+        run.usage = usageReceiptFromCostLedger(costLedger, caseUsageFilter)
+      },
+      signal: context.signal,
+    },
+  })
+  const sampleFindings = stampFindings(arm, completed.findings, { sample })
+  run.rawFindings = [...run.rawFindings, ...sampleFindings]
+  const adapted = await binding.adapt({
+    subject: run.trajectoryId,
+    findings: sampleFindings,
+    analystId: definition.id,
+    store,
+    ...(context.signal ? { signal: context.signal } : {}),
+  })
+  const assignments = adapted.stepBlocks ?? []
+  totals.sampleAssignments.push(assignments)
+  totals.modelCalls += completed.modelCalls
+  totals.toolCalls += completed.toolCalls
+  totals.sampleRuns.push({
+    sample,
+    answer: completed.answer,
+    trajectory: completed.trajectory,
+    modelCalls: completed.modelCalls,
+    toolCalls: completed.toolCalls,
+    runtime: completed.runtime,
+    ...binding.consensus!.sampleRecord(assignments),
+    ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
+    ...(sampleUsage ? { usage: sampleUsage } : {}),
+  })
+}
+
+/** Run k samples, vote on their step blocks, and fall back only when the whole panel found nothing. */
+async function analyzeReplVariableSamples(
+  arm: ReplVariableArm,
+  run: ReplVariableCase,
+  input: AnalystRunInputs,
+  store: TraceAnalysisStore,
+): Promise<AnalystBenchmarkOutput> {
+  const { definition, binding, costLedger, samples } = arm
+  const { context } = run
+  const totals: SampleTotals = {
+    sampleRuns: [],
+    sampleAssignments: [],
+    modelCalls: 0,
+    toolCalls: 0,
+  }
+  for (let sample = 0; sample < samples; sample += 1) {
+    await runReplVariableSample(arm, run, store, sample, totals)
+  }
+  const consensus = binding.consensus!.vote(totals.sampleAssignments)
+  const expanded = await binding.consensus!.expand({
+    subject: run.trajectoryId,
+    blocks: consensus.blocks,
+    store,
+    analystId: definition.id,
+    producedAt: new Date().toISOString(),
+    ...(context.signal ? { signal: context.signal } : {}),
+  })
+  // Abstention floor, applied AFTER the vote and never per sample:
+  // one direct structured call fires only when no step reached the
+  // majority threshold, so the whole panel — not one noisy sample —
+  // failed to localize anything.
+  let fallback: AnalystBenchmarkOutput | undefined
+  if (consensus.blocks.length === 0) {
+    fallback = await arm.abstentionFallbackRunner.analyze(input, context)
+  }
+  run.usage = usageReceiptFromCostLedger(costLedger, { channel: 'analyst', tags: run.tags })
+  return {
+    findings: fallback && !fallback.error ? fallback.findings : expanded.findings,
+    usage: run.usage,
+    metadata: {
+      ...binding.baseMetadata,
+      protocolSha256: definition.protocolSha256,
+      samples,
+      sampleRuns: totals.sampleRuns,
+      consensus: consensus.decision,
+      blockDiagnostics: expanded.diagnostics,
+      modelCalls: totals.modelCalls,
+      toolCalls: totals.toolCalls,
+      ...abstentionFallbackMetadata(fallback),
+    },
+  }
+}
+
+/** Run the engine once, adapt its rows, and fall back only when it submitted no finding. */
+async function analyzeReplVariableOnce(
+  arm: ReplVariableArm,
+  run: ReplVariableCase,
+  input: AnalystRunInputs,
+  store: TraceAnalysisStore,
+): Promise<AnalystBenchmarkOutput> {
+  const { definition, binding, costLedger } = arm
+  const { context, tags } = run
+  const completed = await runTraceAnalyst({
+    definition: arm.traceDefinition,
+    engine: arm.engine,
+    store,
+    context: {
+      runId: context.caseId,
+      correlationId: `${context.caseId}:${context.repetition}`,
+      costLedger,
+      costPhase: binding.costPhase,
+      tags,
+      recordUsage: (receipt) => {
+        run.usage = receipt
+      },
+      signal: context.signal,
+    },
+  })
+  run.rawFindings = stampFindings(arm, completed.findings, {})
+  const adapted = await binding.adapt({
+    subject: run.trajectoryId,
+    findings: run.rawFindings,
+    analystId: definition.id,
+    store,
+    ...(context.signal ? { signal: context.signal } : {}),
+  })
+  // Abstention floor: the engine finished but submitted no finding at
+  // all — indistinguishable from a missed investigation, so one direct
+  // structured call gets a second opinion. An explicit clean verdict
+  // arrives as a finding and never reaches this branch; an engine error
+  // is thrown above and never reaches it either.
+  let fallback: AnalystBenchmarkOutput | undefined
+  if (completed.findings.length === 0) {
+    fallback = await arm.abstentionFallbackRunner.analyze(input, context)
+    run.usage = usageReceiptFromCostLedger(costLedger, { channel: 'analyst', tags })
+  }
+  return {
+    findings: fallback && !fallback.error ? fallback.findings : adapted.findings,
+    usage: run.usage,
+    metadata: {
+      ...binding.baseMetadata,
+      protocolSha256: definition.protocolSha256,
+      ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
+      answer: completed.answer,
+      trajectory: completed.trajectory,
+      modelCalls: completed.modelCalls,
+      toolCalls: completed.toolCalls,
+      runtime: completed.runtime,
+      ...abstentionFallbackMetadata(fallback),
+    },
+  }
+}
+
+/** Analyze one benchmark case; a paid-call control error or an abort is rethrown, any other failure is recorded. */
+async function analyzeReplVariableCase(
+  arm: ReplVariableArm,
+  input: AnalystRunInputs,
+  context: BenchmarkContext,
+): Promise<AnalystBenchmarkOutput> {
+  const { definition, binding, samples } = arm
+  const run: ReplVariableCase = {
+    context,
+    trajectoryId: binding.subjectFromCaseId(context.caseId),
+    tags: {
+      benchmarkCaseId: context.caseId,
+      benchmarkRepetition: String(context.repetition),
+    },
+    usage: undefined,
+    rawFindings: [],
+  }
+  try {
+    if (!input.traceStore) {
+      throw new Error(`repl-variable analyst '${definition.id}' requires a trace store`)
+    }
+    return samples > 1
+      ? await analyzeReplVariableSamples(arm, run, input, input.traceStore)
+      : await analyzeReplVariableOnce(arm, run, input, input.traceStore)
+  } catch (error) {
+    if (context.signal?.aborted) throw error
+    if (isPaidCallControlError(error)) throw error
+    return {
+      findings: [],
+      usage: run.usage,
+      error: publicBenchmarkError(error, []),
+      metadata: {
+        ...binding.baseMetadata,
+        ...(samples > 1 ? { samples } : {}),
+        rawFindings: run.rawFindings,
+      },
+    }
+  }
+}
+
+/**
+ * Compile a repl-variable definition into a runnable recursive-engine arm over
+ * the caller-owned model path. The question, instructions, tool group, and
+ * iteration limits come from the definition; the engine, model proxy, sampling
+ * loop, and abstention floor are transport machinery.
+ */
+export function runReplVariableAnalystDefinition(
+  definition: AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment>,
+  config: PublicAnalystBenchmarkModelConfig,
+): AnalystBenchmarkRunner<AnalystRunInputs> {
+  const arm = compileReplVariableArm(definition, config)
   return {
     id: definition.id,
-    async analyze(input, context) {
-      const trajectoryId = binding.subjectFromCaseId(context.caseId)
-      const tags = {
-        benchmarkCaseId: context.caseId,
-        benchmarkRepetition: String(context.repetition),
-      }
-      let usage: AnalystUsageReceipt | undefined
-      let rawFindings: AnalystFinding[] = []
-      try {
-        if (!input.traceStore) {
-          throw new Error(`repl-variable analyst '${definition.id}' requires a trace store`)
-        }
-        if (samples > 1) {
-          const store = input.traceStore
-          const caseUsageFilter = { channel: 'analyst' as const, tags }
-          const sampleRuns: Array<Record<string, unknown>> = []
-          const sampleAssignments: CodeTraceStepAssignment[][] = []
-          let totalModelCalls = 0
-          let totalToolCalls = 0
-          for (let sample = 0; sample < samples; sample += 1) {
-            let sampleUsage: AnalystUsageReceipt | undefined
-            const completed = await runTraceAnalyst({
-              definition: traceDefinition,
-              engine,
-              store,
-              context: {
-                runId: context.caseId,
-                // A distinct correlation id per sample tags each sample's
-                // provider calls individually in the shared ledger, while the
-                // case and repetition tags keep all k samples' spend — and a
-                // fallback's — on this one case.
-                correlationId: `${context.caseId}:${context.repetition}:sample-${sample}`,
-                costLedger,
-                costPhase: binding.costPhase,
-                tags,
-                recordUsage: (receipt) => {
-                  sampleUsage = receipt
-                  usage = usageReceiptFromCostLedger(costLedger, caseUsageFilter)
-                },
-                signal: context.signal,
-              },
-            })
-            const producedAt = new Date().toISOString()
-            const sampleFindings = completed.findings.map((finding) =>
-              makeFinding({
-                analyst_id: definition.id,
-                area,
-                subject: finding.subject,
-                claim: finding.claim,
-                rationale: finding.rationale,
-                severity: finding.severity,
-                confidence: finding.confidence,
-                evidence_refs: evidenceRefsFromRawFinding(finding),
-                recommended_action: finding.recommended_action,
-                metadata: {
-                  ...binding.findingBaseMetadata,
-                  model: config.model,
-                  sample,
-                  ...(binding.metadataFromSubject?.(finding.subject) ?? {}),
-                },
-                produced_at: producedAt,
-              }),
-            )
-            rawFindings = [...rawFindings, ...sampleFindings]
-            const adapted = await binding.adapt({
-              subject: trajectoryId,
-              findings: sampleFindings,
-              analystId: definition.id,
-              store,
-              ...(context.signal ? { signal: context.signal } : {}),
-            })
-            const assignments = adapted.stepBlocks ?? []
-            sampleAssignments.push(assignments)
-            totalModelCalls += completed.modelCalls
-            totalToolCalls += completed.toolCalls
-            sampleRuns.push({
-              sample,
-              answer: completed.answer,
-              trajectory: completed.trajectory,
-              modelCalls: completed.modelCalls,
-              toolCalls: completed.toolCalls,
-              runtime: completed.runtime,
-              ...binding.consensus!.sampleRecord(assignments),
-              ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
-              ...(sampleUsage ? { usage: sampleUsage } : {}),
-            })
-          }
-          const consensus = binding.consensus!.vote(sampleAssignments)
-          const expanded = await binding.consensus!.expand({
-            subject: trajectoryId,
-            blocks: consensus.blocks,
-            store,
-            analystId: definition.id,
-            producedAt: new Date().toISOString(),
-            ...(context.signal ? { signal: context.signal } : {}),
-          })
-          // Abstention floor, applied AFTER the vote and never per sample:
-          // one direct structured call fires only when no step reached the
-          // majority threshold, so the whole panel — not one noisy sample —
-          // failed to localize anything.
-          let fallback: AnalystBenchmarkOutput | undefined
-          if (consensus.blocks.length === 0) {
-            fallback = await abstentionFallbackRunner.analyze(input, context)
-          }
-          usage = usageReceiptFromCostLedger(costLedger, caseUsageFilter)
-          return {
-            findings: fallback && !fallback.error ? fallback.findings : expanded.findings,
-            usage,
-            metadata: {
-              ...binding.baseMetadata,
-              protocolSha256,
-              samples,
-              sampleRuns,
-              consensus: consensus.decision,
-              blockDiagnostics: expanded.diagnostics,
-              modelCalls: totalModelCalls,
-              toolCalls: totalToolCalls,
-              ...(fallback
-                ? {
-                    abstentionFallback: 'direct',
-                    ...(fallback.metadata ? { abstentionFallbackMetadata: fallback.metadata } : {}),
-                    ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
-                  }
-                : {}),
-            },
-          }
-        }
-        const completed = await runTraceAnalyst({
-          definition: traceDefinition,
-          engine,
-          store: input.traceStore,
-          context: {
-            runId: context.caseId,
-            correlationId: `${context.caseId}:${context.repetition}`,
-            costLedger,
-            costPhase: binding.costPhase,
-            tags,
-            recordUsage: (receipt) => {
-              usage = receipt
-            },
-            signal: context.signal,
-          },
-        })
-        const producedAt = new Date().toISOString()
-        rawFindings = completed.findings.map((finding) =>
-          makeFinding({
-            analyst_id: definition.id,
-            area,
-            subject: finding.subject,
-            claim: finding.claim,
-            rationale: finding.rationale,
-            severity: finding.severity,
-            confidence: finding.confidence,
-            evidence_refs: evidenceRefsFromRawFinding(finding),
-            recommended_action: finding.recommended_action,
-            metadata: {
-              ...binding.findingBaseMetadata,
-              model: config.model,
-              // Block coordinates from the subject grammar, so a row retained
-              // by a failed or empty case still carries its block metadata.
-              ...(binding.metadataFromSubject?.(finding.subject) ?? {}),
-            },
-            produced_at: producedAt,
-          }),
-        )
-        const adapted = await binding.adapt({
-          subject: trajectoryId,
-          findings: rawFindings,
-          analystId: definition.id,
-          store: input.traceStore,
-          ...(context.signal ? { signal: context.signal } : {}),
-        })
-        // Abstention floor: the engine finished but submitted no finding at
-        // all — indistinguishable from a missed investigation, so one direct
-        // structured call gets a second opinion. An explicit clean verdict
-        // arrives as a finding and never reaches this branch; an engine error
-        // is thrown above and never reaches it either.
-        let fallback: AnalystBenchmarkOutput | undefined
-        if (completed.findings.length === 0) {
-          fallback = await abstentionFallbackRunner.analyze(input, context)
-          usage = usageReceiptFromCostLedger(costLedger, {
-            channel: 'analyst',
-            tags: {
-              benchmarkCaseId: context.caseId,
-              benchmarkRepetition: String(context.repetition),
-            },
-          })
-        }
-        return {
-          findings: fallback && !fallback.error ? fallback.findings : adapted.findings,
-          usage,
-          metadata: {
-            ...binding.baseMetadata,
-            protocolSha256,
-            ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
-            answer: completed.answer,
-            trajectory: completed.trajectory,
-            modelCalls: completed.modelCalls,
-            toolCalls: completed.toolCalls,
-            runtime: completed.runtime,
-            ...(fallback
-              ? {
-                  abstentionFallback: 'direct',
-                  ...(fallback.metadata ? { abstentionFallbackMetadata: fallback.metadata } : {}),
-                  ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
-                }
-              : {}),
-          },
-        }
-      } catch (error) {
-        if (context.signal?.aborted) throw error
-        if (isPaidCallControlError(error)) throw error
-        return {
-          findings: [],
-          usage,
-          error: publicBenchmarkError(error, []),
-          metadata: {
-            ...binding.baseMetadata,
-            ...(samples > 1 ? { samples } : {}),
-            rawFindings,
-          },
-        }
-      }
-    },
+    analyze: (input, context) => analyzeReplVariableCase(arm, input, context),
   }
 }
 

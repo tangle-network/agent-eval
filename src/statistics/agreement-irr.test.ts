@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { JudgeScore } from '../types'
+import type { DimensionJudgeScore } from '../types'
 import {
   type CorpusScoreRecord,
   corpusInterRaterAgreement,
@@ -149,8 +149,8 @@ describe('corpusInterRaterAgreement', () => {
     ).toThrow(/dimension 'depth' was requested/)
   })
 
-  it('corpusInterRaterAgreementFromJudgeScores: flattens per-item JudgeScore arrays correctly', () => {
-    const mk = (judge: string, dim: string, score: number): JudgeScore => ({
+  it('corpusInterRaterAgreementFromJudgeScores: flattens per-item DimensionJudgeScore arrays correctly', () => {
+    const mk = (judge: string, dim: string, score: number): DimensionJudgeScore => ({
       judgeName: judge,
       dimension: dim,
       score,
@@ -194,7 +194,7 @@ describe('corpusInterRaterAgreement', () => {
 })
 
 describe('interRaterReliability measures BETWEEN-judge agreement', () => {
-  const judge = (name: string, dimension: string, scores: number[]): JudgeScore[] =>
+  const judge = (name: string, dimension: string, scores: number[]): DimensionJudgeScore[] =>
     scores.map((score) => ({ judgeName: name, dimension, score, reasoning: '' }))
 
   it('is +1 for two identical judges', () => {

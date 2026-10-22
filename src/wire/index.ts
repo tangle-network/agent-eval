@@ -8,11 +8,13 @@
  * For the conceptual overview, see `docs/wire-protocol.md`.
  */
 
-export * from './handlers'
-export { buildOpenApi } from './openapi'
-export { dispatchRpc, type RpcOptions, runRpcBatch, runRpcOnce } from './rpc'
-export { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
-export * from './schemas'
+export { WireError } from './handlers'
+export type { HandleJudgeOptions, IngestionStores } from './handlers'
+
+export { dispatchRpc, type RpcOptions } from './rpc'
+
+export { ErrorResponseSchema, FeedbackTrajectorySchema, TraceEventSchema, WIRE_VERSION } from './schemas'
+export type { ErrorResponse, WireFailureMode, FeedbackIngestResponse, WireFeedbackTrajectory, JudgeRequest, JudgeResult, ListRubricsResponse, Rubric, WireRubricDimension, RubricInfo, WireTraceEvent, TracesIngestRequest, TracesIngestResponse, VersionResponse } from './schemas'
 export {
   createApp,
   type ServeOptions,

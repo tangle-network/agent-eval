@@ -4,6 +4,86 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.218.1] — 2026-10-22
+
+- fix(deps): agent-core ^0.13.1, so a packed consumer of agent-eval and agent-runtime loads one agent-core (#1054)
+- docs: regenerate the public API census for the moved analyst modules
+- refactor: split the randomized canary, rollout line validator and public analyst runners into named steps; re-pin the analyst digest
+- refactor: split runEvalCampaign, runSelfImproveMethod and the held-out gate into named steps
+- refactor(campaign): split skillOpt, retained dispatch and runOptimization into named steps
+- refactor: split the gated-stop A/B and GSM8K comparison script mains into named steps
+- refactor: split the external text optimizer run and the package-export fixture writers into named steps
+
+## [0.218.0] — 2026-10-22
+
+- One dead-owner rule: agent-eval exports the proof that a lock holder is dead, and its own file lock  (#1050)
+- chore(analyst): re-pin benchmark implementation digest
+- refactor(campaign): split compareOptimizationMethods into staged steps and move control admission to its own module
+- refactor(contract): split evaluatePairedMeasurements into staged steps
+- fix(llm-client): claim the pacing slot in the same step that finds it free
+- refactor(campaign): split executeCell into cache, attempt, dispatch, judge and failure steps
+- refactor(search): split editCredit into staged steps
+- refactor(supervisor-run): split parseSupervisorTree into journal, brain spend, worker log and span steps
+- refactor(supervisor-run): split rollout node minting into root, worker and context steps
+- refactor(llm-client): split callLlmAttempts into attempt steps
+- refactor(analyst): split executePlanStream into one step per analyst phase
+- refactor(supervisor-run): split treeIssues into one function per integrity check
+- refactor(gepa): split gepaOptimizationMethod.optimize into prepare, run, verify, record and cost steps
+- refactor(campaign): split defaultProductionGate into one function per check
+- refactor(trajectory-replay): split runReplayBatch into phases and move the fix phase and report rendering to their own modules
+- refactor(control): split runAgentControlLoop into named steps
+- refactor(supervisor-run): split analyzeSupervisorRunSources into named metric steps
+- fix(adopt-stack): keep catalogs with the root pin and never only widen a lock
+- fix(adopt-stack): raise floors only inside the compatible window
+- fix(adopt-stack): resolve peers from the lockfile and move release/cohort.json
+- docs: drop the reference to the deleted profile JSON test
+- docs(changelog): link the consumer PRs for 0.217
+
+## [0.217.1] — 2026-10-21
+
+0.217.0 was tagged but never published: its package fixture check failed. 0.217.1 is the first published release of the 0.217 changes; the breaking changes listed under 0.217.0 below apply to it.
+
+- fix(release): follow the rl function rename in the package fixtures
+
+## [0.217.0] — 2026-10-21
+
+**Breaking (0.x minor).**
+
+- 442 value exports no `tangle-network` repository imports are no longer published (1,663 → 1,221 across subpaths; the list is the diff of `docs/public-api.md` in #1039). Consumer sweep: all 105 non-archived org repos on 2026-10-21.
+- Published names renamed so one name means one concept (#1040): `/multishot` `JudgeConfig` → `MultishotJudgeConfig`; `/wire` `FeedbackTrajectory`, `TraceEvent`, `FailureMode`, `RubricDimension` → `WireFeedbackTrajectory`, `WireTraceEvent`, `WireFailureMode`, `WireRubricDimension`; `/systemone` `Evaluator` → `CostedEvaluator`; `/rl` `toSftRows` → `toSftRowsWithLookups`, `paretoFrontier` → `paretoCostScoreFrontier`; plus type-only renames in `/fuzz`, `/experiment`, `/traces`, `/search`, `/trace-repair`, `/campaign`.
+- Consumer repos that import a renamed name, and the PRs that moved them to 0.217.1 (all merged 2026-10-21): [legal-agent#509](https://github.com/tangle-network/legal-agent/pull/509), [tax-agent#615](https://github.com/tangle-network/tax-agent/pull/615), [creative-agent#687](https://github.com/tangle-network/creative-agent/pull/687), [gtm-agent#1864](https://github.com/tangle-network/gtm-agent/pull/1864), [super-agent#36](https://github.com/tangle-network/super-agent/pull/36).
+
+- refactor!: follow the rl function rename in the example, contract test and census
+- test: follow the renamed types and functions
+- chore: remove the one-off prune tooling
+- chore: regenerate the API census and re-pin the analyst digest
+- chore(hooks): chain the global ratchets entry point, not loc-ratchet alone (#1038)
+- test: delete the tests that only covered the removed names
+- refactor!: one name per concept across published types and functions
+- refactor!: keep the names other modules import, delete the pruned tests
+- refactor!: stop publishing names no tangle-network repo imports, and delete what that orphaned
+- wip: prune tooling v2
+- wip: prune tooling
+- chore: regenerate the API census and re-pin the analyst digest
+- refactor: import ContinuousAgreement from its owner, not a forwarding file
+- test: type the search matcher inline
+- refactor: delete the run-record store class, eval tools, cached judge and tool-span gate nothing runs
+- refactor: delete four scripts nothing runs or cites
+- chore: drop the waiver for the deleted TokenCounter
+- refactor: delete exports and declarations nothing imports
+- chore(analyst): re-pin the implementation digest after the internal renames
+- refactor: rename the internal side of three more name collisions
+- docs(search-policy): name AIDE's search_policy without a file path
+- chore(analyst): re-pin the current benchmark implementation digest
+- docs: regenerate the public API census
+- fix: drop unused isRecord imports; correct stale line references in two docs
+- refactor: one owner per duplicated name; rename what differs
+- adopt-stack merges after the required approval lands, instead of refusing in the first second (#1035)
+- docs: one root AGENTS.md map; CLAUDE.md imports it
+- docs: point stale doc references at current code; archive superseded records
+- adopt-stack runs the caller's own sync step after pinning (#1033)
+- One reusable workflow adopts each new Tangle stack release, peer ranges included (#1032)
+
 ## [0.216.1] — 2026-10-21
 
 - fix(experiment): declare the diagnostic target outcome direction

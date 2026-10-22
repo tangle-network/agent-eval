@@ -70,7 +70,7 @@ export {
   CostReservationExceededError,
 } from './cost-ledger/errors'
 export type { CostResult } from './cost-ledger/pricing'
-export { costForTokenPricing, costForUsage, modelPriceKey } from './cost-ledger/pricing'
+export { costForTokenPricing, costForUsage } from './cost-ledger/pricing'
 
 /** Run-wide paid-call admission, durable call state, receipts, and summaries. */
 export class CostLedger {

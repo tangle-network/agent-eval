@@ -11,7 +11,7 @@
 import type { CostProvenance } from '../cost-ledger'
 import type { RunTokenUsage } from '../run-record'
 import { contentHash } from '../verdict-cache'
-import { parseAction } from './mini-swe-scaffold'
+
 
 /** Which arm produced a rollout. The policy is identical across all three. */
 export type ContinuationArm = 'intervention' | 'no-fix-control' | 'no-op-control'
@@ -135,42 +135,7 @@ export interface RecordedStep {
   obs: string | null
 }
 
-/**
- * Project a full message list into corpus steps: the system and task messages
- * become their own steps, and every assistant turn carries the command it
- * requested plus the observation that answered it. A trailing assistant turn
- * with no answer keeps `obs: null`, which is how the corpus records a run that
- * ended on its last command.
- */
-export function toRecordedSteps(messages: readonly ContinuationMessage[]): RecordedStep[] {
-  const steps: RecordedStep[] = []
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i]
-    if (!message) continue
-    if (message.role === 'assistant') {
-      const parsed = parseAction(message.content)
-      const next = messages[i + 1]
-      steps.push({
-        src: 'agent',
-        msg: message.content,
-        tools: parsed.kind === 'action' ? [{ fn: 'bash_command', cmd: parsed.command }] : null,
-        obs: next && next.role === 'user' ? next.content : null,
-      })
-      continue
-    }
-    if (message.role === 'system') {
-      steps.push({ src: 'system', msg: message.content, tools: null, obs: null })
-      continue
-    }
-    // A user message that answers an assistant turn is that turn's observation,
-    // already attached above. Only the leading task message stands alone.
-    const previous = messages[i - 1]
-    if (!previous || previous.role === 'system') {
-      steps.push({ src: 'user', msg: message.content, tools: null, obs: null })
-    }
-  }
-  return steps
-}
+
 
 /** Corpus steps for the continuation alone, excluding the prefix it inherited. */
 export function rolloutRecordedSteps(rollout: ContinuationRollout): RecordedStep[] {

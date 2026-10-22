@@ -1,6 +1,5 @@
 import type { LedgerProjector } from '../ledger-core'
 import { canonicalString } from '../ledger-core/canonical'
-import { roundDecimal as round } from '../math/round-decimal'
 import { searchCellRunId } from '../run-record'
 import {
   assertStageSplit,
@@ -12,7 +11,6 @@ import {
 } from './search-ledger-constraints'
 import { artifactKey } from './search-ledger-ordering'
 import type {
-  SearchAttemptAccounting,
   SearchAudit,
   SearchCellAllocatedEvent,
   SearchCellCancelledEvent,
@@ -28,20 +26,13 @@ import type {
   SearchOpenedEvent,
   SearchOperationRecordedEvent,
   SearchOperationStartedEvent,
-  SearchReservation,
   SearchSplit,
 } from './search-ledger-types'
 import { searchCellId, searchNodeId, searchTaskSetDigest } from './search-state-identity'
-import type {
-  CellRecord,
-  NodeRecord,
-  OperationRecord,
-  SearchCell,
-  SearchNode,
-  SearchOperation,
-  SearchScoredCell,
-} from './search-state-types'
-import { nodeView, SearchStateView } from './search-state-view'
+import { SearchLedgerIndexes } from './search-state-indexes'
+import { reservationParts, SearchSpendBook } from './search-state-spend'
+import type { NodeRecord } from './search-state-types'
+import { SearchStateView } from './search-state-view'
 
 const SPLITS: readonly SearchSplit[] = ['train', 'selection', 'test']
 
@@ -58,21 +49,15 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   private head: { sequence: number; entryHash: SearchLedgerHash } | null = null
   private lastOccurredAt = Number.NEGATIVE_INFINITY
   private lastOccurredAtText: string | null = null
-  private readonly tasks = new Map<string, { split: SearchSplit; unitId: string }>()
-  private readonly nodes = new Map<string, NodeRecord>()
-  private readonly nodeOrder: string[] = []
-  private readonly nodeByDigest = new Map<string, string>()
-  private readonly edges = new Map<string, SearchEdgeRecordedEvent>()
-  private readonly edgeOrder: string[] = []
-  private readonly cells = new Map<string, CellRecord>()
-  private readonly operations = new Map<string, OperationRecord>()
   private selectedNodeId: string | null = null
-  private claimUsedUsd = 0
   /** Nodes ever decided `finalist`. */
   private readonly finalists = new Set<string>()
   /** Claim cells allocated. Once one exists, the finalists are fixed. */
   private claimCells = 0
   private readonly audit: SearchAudit
+  private readonly spend: SearchSpendBook
+  /** @internal The live indexes a `SearchStateView` reads. */
+  readonly index = new SearchLedgerIndexes()
 
   constructor(searchId: string) {
     this.searchId = searchId
@@ -104,6 +89,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       },
       tokens: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, unknownTokenAttempts: 0 },
     }
+    this.spend = new SearchSpendBook(this.audit)
   }
 
   apply(entry: SearchLedgerEntry, index: number): void {
@@ -194,11 +180,11 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         throw integrity(`the ${split} split's taskSetDigest does not match its tasks`)
       }
       for (const task of tasks) {
-        const owner = this.tasks.get(task.taskId)
+        const owner = this.index.tasks.get(task.taskId)
         if (owner) {
           throw integrity(`task ${task.taskId} is in both the ${owner.split} and ${split} splits`)
         }
-        this.tasks.set(task.taskId, { split, unitId: task.unitId })
+        this.index.tasks.set(task.taskId, { split, unitId: task.unitId })
         units[split].add(task.unitId)
       }
     }
@@ -222,12 +208,17 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   private startOperation(event: SearchOperationStartedEvent): void {
-    if (this.operations.has(event.operationId)) {
+    if (this.index.operations.has(event.operationId)) {
       throw integrity(`operation ${event.operationId} was started twice`)
     }
     this.assertSearching(`operation ${event.operationId}`)
-    this.admit(event.reservation, false, `operation ${event.operationId}`)
-    this.operations.set(event.operationId, {
+    this.spend.admit(
+      this.header!.budget,
+      event.reservation,
+      false,
+      `operation ${event.operationId}`,
+    )
+    this.index.operations.set(event.operationId, {
       operationId: event.operationId,
       operationKind: event.operationKind,
       reservation: event.reservation,
@@ -244,7 +235,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   private recordOperation(event: SearchOperationRecordedEvent): void {
-    const operation = this.operations.get(event.operationId)
+    const operation = this.index.operations.get(event.operationId)
     if (!operation) {
       throw integrity(`operation ${event.operationId} was recorded before it started`)
     }
@@ -256,7 +247,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         `operation ${event.operationId} started as ${operation.operationKind} but recorded as ${event.operationKind}`,
       )
     }
-    const cost = this.book(event.accounting)
+    const cost = this.spend.book(event.accounting)
     if (cost.unknown) this.audit.spend.unknownCostOperations += 1
     const reserved = operation.reservation?.usd ?? 0
     this.audit.spend.openReservationUsd -= reserved
@@ -280,7 +271,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         `node ${event.nodeId} does not match its artifact digest (expected ${expected})`,
       )
     }
-    if (this.nodes.has(event.nodeId)) {
+    if (this.index.nodes.has(event.nodeId)) {
       throw integrity(
         `node ${event.nodeId} was registered twice; a re-proposal is a second edge into it`,
       )
@@ -292,12 +283,12 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       event.eventId,
     )
     const maxNodes = this.header!.budget.maxNodes
-    if (maxNodes !== null && this.nodes.size + 1 > maxNodes) {
+    if (maxNodes !== null && this.index.nodes.size + 1 > maxNodes) {
       throw integrity(`node ${event.nodeId} exceeds the search's maxNodes ${maxNodes}`)
     }
-    this.nodes.set(event.nodeId, {
+    this.index.nodes.set(event.nodeId, {
       event,
-      ordinal: this.nodeOrder.length,
+      ordinal: this.index.nodeOrder.length,
       registeredSequence: index,
       updatedSequence: index,
       edgeIds: [],
@@ -312,18 +303,18 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       scoredCells: 0,
       spend: { knownUsd: 0, floorUsd: 0, unknownCostCells: 0, boxMinutes: 0 },
     })
-    this.nodeOrder.push(event.nodeId)
-    this.nodeByDigest.set(event.artifactDigest, event.nodeId)
+    this.index.nodeOrder.push(event.nodeId)
+    this.index.nodeByDigest.set(event.artifactDigest, event.nodeId)
     this.audit.nodes += 1
     this.audit.nodesWithoutEdge += 1
     this.audit.undecidedNodes += 1
   }
 
   private recordEdge(event: SearchEdgeRecordedEvent, index: number): void {
-    if (this.edges.has(event.edgeId)) {
+    if (this.index.edges.has(event.edgeId)) {
       throw integrity(`edge ${event.edgeId} was recorded twice`)
     }
-    const child = this.nodes.get(event.childNodeId)
+    const child = this.index.nodes.get(event.childNodeId)
     if (!child) {
       throw integrity(`edge ${event.edgeId} names unregistered child ${event.childNodeId}`)
     }
@@ -356,7 +347,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       throw integrity(`merge edge ${event.edgeId} needs at least two parents`)
     }
     const operationId = event.proposer?.operationId ?? null
-    if (operationId !== null && !this.operations.has(operationId)) {
+    if (operationId !== null && !this.index.operations.has(operationId)) {
       throw integrity(`edge ${event.edgeId} names operation ${operationId}, which never started`)
     }
     // A node's first edge fixes its lineage, so its parents were registered
@@ -387,7 +378,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       if (operator === 'derive') {
         throw integrity(`derive edge ${event.edgeId} must name the parent in derivedFrom`)
       }
-      const record = this.nodes.get(parent.nodeId)
+      const record = this.index.nodes.get(parent.nodeId)
       if (!record) {
         throw integrity(`edge ${event.edgeId} names unregistered parent ${parent.nodeId}`)
       }
@@ -432,8 +423,8 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       if (!parent.children.includes(child.event.nodeId)) parent.children.push(child.event.nodeId)
     }
     child.updatedSequence = index
-    this.edges.set(event.edgeId, event)
-    this.edgeOrder.push(event.edgeId)
+    this.index.edges.set(event.edgeId, event)
+    this.index.edgeOrder.push(event.edgeId)
     this.audit.edges[attribution] += 1
   }
 
@@ -442,15 +433,15 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (event.cellId !== expected) {
       throw integrity(`cell ${event.cellId} does not match its coordinates (expected ${expected})`)
     }
-    if (this.cells.has(event.cellId)) {
+    if (this.index.cells.has(event.cellId)) {
       throw integrity(`cell ${event.cellId} was allocated twice`)
     }
-    const node = this.nodes.get(event.nodeId)
+    const node = this.index.nodes.get(event.nodeId)
     if (!node) throw integrity(`cell ${event.cellId} names unregistered node ${event.nodeId}`)
     if (node.edgeIds.length === 0) {
       throw integrity(`cell ${event.cellId}: node ${event.nodeId} has no edge yet`)
     }
-    const task = this.tasks.get(event.taskId)
+    const task = this.index.tasks.get(event.taskId)
     if (!task || task.split !== event.split) {
       throw integrity(
         `cell ${event.cellId}: task ${event.taskId} is not in the ${event.split} split`,
@@ -470,8 +461,13 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (maxCells !== null && this.audit.cells.allocated + 1 > maxCells) {
       throw integrity(`cell ${event.cellId} exceeds the search's maxCells ${maxCells}`)
     }
-    this.admit(event.reservation, event.stage === 'claim', `cell ${event.cellId}`)
-    this.cells.set(event.cellId, {
+    this.spend.admit(
+      this.header!.budget,
+      event.reservation,
+      event.stage === 'claim',
+      `cell ${event.cellId}`,
+    )
+    this.index.cells.set(event.cellId, {
       cellId: event.cellId,
       nodeId: event.nodeId,
       taskId: event.taskId,
@@ -499,13 +495,13 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     this.audit.cells.open += 1
     this.audit.spend.openReservationUsd += event.reservation?.usd ?? 0
     if (event.stage === 'claim') {
-      this.claimUsedUsd += event.reservation?.usd ?? 0
+      this.spend.drawClaim(event.reservation)
       this.claimCells += 1
     }
   }
 
   private settleCell(event: SearchCellSettledEvent, index: number): void {
-    const cell = this.cells.get(event.cellId)
+    const cell = this.index.cells.get(event.cellId)
     if (!cell) throw integrity(`attempt ${event.eventId} names unallocated cell ${event.cellId}`)
     if (cell.cancelled) throw integrity(`cell ${event.cellId} was settled after it was cancelled`)
     if (cell.final) {
@@ -522,7 +518,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (event.runId !== runId) {
       throw integrity(`cell ${event.cellId} attempt ${event.attempt} must have runId ${runId}`)
     }
-    const node = this.nodes.get(cell.nodeId)!
+    const node = this.index.nodes.get(cell.nodeId)!
     const declared = new Set(node.event.surfaces.map((surface) => surface.surfaceId))
     assertUnique(
       event.surfaceEvidence.map((evidence) => evidence.surfaceId),
@@ -540,8 +536,8 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       throw integrity(`attempt ${event.eventId} binds more than one RunRecord`)
     }
 
-    const before = this.reservationParts(cell)
-    const cost = this.book(event.accounting)
+    const before = reservationParts(cell)
+    const cost = this.spend.book(event.accounting)
     if (cell.attempts === 0) {
       this.audit.cells.settled += 1
       this.audit.cells.open -= 1
@@ -565,10 +561,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       cell.score = event.outcome.score
       node.scoredCells += 1
     }
-    const after = this.reservationParts(cell)
-    this.audit.spend.openReservationUsd += after.open - before.open
-    this.audit.spend.overspendUsd += after.over - before.over
-    if (cell.stage === 'claim') this.claimUsedUsd += after.used - before.used
+    this.spend.shiftHolds(cell, before)
 
     if (cost.unknown) node.spend.floorUsd += cost.usd
     else node.spend.knownUsd += cost.usd
@@ -581,27 +574,24 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   private cancelCell(event: SearchCellCancelledEvent, index: number): void {
-    const cell = this.cells.get(event.cellId)
+    const cell = this.index.cells.get(event.cellId)
     if (!cell)
       throw integrity(`cancellation ${event.eventId} names unallocated cell ${event.cellId}`)
     if (cell.cancelled) throw integrity(`cell ${event.cellId} was cancelled twice`)
     if (cell.final) throw integrity(`cell ${event.cellId} was cancelled after a final outcome`)
-    const before = this.reservationParts(cell)
+    const before = reservationParts(cell)
     cell.cancelled = event.reason
     cell.updatedSequence = index
-    const after = this.reservationParts(cell)
-    this.audit.spend.openReservationUsd += after.open - before.open
-    this.audit.spend.overspendUsd += after.over - before.over
-    if (cell.stage === 'claim') this.claimUsedUsd += after.used - before.used
+    this.spend.shiftHolds(cell, before)
     if (cell.attempts === 0) {
       this.audit.cells.cancelled += 1
       this.audit.cells.open -= 1
     }
-    this.nodes.get(cell.nodeId)!.updatedSequence = index
+    this.index.nodes.get(cell.nodeId)!.updatedSequence = index
   }
 
   private decideNode(event: SearchNodeDecidedEvent, index: number): void {
-    const node = this.nodes.get(event.nodeId)
+    const node = this.index.nodes.get(event.nodeId)
     if (!node) throw integrity(`decision ${event.eventId} names unregistered node ${event.nodeId}`)
     if (node.edgeIds.length === 0) {
       throw integrity(`decision ${event.eventId}: node ${event.nodeId} has no edge yet`)
@@ -679,7 +669,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         throw integrity(`finalist ${nodeId} is missing from the claim`)
       }
     }
-    const root = this.nodeOrder[0] ?? null
+    const root = this.index.nodeOrder[0] ?? null
     const perFinalist = 1 - (1 - claim.confidence) / Math.max(1, named.length)
     for (const finalist of claim.finalists) {
       const { estimate, test } = finalist
@@ -717,7 +707,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       }
       const testUnits = new Set(this.header!.splits.test.tasks.map((task) => task.unitId))
       for (const nodeId of [root!, claim.selected]) {
-        const scored = new Set(this.readScoredCells(nodeId, 'test').map((cell) => cell.unitId))
+        const scored = new Set(this.index.scoredCells(nodeId, 'test').map((cell) => cell.unitId))
         const missing = [...testUnits].filter((unit) => !scored.has(unit))
         if (missing.length > 0) {
           throw integrity(
@@ -729,7 +719,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       throw integrity(`a ${claim.decision} claim keeps the root; it cannot select another node`)
     }
     if (claim.decision === 'test-cannot-resolve') {
-      for (const cell of this.cells.values()) {
+      for (const cell of this.index.cells.values()) {
         if (cell.split === 'test' && cell.attempts > 0) {
           throw integrity('a test-cannot-resolve claim spends nothing on test cells')
         }
@@ -765,173 +755,33 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     return reasons
   }
 
-  /** Book an attempt's or operation's accounting into the running totals. An
-   * unknown cost counts as its proven floor. */
-  private book(accounting: SearchAttemptAccounting): { usd: number; unknown: boolean } {
-    const { tokens, cost } = accounting
-    if (tokens.status === 'known') {
-      this.audit.tokens.inputTokens += tokens.inputTokens
-      this.audit.tokens.outputTokens += tokens.outputTokens
-      this.audit.tokens.cachedTokens += tokens.cachedTokens
-    } else {
-      this.audit.tokens.unknownTokenAttempts += 1
-    }
-    const usd = cost.status === 'known' ? cost.usd : cost.knownLowerBoundUsd
-    if (cost.status === 'known') this.audit.spend.knownUsd += usd
-    else this.audit.spend.floorUsd += usd
-    this.audit.spend.committedUsd += usd
-    return { usd, unknown: cost.status === 'unknown' }
-  }
-
-  /** A cell's share of the open reservations, its overspend, and what it draws
-   * from the claim reserve: the larger of its hold and its spend. */
-  private reservationParts(cell: CellRecord): { open: number; over: number; used: number } {
-    const reserved = cell.reservation?.usd ?? 0
-    const holding = !cell.final && cell.cancelled === null
-    return {
-      open: holding ? Math.max(0, reserved - cell.spentUsd) : 0,
-      over: cell.reservation ? Math.max(0, cell.spentUsd - reserved) : 0,
-      used: holding ? Math.max(reserved, cell.spentUsd) : cell.spentUsd,
-    }
-  }
-
-  /** The admission rule: committed spend, open holds, the unspent claim
-   * reserve and the new hold stay within the cap. A claim cell draws on the
-   * claim reserve instead of adding to it.
-   *
-   * The rule admits holds, not records. Spend above a hold is legal
-   * overspend, so committed spend can pass the cap; an event that holds
-   * nothing (the claim operation, a cell an external optimizer already ran)
-   * and a claim cell the unspent reserve covers are then still admitted. The
-   * reserve was set aside at the start and overspend elsewhere cannot take it
-   * back; refusing them would leave a search that can never close. */
-  private admit(reservation: SearchReservation | null, claim: boolean, subject: string): void {
-    const { maxUsd, reservedClaimUsd } = this.header!.budget
-    const hold = reservation?.usd ?? 0
-    if (maxUsd === null || hold === 0) return
-    const remainingClaim = Math.max(0, reservedClaimUsd - this.claimUsedUsd)
-    if (claim && hold <= remainingClaim + USD_TOLERANCE) return
-    const total =
-      this.audit.spend.committedUsd +
-      this.audit.spend.openReservationUsd +
-      (claim ? 0 : remainingClaim) +
-      hold
-    if (total > maxUsd + USD_TOLERANCE) {
-      throw integrity(
-        `${subject} is not admissible: committed $${round(this.audit.spend.committedUsd, 6)} + open $${round(this.audit.spend.openReservationUsd, 6)} + claim reserve $${round(remainingClaim, 6)} + hold $${round(hold, 6)} exceeds the cap $${maxUsd}`,
-      )
-    }
-  }
-
-  // ── Reads, for SearchStateView ─────────────────────────────────────────
-
-  /** @internal The largest hold a new non-claim cell or operation may take,
-   * and the claim reserve still unspent. */
-  readBudget(): { headroomUsd: number | null; claimReserveUsd: number } {
-    const { maxUsd, reservedClaimUsd } = this.header?.budget ?? {
-      maxUsd: null,
-      reservedClaimUsd: 0,
-    }
-    const claimReserveUsd = Math.max(0, reservedClaimUsd - this.claimUsedUsd)
-    if (maxUsd === null) return { headroomUsd: null, claimReserveUsd }
-    const used =
-      this.audit.spend.committedUsd + this.audit.spend.openReservationUsd + claimReserveUsd
-    return { headroomUsd: Math.max(0, maxUsd - used), claimReserveUsd }
-  }
-
-  /** @internal */
-  readHeader(): SearchOpenedEvent | null {
-    return this.header
-  }
-
-  /** @internal */
-  readClosed(): SearchClosedEvent | null {
-    return this.closed
-  }
-
-  /** @internal */
-  readHead(): { sequence: number; entryHash: SearchLedgerHash } | null {
-    return this.head
-  }
-
-  /** @internal */
-  readLastOccurredAt(): string | null {
-    return this.lastOccurredAtText
-  }
-
-  /** @internal */
-  readAudit(): SearchAudit {
+  /** @internal What a `SearchStateView` copies at construction: the header,
+   * close, head and last timestamp, a snapshot of the audit, and the budget room. */
+  readPosition(): {
+    header: SearchOpenedEvent | null
+    closed: SearchClosedEvent | null
+    head: { sequence: number; entryHash: SearchLedgerHash } | null
+    lastOccurredAt: string | null
+    audit: SearchAudit
+    budget: { headroomUsd: number | null; claimReserveUsd: number }
+  } {
     const audit = this.audit
     return {
-      ...audit,
-      edges: { ...audit.edges },
-      cells: { ...audit.cells },
-      outcomes: { ...audit.outcomes },
-      operations: { ...audit.operations },
-      spend: { ...audit.spend },
-      tokens: { ...audit.tokens },
+      header: this.header,
+      closed: this.closed,
+      head: this.head,
+      lastOccurredAt: this.lastOccurredAtText,
+      audit: {
+        ...audit,
+        edges: { ...audit.edges },
+        cells: { ...audit.cells },
+        outcomes: { ...audit.outcomes },
+        operations: { ...audit.operations },
+        spend: { ...audit.spend },
+        tokens: { ...audit.tokens },
+      },
+      budget: this.spend.room(this.header?.budget),
     }
-  }
-
-  /** @internal */
-  readNode(nodeId: string): SearchNode | undefined {
-    const record = this.nodes.get(nodeId)
-    return record ? nodeView(record) : undefined
-  }
-
-  /** @internal */
-  readNodeIds(): readonly string[] {
-    return this.nodeOrder
-  }
-
-  /** @internal */
-  readHasNode(nodeId: string): boolean {
-    return this.nodes.has(nodeId)
-  }
-
-  /** @internal */
-  readNodeIdForDigest(artifactDigest: string): string | undefined {
-    return this.nodeByDigest.get(artifactDigest)
-  }
-
-  /** @internal */
-  readEdge(edgeId: string): SearchEdgeRecordedEvent | undefined {
-    return this.edges.get(edgeId)
-  }
-
-  /** @internal */
-  readEdgeIds(): readonly string[] {
-    return this.edgeOrder
-  }
-
-  /** @internal */
-  readCell(cellId: string): SearchCell | undefined {
-    const cell = this.cells.get(cellId)
-    return cell ? { ...cell } : undefined
-  }
-
-  /** @internal */
-  readCellIds(nodeId?: string): readonly string[] {
-    if (nodeId === undefined) return [...this.cells.keys()]
-    return this.nodes.get(nodeId)?.cellIds ?? []
-  }
-
-  /** @internal */
-  readOperation(operationId: string): SearchOperation | undefined {
-    const operation = this.operations.get(operationId)
-    return operation ? { ...operation } : undefined
-  }
-
-  /** @internal */
-  readScoredCells(nodeId: string, split: SearchSplit): SearchScoredCell[] {
-    const scored: SearchScoredCell[] = []
-    for (const cellId of this.nodes.get(nodeId)?.cellIds ?? []) {
-      const cell = this.cells.get(cellId)!
-      if (cell.split === split && cell.score !== null) {
-        scored.push({ cellId, unitId: cell.unitId, attempt: cell.attempts, score: cell.score })
-      }
-    }
-    return scored
   }
 }
 

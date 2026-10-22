@@ -81,7 +81,7 @@ export interface StandardRetrievalEvaluationOptions {
   passThreshold?: number
 }
 
-export function parseJsonlRows<T = unknown>(text: string): T[] {
+function parseJsonlRows<T = unknown>(text: string): T[] {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())

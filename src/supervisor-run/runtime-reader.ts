@@ -42,7 +42,6 @@ import { sourceLimits } from './runtime-source-limits'
 import { nonEmptyString, recordOrNull as record } from './source-facts'
 import {
   NO_SOURCE_LIMITS,
-  type SupervisorRunReader,
   type SupervisorRunSources,
   type WorkerLogSource,
   type WorkerNativeSession,
@@ -871,13 +870,7 @@ export async function readRuntimeSupervisorRun(
   }
 }
 
-/** The agent-runtime file-backed layout as a `SupervisorRunReader`. */
-export function runtimeSupervisorRunReader(
-  runDir: string,
-  opts: RuntimeReaderOptions = {},
-): SupervisorRunReader {
-  return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir, opts) }
-}
+
 
 /**
  * True when a directory holds any file only Runtime's durable layer writes:

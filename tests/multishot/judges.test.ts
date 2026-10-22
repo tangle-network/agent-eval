@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeCellComposite,
-  type JudgeConfig,
+  type MultishotJudgeConfig,
   type JudgeScore as JudgeScoreShape,
   type MultishotTransport,
   type MultishotTransportRequest,
@@ -15,7 +15,7 @@ const DIMS = [
   { key: 'specificity', description: 'concrete vs vague 0-10' },
 ] as const
 
-function judgeWith(transport: MultishotTransport): JudgeConfig<{ text: string }> {
+function judgeWith(transport: MultishotTransport): MultishotJudgeConfig<{ text: string }> {
   return {
     name: 'test-judge',
     transport,

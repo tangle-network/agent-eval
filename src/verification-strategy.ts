@@ -416,7 +416,7 @@ export function defineEquivalenceCheck(spec: EquivalenceCheckSpec): EquivalenceC
  * - an obligation whose fields contradict its status (see
  *   `EquivalenceObligation`).
  */
-export function buildEquivalenceRecord(
+function buildEquivalenceRecord(
   definition: EquivalenceCheckDefinition,
   arms: readonly [EquivalenceArm, EquivalenceArm],
   obligation: EquivalenceObligation,

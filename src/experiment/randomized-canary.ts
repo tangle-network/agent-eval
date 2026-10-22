@@ -299,13 +299,13 @@ export function sealRandomizedCanaryRule(rule: RandomizedCanaryRule): SealedRand
   return { rule: captured, digest: hashCanonical(captured), algo: 'sha256-rfc8785' }
 }
 
-/** Apply one registered analysis to the entire frozen assignment roster. */
-export function decideRandomizedCanary(
+/** Check the registration seal, the cohort receipt, the frozen roster and the independent verifier. */
+function verifyCohortEvidence(
   sealed: SealedRandomizedCanaryRule,
   cohort: CanaryCohortReceipt,
   rows: readonly CanaryObservation[],
   verifyCohort: CanaryCohortVerifier,
-): RandomizedCanaryDecision {
+): void {
   if (sealed.algo !== 'sha256-rfc8785') {
     throw new ValidationError('randomized canary: unsupported registration digest scheme')
   }
@@ -358,6 +358,31 @@ export function decideRandomizedCanary(
   if (randomizedCanaryObservationDigest(rows) !== cohort.observationSnapshotDigest) {
     throw new ValidationError('randomized canary: frozen observation snapshot digest mismatch')
   }
+  verifyCohortTimes(sealed, cohort)
+  if (typeof verifyCohort !== 'function') {
+    throw new ValidationError('randomized canary: independent cohort verifier is required')
+  }
+  const verification = verifyCohort(cohort, sealed)
+  if (
+    verification?.verified !== true ||
+    verification.authorityId !== cohort.authorityId ||
+    verification.protocolWitnessedBeforeTraffic !== true ||
+    verification.familySlotReservedBeforeTraffic !== true ||
+    verification.eligibilityAndDispositionVerified !== true ||
+    verification.randomizationVerified !== true ||
+    verification.rosterCompleteAtCutoff !== true ||
+    verification.outcomeAndBillingSnapshotFrozen !== true ||
+    verification.sourceJoinsVerified !== true ||
+    verification.armIsolationVerified !== true
+  ) {
+    throw new ValidationError(
+      `randomized canary: cohort attestation or completeness unverified${verification?.verified === false ? `: ${verification.reason}` : ''}`,
+    )
+  }
+}
+
+/** Require the ledger closure, observation freeze and attestation times to match the registered cutoff. */
+function verifyCohortTimes(sealed: SealedRandomizedCanaryRule, cohort: CanaryCohortReceipt): void {
   const cutoff = Date.parse(sealed.rule.analysisCutoff)
   const closedAt = Date.parse(cohort.closedAt)
   const frozenAt = Date.parse(cohort.observationFrozenAt)
@@ -379,110 +404,132 @@ export function decideRandomizedCanary(
       'randomized canary: ledger closure or frozen observation time differs from registered cutoffs',
     )
   }
-  if (typeof verifyCohort !== 'function') {
-    throw new ValidationError('randomized canary: independent cohort verifier is required')
-  }
-  const verification = verifyCohort(cohort, sealed)
-  if (
-    verification?.verified !== true ||
-    verification.authorityId !== cohort.authorityId ||
-    verification.protocolWitnessedBeforeTraffic !== true ||
-    verification.familySlotReservedBeforeTraffic !== true ||
-    verification.eligibilityAndDispositionVerified !== true ||
-    verification.randomizationVerified !== true ||
-    verification.rosterCompleteAtCutoff !== true ||
-    verification.outcomeAndBillingSnapshotFrozen !== true ||
-    verification.sourceJoinsVerified !== true ||
-    verification.armIsolationVerified !== true
-  ) {
+}
+
+/** Rows grouped by arm and cluster, with the evidence gaps counted while grouping. */
+interface CanaryTally {
+  readonly clusters: Map<string, CanaryObservation[]>
+  readonly arms: Record<CanaryArm, CanaryObservation[]>
+  missingOutcomes: number
+  missingBilling: number
+  missingTurns: number
+  missingTraces: number
+  executionDrift: number
+}
+
+/** Validate one row's evidence fields and count its gaps; returns whether it is a recorded no-execution. */
+function checkObservationRow(row: CanaryObservation, index: number, tally: CanaryTally): boolean {
+  if (row.checkedOutcome !== 0 && row.checkedOutcome !== 1 && row.checkedOutcome !== null) {
     throw new ValidationError(
-      `randomized canary: cohort attestation or completeness unverified${verification?.verified === false ? `: ${verification.reason}` : ''}`,
+      `randomized canary: assignment ${index} outcome must be 0, 1, or null`,
     )
   }
-
-  const clusters = new Map<string, CanaryObservation[]>()
-  const arms = { control: [] as CanaryObservation[], candidate: [] as CanaryObservation[] }
-  let missingOutcomes = 0
-  let missingBilling = 0
-  let missingTurns = 0
-  let missingTraces = 0
-  let executionDrift = 0
-  for (const [index, row] of rows.entries()) {
-    if (row.checkedOutcome !== 0 && row.checkedOutcome !== 1 && row.checkedOutcome !== null) {
+  if (row.checkedOutcome === null) tally.missingOutcomes++
+  if (row.outcomeSourceId === null) {
+    if (row.checkedOutcome !== null)
       throw new ValidationError(
-        `randomized canary: assignment ${index} outcome must be 0, 1, or null`,
+        `randomized canary: assignment ${index} has an outcome without its source`,
       )
-    }
-    if (row.checkedOutcome === null) missingOutcomes++
-    if (row.outcomeSourceId === null) {
-      if (row.checkedOutcome !== null)
-        throw new ValidationError(
-          `randomized canary: assignment ${index} has an outcome without its source`,
-        )
-    } else nonEmpty(row.outcomeSourceId, `assignment ${index} outcome source id`)
-    if (row.billedCostUsd === null) missingBilling++
-    else if (!Number.isFinite(row.billedCostUsd) || row.billedCostUsd < 0) {
-      throw new ValidationError(
-        `randomized canary: assignment ${index} billed cost must be nonnegative`,
-      )
-    }
-    if (row.billingSourceId === null) {
-      if (row.billedCostUsd !== null)
-        throw new ValidationError(
-          `randomized canary: assignment ${index} has billed cost without its source`,
-        )
-    } else nonEmpty(row.billingSourceId, `assignment ${index} billing source id`)
-    if (row.turns === null) missingTurns++
-    else if (!Number.isSafeInteger(row.turns) || row.turns < 0) {
-      throw new ValidationError(
-        `randomized canary: assignment ${index} turns must be a nonnegative integer`,
-      )
-    }
-    if (row.traceSourceId !== null)
-      nonEmpty(row.traceSourceId, `assignment ${index} trace source id`)
-    if (row.noExecutionSourceId !== null)
-      nonEmpty(row.noExecutionSourceId, `assignment ${index} no-execution source id`)
-    if (row.traceSourceId !== null && row.noExecutionSourceId !== null) {
-      throw new ValidationError(
-        `randomized canary: assignment ${index} has conflicting trace and no-execution receipts`,
-      )
-    }
-    const noExecution =
-      row.noExecutionSourceId !== null &&
-      row.turns === 0 &&
-      row.billedCostUsd === 0 &&
-      row.checkedOutcome === 0
-    if (row.traceSourceId === null && !noExecution) missingTraces++
-    for (const field of [
-      'servedProfileDigest',
-      'servedCodeRevisionDigest',
-      'outcomeCheckerDigest',
-    ] as const) {
-      if (row[field] !== null) nonEmpty(row[field], `assignment ${index} ${field}`)
-    }
-    const expectedProfile =
-      row.arm === 'control' ? sealed.rule.controlProfileDigest : sealed.rule.candidateProfileDigest
-    if (
-      (row.traceSourceId !== null &&
-        (row.servedProfileDigest !== expectedProfile ||
-          row.servedCodeRevisionDigest !== sealed.rule.servedCodeRevisionDigest)) ||
-      (row.checkedOutcome !== null &&
-        row.outcomeCheckerDigest !== sealed.rule.outcomeCheckerDigest) ||
-      (noExecution && (row.servedProfileDigest !== null || row.servedCodeRevisionDigest !== null))
-    ) {
-      executionDrift++
-    }
-    arms[row.arm].push(row)
-    const bucket = clusters.get(row.clusterId) ?? []
-    bucket.push(row)
-    clusters.set(row.clusterId, bucket)
+  } else nonEmpty(row.outcomeSourceId, `assignment ${index} outcome source id`)
+  if (row.billedCostUsd === null) tally.missingBilling++
+  else if (!Number.isFinite(row.billedCostUsd) || row.billedCostUsd < 0) {
+    throw new ValidationError(
+      `randomized canary: assignment ${index} billed cost must be nonnegative`,
+    )
   }
-  const controlClusters = [...clusters.values()].filter((bucket) =>
-    bucket.some((r) => r.arm === 'control'),
-  ).length
-  const candidateClusters = [...clusters.values()].filter((bucket) =>
-    bucket.some((r) => r.arm === 'candidate'),
-  ).length
+  if (row.billingSourceId === null) {
+    if (row.billedCostUsd !== null)
+      throw new ValidationError(
+        `randomized canary: assignment ${index} has billed cost without its source`,
+      )
+  } else nonEmpty(row.billingSourceId, `assignment ${index} billing source id`)
+  if (row.turns === null) tally.missingTurns++
+  else if (!Number.isSafeInteger(row.turns) || row.turns < 0) {
+    throw new ValidationError(
+      `randomized canary: assignment ${index} turns must be a nonnegative integer`,
+    )
+  }
+  if (row.traceSourceId !== null) nonEmpty(row.traceSourceId, `assignment ${index} trace source id`)
+  if (row.noExecutionSourceId !== null)
+    nonEmpty(row.noExecutionSourceId, `assignment ${index} no-execution source id`)
+  if (row.traceSourceId !== null && row.noExecutionSourceId !== null) {
+    throw new ValidationError(
+      `randomized canary: assignment ${index} has conflicting trace and no-execution receipts`,
+    )
+  }
+  const noExecution =
+    row.noExecutionSourceId !== null &&
+    row.turns === 0 &&
+    row.billedCostUsd === 0 &&
+    row.checkedOutcome === 0
+  if (row.traceSourceId === null && !noExecution) tally.missingTraces++
+  for (const field of [
+    'servedProfileDigest',
+    'servedCodeRevisionDigest',
+    'outcomeCheckerDigest',
+  ] as const) {
+    if (row[field] !== null) nonEmpty(row[field], `assignment ${index} ${field}`)
+  }
+  return noExecution
+}
+
+/** Whether a row was served by, or checked with, anything other than the registered profile, code and checker. */
+function drifted(
+  row: CanaryObservation,
+  noExecution: boolean,
+  rule: RandomizedCanaryRule,
+): boolean {
+  const expectedProfile =
+    row.arm === 'control' ? rule.controlProfileDigest : rule.candidateProfileDigest
+  return (
+    (row.traceSourceId !== null &&
+      (row.servedProfileDigest !== expectedProfile ||
+        row.servedCodeRevisionDigest !== rule.servedCodeRevisionDigest)) ||
+    (row.checkedOutcome !== null && row.outcomeCheckerDigest !== rule.outcomeCheckerDigest) ||
+    (noExecution && (row.servedProfileDigest !== null || row.servedCodeRevisionDigest !== null))
+  )
+}
+
+/** Validate every row against the registered rule, then group by arm and cluster. */
+function tallyObservations(
+  rule: RandomizedCanaryRule,
+  rows: readonly CanaryObservation[],
+): CanaryTally {
+  const tally: CanaryTally = {
+    clusters: new Map(),
+    arms: { control: [], candidate: [] },
+    missingOutcomes: 0,
+    missingBilling: 0,
+    missingTurns: 0,
+    missingTraces: 0,
+    executionDrift: 0,
+  }
+  for (const [index, row] of rows.entries()) {
+    const noExecution = checkObservationRow(row, index, tally)
+    if (drifted(row, noExecution, rule)) tally.executionDrift++
+    tally.arms[row.arm].push(row)
+    const bucket = tally.clusters.get(row.clusterId) ?? []
+    bucket.push(row)
+    tally.clusters.set(row.clusterId, bucket)
+  }
+  return tally
+}
+
+/** Count the clusters that hold at least one row of the arm. */
+function clustersWithArm(tally: CanaryTally, arm: CanaryArm): number {
+  return [...tally.clusters.values()].filter((bucket) => bucket.some((r) => r.arm === arm)).length
+}
+
+/** The decision with every count and total filled in and no interval or pass yet. */
+function baseDecision(
+  sealed: SealedRandomizedCanaryRule,
+  cohort: CanaryCohortReceipt,
+  rowCount: number,
+  tally: CanaryTally,
+): RandomizedCanaryDecision {
+  const { clusters, arms, missingOutcomes, missingBilling, missingTurns } = tally
+  const controlClusters = clustersWithArm(tally, 'control')
+  const candidateClusters = clustersWithArm(tally, 'candidate')
   if (sealed.rule.assignmentUnit === sealed.rule.clusterUnit) {
     for (const [clusterId, bucket] of clusters) {
       if (bucket.length !== 1) {
@@ -507,7 +554,7 @@ export function decideRandomizedCanary(
   const p0 = outcomesComplete ? sum('control', 'checkedOutcome') / n0 : null
   const p1 = outcomesComplete ? sum('candidate', 'checkedOutcome') / n1 : null
   const delta = p0 === null || p1 === null ? null : p1 - p0
-  const result: RandomizedCanaryDecision = {
+  return {
     registrationDigest: sealed.digest,
     cohortReceiptSourceId: cohort.attestationSourceId,
     assignmentRosterDigest: cohort.assignmentRosterDigest,
@@ -515,7 +562,7 @@ export function decideRandomizedCanary(
     method: 'cluster-robust-t',
     confidence: 0.95,
     familyAdjustedConfidence: 1 - 0.05 / sealed.rule.confirmatoryFamilySize,
-    assignments: rows.length,
+    assignments: rowCount,
     controlAssignments: n0,
     candidateAssignments: n1,
     clusters: clusters.size,
@@ -525,8 +572,8 @@ export function decideRandomizedCanary(
     missingOutcomes,
     missingBilling,
     missingTurns,
-    missingTraces,
-    executionDrift,
+    missingTraces: tally.missingTraces,
+    executionDrift: tally.executionDrift,
     controlSuccessRate: p0,
     candidateSuccessRate: p1,
     delta,
@@ -544,25 +591,34 @@ export function decideRandomizedCanary(
     refusal: null,
     successCriterionMet: false,
   }
-  if (missingOutcomes > 0 || missingBilling > 0 || missingTurns > 0 || n0 === 0 || n1 === 0) {
-    result.refusal = 'missing-evidence'
-    return result
-  }
-  if (missingTraces > 0) {
-    result.refusal = 'missing-trace'
-    return result
-  }
-  if (executionDrift > 0) {
-    result.refusal = 'execution-drift'
-    return result
-  }
+}
+
+/** The first reason the evidence cannot support an estimate, or null when it can. */
+function refusalReason(
+  rule: RandomizedCanaryRule,
+  tally: CanaryTally,
+  result: RandomizedCanaryDecision,
+): RandomizedCanaryDecision['refusal'] {
+  const { clusters } = tally
+  const n0 = result.controlAssignments
+  const n1 = result.candidateAssignments
   if (
-    clusters.size < sealed.rule.minimumClusters ||
-    controlClusters < 20 ||
-    candidateClusters < 20
+    tally.missingOutcomes > 0 ||
+    tally.missingBilling > 0 ||
+    tally.missingTurns > 0 ||
+    n0 === 0 ||
+    n1 === 0
   ) {
-    result.refusal = 'insufficient-clusters'
-    return result
+    return 'missing-evidence'
+  }
+  if (tally.missingTraces > 0) return 'missing-trace'
+  if (tally.executionDrift > 0) return 'execution-drift'
+  if (
+    clusters.size < rule.minimumClusters ||
+    result.controlClusters < 20 ||
+    result.candidateClusters < 20
+  ) {
+    return 'insufficient-clusters'
   }
   // A single customer may own many assigned sessions. One dominant customer
   // defeats the many-independent-clusters approximation even when G is large.
@@ -571,10 +627,24 @@ export function decideRandomizedCanary(
       bucket.filter((r) => r.arm === 'control').length / n0 > 0.1 ||
       bucket.filter((r) => r.arm === 'candidate').length / n1 > 0.1
     ) {
-      result.refusal = 'dominant-cluster'
-      return result
+      return 'dominant-cluster'
     }
   }
+  return null
+}
+
+/** Fill the intervals, p-value and passes, or refuse on zero variance. */
+function estimateRiskDifference(
+  rule: RandomizedCanaryRule,
+  tally: CanaryTally,
+  result: RandomizedCanaryDecision,
+): void {
+  const { clusters } = tally
+  const p0 = result.controlSuccessRate
+  const p1 = result.candidateSuccessRate
+  const delta = result.delta
+  const n0 = result.controlAssignments
+  const n1 = result.candidateAssignments
   // OLS risk difference with customer/session cluster sandwich scores. A
   // cluster may contain both arms; its covariance contribution stays intact.
   const scores = [...clusters.values()].map((bucket) =>
@@ -589,11 +659,11 @@ export function decideRandomizedCanary(
   )
   const G = clusters.size
   const variance =
-    (((G / (G - 1)) * (rows.length - 1)) / (rows.length - 2)) *
+    (((G / (G - 1)) * (result.assignments - 1)) / (result.assignments - 2)) *
     scores.reduce((total, score) => total + score * score, 0)
   if (!Number.isFinite(variance) || variance <= 0) {
     result.refusal = 'zero-variance'
-    return result
+    return
   }
   const se = Math.sqrt(variance)
   const t = delta! / se
@@ -606,7 +676,25 @@ export function decideRandomizedCanary(
   }
   result.unadjustedPValue = Math.min(1, 2 * (1 - studentTCdf(Math.abs(t), G - 1)))
   result.headline95Pass = result.nominal95Interval.low > 0
-  result.familywisePass = result.familyAdjustedInterval.low > sealed.rule.minimumLift
+  result.familywisePass = result.familyAdjustedInterval.low > rule.minimumLift
   result.successCriterionMet = result.headline95Pass && result.familywisePass
+}
+
+/** Apply one registered analysis to the entire frozen assignment roster. */
+export function decideRandomizedCanary(
+  sealed: SealedRandomizedCanaryRule,
+  cohort: CanaryCohortReceipt,
+  rows: readonly CanaryObservation[],
+  verifyCohort: CanaryCohortVerifier,
+): RandomizedCanaryDecision {
+  verifyCohortEvidence(sealed, cohort, rows, verifyCohort)
+  const tally = tallyObservations(sealed.rule, rows)
+  const result = baseDecision(sealed, cohort, rows.length, tally)
+  const refusal = refusalReason(sealed.rule, tally, result)
+  if (refusal !== null) {
+    result.refusal = refusal
+    return result
+  }
+  estimateRiskDifference(sealed.rule, tally, result)
   return result
 }

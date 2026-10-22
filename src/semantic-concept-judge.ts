@@ -397,7 +397,7 @@ export async function runSemanticConceptJudge(
  * Factory: pin LLM options once, return a closure that accepts inputs.
  * Convenient for pipelines that want to share a single LlmClient config.
  */
-export function createSemanticConceptJudge(
+function createSemanticConceptJudge(
   options: SemanticConceptJudgeOptions,
 ): (input: SemanticConceptJudgeInput) => Promise<SemanticConceptJudgeResult> {
   return (input) => runSemanticConceptJudge(input, options)

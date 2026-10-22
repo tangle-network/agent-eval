@@ -63,7 +63,7 @@ export type FailureModeLabel = keyof typeof FAILURE_MODE_LABELS
  * AgentRx root-cause category → failure-mode label. `null` categories have no
  * counterpart here and are left out of the gold set, counted as unmapped.
  */
-export const AGENT_RX_FAILURE_MODE_MAP: Readonly<Record<string, FailureModeLabel | null>> = {
+const AGENT_RX_FAILURE_MODE_MAP: Readonly<Record<string, FailureModeLabel | null>> = {
   'instruction-plan-adherence-failure': 'disobey-task-specification',
   'invention-of-new-information': 'invented-information',
   'invalid-invocation': 'invalid-tool-invocation',
@@ -150,7 +150,7 @@ function failureModeGoldFromAgentRx(rows: readonly AgentRxRow[]): {
 }
 
 /** Validate a caller's gold file: a JSON array of `{ id, label }` with unique ids and known labels. */
-export function parseFailureModeGold(raw: unknown): FailureModesOutcome<FailureModeLabelItem[]> {
+function parseFailureModeGold(raw: unknown): FailureModesOutcome<FailureModeLabelItem[]> {
   if (!Array.isArray(raw)) {
     return { succeeded: false, error: { kind: 'invalid', message: 'gold must be a JSON array' } }
   }

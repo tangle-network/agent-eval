@@ -76,7 +76,7 @@ export type GateCheckedOutcome = Partial<RolloutOutcome> | Readonly<Record<strin
  * `outcome` would have let the old call sites keep compiling while silently
  * checking nothing — the exact failure this module exists to make impossible.
  */
-export interface GateSubject {
+interface GateSubject {
   outcome: GateCheckedOutcome
   /** The line's trajectory steps, when it carries any. */
   steps?: unknown
@@ -134,7 +134,7 @@ type RewardReading =
   /** Anything the wire format does not permit here, plus `NaN`. */
   | { kind: 'unreadable'; shown: string }
 
-export function readReward(value: unknown): RewardReading {
+function readReward(value: unknown): RewardReading {
   if (value === null || value === undefined) return { kind: 'absent' }
   if (typeof value === 'number') {
     if (Number.isNaN(value)) return { kind: 'unreadable', shown: 'NaN' }
@@ -161,7 +161,7 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
  * The rule that has no such hole: only `undefined`, `null` and a record with no
  * keys are empty. Everything else is payload, whatever its type.
  */
-export function payloadIsPopulated(value: unknown): boolean {
+function payloadIsPopulated(value: unknown): boolean {
   if (value === undefined || value === null) return false
   if (isPlainRecord(value)) return Object.keys(value).length > 0
   return true

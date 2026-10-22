@@ -11,16 +11,7 @@
  * binding.
  */
 
-export {
-  type AtomicFileLock,
-  type AtomicFileLockAcquisition,
-  AtomicFileLockError,
-  type AtomicFileLockOptions,
-  type AtomicFileLockOwner,
-  type AtomicFileLockUnavailable,
-  probeAtomicFileLock,
-  tryAcquireAtomicFileLock,
-} from './atomic-file-lock'
+export { type AtomicFileLock, type AtomicFileLockAcquisition, type AtomicFileLockOptions, type AtomicFileLockOwner, type AtomicFileLockUnavailable, tryAcquireAtomicFileLock } from './atomic-file-lock'
 export {
   canonicalString,
   hashCanonical,
@@ -29,54 +20,8 @@ export {
   LedgerCanonicalizationError,
   type LedgerHash,
 } from './canonical'
-export {
-  FileLedgerJournal,
-  type FileLedgerJournalOptions,
-  type LedgerAppendOptions,
-  type LedgerAppendResult,
-  type LedgerChainFields,
-  type LedgerEntryOf,
-  type LedgerEventBase,
-  type LedgerJournalCodec,
-  type LedgerLineContext,
-  type LedgerProjector,
-  type LedgerProjectorSnapshotCodec,
-  type LedgerTextStore,
-  MemoryLedgerJournal,
-  replayLedgerText,
-} from './journal'
-export {
-  appendLedgerLine,
-  type FileLockResult,
-  type LedgerFileContext,
-  tryWithLedgerFileLock,
-  withLedgerFileLock,
-  writeLedgerFileAtomically,
-} from './journal-file'
-export {
-  MERKLE_EMPTY_ROOT,
-  type MerkleConsistencyProof,
-  type MerkleInclusionProof,
-  type MerkleVerification,
-  merkleConsistencyProof,
-  merkleInclusionProof,
-  merkleLeafHash,
-  merkleRoot,
-  merkleSalt,
-  verifyMerkleConsistency,
-  verifyMerkleInclusion,
-} from './merkle'
-export {
-  type LedgerProjectorSnapshot,
-  projectorSnapshotPathFor,
-  readProjectorSnapshotFile,
-} from './projector-snapshot'
-export {
-  type LedgerAnchoredEntry,
-  type LedgerTrustedHead,
-  type LedgerTrustedHeadRemoval,
-  type LedgerTrustedHeadSubject,
-  readTrustedHeadFile,
-  trustedHeadPathFor,
-  verifyEntriesAgainstTrustedHead,
-} from './trusted-head'
+export { FileLedgerJournal, type FileLedgerJournalOptions, type LedgerAppendOptions, type LedgerAppendResult, type LedgerChainFields, type LedgerEntryOf, type LedgerEventBase, type LedgerJournalCodec, type LedgerLineContext, type LedgerProjector, type LedgerProjectorSnapshotCodec, type LedgerTextStore } from './journal'
+export { type FileLockResult, type LedgerFileContext, tryWithLedgerFileLock, writeLedgerFileAtomically } from './journal-file'
+export { type MerkleConsistencyProof, type MerkleInclusionProof, type MerkleVerification, merkleInclusionProof, merkleLeafHash, merkleRoot, merkleSalt, verifyMerkleInclusion } from './merkle'
+export { type LedgerProjectorSnapshot } from './projector-snapshot'
+export { type LedgerAnchoredEntry, type LedgerTrustedHead, type LedgerTrustedHeadRemoval, type LedgerTrustedHeadSubject } from './trusted-head'

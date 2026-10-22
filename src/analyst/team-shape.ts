@@ -47,7 +47,7 @@ import { makeFinding } from './types'
 
 export const TEAM_SHAPE_ANALYST_ID = 'team-shape'
 
-export const TEAM_SHAPE_THRESHOLDS = {
+const TEAM_SHAPE_THRESHOLDS = {
   /** Share of the root's children that delegate at or above which depth ≥ 2 is a hive. */
   hiveDelegatingShare: 0.5,
   /** Lateral share of C edges at or above which a one-dispatcher team is a fleet. */

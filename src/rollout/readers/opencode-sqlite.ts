@@ -12,24 +12,16 @@ import {
   type HarnessSession,
   opencodeReader,
   opencodeSessionsInStore,
-  type SessionRef,
   toChatMessages,
 } from '@tangle-network/harness-sessions'
 import type { ChatMessage } from '../schema'
 
 export const DEFAULT_OPENCODE_DB = join(homedir(), '.local', 'share', 'opencode', 'opencode.db')
 
-/** Sessions whose cwd is `directory` (the worker-clone join key), oldest first. */
-export async function findOpencodeSessionsByDirectory(
-  directory: string,
-  db: string = DEFAULT_OPENCODE_DB,
-): Promise<SessionRef[]> {
-  const refs = await opencodeSessionsInStore(db, null, { cwd: directory })
-  return refs.filter((ref) => ref.cwd === directory).reverse()
-}
+
 
 /** One session, normalized. */
-export async function readOpencodeSession(
+async function readOpencodeSession(
   sessionId: string,
   db: string = DEFAULT_OPENCODE_DB,
 ): Promise<HarnessSession> {

@@ -1,12 +1,9 @@
 /** Model-price lookup and caller-supplied token pricing, including receipt snapshots. */
-import { estimateCost, isModelPriced, resolveModelPricing } from '../metrics'
+import { estimateCost, resolveModelPricing } from '../metrics'
 import type { CostReceipt, CostUsage, CustomTokenPricing } from './contract'
 import { assertNonNegative, assertTokenCount, assertUsage } from './validation'
 
-/** Return the canonical pricing-table key, or null when the model is unpriced. */
-export function modelPriceKey(model: string): string | null {
-  return isModelPriced(model) ? model : null
-}
+
 
 export interface CostResult {
   costUsd: number

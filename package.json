@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.216.1",
+  "version": "0.218.1",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -114,6 +114,11 @@
       "import": "./dist/ledger-core/index.js",
       "default": "./dist/ledger-core/index.js"
     },
+    "./lock-holder": {
+      "types": "./dist/ledger-core/lock-holder.d.ts",
+      "import": "./dist/ledger-core/lock-holder.js",
+      "default": "./dist/ledger-core/lock-holder.js"
+    },
     "./authenticity": {
       "types": "./dist/authenticity/index.d.ts",
       "import": "./dist/authenticity/index.js",
@@ -224,7 +229,7 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@hono/node-server": "^2.1.1",
-    "@tangle-network/agent-core": "^0.12.0",
+    "@tangle-network/agent-core": "^0.13.1",
     "@tangle-network/agent-interface": "^5.0.0",
     "@tangle-network/agent-trace-contract": "^2.0.0",
     "@tangle-network/harness-sessions": ">=0.1.0 <0.2.0",
@@ -236,11 +241,9 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@arizeai/phoenix-evals": "^2.6.0",
     "@biomejs/biome": "^2.5.14",
     "@types/node": "^26.6.2",
     "ajv": "8.20.0",
-    "autoevals": "^0.3.0",
     "esbuild": "^0.28.2",
     "fast-check": "^4.10.2",
     "husky": "^9.1.7",
@@ -252,8 +255,7 @@
     "tsdown": "^0.23.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1",
-    "yaml": "2.9.1"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=20.19.0"

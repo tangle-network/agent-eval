@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { ValidationError } from '../errors'
 import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 
-export const productBenchmarkSplits = ['practice', 'dev', 'holdout', 'safety', 'sentinel'] as const
+const productBenchmarkSplits = ['practice', 'dev', 'holdout', 'safety', 'sentinel'] as const
 
 export type ProductBenchmarkSplit = (typeof productBenchmarkSplits)[number]
 
@@ -441,7 +441,7 @@ export function validateProductBenchmarkRecord(value: unknown): ProductBenchmark
   return record
 }
 
-export function productBenchmarkIntegrityFailures(record: ProductBenchmarkRecord): string[] {
+function productBenchmarkIntegrityFailures(record: ProductBenchmarkRecord): string[] {
   const failures: string[] = []
   for (const [key, value] of Object.entries(record.integrity)) {
     if (!value) failures.push(`${record.runId}:${key}=false`)
@@ -449,7 +449,7 @@ export function productBenchmarkIntegrityFailures(record: ProductBenchmarkRecord
   return failures
 }
 
-export function readProductBenchmarkRecords(path: string): ProductBenchmarkRecord[] {
+function readProductBenchmarkRecords(path: string): ProductBenchmarkRecord[] {
   const lines = readFileSync(path, 'utf8')
     .split('\n')
     .map((line) => line.trim())
@@ -473,7 +473,7 @@ export function readProductBenchmarkManifest(path: string): ProductBenchmarkMani
   }
 }
 
-export function validateProductBenchmarkRun(
+function validateProductBenchmarkRun(
   input: ProductBenchmarkRunInput,
 ): ProductBenchmarkValidationReport {
   const manifest = readProductBenchmarkManifest(input.manifestPath)
@@ -558,7 +558,7 @@ function sum<T>(items: readonly T[], fn: (item: T) => number): number {
   return items.reduce((total, item) => total + fn(item), 0)
 }
 
-export function findProductBenchmarkArtifacts(
+function findProductBenchmarkArtifacts(
   runDir: string,
 ): ProductBenchmarkArtifactPaths | null {
   const manifestPath = join(runDir, 'product-benchmark-manifest.json')
@@ -603,8 +603,5 @@ export type {
   ProductBenchmarkSingleRunExportOptions,
 } from './export'
 export {
-  exportProductBenchmark,
-  exportProductBenchmarkRuns,
-  productBenchmarkMutableSurfaces,
-  productBenchmarkRepoIdentity,
+  exportProductBenchmark, exportProductBenchmarkRuns, productBenchmarkRepoIdentity,
 } from './export'

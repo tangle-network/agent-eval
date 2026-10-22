@@ -512,7 +512,7 @@ export interface LlmCorrectnessCheckerOpts {
  * prefix with a boolean `correct` is a real measurement, not a guess.
  * Fails loud (JudgeParseError) when no boolean verdict is recoverable.
  */
-export function parseCorrectnessResponse(raw: string): { correct: boolean; reason: string } {
+function parseCorrectnessResponse(raw: string): { correct: boolean; reason: string } {
   const readVerdict = (candidate: unknown): { correct: boolean; reason: string } | null => {
     if (candidate === null || typeof candidate !== 'object') return null
     const { correct, reason } = candidate as { correct?: unknown; reason?: unknown }

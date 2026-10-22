@@ -163,7 +163,7 @@ export async function buildHfDataset(
   return { inputs, read, kept: kept.length, scrub: report, formatCounts, gate, files }
 }
 
-export function planPushCommand(repo: string, outDir: string): string[] {
+function planPushCommand(repo: string, outDir: string): string[] {
   return ['huggingface-cli', 'upload', repo, outDir, '.', '--repo-type', 'dataset']
 }
 
@@ -191,7 +191,7 @@ export interface RolloutReleaseCliArgs extends BuildOptions {
 const ROLLOUT_RELEASE_USAGE =
   'usage: agent-eval rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]'
 
-export function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
+function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
   const args: RolloutReleaseCliArgs = {
     inputs: [],
     out: '',

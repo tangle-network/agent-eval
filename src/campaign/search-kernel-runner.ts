@@ -1,13 +1,14 @@
 /** Event loop and mutable scheduling state for one ledger-backed search. */
 import { redactText } from '../trace/redact'
 import type { SearchAllocationView, SearchRungDecision } from './allocation'
+import { SearchArtifactCache } from './search-kernel-artifacts'
 import { SearchKernelClaim } from './search-kernel-claim'
 import { closedSearchResult, isTerminal, unclaimedSearchDecisions } from './search-kernel-close'
+import { SearchCompletionQueue } from './search-kernel-completions'
 import type {
   RunSearchOptions,
   SearchCellResult,
   SearchCellWork,
-  SearchLane,
   SearchProposalBlob,
   SearchProposalRequest,
   SearchProposalResult,
@@ -15,30 +16,20 @@ import type {
 } from './search-kernel-contract'
 import {
   DEFAULT_MAX_ATTEMPTS,
-  ESTIMATE_FROM_CELLS,
-  ESTIMATE_MARGIN,
   STAGE_PRIORITY,
   searchExpansionIndex,
   USD_TOLERANCE,
 } from './search-kernel-contract'
+import { type SearchLaneState, SearchLanes } from './search-kernel-lanes'
 import { searchDivergence, searchPolicyView } from './search-kernel-policy-view'
+import { SearchNodeProgress } from './search-kernel-progress'
+import { SearchProposalSlot } from './search-kernel-proposals'
 import { FileSearchLedger } from './search-ledger'
 import type { SearchRecorder } from './search-ledger-recording'
-import type {
-  SearchAttemptAccounting,
-  SearchCloseReason,
-  SearchReservation,
-} from './search-ledger-types'
+import type { SearchAttemptAccounting, SearchCloseReason } from './search-ledger-types'
 import type { SearchPolicyView } from './search-policy'
 import { type SearchCell, type SearchStateView, searchCellId } from './search-state'
 import { acquireSingleRunLock } from './single-run-lock'
-
-interface LaneState extends SearchLane {
-  inFlight: number
-  /** Queued cell ids by stage priority. */
-  queues: string[][]
-  settledCosts: number[]
-}
 
 type Completion =
   | { kind: 'cell'; cellId: string; attempt: number; result?: SearchCellResult; error?: unknown }
@@ -56,33 +47,16 @@ export class SearchKernel<TArtifact> {
   private readonly options: RunSearchOptions<TArtifact>
   private readonly recorder: SearchRecorder
   private readonly maxAttempts: number
-  private readonly now: () => number
   private state!: SearchStateView
-  private readonly lanes = new Map<string, LaneState>()
+  private readonly lanes: SearchLanes
   private readonly inFlight = new Map<string, AbortController>()
-  private proposal: Promise<void> | null = null
-  private proposalController: AbortController | null = null
-  private readonly completions: Completion[] = []
-  private wake: (() => void) | null = null
-  /** Unfinished cells per node. */
-  private readonly pending = new Map<string, number>()
-  /** Admitted nodes whose screen finished, in registration order. */
-  private screened: string[] = []
-  private readonly screenedSet = new Set<string>()
-  private readonly admitted = new Set<string>()
+  private readonly proposals = new SearchProposalSlot()
+  private readonly completions = new SearchCompletionQueue<Completion>()
+  private readonly progress = new SearchNodeProgress(() => this.state)
   private readonly expansionOf = new Map<string, number>()
-  private readonly artifacts = new Map<string, TArtifact>()
-  /** Children a proposal returned, by artifact digest, until they are registered. */
-  private readonly proposed = new Map<string, TArtifact>()
+  private readonly artifacts: SearchArtifactCache<TArtifact>
   /** Cells the ledger showed unsettled at start: an earlier process may hold their attempt. */
   private readonly adoptable = new Set<string>()
-  private readonly operationCosts: number[] = []
-  /** Operations started: the next one's id. */
-  private expansions = 0
-  /** Proposals that completed, by operation index. A proposal an interrupted
-   * process lost counts toward none of the stop rules, so a resumed search
-   * makes the proposals the uninterrupted one would have made. */
-  private readonly completed: number[] = []
   private stopReason: SearchCloseReason | null = null
   private failure: { error: unknown } | null = null
   /** The claim's design once expansion stopped; the search then only claims. */
@@ -92,7 +66,6 @@ export class SearchKernel<TArtifact> {
     this.options = options
     this.recorder = options.recorder
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
-    this.now = options.now ?? Date.now
     if (!Number.isSafeInteger(this.maxAttempts) || this.maxAttempts < 1) {
       throw new TypeError('runSearch: maxAttempts must be a positive integer')
     }
@@ -103,23 +76,14 @@ export class SearchKernel<TArtifact> {
     ) {
       throw new TypeError('runSearch: maxExpansions must be a non-negative integer')
     }
-    for (const lane of options.executor.lanes()) {
-      if (!Number.isSafeInteger(lane.capacity) || lane.capacity < 1) {
-        throw new TypeError(`runSearch: lane ${lane.name} needs a positive integer capacity`)
-      }
-      if (!Number.isFinite(lane.cellUsd) || lane.cellUsd < 0) {
-        throw new TypeError(`runSearch: lane ${lane.name} needs a finite non-negative cellUsd`)
-      }
-      if (this.lanes.has(lane.name))
-        throw new TypeError(`runSearch: lane ${lane.name} is declared twice`)
-      this.lanes.set(lane.name, {
-        ...lane,
-        inFlight: 0,
-        queues: [[], [], [], []],
-        settledCosts: [],
-      })
-    }
-    if (this.lanes.size === 0) throw new TypeError('runSearch: the executor declares no lane')
+    this.lanes = new SearchLanes(options.executor.lanes(), {
+      state: () => this.state,
+      now: options.now ?? Date.now,
+      operationPriorUsd: () => options.proposer.reservationUsd ?? 0,
+    })
+    this.artifacts = new SearchArtifactCache((nodeId) =>
+      options.codec.load(options.recorder, this.state.node(nodeId)!),
+    )
 
     const kernel = this
     this.claim = new SearchKernelClaim({
@@ -134,12 +98,12 @@ export class SearchKernel<TArtifact> {
       },
       recorder: this.recorder,
       options,
-      lanes: this.lanes,
+      lanes: this.lanes.byName,
       refresh: () => this.refresh(),
-      cellReservation: (lane) => this.cellReservation(this.lanes.get(lane.name)!),
-      maxCellReservation: () => this.maxCellReservation(),
-      operationReservation: () => this.operationReservation(),
-      enqueue: (cell) => this.enqueue(cell),
+      cellReservation: (lane) => this.lanes.cellReservation(this.lanes.byName.get(lane.name)!),
+      maxCellReservation: () => this.lanes.maxCellReservation(),
+      operationReservation: () => this.lanes.operationReservation(),
+      enqueue: (cell) => this.lanes.enqueue(cell),
     })
   }
 
@@ -176,8 +140,8 @@ export class SearchKernel<TArtifact> {
     const { signal } = this.options
     const onAbort = (): void => {
       for (const controller of this.inFlight.values()) controller.abort(signal?.reason)
-      this.proposalController?.abort(signal?.reason)
-      this.wakeUp()
+      this.proposals.abort(signal?.reason)
+      this.completions.wakeUp()
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
@@ -220,7 +184,7 @@ export class SearchKernel<TArtifact> {
       )
     }
     const root = this.state.rootNodeId!
-    this.artifacts.set(root, this.options.root)
+    this.artifacts.seed(root, this.options.root)
     this.expansionOf.set(root, -1)
     if (this.state.audit.cells.allocated === 0) this.claim.assertReady()
     await this.claim.restore()
@@ -232,11 +196,11 @@ export class SearchKernel<TArtifact> {
       const operationId = `expand-${expansion}`
       const operation = this.state.operation(operationId)
       if (!operation) break
-      this.expansions = expansion + 1
+      this.proposals.started = expansion + 1
       if (operation.recorded) {
-        this.operationCosts.push(operation.spentUsd)
+        this.lanes.recordOperationCost(operation.spentUsd)
         recorded.push(expansion)
-        if (operation.outcome === 'completed') this.completed.push(expansion)
+        if (operation.outcome === 'completed') this.proposals.completed.push(expansion)
         continue
       }
       await this.recorder.recordOperation({
@@ -262,10 +226,10 @@ export class SearchKernel<TArtifact> {
         ? searchExpansionIndex(edge.proposer.operationId)
         : null
       this.expansionOf.set(node.nodeId, expansion ?? -1)
-      if (node.status !== 'invalid') this.admitted.add(node.nodeId)
+      if (node.status !== 'invalid') this.progress.admitted.add(node.nodeId)
     }
     for (const cell of this.state.cells()) {
-      const lane = cell.lane === null ? undefined : this.lanes.get(cell.lane)
+      const lane = cell.lane === null ? undefined : this.lanes.byName.get(cell.lane)
       if (cell.final && lane) lane.settledCosts.push(cell.spentUsd)
       if (this.cellDone(cell)) continue
       if (!lane) {
@@ -274,10 +238,8 @@ export class SearchKernel<TArtifact> {
         )
       }
       this.adoptable.add(cell.cellId)
-      this.enqueue(cell)
-      if (cell.stage !== 'claim') {
-        this.pending.set(cell.nodeId, (this.pending.get(cell.nodeId) ?? 0) + 1)
-      }
+      this.lanes.enqueue(cell)
+      if (cell.stage !== 'claim') this.progress.add(cell.nodeId, 1)
     }
     // Once the claim began the search only claims: nothing is proposed or
     // allocated outside the test.
@@ -285,15 +247,16 @@ export class SearchKernel<TArtifact> {
     // A proposal recorded before its children all were: finish it from its output.
     for (const expansion of recorded) await this.finishProposal(expansion)
     for (const node of this.state.nodes()) {
-      if (this.admitted.has(node.nodeId) && !isTerminal(node)) await this.allocateFor(node.nodeId)
+      if (this.progress.admitted.has(node.nodeId) && !isTerminal(node))
+        await this.allocateFor(node.nodeId)
     }
     for (const nodeId of this.state.nodeIds()) {
-      if (!this.admitted.has(nodeId)) continue
+      if (!this.progress.admitted.has(nodeId)) continue
       // An advanced node finished its screen before its rung cells were
       // allocated, so it stays a parent while they run, as it was before the
       // restart.
-      if (this.state.node(nodeId)!.status === 'advanced') this.markScreened(nodeId)
-      else if ((this.pending.get(nodeId) ?? 0) === 0) await this.screenDone(nodeId)
+      if (this.state.node(nodeId)!.status === 'advanced') this.progress.markScreened(nodeId)
+      else if (this.progress.count(nodeId) === 0) await this.screenDone(nodeId)
     }
     // A node may have finished a rung before the interrupted process recorded
     // what its rank earned.
@@ -309,43 +272,22 @@ export class SearchKernel<TArtifact> {
         this.failure ??= { error: this.options.signal?.reason ?? new Error('aborted') }
         return
       }
-      if (this.pastDeadline()) {
+      if (this.lanes.pastDeadline()) {
         // Past the deadline nothing new starts, so what waits is cancelled.
         this.stopReason ??= 'deadline'
-        if (this.queuedCount() > 0) await this.cancelQueued('deadline')
+        if (this.lanes.queuedCount() > 0) await this.cancelQueued('deadline')
       }
       this.dispatch()
       const blocked =
-        this.stopReason === null && this.proposal === null ? await this.tryExpand() : null
-      const busy = this.inFlight.size > 0 || this.proposal !== null
+        this.stopReason === null && this.proposals.running === null ? await this.tryExpand() : null
+      const busy = this.inFlight.size > 0 || this.proposals.running !== null
       if (!busy) {
-        if (this.queuedCount() > 0) continue
+        if (this.lanes.queuedCount() > 0) continue
         this.stopReason ??= blocked ?? 'converged'
         return
       }
-      await this.handle(await this.next())
+      await this.handle(await this.completions.next())
     }
-  }
-
-  /** The next completion, or null when an abort woke the loop without one. */
-  private async next(): Promise<Completion | null> {
-    if (this.completions.length === 0) {
-      await new Promise<void>((resolve) => {
-        this.wake = resolve
-      })
-    }
-    return this.completions.shift() ?? null
-  }
-
-  private push(completion: Completion): void {
-    this.completions.push(completion)
-    this.wakeUp()
-  }
-
-  private wakeUp(): void {
-    const wake = this.wake
-    this.wake = null
-    wake?.()
   }
 
   private async handle(completion: Completion | null): Promise<void> {
@@ -357,9 +299,9 @@ export class SearchKernel<TArtifact> {
   /** Abort everything in flight and record what still completes. */
   private async drain(reason: unknown): Promise<void> {
     for (const controller of this.inFlight.values()) controller.abort(reason)
-    this.proposalController?.abort(reason)
-    while (this.inFlight.size > 0 || this.proposal !== null) {
-      await this.handle(await this.next())
+    this.proposals.abort(reason)
+    while (this.inFlight.size > 0 || this.proposals.running !== null) {
+      await this.handle(await this.completions.next())
     }
   }
 
@@ -371,9 +313,9 @@ export class SearchKernel<TArtifact> {
     if (this.failure || this.options.signal?.aborted) return
     // Past the deadline the search stops, but its claim still runs: the
     // claim's budget was reserved at the start.
-    const claimOnly = this.pastDeadline()
+    const claimOnly = this.lanes.pastDeadline()
     const cap = this.state.header!.budget.maxConcurrency
-    for (const lane of this.lanes.values()) {
+    for (const lane of this.lanes.byName.values()) {
       while (lane.inFlight < lane.capacity && (cap === null || this.inFlight.size < cap)) {
         const queue = claimOnly
           ? lane.queues[STAGE_PRIORITY.claim]
@@ -385,7 +327,7 @@ export class SearchKernel<TArtifact> {
     }
   }
 
-  private start(cellId: string, lane: LaneState): void {
+  private start(cellId: string, lane: SearchLaneState): void {
     const cell = this.state.cell(cellId)!
     const attempt = cell.attempts + 1
     const controller = new AbortController()
@@ -401,7 +343,7 @@ export class SearchKernel<TArtifact> {
       lane: lane.name,
       attempt,
       runId: `${cellId}:${attempt}`,
-      artifact: this.artifact(cell.nodeId),
+      artifact: this.artifacts.get(cell.nodeId),
       signal: controller.signal,
     }
     const adopt = this.adoptable.delete(cellId)
@@ -410,8 +352,8 @@ export class SearchKernel<TArtifact> {
     const { executor } = this.options
     void (async () =>
       (adopt ? await executor.adopt(work) : null) ?? (await executor.run(work)))().then(
-      (result) => this.push({ kind: 'cell', cellId, attempt, result }),
-      (error: unknown) => this.push({ kind: 'cell', cellId, attempt, error }),
+      (result) => this.completions.push({ kind: 'cell', cellId, attempt, result }),
+      (error: unknown) => this.completions.push({ kind: 'cell', cellId, attempt, error }),
     )
   }
 
@@ -419,7 +361,7 @@ export class SearchKernel<TArtifact> {
     const { cellId, attempt } = completion
     this.inFlight.delete(cellId)
     const before = this.state.cell(cellId)!
-    const lane = this.lanes.get(before.lane!)!
+    const lane = this.lanes.byName.get(before.lane!)!
     lane.inFlight -= 1
     if (!completion.result) {
       this.failure ??= { error: completion.error }
@@ -443,12 +385,11 @@ export class SearchKernel<TArtifact> {
     if (cell.final) lane.settledCosts.push(cell.spentUsd)
     if (!this.cellDone(cell)) {
       if (this.failure || this.options.signal?.aborted) return
-      this.enqueue(cell)
+      this.lanes.enqueue(cell)
       return
     }
     if (cell.stage === 'claim') return
-    const left = (this.pending.get(cell.nodeId) ?? 1) - 1
-    this.pending.set(cell.nodeId, left)
+    const left = this.progress.release(cell.nodeId)
     if (left === 0) await this.onNodeIdle(cell.nodeId)
   }
 
@@ -463,7 +404,12 @@ export class SearchKernel<TArtifact> {
    * search fails or is aborted, no rung opens; a search that stopped
    * expanding still measures the nodes that earned it. */
   private async advance(): Promise<void> {
-    if (this.claim.plan || this.failure || this.options.signal?.aborted || this.pastDeadline()) {
+    if (
+      this.claim.plan ||
+      this.failure ||
+      this.options.signal?.aborted ||
+      this.lanes.pastDeadline()
+    ) {
       return
     }
     for (const decision of this.options.allocation.advance(this.allocationView())) {
@@ -483,7 +429,7 @@ export class SearchKernel<TArtifact> {
     // rung cells it earned since.
     if (
       !this.claim.plan &&
-      !this.screenedSet.has(nodeId) &&
+      !this.progress.screenedSet.has(nodeId) &&
       this.state.node(nodeId)!.status !== 'advanced'
     ) {
       const divergence = searchDivergence(this.state, nodeId)
@@ -496,21 +442,12 @@ export class SearchKernel<TArtifact> {
           reason: divergence.reason,
         })
         await this.refresh()
-        this.admitted.delete(nodeId)
+        this.progress.admitted.delete(nodeId)
         return false
       }
     }
-    this.markScreened(nodeId)
+    this.progress.markScreened(nodeId)
     return true
-  }
-
-  private markScreened(nodeId: string): void {
-    if (this.screenedSet.has(nodeId)) return
-    this.screenedSet.add(nodeId)
-    const ordinal = this.state.node(nodeId)!.ordinal
-    let index = this.screened.length
-    while (index > 0 && this.state.node(this.screened[index - 1]!)!.ordinal > ordinal) index--
-    this.screened = [...this.screened.slice(0, index), nodeId, ...this.screened.slice(index)]
   }
 
   /**
@@ -538,10 +475,10 @@ export class SearchKernel<TArtifact> {
     }
     const placed = plans.map((plan) => {
       const laneName = this.options.executor.place({ ...plan, nodeId })
-      const lane = this.lanes.get(laneName)
+      const lane = this.lanes.byName.get(laneName)
       if (!lane)
         throw new Error(`runSearch: the executor placed a cell on unknown lane ${laneName}`)
-      return { plan, lane, reservation: this.cellReservation(lane) }
+      return { plan, lane, reservation: this.lanes.cellReservation(lane) }
     })
     const hold = placed.reduce((sum, { reservation }) => sum + reservation.usd, 0)
     const { headroomUsd } = this.state.budget
@@ -565,9 +502,9 @@ export class SearchKernel<TArtifact> {
     await this.refresh()
     for (const { plan } of placed) {
       const cellId = searchCellId(this.recorder.searchId, nodeId, plan.taskId, plan.split, plan.rep)
-      this.enqueue(this.state.cell(cellId)!)
+      this.lanes.enqueue(this.state.cell(cellId)!)
     }
-    this.pending.set(nodeId, (this.pending.get(nodeId) ?? 0) + placed.length)
+    this.progress.add(nodeId, placed.length)
     this.dispatch()
     return true
   }
@@ -577,20 +514,8 @@ export class SearchKernel<TArtifact> {
     await this.refresh()
   }
 
-  private enqueue(cell: SearchCell): void {
-    this.lanes.get(cell.lane!)!.queues[STAGE_PRIORITY[cell.stage]]!.push(cell.cellId)
-  }
-
-  private queuedCount(): number {
-    let count = 0
-    for (const lane of this.lanes.values()) {
-      for (const queue of lane.queues) count += queue.length
-    }
-    return count
-  }
-
   private async cancelQueued(reason: 'deadline' | 'budget'): Promise<void> {
-    for (const lane of this.lanes.values()) {
+    for (const lane of this.lanes.byName.values()) {
       for (const [priority, queue] of lane.queues.entries()) {
         if (priority === STAGE_PRIORITY.claim) continue
         for (const cellId of queue.splice(0)) {
@@ -601,9 +526,7 @@ export class SearchKernel<TArtifact> {
             await this.recorder.cancelCell({ cellId, reason })
             await this.refresh()
           }
-          const left = (this.pending.get(cell.nodeId) ?? 1) - 1
-          this.pending.set(cell.nodeId, left)
-          if (left === 0) this.markScreened(cell.nodeId)
+          if (this.progress.release(cell.nodeId) === 0) this.progress.markScreened(cell.nodeId)
         }
       }
     }
@@ -626,25 +549,25 @@ export class SearchKernel<TArtifact> {
     const { maxNodes, maxCells } = this.state.header!.budget
     if (maxNodes !== null && this.state.audit.nodes >= maxNodes) return 'max-nodes'
     const { maxExpansions } = this.options
-    if (maxExpansions !== undefined && this.completed.length >= maxExpansions) return 'max-nodes'
-    if (this.queuedCount() > 0) return 'converged'
-    if (this.inFlight.size >= 2 * this.capacity()) return 'converged'
+    if (maxExpansions !== undefined && this.proposals.completed.length >= maxExpansions)
+      return 'max-nodes'
+    if (this.lanes.queuedCount() > 0) return 'converged'
+    if (this.inFlight.size >= 2 * this.lanes.capacity()) return 'converged'
     const view = this.policyView()
     const { policy } = this.options
     const leader = policy.leader(view)
     if (
       policy.patience !== undefined &&
-      this.completed.filter((index) => index > (this.expansionOf.get(leader) ?? -1)).length >=
-        policy.patience
+      this.proposals.completedAfter(this.expansionOf.get(leader) ?? -1) >= policy.patience
     ) {
       return 'patience'
     }
     const screen = this.options.allocation.screenSize(this.state)
-    const operation = this.operationReservation()
+    const operation = this.lanes.operationReservation()
     const children = this.options.proposer.childrenPerProposal ?? 1
-    const need = operation.usd + children * screen * this.maxCellReservation()
+    const need = operation.usd + children * screen * this.lanes.maxCellReservation()
     const { headroomUsd } = this.state.budget
-    if (headroomUsd !== null && (need > headroomUsd + USD_TOLERANCE || this.overCap())) {
+    if (headroomUsd !== null && (need > headroomUsd + USD_TOLERANCE || this.lanes.overCap())) {
       return 'budget'
     }
     if (maxCells !== null && this.state.audit.cells.allocated + children * screen > maxCells) {
@@ -664,7 +587,7 @@ export class SearchKernel<TArtifact> {
       }
     }
 
-    const index = this.expansions++
+    const index = this.proposals.started++
     const operationId = `expand-${index}`
     await this.recorder.startOperation({
       operationId,
@@ -677,14 +600,16 @@ export class SearchKernel<TArtifact> {
       expansion: index,
       operationId,
       operator: expansion.operator,
-      parents: expansion.parents.map((nodeId) => ({ nodeId, artifact: this.artifact(nodeId) })),
+      parents: expansion.parents.map((nodeId) => ({
+        nodeId,
+        artifact: this.artifacts.get(nodeId),
+      })),
       leader,
       signal: controller.signal,
     }
-    this.proposalController = controller
-    this.proposal = this.options.proposer.propose(request).then(
+    const running = this.options.proposer.propose(request).then(
       (result) =>
-        this.push({
+        this.completions.push({
           kind: 'proposal',
           expansion: index,
           operationId,
@@ -693,7 +618,7 @@ export class SearchKernel<TArtifact> {
           result,
         }),
       (error: unknown) =>
-        this.push({
+        this.completions.push({
           kind: 'proposal',
           expansion: index,
           operationId,
@@ -702,14 +627,14 @@ export class SearchKernel<TArtifact> {
           error,
         }),
     )
+    this.proposals.begin(running, controller)
     return null
   }
 
   private async recordProposal(
     completion: Extract<Completion, { kind: 'proposal' }>,
   ): Promise<void> {
-    this.proposal = null
-    this.proposalController = null
+    this.proposals.end()
     const { operationId, expansion } = completion
     const { proposer, codec, admit } = this.options
     const result = completion.result as SearchProposalResult<TArtifact> | undefined
@@ -757,10 +682,10 @@ export class SearchKernel<TArtifact> {
       artifacts: [this.recorder.blob('proposal', blob)],
     })
     await this.refresh()
-    this.operationCosts.push(this.state.operation(operationId)!.spentUsd)
-    this.completed.push(expansion)
+    this.lanes.recordOperationCost(this.state.operation(operationId)!.spentUsd)
+    this.proposals.completed.push(expansion)
     for (const [index, child] of blob.children.entries()) {
-      this.proposed.set(child.node.artifactDigest, result.children[index]!.artifact)
+      this.artifacts.propose(child.node.artifactDigest, result.children[index]!.artifact)
     }
     if (result.stop !== undefined || blob.children.length === 0) this.stopReason ??= 'converged'
     await this.finishProposal(expansion)
@@ -776,11 +701,7 @@ export class SearchKernel<TArtifact> {
     const { proposer } = this.options
     for (const [index, child] of blob.children.entries()) {
       const { nodeId } = await this.recorder.registerNode(child.node)
-      const held = this.proposed.get(child.node.artifactDigest)
-      if (held !== undefined) {
-        this.proposed.delete(child.node.artifactDigest)
-        if (!this.artifacts.has(nodeId)) this.artifacts.set(nodeId, held)
-      }
+      this.artifacts.register(nodeId, child.node.artifactDigest)
       const edgeId = await this.recorder.recordEdge({
         childNodeId: nodeId,
         parents: blob.parents,
@@ -814,10 +735,10 @@ export class SearchKernel<TArtifact> {
       }
       // On resume, a child the divergence rule already decided invalid stays
       // out: it is never screened, so it is never a parent.
-      if (this.admitted.has(nodeId) || node.status === 'invalid') continue
-      this.admitted.add(nodeId)
+      if (this.progress.admitted.has(nodeId) || node.status === 'invalid') continue
+      this.progress.admitted.add(nodeId)
       await this.allocateFor(nodeId)
-      if ((this.pending.get(nodeId) ?? 0) === 0) this.markScreened(nodeId)
+      if (this.progress.count(nodeId) === 0) this.progress.markScreened(nodeId)
     }
   }
 
@@ -840,7 +761,7 @@ export class SearchKernel<TArtifact> {
     const decisions = unclaimedSearchDecisions(this.state, view, leader, {
       rule: this.options.policy.name,
       stopReason: this.stopReason,
-      screened: this.screenedSet,
+      screened: this.progress.screenedSet,
     })
     for (const decision of decisions) await this.recorder.decideNode(decision)
     await this.recorder.close({ reason: this.stopReason ?? 'converged', claim: null })
@@ -851,9 +772,9 @@ export class SearchKernel<TArtifact> {
 
   private policyView(): SearchPolicyView {
     return searchPolicyView(this.state, {
-      screened: this.screened,
-      screening: this.admitted.size - this.screenedSet.size,
-      expansions: this.completed.length,
+      screened: this.progress.screened,
+      screening: this.progress.screening(),
+      expansions: this.proposals.completed.length,
       maxAttempts: this.maxAttempts,
     })
   }
@@ -861,70 +782,13 @@ export class SearchKernel<TArtifact> {
   private allocationView(): SearchAllocationView {
     return {
       state: this.state,
-      idle: (nodeId) => this.admitted.has(nodeId) && (this.pending.get(nodeId) ?? 0) === 0,
+      idle: (nodeId) => this.progress.idle(nodeId),
     }
-  }
-
-  private artifact(nodeId: string): TArtifact {
-    const held = this.artifacts.get(nodeId)
-    if (held !== undefined) return held
-    const artifact = this.options.codec.load(this.recorder, this.state.node(nodeId)!)
-    this.artifacts.set(nodeId, artifact)
-    return artifact
-  }
-
-  private capacity(): number {
-    let total = 0
-    for (const lane of this.lanes.values()) total += lane.capacity
-    const cap = this.state.header!.budget.maxConcurrency
-    return cap === null ? total : Math.min(cap, total)
-  }
-
-  /** A hard lane holds its enforced maximum. An estimate lane holds 1.5 times
-   * the 99th percentile of its settled cells once 20 settled, else its prior. */
-  private cellReservation(lane: LaneState): SearchReservation {
-    if (lane.costCap === 'hard') return { kind: 'hard', usd: lane.cellUsd }
-    return { kind: 'estimate', usd: estimate(lane.settledCosts, lane.cellUsd) }
-  }
-
-  private maxCellReservation(): number {
-    let most = 0
-    for (const lane of this.lanes.values()) most = Math.max(most, this.cellReservation(lane).usd)
-    return most
-  }
-
-  private operationReservation(): SearchReservation {
-    return {
-      kind: 'estimate',
-      usd: estimate(this.operationCosts, this.options.proposer.reservationUsd ?? 0),
-    }
-  }
-
-  /** Overspend took committed spend, open holds and the unspent claim reserve
-   * past the cap. Nothing new is proposed then, even at a zero-dollar prior. */
-  private overCap(): boolean {
-    const { maxUsd } = this.state.header!.budget
-    if (maxUsd === null) return false
-    const { committedUsd, openReservationUsd } = this.state.audit.spend
-    const used = committedUsd + openReservationUsd + this.state.budget.claimReserveUsd
-    return used > maxUsd + USD_TOLERANCE
-  }
-
-  private pastDeadline(): boolean {
-    const deadline = this.state.header!.budget.deadline
-    return deadline !== null && this.now() >= Date.parse(deadline)
   }
 
   private async refresh(): Promise<void> {
     this.state = await this.recorder.state()
   }
-}
-
-function estimate(costs: readonly number[], prior: number): number {
-  if (costs.length < ESTIMATE_FROM_CELLS) return prior
-  const sorted = [...costs].sort((a, b) => a - b)
-  const p99 = sorted[Math.min(sorted.length - 1, Math.ceil(0.99 * sorted.length) - 1)]!
-  return Math.round(ESTIMATE_MARGIN * p99 * 1e9) / 1e9
 }
 
 /** Spend of work whose result was lost: unknown, with no proven floor. */

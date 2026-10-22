@@ -82,12 +82,7 @@ export type {
   ReferenceEquivalenceJudgeResult,
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
-export {
-  createReferenceEquivalenceJudge,
-  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
-  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
-  runReferenceEquivalenceJudge,
-} from '../reference-equivalence-judge'
+
 
 // ── Proposers ────────────────────────────────────────────────────────
 
@@ -251,12 +246,7 @@ export { analyzeRuns, summarizeExecution } from './analyze-runs'
 // One-call reporting suite: runs (or a run dir/file) → `analyzeRuns` →
 // optional `analysis.json`. Thin composition over `analyzeRuns` +
 // `fromRunRecordDir`; adds no analysis logic of its own.
-export {
-  type EvalReportingSuiteInput,
-  type EvalReportingSuiteOptions,
-  type EvalReportingSuiteResult,
-  evalReportingSuite,
-} from './eval-reporting-suite'
+export { type EvalReportingSuiteInput, type EvalReportingSuiteOptions, type EvalReportingSuiteResult } from './eval-reporting-suite'
 export type {
   CostProvenanceSummary,
   ExecutionErrorOutcomeCell,
@@ -279,57 +269,4 @@ export type {
 // output straight into `analyzeRuns({ runs })`.
 
 export type { CostLedgerHandle } from '../cost-ledger'
-export {
-  type AgentTraceContributor,
-  type AgentTraceContributorType,
-  type AgentTraceConversation,
-  type AgentTraceFile,
-  type AgentTraceIndex,
-  type AgentTraceRange,
-  type AgentTraceRecord,
-  type AuthoringProvenance,
-  type CodeAgentJsonlLine,
-  type CodeAgentSessionAction,
-  type CodeAgentSessionActionKind,
-  type CodeAgentSessionActionStatus,
-  type CodeAgentSessionActionSurface,
-  type CodeAgentSessionDiagnostic,
-  type CodeAgentSessionExecutionReceipt,
-  type CodeAgentSessionIntakeOptions,
-  type CodeAgentSessionIntakeResult,
-  type CodeAgentSessionMetrics,
-  type CodeAgentSessionObservation,
-  type CodeAgentSessionSource,
-  type CodeAgentSessionTerminalStatus,
-  type CodeAgentStoreObservation,
-  type CodeAgentStoreRejection,
-  type CodeAgentStoreRejections,
-  type CodeAgentStoreScope,
-  type CodeAgentStoreSession,
-  type FeedbackTableMeta,
-  type FeedbackTableRow,
-  type FromFeedbackTableOptions,
-  type FromFeedbackTableResult,
-  type FromOtelSpansOptions,
-  type FromRunRecordDirOptions,
-  type FromRunRecordDirResult,
-  fromClaudeCodeSession,
-  fromCodexSession,
-  fromFeedbackTable,
-  fromKimiCodeSession,
-  fromOpenCodeSession,
-  fromOtelSpans,
-  fromPiGraphSession,
-  fromPiSession,
-  fromRunRecordDir,
-  observeCodeAgentSession,
-  observeCodeAgentStore,
-  type ParsedCodeAgentJsonl,
-  type PartitionByAuthoringModelResult,
-  parseAgentTrace,
-  parseCodeAgentJsonl,
-  parseCodeAgentJsonlFile,
-  partitionRunsByAuthoringModel,
-  type RunRecordRejection,
-  streamCodeAgentJsonlFile,
-} from './intake'
+export { type AgentTraceContributor, type AgentTraceContributorType, type AgentTraceConversation, type AgentTraceFile, type AgentTraceIndex, type AgentTraceRange, type AgentTraceRecord, type AuthoringProvenance, type CodeAgentJsonlLine, type CodeAgentSessionAction, type CodeAgentSessionActionKind, type CodeAgentSessionActionStatus, type CodeAgentSessionActionSurface, type CodeAgentSessionDiagnostic, type CodeAgentSessionExecutionReceipt, type CodeAgentSessionIntakeOptions, type CodeAgentSessionIntakeResult, type CodeAgentSessionMetrics, type CodeAgentSessionObservation, type CodeAgentSessionSource, type CodeAgentSessionTerminalStatus, type CodeAgentStoreObservation, type CodeAgentStoreRejection, type CodeAgentStoreRejections, type CodeAgentStoreScope, type CodeAgentStoreSession, type FeedbackTableMeta, type FeedbackTableRow, type FromFeedbackTableOptions, type FromFeedbackTableResult, type FromOtelSpansOptions, type FromRunRecordDirOptions, type FromRunRecordDirResult, fromClaudeCodeSession, fromCodexSession, fromFeedbackTable, fromKimiCodeSession, fromOpenCodeSession, fromOtelSpans, fromPiSession, observeCodeAgentSession, type ParsedCodeAgentJsonl, type PartitionByAuthoringModelResult, parseAgentTrace, parseCodeAgentJsonl, parseCodeAgentJsonlFile, partitionRunsByAuthoringModel, type RunRecordRejection, streamCodeAgentJsonlFile } from './intake'

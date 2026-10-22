@@ -96,7 +96,7 @@ async function listTraceIds(
  * Map computed signals → structured AnalystFindings. Pure: no LLM, no clock
  * dependence beyond `produced_at` (overridable for deterministic tests).
  */
-export function deriveEfficiencyFindings(
+function deriveEfficiencyFindings(
   metrics: BehavioralMetrics,
   opts: { analystId?: string; producedAt?: string } = {},
 ): AnalystFinding[] {

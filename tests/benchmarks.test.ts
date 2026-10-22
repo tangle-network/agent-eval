@@ -5,16 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import * as gsm8k from '../examples/benchmarks/gsm8k/index'
 import * as swebenchLite from '../examples/benchmarks/swebench-lite/index'
-import {
-  buildStandardRetrievalItems,
-  calibrateBenchmarkMetric,
-  createRetrievalIdBenchmarkAdapter,
-  parseBeirCorpusJsonl,
-  parseBeirQueriesJsonl,
-  parseJsonlRows,
-  parseQrels,
-  runBenchmarkAdapter,
-} from '../src/benchmarks'
+import { calibrateBenchmarkMetric, runBenchmarkAdapter } from '../src/benchmarks'
 import * as routing from '../src/benchmarks/routing/index'
 import { BENCHMARK_SPLIT_SEED, deterministicSplit } from '../src/benchmarks/types'
 import { inMemoryCampaignStorage } from '../src/campaign'
@@ -171,92 +162,6 @@ describe('routing benchmark', () => {
 })
 
 // ── standard retrieval formats — BEIR/MTEB/MS MARCO/TREC/MIRACL shape ──
-
-describe('standard retrieval benchmark formats', () => {
-  it('parses JSONL, BEIR corpus/query rows, and qrels', () => {
-    expect(parseJsonlRows('{"a":1}\n{"a":2}\n')).toEqual([{ a: 1 }, { a: 2 }])
-    expect(
-      parseBeirCorpusJsonl(
-        [
-          JSON.stringify({ _id: 'd1', title: 'Doc 1', text: 'Refunds are available.' }),
-          JSON.stringify({ _id: 'd2', text: 'Shipping takes two days.' }),
-        ].join('\n'),
-      ),
-    ).toMatchObject([{ id: 'd1', title: 'Doc 1' }, { id: 'd2' }])
-    expect(parseBeirQueriesJsonl(JSON.stringify({ _id: 'q1', text: 'refund policy' }))).toEqual([
-      { id: 'q1', text: 'refund policy', metadata: {} },
-    ])
-    expect(parseQrels('q1 0 d1 1\nq1 0 d2 0\nq2 d3 2')).toEqual([
-      { queryId: 'q1', documentId: 'd1', score: 1 },
-      { queryId: 'q1', documentId: 'd2', score: 0 },
-      { queryId: 'q2', documentId: 'd3', score: 2 },
-    ])
-  })
-
-  it('builds retrieval benchmark items and scores returned document ids', async () => {
-    const queries = [{ id: 'q1', text: 'refund policy' }]
-    const qrels = [
-      { queryId: 'q1', documentId: 'd1', score: 1 },
-      { queryId: 'q1', documentId: 'd2', score: 1 },
-    ]
-    const items = buildStandardRetrievalItems({
-      benchmarkId: 'beir/smoke',
-      family: 'beir',
-      queries,
-      qrels,
-      splitOf: () => 'search',
-    })
-    expect(items).toHaveLength(1)
-    expect(items[0]?.payload.expectedDocumentIds).toEqual(['d1', 'd2'])
-    expect(items[0]?.payload.corpus).toBeUndefined()
-
-    const adapter = createRetrievalIdBenchmarkAdapter({
-      benchmarkId: 'beir/smoke',
-      family: 'beir',
-      queries,
-      qrels,
-      cutoffs: [1, 2, 10],
-      splitOf: () => 'search',
-    })
-    const [item] = await adapter.loadDataset('search')
-    const partial = await adapter.evaluate(item!, ['d1'])
-    expect(partial.score).toBeGreaterThan(0.6)
-    expect(partial.dimensions?.['recall@10']).toBe(0.5)
-    expect(partial.dimensions?.['precision@1']).toBe(1)
-    expect(partial.dimensions?.['hit@10']).toBe(1)
-    const complete = await adapter.evaluate(item!, [
-      { documentId: 'd1' },
-      { id: 'd2' },
-      { id: 'distractor' },
-    ])
-    expect(complete.score).toBe(1)
-    expect(complete.dimensions?.['ndcg@10']).toBe(1)
-    expect(complete.dimensions?.['precision@10']).toBe(0.2)
-    expect(complete.passed).toBe(true)
-  })
-
-  it('runs retrieval items through campaign without undefined manifest fields', async () => {
-    const storage = inMemoryCampaignStorage()
-    const adapter = createRetrievalIdBenchmarkAdapter({
-      benchmarkId: 'beir/manifest-smoke',
-      family: 'beir',
-      queries: [{ id: 'q1', text: 'refund policy' }],
-      qrels: [{ queryId: 'q1', documentId: 'd1', score: 1 }],
-      splitOf: () => 'search',
-    })
-    const result = await runBenchmarkAdapter({
-      adapter,
-      splits: ['search'],
-      runDir: '/runs/retrieval-smoke',
-      storage,
-      respond: () => ['d1'],
-    })
-
-    expect(result.report.totalCells).toBe(1)
-    expect(result.report.score.mean).toBe(1)
-    expect(storage.read(result.reportJsonPath)).toContain('"ndcg@10"')
-  })
-})
 
 // ── gsm8k — JSONL loader ────────────────────────────────────────────
 

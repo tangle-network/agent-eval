@@ -21,6 +21,7 @@ export const buildEntries = {
   'campaign/index': 'src/campaign/index.ts',
   'search/index': 'src/search/index.ts',
   'ledger-core/index': 'src/ledger-core/index.ts',
+  'ledger-core/lock-holder': 'src/ledger-core/lock-holder.ts',
   'authenticity/index': 'src/authenticity/index.ts',
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',

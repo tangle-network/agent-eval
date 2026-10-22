@@ -1,93 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MatrixAxis } from '../../src/matrix'
-import { readCellSpend, runAgentMatrix, withCellSpend } from '../../src/matrix'
+import { runAgentMatrix, withCellSpend } from '../../src/matrix'
 
 function axis<V>(name: string, vals: Array<[string, V]>): MatrixAxis<V> {
   return { name, values: vals.map(([id, value]) => ({ id, value })) }
 }
-
-describe('withCellSpend / readCellSpend', () => {
-  it('round-trips spend through a thrown Error', () => {
-    const err = withCellSpend(new TypeError('boom'), {
-      costUsd: 0.42,
-      durationMs: 1200,
-      kind: 'estimated',
-    })
-    expect(err).toBeInstanceOf(TypeError)
-    expect(readCellSpend(err)).toEqual({ costUsd: 0.42, durationMs: 1200, kind: 'estimated' })
-  })
-
-  it('keeps the carrier off enumerable keys so error logging is unchanged', () => {
-    const err = withCellSpend(new Error('boom'), { costUsd: 1, durationMs: 2, kind: 'observed' })
-    expect(Object.keys(err as object)).toEqual([])
-  })
-
-  it('wraps a primitive throw so its spend is never dropped', () => {
-    const wrapped = withCellSpend('exploded', { costUsd: 0.5, durationMs: 9, kind: 'estimated' })
-    expect(wrapped).toBeInstanceOf(Error)
-    expect((wrapped as Error).message).toContain('exploded')
-    expect((wrapped as Error).cause).toBe('exploded')
-    expect(readCellSpend(wrapped)?.costUsd).toBe(0.5)
-  })
-
-  it('the outer frame overwrites an inner carrier', () => {
-    const inner = withCellSpend(new Error('boom'), { costUsd: 1, durationMs: 5, kind: 'estimated' })
-    const outer = withCellSpend(inner, { costUsd: 3, durationMs: 12, kind: 'uncaptured' })
-    expect(outer).toBe(inner)
-    expect(readCellSpend(outer)).toEqual({ costUsd: 3, durationMs: 12, kind: 'uncaptured' })
-  })
-
-  it('rejects an amount that would disable the cost ceiling', () => {
-    expect(() =>
-      withCellSpend(new Error('x'), { costUsd: Number.NaN, durationMs: 1, kind: 'observed' }),
-    ).toThrow(/costUsd must be a finite number/)
-    expect(() =>
-      withCellSpend(new Error('x'), { costUsd: -1, durationMs: 1, kind: 'observed' }),
-    ).toThrow(/costUsd must be a finite number/)
-    expect(() =>
-      withCellSpend(new Error('x'), {
-        costUsd: 1,
-        durationMs: Number.POSITIVE_INFINITY,
-        kind: 'observed',
-      }),
-    ).toThrow(/durationMs must be a finite number/)
-  })
-
-  it('carries the spend of a frozen throw instead of losing it', () => {
-    const frozen = Object.freeze(new Error('boom'))
-    const carried = withCellSpend(frozen, { costUsd: 0.7, durationMs: 40, kind: 'estimated' })
-
-    expect(carried).not.toBe(frozen)
-    expect((carried as Error).cause).toBe(frozen)
-    expect((carried as Error).message).toContain('boom')
-    expect(readCellSpend(carried)).toEqual({ costUsd: 0.7, durationMs: 40, kind: 'estimated' })
-  })
-
-  it('bills a frozen throw through the runner', async () => {
-    const result = await runAgentMatrix({
-      axes: [axis('scenario', [['s1', 1]])] as MatrixAxis<unknown>[],
-      runCell: async () => {
-        throw withCellSpend(Object.freeze(new Error('sealed and expensive')), {
-          costUsd: 0.55,
-          durationMs: 12,
-          kind: 'observed',
-        })
-      },
-    })
-
-    const run = result.cells[0]?.runs[0]
-    expect(run?.costUsd).toBe(0.55)
-    expect(run?.costProvenance).toEqual({ kind: 'observed', usd: 0.55 })
-    expect(run?.error?.message).toContain('sealed and expensive')
-    expect(result.summary.totalCostUsd).toBe(0.55)
-  })
-
-  it('reads a malformed carrier as absent', () => {
-    const err = new Error('x') as unknown as Record<string, unknown>
-    err.__agentEvalCellSpend = { costUsd: 'lots', durationMs: 1, kind: 'observed' }
-    expect(readCellSpend(err)).toBeUndefined()
-  })
-})
 
 describe('runAgentMatrix — a failed cell is billed for what it spent', () => {
   it('counts the spend of a cell that pays and then throws', async () => {

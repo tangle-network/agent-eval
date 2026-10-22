@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, posix, relative, sep } from 'node:path'
-import { readCellSpend } from '../../matrix'
+import { readCellSpend } from '../../matrix/cell-spend'
 import type { MultishotResult, MultishotToolDefinition, MultishotTransportRequest } from '../types'
 import type {
   MultishotRecordedMessage,

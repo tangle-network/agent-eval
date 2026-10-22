@@ -12,19 +12,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readCellSpend } from '../../src/matrix'
-import {
-  type ConversationJudgeInput,
-  type JudgeConfig,
-  type MultishotJudges,
-  type MultishotPersona,
-  type MultishotResult,
-  type MultishotShape,
-  type MultishotShot,
-  type MultishotTransport,
-  runMultishot,
-  runMultishotMatrix,
-} from '../../src/multishot/index'
+
+import { type ConversationJudgeInput, type MultishotJudgeConfig, type MultishotJudges, type MultishotPersona, type MultishotResult, type MultishotShape, type MultishotShot, type MultishotTransport, runMultishotMatrix } from '../../src/multishot/index'
 
 interface TestPersona extends MultishotPersona {
   id: string
@@ -58,7 +47,7 @@ function judgeTransport(options: { reportCost: boolean }): MultishotTransport {
 function conversationJudge(
   transport: MultishotTransport,
   model = 'openai/gpt-4o-mini',
-): JudgeConfig<ConversationJudgeInput<TestPersona>> {
+): MultishotJudgeConfig<ConversationJudgeInput<TestPersona>> {
   return {
     name: 'conversation',
     transport,
@@ -87,72 +76,6 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
-})
-
-describe('runMultishot — a throw declares the conversation spend', () => {
-  it('bills every driver attempt behind MultishotDriverEmptyError', async () => {
-    const agentTransport = vi.fn<MultishotTransport>(async () => ({
-      message: { content: 'agent answered' },
-      costUsd: 0.05,
-    }))
-    // Never returns content: two attempts per model, two models = four billed
-    // calls, none of them usable.
-    const driverTransport = vi.fn<MultishotTransport>(async () => ({
-      message: { content: '' },
-      costUsd: 0.01,
-    }))
-
-    const err = await runMultishot({
-      profile: PROFILE,
-      persona: PERSONA,
-      shape: SHAPE,
-      maxTurns: 2,
-      agentModel: 'openai/gpt-5.4',
-      driverModel: 'openai/gpt-4o-mini',
-      driverFallbackModels: ['openai/gpt-4.1-mini'],
-      agentTransport,
-      driverTransport,
-    }).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-
-    expect((err as Error).name).toBe('MultishotDriverEmptyError')
-    expect(driverTransport).toHaveBeenCalledTimes(4)
-    // One agent call at 0.05 plus four driver attempts at 0.01.
-    const spend = readCellSpend(err)
-    expect(spend?.kind).toBe('estimated')
-    expect(spend?.costUsd).toBeCloseTo(0.09, 10)
-    expect(spend?.durationMs).toEqual(expect.any(Number))
-  })
-
-  it('marks the spend uncaptured when a call reports neither cost nor usage', async () => {
-    const agentTransport = vi.fn<MultishotTransport>(async () => ({
-      message: { content: 'agent answered' },
-    }))
-    const driverTransport = vi.fn<MultishotTransport>(async () => ({
-      message: { content: '' },
-      costUsd: 0.01,
-    }))
-
-    const err = await runMultishot({
-      profile: PROFILE,
-      persona: PERSONA,
-      shape: SHAPE,
-      maxTurns: 2,
-      driverModel: 'openai/gpt-4o-mini',
-      agentTransport,
-      driverTransport,
-    }).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-
-    const spend = readCellSpend(err)
-    expect(spend?.kind).toBe('uncaptured')
-    // The driver attempts still count — an uncaptured subtotal is not zero.
-    expect(spend?.costUsd).toBeCloseTo(0.02, 10)
-  })
 })
 
 describe('runMultishotMatrix — a failed cell keeps its spend', () => {

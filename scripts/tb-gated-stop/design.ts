@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { clusteredPower, defineExperiment, type EvidenceRecord } from '../../src/experiment'
-import { parseTaskOracleRegistry, stratumOf } from '../../src/trace-repair'
+import { parseTaskOracleRegistry } from '../../src/trace-repair'
+import { stratumOf } from '../../src/trace-repair/admission-records'
 import { TASK_ORACLES_PATH, TB_GATED_STOP_MODEL, STEP_ALLOTMENT, ROWS_PER_CLUSTER, ADMITTED_STRATA } from './settings'
 import { type CorpusRow, loadCorpus, admissionRecord, canonicalTrialRowIds, endStateScreen, divergenceRatio } from './corpus'
 

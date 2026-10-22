@@ -19,9 +19,9 @@ import {
   type ProducedState,
   verifyCompletion,
 } from '../../completion-verifier'
-import { extractProducedState, type RuntimeEventLike } from '../../produced-state'
+import { type RuntimeEventLike } from '../../produced-state'
 import type { DispatchContext, Scenario } from '../types'
-import type { ProfileDispatchFn } from './run-profile-matrix'
+
 
 /** One step of a user story — what the user does. The driver interprets
  *  `payload` (a Playwright selector + action, or a sandbox chat turn). */
@@ -64,19 +64,7 @@ export interface PlaybackDriver<TStory extends UserStory = UserStory> {
   run(story: TStory, ctx: PlaybackContext): Promise<readonly RuntimeEventLike[]>
 }
 
-/**
- * Adapt a `PlaybackDriver` into a `runProfileMatrix` dispatch. The artifact the
- * matrix scores is the `ProducedState` extracted from the driver's event
- * stream — grade it with `scoreUserStory` (or a judge wrapping it).
- */
-export function makePlaybackDispatch<TStory extends UserStory>(
-  driver: PlaybackDriver<TStory>,
-): ProfileDispatchFn<TStory, ProducedState> {
-  return async (profile, scenario, ctx) => {
-    const events = await driver.run(scenario, { ...ctx, profile })
-    return extractProducedState(events)
-  }
-}
+
 
 /** A scored user story — the completion verdict plus its human title. */
 export interface UserStoryVerdict extends CompletionVerdict {

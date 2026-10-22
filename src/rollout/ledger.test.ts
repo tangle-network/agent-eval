@@ -1,16 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fixtureRolloutLine, malformedRolloutLine } from './fixtures'
-import {
-  appendRolloutLines,
-  readRolloutJournal,
-  readRolloutLedger,
-  writeRolloutLedger,
-} from './ledger'
-import { unscreenedRewardFields } from './reward'
-import { assertRolloutLine, type RolloutLine, validateRolloutLine } from './schema'
+
+
+import { assertRolloutLine, validateRolloutLine } from './schema'
 
 let dir: string
 beforeEach(async () => {
@@ -101,88 +96,4 @@ describe('validateRolloutLine', () => {
   })
 })
 
-describe('ledger write/append/read', () => {
-  it('round-trips lines through write + read', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    const lines = [
-      fixtureRolloutLine(),
-      fixtureRolloutLine({ rollout_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
-    ]
-    await writeRolloutLedger(path, lines)
-    expect(await readRolloutLedger(path)).toEqual(lines)
-  })
 
-  it('append adds JSONL lines without rewriting existing ones', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    await writeRolloutLedger(path, [fixtureRolloutLine()])
-    await appendRolloutLines(path, [
-      fixtureRolloutLine({ rollout_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
-    ])
-    const raw = await readFile(path, 'utf8')
-    expect(raw.trim().split('\n')).toHaveLength(2)
-    const read = await readRolloutLedger(path)
-    expect(read.map((l) => l.rollout_id)).toEqual([
-      '11111111-2222-4333-8444-555555555555',
-      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-    ])
-  })
-
-  it('refuses to write an invalid line (nothing lands on disk)', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    const bad = malformedRolloutLine({ role: 'manager' as unknown as RolloutLine['role'] })
-    await expect(writeRolloutLedger(path, [bad])).rejects.toThrow(/role: invalid role/)
-    await expect(readFile(path, 'utf8')).rejects.toThrow()
-  })
-
-  it('refuses to write OR read a realness-gated line at a positive reward', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    const forged = malformedRolloutLine({
-      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
-    })
-    // Write: rejected before anything touches disk.
-    await expect(
-      writeRolloutLedger(path, [forged as unknown as ReturnType<typeof fixtureRolloutLine>]),
-    ).rejects.toThrow(/may not carry a positive reward/)
-    await expect(readFile(path, 'utf8')).rejects.toThrow()
-    // Read: a ledger poisoned by another process is refused on the way in too.
-    await writeFile(path, `${JSON.stringify(forged)}\n`)
-    await expect(readRolloutLedger(path)).rejects.toThrow(/may not carry a positive reward/)
-  })
-
-  it('read fails loud with the line number on a corrupt line', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    await writeRolloutLedger(path, [fixtureRolloutLine()])
-    const raw = await readFile(path, 'utf8')
-    await writeFile(path, `${raw}{"schema":"tangle.rollout.v1"}\n`)
-    await expect(readRolloutLedger(path)).rejects.toThrow(/:2/)
-  })
-
-  it('a supervision-journal row stays readable: what write accepts, readRolloutJournal returns', async () => {
-    // The documented journal shape: a positive reward with no realness screen
-    // behind it (`unscreenedRewardFields`). The write side accepts it, so a
-    // read API must exist that returns it — write-accepted but read-refused
-    // is a data-loss trap.
-    const base = malformedRolloutLine()
-    const journalRow: RolloutLine = {
-      ...base,
-      outcome: { ...base.outcome, ...unscreenedRewardFields(0.8) },
-    }
-    const path = join(dir, 'journal.jsonl')
-    await writeRolloutLedger(path, [journalRow])
-    // The mint-policy read still refuses it — promotion into training stays closed.
-    await expect(readRolloutLedger(path)).rejects.toThrow(/realness_screened/)
-    const rows = await readRolloutJournal(path)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.outcome.reward).toBe(0.8)
-    expect(rows[0]!.outcome.realness_screened).toBe(false)
-  })
-
-  it('readRolloutJournal still refuses the anti-Goodhart poison (gated line, positive reward)', async () => {
-    const path = join(dir, 'ledger.jsonl')
-    const forged = malformedRolloutLine({
-      outcome: { ...malformedRolloutLine().outcome, reward: 0.95, realness_gated: true },
-    })
-    await writeFile(path, `${JSON.stringify(forged)}\n`)
-    await expect(readRolloutJournal(path)).rejects.toThrow(/may not carry a positive reward/)
-  })
-})

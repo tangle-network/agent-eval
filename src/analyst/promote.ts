@@ -46,10 +46,10 @@ import {
 import { type AnalystFinding, makeFinding } from './types'
 
 /** Bump when the promotion rule changes, so promoted findings name the rule that lifted them. */
-export const PROMOTE_VERSION = '1'
+const PROMOTE_VERSION = '1'
 
 /** The analyst id a promoted finding carries when its children came from different analysts. */
-export const PROMOTE_ANALYST_ID = 'promote'
+const PROMOTE_ANALYST_ID = 'promote'
 
 export interface PromoteOptions {
   /** Independent agreeing children required to lift a claim. Default 2, minimum 2. */

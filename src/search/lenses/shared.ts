@@ -46,7 +46,7 @@ export interface LensResult<TData, TSignal> {
  * (decision-grade interval) from there. Unlike `estimateNode`, these samples
  * are not paired on a shared unit, so this is never a claim — only a
  * lens's own honest description of what it measured. */
-export interface SampleSummary {
+export interface LensSampleSummary {
   n: number
   mean: number | null
   method: 'none' | 'insufficient' | 'descriptive' | 'bootstrap'
@@ -58,7 +58,7 @@ export interface SampleSummary {
   intervalMethod: 'percentile-bootstrap-of-mean' | null
 }
 
-export function summarizeSamples(samples: readonly number[], seed?: number): SampleSummary {
+export function summarizeSamples(samples: readonly number[], seed?: number): LensSampleSummary {
   const n = samples.length
   const method = searchEstimateMethod(n)
   if (method === 'none') return { n, mean: null, method, interval: null, intervalMethod: null }

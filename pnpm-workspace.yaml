@@ -6,5 +6,3 @@ minimumReleaseAgeExclude:
 allowBuilds:
   # The esbuild postinstall checks its platform binary.
   esbuild: true
-  # The autoevals preinstall only guards the package manager of its own repository.
-  autoevals: false

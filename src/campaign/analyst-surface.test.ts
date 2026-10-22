@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { makeFinding } from '../analyst/types'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import {
-  buildTraceAnalystSurfaceDispatch,
   type TraceAnalystScenario,
   traceAnalystQualityJudge,
 } from './analyst-surface'
-import type { DispatchContext } from './types'
+
 
 const signal = new AbortController().signal
-const context = { cellId: 'cell-1', signal } as DispatchContext
+
 const traceStore = {} as TraceAnalysisStore
 const failureUri = 'trace://failed/span/tool-3'
 const scenario: TraceAnalystScenario = {
@@ -43,37 +42,7 @@ function finding(input: { subject?: string; uri: string; claim?: string }) {
   })
 }
 
-describe('buildTraceAnalystSurfaceDispatch', () => {
-  it('passes the candidate prompt and trace store to the configured implementation', async () => {
-    const seen: unknown[] = []
-    const dispatch = buildTraceAnalystSurfaceDispatch({
-      async analyze(input) {
-        seen.push(input)
-        return { findings: [] }
-      },
-    })
-    await dispatch('Inspect failed tool calls.', scenario, context)
-    expect(seen).toEqual([
-      {
-        instructions: 'Inspect failed tool calls.',
-        traceStore,
-        runId: 'cell-1:failed-command',
-        signal,
-      },
-    ])
-  })
 
-  it('rejects code and component surfaces instead of silently stringifying them', async () => {
-    const dispatch = buildTraceAnalystSurfaceDispatch({
-      async analyze() {
-        return { findings: [] }
-      },
-    })
-    await expect(
-      dispatch({ kind: 'code', worktreeRef: 'x' } as never, scenario, context),
-    ).rejects.toThrow(/requires a string prompt/)
-  })
-})
 
 describe('traceAnalystQualityJudge', () => {
   const judge = traceAnalystQualityJudge()

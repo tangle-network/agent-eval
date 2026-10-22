@@ -172,7 +172,7 @@ export const ADMISSION_CONFIG_DEFAULTS: AdmissionConfig = Object.freeze({
   concurrency: 1,
 })
 
-export function resolveAdmissionConfig(input: AdmissionConfigInput = {}): AdmissionConfig {
+function resolveAdmissionConfig(input: AdmissionConfigInput = {}): AdmissionConfig {
   const config: AdmissionConfig = { ...ADMISSION_CONFIG_DEFAULTS, ...input }
   if (!Number.isFinite(config.maxPrefixDivergence)) {
     throw new ValidationError(
@@ -217,7 +217,7 @@ function requirePositiveInteger(value: number, field: string): void {
  * The draw reads the policy seed, the row, and the rollout index, so it is
  * reproducible from the artifact and cannot depend on when the pre-pass ran.
  */
-export function noOpInjectionStep(
+function noOpInjectionStep(
   policySeed: number,
   rowId: string,
   rolloutIndex: number,
@@ -635,17 +635,9 @@ async function mapOrdered<T, R>(
 
 // ── Reading the report ───────────────────────────────────────────────
 
-/** Admitted row ids in one stratum. No call returns them pooled. */
-export function admittedRowIds(
-  report: AdmissionReport,
-  stratum: AdmissionStratum,
-): readonly string[] {
-  return report.strata[stratum]
-}
 
-export function admittedCount(report: AdmissionReport): number {
-  return ADMISSION_STRATA.reduce((total, stratum) => total + report.strata[stratum].length, 0)
-}
+
+
 
 export interface DenominatorIntactInput {
   report: AdmissionReport

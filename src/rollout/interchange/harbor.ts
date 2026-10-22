@@ -80,10 +80,10 @@ import {
 } from '../schema'
 
 import { isRecord } from '../../llm-client/json'
-export const ATIF_SCHEMA_VERSION = 'ATIF-v1.7'
+const ATIF_SCHEMA_VERSION = 'ATIF-v1.7'
 
 /** Gap note on every imported line — ATIF carries no verdict, so nothing is scored. */
-export const HARBOR_IMPORT_GAP = 'imported from Harbor ATIF; no verdict'
+const HARBOR_IMPORT_GAP = 'imported from Harbor ATIF; no verdict'
 
 /** Namespaced escrow key for everything ATIF does not model but we must not lose. */
 const ESCROW = 'tangle'

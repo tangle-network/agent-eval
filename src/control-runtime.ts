@@ -33,6 +33,49 @@ import { noProgressDetector, repeatedActionDetector } from './detectors'
 import { canonicalString } from './ledger-core/canonical'
 import { type SpanHandle, TraceEmitter } from './trace/emitter'
 
+/** What every step of one loop shares. `state` and `evals` are the latest observation. */
+interface ControlRun<TState, TAction, TActionResult, TEval extends ControlEvalResult> {
+  config: ControlRuntimeConfig<TState, TAction, TActionResult, TEval>
+  budget: ControlBudget
+  signal: AbortSignal
+  started: number
+  history: ControlStep<TState, TAction, TActionResult, TEval>[]
+  emitter: TraceEmitter | undefined
+  runtimeErrors: ControlRuntimeError[]
+  repeatedDetector: ReturnType<typeof repeatedActionDetector>
+  progressDetector: ReturnType<typeof noProgressDetector>
+  spentCostUsd: number
+  state: TState
+  evals: TEval[]
+}
+
+type RunResult<TState, TAction, TActionResult, TEval extends ControlEvalResult> = ControlRunResult<
+  TState,
+  TAction,
+  TActionResult,
+  TEval
+>
+
+/** How a run ends. The run's current state and evals fill whatever the caller leaves out. */
+type Settlement<TState, TEval> = Pick<
+  ControlRunResult<TState, unknown, unknown, ControlEvalResult>,
+  'pass' | 'completed' | 'reason' | 'failureClass' | 'stoppedBy'
+> & { score?: number; finalState?: TState | undefined; finalEvals?: TEval[] }
+
+/** The next value, or the result that ends the run. */
+type Flow<T, TResult> = { next: T } | { ended: TResult }
+
+/** One action attempted at a step, with what the step needs to record it. */
+interface ActionAttempt<TState, TAction, TActionResult, TEval extends ControlEvalResult> {
+  decision: Extract<ControlDecision<TAction>, { type: 'continue' }>
+  beforeState: TState
+  evalsBefore: TEval[]
+  scoreBefore: number | undefined
+  actionStarted: number
+  stepHandle: SpanHandle | undefined
+  outcome: ControlActionOutcome<TActionResult>
+}
+
 export async function runAgentControlLoop<
   TState,
   TAction,
@@ -42,7 +85,6 @@ export async function runAgentControlLoop<
   config: ControlRuntimeConfig<TState, TAction, TActionResult, TEval>,
 ): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
   const budget = normalizeBudget(config.budget)
-  const actionFailure = config.actionFailure ?? 'continue'
   const controller = new AbortController()
   const upstreamAbort = () => controller.abort(config.signal?.reason)
   if (config.signal) {
@@ -57,569 +99,542 @@ export async function runAgentControlLoop<
         budget.maxWallMs,
       )
     : undefined
-  const history: ControlStep<TState, TAction, TActionResult, TEval>[] = []
-  // `runTrace` records every dropped trace write as a runtime error, so the
-  // emitter's default process warning would only repeat it.
-  const emitter = config.store
-    ? new TraceEmitter(config.store, { onCaptureError: () => undefined })
-    : undefined
-  let spentCostUsd = 0
-  const runtimeErrors: ControlRuntimeError[] = []
-  // The stuck-detection kernels (shared with the online detectors). Thresholds 0 = disabled; the
-  // streak is still tracked for telemetry. Both stops report `tool_recovery_failure`.
-  const repeatedDetector = repeatedActionDetector({
-    maxRepeated: config.stopPolicies?.maxRepeatedActions ?? 0,
-  })
-  const progressDetector = noProgressDetector({
-    maxNoProgress: config.stopPolicies?.maxNoProgressSteps ?? 0,
-    minScoreDelta: config.stopPolicies?.minScoreDelta ?? 0.001,
-  })
+  const run: ControlRun<TState, TAction, TActionResult, TEval> = {
+    config,
+    budget,
+    signal: controller.signal,
+    started,
+    history: [],
+    // `runTrace` records every dropped trace write as a runtime error, so the
+    // emitter's default process warning would only repeat it.
+    emitter: config.store
+      ? new TraceEmitter(config.store, { onCaptureError: () => undefined })
+      : undefined,
+    runtimeErrors: [],
+    // The stuck-detection kernels (shared with the online detectors). Thresholds 0 = disabled; the
+    // streak is still tracked for telemetry. Both stops report `tool_recovery_failure`.
+    repeatedDetector: repeatedActionDetector({
+      maxRepeated: config.stopPolicies?.maxRepeatedActions ?? 0,
+    }),
+    progressDetector: noProgressDetector({
+      maxNoProgress: config.stopPolicies?.maxNoProgressSteps ?? 0,
+      minScoreDelta: config.stopPolicies?.minScoreDelta ?? 0.001,
+    }),
+    spentCostUsd: 0,
+    // The first observation assigns both before any step reads them.
+    state: undefined as TState,
+    evals: [],
+  }
 
   try {
-    if (emitter) {
-      await runTrace(emitter, runtimeErrors, 0, () =>
-        emitter.startRun({
-          scenarioId: config.scenarioId ?? 'agent-control-loop',
-          projectId: config.projectId,
-          variantId: config.variantId,
-          layer: 'meta',
-          tags: {
-            intent: config.intent.slice(0, 120),
-            maxSteps: String(budget.maxSteps),
-            ...(budget.maxCostUsd !== undefined ? { maxCostUsd: String(budget.maxCostUsd) } : {}),
-          },
-        }),
-      )
-    }
-
-    let state: TState
-    let evals: TEval[]
-    try {
-      state = await config.observe({ history, abortSignal: controller.signal })
-    } catch (err) {
-      const error = runtimeError('observe', 0, err)
-      runtimeErrors.push(error)
-      return finish(emitter, {
-        intent: config.intent,
-        pass: false,
-        completed: false,
-        reason: error.message,
-        steps: history,
-        finalState: undefined,
-        finalEvals: [],
-        wallMs: Date.now() - started,
-        spentCostUsd,
-        runId: emitter?.runId ?? null,
-        failureClass: 'unknown',
-        runtimeErrors,
-        stoppedBy: 'runtime-error',
-      })
-    }
-    try {
-      evals = await config.validate({
-        intent: config.intent,
-        state,
-        history,
-        abortSignal: controller.signal,
-      })
-      await recordEvalSpans(emitter, evals, 'initial', runtimeErrors, 0)
-    } catch (err) {
-      const error = runtimeError('validate', 0, err)
-      runtimeErrors.push(error)
-      return finish(emitter, {
-        intent: config.intent,
-        pass: false,
-        completed: false,
-        reason: error.message,
-        steps: history,
-        finalState: state,
-        finalEvals: [],
-        wallMs: Date.now() - started,
-        spentCostUsd,
-        runId: emitter?.runId ?? null,
-        failureClass: 'unknown',
-        runtimeErrors,
-        stoppedBy: 'runtime-error',
-      })
-    }
+    await startTrace(run)
+    const failedStart = await observeInitial(run)
+    if (failedStart) return failedStart
     // Prime the no-progress detector with the initial state + score so step 0 can already detect a
     // no-op (mirrors the pre-loop fingerprint baseline). The priming observe never signals (streak 0).
-    progressDetector.observe({
-      stateFingerprint: fingerprintState(state, config.stopPolicies),
-      score: averageScore(evals),
+    run.progressDetector.observe({
+      stateFingerprint: fingerprintState(run.state, config.stopPolicies),
+      score: averageScore(run.evals),
     })
 
     for (let stepIndex = 0; stepIndex < budget.maxSteps; stepIndex++) {
-      if (controller.signal.aborted) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: abortReason(controller.signal),
-          score: undefined,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'timeout',
-          runtimeErrors,
-          stoppedBy: 'abort',
-        })
-      }
-
-      const budgetStop = budgetStopDecision(budget, spentCostUsd)
-      if (budgetStop.stop) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: budgetStop.reason,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'budget_exceeded',
-          runtimeErrors,
-          stoppedBy: 'budget',
-        })
-      }
-
-      const ctx = makeContext(
-        config.intent,
-        state,
-        evals,
-        history,
-        budget,
-        stepIndex,
-        started,
-        spentCostUsd,
-        controller.signal,
-        emitter,
-      )
-      let stop: StopDecision
-      try {
-        stop = config.shouldStop ? await config.shouldStop(ctx) : defaultStopDecision(evals)
-      } catch (err) {
-        runtimeErrors.push(runtimeError('stop-policy', stepIndex, err))
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'unknown',
-          runtimeErrors,
-          stoppedBy: 'runtime-error',
-        })
-      }
-      if (stop.stop) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: stop.pass,
-          completed: true,
-          reason: stop.reason,
-          score: stop.score,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: stop.failureClass,
-          runtimeErrors,
-          stoppedBy: 'stop-policy',
-        })
-      }
-
-      let decision: ControlDecision<TAction>
-      try {
-        decision = await config.decide(ctx)
-      } catch (err) {
-        runtimeErrors.push(runtimeError('decide', stepIndex, err))
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'unknown',
-          runtimeErrors,
-          stoppedBy: 'runtime-error',
-        })
-      }
-      if (decision.type === 'stop') {
-        const pass = decision.pass ?? false
-        return finish(emitter, {
-          intent: config.intent,
-          pass,
-          completed: true,
-          reason: decision.reason,
-          score: decision.score,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: pass ? undefined : (decision.failureClass ?? 'unknown'),
-          runtimeErrors,
-          stoppedBy: 'policy',
-        })
-      }
-
-      const actionFingerprint = fingerprintAction(decision.action, config.stopPolicies)
-      const repeatedActionSignal = repeatedDetector.observe({ actionFingerprint })
-      const repeatedActionStreak = repeatedDetector.streak
-      if (repeatedActionSignal) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: true,
-          reason: repeatedActionSignal.reason,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'tool_recovery_failure',
-          runtimeErrors,
-          stoppedBy: 'stop-policy',
-        })
-      }
-
-      const beforeState = state
-      const evalsBefore = evals
-      const scoreBefore = averageScore(evals)
-      const actionStarted = Date.now()
-      const stepHandle = emitter
-        ? await runTrace(emitter, runtimeErrors, stepIndex, () =>
-            emitter.tool({
-              name: `control-step-${stepIndex}`,
-              toolName: 'agent-control-action',
-              args: decision.action,
-              attributes: {
-                decision: decision.reason ?? 'continue',
-                repeatedActionStreak,
-              },
-            }),
-          )
-        : undefined
-      let actionOutcome: ControlActionOutcome<TActionResult>
-      try {
-        const result = await config.act(decision.action, ctx)
-        const rawCostUsd = config.getActionCostUsd?.({
-          action: decision.action,
-          result,
-          state,
-          evals,
-          history,
-        })
-        const costUsd = normalizeActionCostUsd(rawCostUsd, runtimeErrors, stepIndex)
-        if (costUsd !== undefined && Number.isFinite(costUsd) && costUsd > 0) {
-          spentCostUsd += costUsd
-          await recordCostBudget(
-            emitter,
-            budget,
-            spentCostUsd,
-            stepHandle,
-            runtimeErrors,
-            stepIndex,
-          )
-        }
-        actionOutcome = {
-          ok: true,
-          result,
-          ...(costUsd !== undefined ? { costUsd } : {}),
-          durationMs: Date.now() - actionStarted,
-        }
-      } catch (err) {
-        runtimeErrors.push(runtimeError('act', stepIndex, err))
-        actionOutcome = {
-          ok: false,
-          error: runtimeErrors[runtimeErrors.length - 1]!.message,
-          durationMs: Date.now() - actionStarted,
-        }
-        if (actionFailure === 'stop') {
-          await runTrace(emitter, runtimeErrors, stepIndex, () =>
-            stepHandle?.fail(actionOutcome.error ?? 'action failed'),
-          )
-          const step: ControlStep<TState, TAction, TActionResult, TEval> = {
-            index: stepIndex,
-            decision,
-            beforeState,
-            afterState: state,
-            evalsBefore,
-            evalsAfter: evals,
-            actionOutcome,
-            startedAt: new Date(actionStarted).toISOString(),
-            endedAt: new Date().toISOString(),
-          }
-          history.push(step)
-          await runOnStep(config.onStep, step, runtimeErrors)
-          return finish(emitter, {
-            intent: config.intent,
-            pass: false,
-            completed: false,
-            reason: actionOutcome.error ?? 'action failed',
-            score: averageScore(evals),
-            steps: history,
-            finalState: state,
-            finalEvals: evals,
-            wallMs: Date.now() - started,
-            spentCostUsd,
-            runId: emitter?.runId ?? null,
-            failureClass: 'unknown',
-            runtimeErrors,
-            stoppedBy: 'runtime-error',
-          })
-        }
-      }
-
-      let observationPhase: 'observe' | 'validate' = 'observe'
-      try {
-        state = await config.observe({ history, abortSignal: controller.signal })
-        observationPhase = 'validate'
-        evals = await config.validate({
-          intent: config.intent,
-          state,
-          history,
-          abortSignal: controller.signal,
-        })
-        await recordEvalSpans(
-          emitter,
-          evals,
-          `step-${stepIndex}`,
-          runtimeErrors,
-          stepIndex,
-          stepHandle?.span.spanId,
-        )
-      } catch (err) {
-        runtimeErrors.push(runtimeError(observationPhase, stepIndex, err))
-        const afterState = observationPhase === 'observe' ? beforeState : state
-        const step: ControlStep<TState, TAction, TActionResult, TEval> = {
-          index: stepIndex,
-          decision,
-          beforeState,
-          afterState,
-          evalsBefore,
-          evalsAfter: evals,
-          actionOutcome,
-          startedAt: new Date(actionStarted).toISOString(),
-          endedAt: new Date().toISOString(),
-        }
-        history.push(step)
-        await runTrace(emitter, runtimeErrors, stepIndex, () =>
-          stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
-        )
-        await runOnStep(config.onStep, step, runtimeErrors)
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-          score: averageScore(evals),
-          steps: history,
-          finalState: afterState,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'unknown',
-          runtimeErrors,
-          stoppedBy: 'runtime-error',
-        })
-      }
-      const scoreAfter = averageScore(evals)
-      const stateFingerprint = fingerprintState(state, config.stopPolicies)
-      const noProgressSignal = progressDetector.observe({ stateFingerprint, score: scoreAfter })
-      const noProgressStreak = progressDetector.streak
-
-      const step: ControlStep<TState, TAction, TActionResult, TEval> = {
-        index: stepIndex,
-        decision,
-        beforeState,
-        afterState: state,
-        evalsBefore,
-        evalsAfter: evals,
-        actionOutcome,
-        startedAt: new Date(actionStarted).toISOString(),
-        endedAt: new Date().toISOString(),
-      }
-      history.push(step)
-      if (actionOutcome.ok) {
-        await runTrace(emitter, runtimeErrors, stepIndex, () =>
-          stepHandle?.end({
-            attributes: {
-              actionCostUsd: actionOutcome.costUsd ?? null,
-              spentCostUsd,
-              scoreBefore: scoreBefore ?? null,
-              scoreAfter: scoreAfter ?? null,
-              noProgressStreak,
-            },
-          }),
-        )
-      } else {
-        await runTrace(emitter, runtimeErrors, stepIndex, () =>
-          stepHandle?.fail(actionOutcome.error ?? 'action failed', {
-            attributes: {
-              spentCostUsd,
-              noProgressStreak,
-            },
-          }),
-        )
-      }
-      await runOnStep(config.onStep, step, runtimeErrors)
-
-      if (noProgressSignal) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: true,
-          reason: noProgressSignal.reason,
-          score: scoreAfter,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'tool_recovery_failure',
-          runtimeErrors,
-          stoppedBy: 'stop-policy',
-        })
-      }
-
-      const postStepBudgetStop = budgetStopDecision(budget, spentCostUsd)
-      if (postStepBudgetStop.stop) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: postStepBudgetStop.reason,
-          score: scoreAfter,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'budget_exceeded',
-          runtimeErrors,
-          stoppedBy: 'budget',
-        })
-      }
-
-      const postStepCtx = makeContext(
-        config.intent,
-        state,
-        evals,
-        history,
-        budget,
-        stepIndex + 1,
-        started,
-        spentCostUsd,
-        controller.signal,
-        emitter,
-      )
-      let postStepStop: StopDecision
-      try {
-        postStepStop = config.shouldStop
-          ? await config.shouldStop(postStepCtx)
-          : defaultStopDecision(evals)
-      } catch (err) {
-        runtimeErrors.push(runtimeError('stop-policy', stepIndex + 1, err))
-        return finish(emitter, {
-          intent: config.intent,
-          pass: false,
-          completed: false,
-          reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-          score: averageScore(evals),
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: 'unknown',
-          runtimeErrors,
-          stoppedBy: 'runtime-error',
-        })
-      }
-      if (postStepStop.stop) {
-        return finish(emitter, {
-          intent: config.intent,
-          pass: postStepStop.pass,
-          completed: true,
-          reason: postStepStop.reason,
-          score: postStepStop.score,
-          steps: history,
-          finalState: state,
-          finalEvals: evals,
-          wallMs: Date.now() - started,
-          spentCostUsd,
-          runId: emitter?.runId ?? null,
-          failureClass: postStepStop.failureClass,
-          runtimeErrors,
-          stoppedBy: 'stop-policy',
-        })
-      }
+      const ended = await runStep(run, stepIndex)
+      if (ended) return ended
     }
 
-    return finish(emitter, {
-      intent: config.intent,
+    return settle(run, {
       pass: false,
       completed: false,
       reason: `budget exhausted: maxSteps=${budget.maxSteps}`,
-      steps: history,
-      finalState: state,
-      finalEvals: evals,
-      wallMs: Date.now() - started,
-      spentCostUsd,
-      runId: emitter?.runId ?? null,
       failureClass: 'budget_exceeded',
-      runtimeErrors,
       stoppedBy: 'budget',
     })
   } catch (err) {
-    runtimeErrors.push(runtimeError('act', history.length, err))
-    return finish(emitter, {
-      intent: config.intent,
+    run.runtimeErrors.push(runtimeError('act', run.history.length, err))
+    return settle(run, {
       pass: false,
       completed: false,
-      reason: runtimeErrors[runtimeErrors.length - 1]!.message,
-      steps: history,
+      reason: lastErrorMessage(run),
       finalState: undefined,
       finalEvals: [],
-      wallMs: Date.now() - started,
-      spentCostUsd,
-      runId: emitter?.runId ?? null,
       failureClass: 'unknown',
-      runtimeErrors,
       stoppedBy: 'runtime-error',
     })
   } finally {
     if (wallTimer) clearTimeout(wallTimer)
     if (config.signal) config.signal.removeEventListener('abort', upstreamAbort)
   }
+}
+
+/** End the run with `how`; everything not named there is read from the run as it stands now. */
+function settle<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  how: Settlement<TState, TEval>,
+): Promise<RunResult<TState, TAction, TActionResult, TEval>> {
+  return finish(run.emitter, {
+    intent: run.config.intent,
+    pass: how.pass,
+    completed: how.completed,
+    reason: how.reason,
+    ...('score' in how ? { score: how.score } : {}),
+    steps: run.history,
+    finalState: 'finalState' in how ? how.finalState : run.state,
+    finalEvals: how.finalEvals ?? run.evals,
+    wallMs: Date.now() - run.started,
+    spentCostUsd: run.spentCostUsd,
+    runId: run.emitter?.runId ?? null,
+    failureClass: how.failureClass,
+    runtimeErrors: run.runtimeErrors,
+    stoppedBy: how.stoppedBy,
+  })
+}
+
+function lastErrorMessage(run: { runtimeErrors: ControlRuntimeError[] }): string {
+  return run.runtimeErrors[run.runtimeErrors.length - 1]!.message
+}
+
+/** End the run on the runtime error just recorded. */
+function settleOnRuntimeError<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  finalState?: { value: TState },
+): Promise<RunResult<TState, TAction, TActionResult, TEval>> {
+  return settle(run, {
+    pass: false,
+    completed: false,
+    reason: lastErrorMessage(run),
+    score: averageScore(run.evals),
+    ...(finalState ? { finalState: finalState.value } : {}),
+    failureClass: 'unknown',
+    stoppedBy: 'runtime-error',
+  })
+}
+
+async function startTrace<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+): Promise<void> {
+  const { emitter, config, budget } = run
+  if (!emitter) return
+  await runTrace(emitter, run.runtimeErrors, 0, () =>
+    emitter.startRun({
+      scenarioId: config.scenarioId ?? 'agent-control-loop',
+      projectId: config.projectId,
+      variantId: config.variantId,
+      layer: 'meta',
+      tags: {
+        intent: config.intent.slice(0, 120),
+        maxSteps: String(budget.maxSteps),
+        ...(budget.maxCostUsd !== undefined ? { maxCostUsd: String(budget.maxCostUsd) } : {}),
+      },
+    }),
+  )
+}
+
+/** The first observation and validation. Returns the result that ends the run when either fails. */
+async function observeInitial<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  try {
+    run.state = await run.config.observe({ history: run.history, abortSignal: run.signal })
+  } catch (err) {
+    const error = runtimeError('observe', 0, err)
+    run.runtimeErrors.push(error)
+    return settle(run, {
+      pass: false,
+      completed: false,
+      reason: error.message,
+      failureClass: 'unknown',
+      stoppedBy: 'runtime-error',
+    })
+  }
+  try {
+    run.evals = await run.config.validate({
+      intent: run.config.intent,
+      state: run.state,
+      history: run.history,
+      abortSignal: run.signal,
+    })
+    await recordEvalSpans(run.emitter, run.evals, 'initial', run.runtimeErrors, 0)
+  } catch (err) {
+    const error = runtimeError('validate', 0, err)
+    run.runtimeErrors.push(error)
+    return settle(run, {
+      pass: false,
+      completed: false,
+      reason: error.message,
+      finalEvals: [],
+      failureClass: 'unknown',
+      stoppedBy: 'runtime-error',
+    })
+  }
+  return undefined
+}
+
+/** One decide-act-observe step. Returns the result that ends the run, or nothing to go on. */
+async function runStep<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  const halted = await checkAbortAndBudget(run)
+  if (halted) return halted
+
+  const ctx = makeRunContext(run, stepIndex)
+  const stopped = await checkStopPolicy(run, ctx, stepIndex)
+  if (stopped) return stopped
+
+  const chosen = await decideAction(run, ctx, stepIndex)
+  if ('ended' in chosen) return chosen.ended
+  const { decision } = chosen.next
+
+  const repeated = await detectRepeatedAction(run, decision)
+  if ('ended' in repeated) return repeated.ended
+
+  const attempt = await attemptAction(run, ctx, decision, stepIndex, repeated.next)
+  if ('ended' in attempt) return attempt.ended
+
+  const observed = await observeAfterAction(run, attempt.next, stepIndex)
+  if (observed) return observed
+  return recordStepAndCheck(run, attempt.next, stepIndex)
+}
+
+async function checkAbortAndBudget<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  if (run.signal.aborted) {
+    return settle(run, {
+      pass: false,
+      completed: false,
+      reason: abortReason(run.signal),
+      score: undefined,
+      failureClass: 'timeout',
+      stoppedBy: 'abort',
+    })
+  }
+  const budgetStop = budgetStopDecision(run.budget, run.spentCostUsd)
+  if (!budgetStop.stop) return undefined
+  return settle(run, {
+    pass: false,
+    completed: false,
+    reason: budgetStop.reason,
+    score: averageScore(run.evals),
+    failureClass: 'budget_exceeded',
+    stoppedBy: 'budget',
+  })
+}
+
+function makeRunContext<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+): ControlContext<TState, TAction, TActionResult, TEval> {
+  return makeContext(
+    run.config.intent,
+    run.state,
+    run.evals,
+    run.history,
+    run.budget,
+    stepIndex,
+    run.started,
+    run.spentCostUsd,
+    run.signal,
+    run.emitter,
+  )
+}
+
+/** Ask the stop policy about the current state. `errorStep` is the step a failing policy is recorded against. */
+async function checkStopPolicy<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  errorStep: number,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  let stop: StopDecision
+  try {
+    stop = run.config.shouldStop ? await run.config.shouldStop(ctx) : defaultStopDecision(run.evals)
+  } catch (err) {
+    run.runtimeErrors.push(runtimeError('stop-policy', errorStep, err))
+    return settleOnRuntimeError(run)
+  }
+  if (!stop.stop) return undefined
+  return settle(run, {
+    pass: stop.pass,
+    completed: true,
+    reason: stop.reason,
+    score: stop.score,
+    failureClass: stop.failureClass,
+    stoppedBy: 'stop-policy',
+  })
+}
+
+async function decideAction<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+): Promise<
+  Flow<
+    { decision: Extract<ControlDecision<TAction>, { type: 'continue' }> },
+    RunResult<TState, TAction, TActionResult, TEval>
+  >
+> {
+  let decision: ControlDecision<TAction>
+  try {
+    decision = await run.config.decide(ctx)
+  } catch (err) {
+    run.runtimeErrors.push(runtimeError('decide', stepIndex, err))
+    return { ended: await settleOnRuntimeError(run) }
+  }
+  if (decision.type !== 'stop') return { next: { decision } }
+  const pass = decision.pass ?? false
+  return {
+    ended: await settle(run, {
+      pass,
+      completed: true,
+      reason: decision.reason,
+      score: decision.score,
+      failureClass: pass ? undefined : (decision.failureClass ?? 'unknown'),
+      stoppedBy: 'policy',
+    }),
+  }
+}
+
+/** Feed the chosen action to the repeated-action detector; its streak is returned for the step's trace. */
+async function detectRepeatedAction<
+  TState,
+  TAction,
+  TActionResult,
+  TEval extends ControlEvalResult,
+>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  decision: Extract<ControlDecision<TAction>, { type: 'continue' }>,
+): Promise<Flow<number, RunResult<TState, TAction, TActionResult, TEval>>> {
+  const actionFingerprint = fingerprintAction(decision.action, run.config.stopPolicies)
+  const signal = run.repeatedDetector.observe({ actionFingerprint })
+  if (!signal) return { next: run.repeatedDetector.streak }
+  return {
+    ended: await settle(run, {
+      pass: false,
+      completed: true,
+      reason: signal.reason,
+      score: averageScore(run.evals),
+      failureClass: 'tool_recovery_failure',
+      stoppedBy: 'stop-policy',
+    }),
+  }
+}
+
+/** Run the chosen action under its trace span and price it. A failed action ends the run only when `actionFailure` is 'stop'. */
+async function attemptAction<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  ctx: ControlContext<TState, TAction, TActionResult, TEval>,
+  decision: Extract<ControlDecision<TAction>, { type: 'continue' }>,
+  stepIndex: number,
+  repeatedActionStreak: number,
+): Promise<
+  Flow<
+    ActionAttempt<TState, TAction, TActionResult, TEval>,
+    RunResult<TState, TAction, TActionResult, TEval>
+  >
+> {
+  const { config, emitter, runtimeErrors } = run
+  const beforeState = run.state
+  const evalsBefore = run.evals
+  const scoreBefore = averageScore(run.evals)
+  const actionStarted = Date.now()
+  const stepHandle = emitter
+    ? await runTrace(emitter, runtimeErrors, stepIndex, () =>
+        emitter.tool({
+          name: `control-step-${stepIndex}`,
+          toolName: 'agent-control-action',
+          args: decision.action,
+          attributes: {
+            decision: decision.reason ?? 'continue',
+            repeatedActionStreak,
+          },
+        }),
+      )
+    : undefined
+  let outcome: ControlActionOutcome<TActionResult>
+  try {
+    const result = await config.act(decision.action, ctx)
+    const rawCostUsd = config.getActionCostUsd?.({
+      action: decision.action,
+      result,
+      state: run.state,
+      evals: run.evals,
+      history: run.history,
+    })
+    const costUsd = normalizeActionCostUsd(rawCostUsd, runtimeErrors, stepIndex)
+    if (costUsd !== undefined && Number.isFinite(costUsd) && costUsd > 0) {
+      run.spentCostUsd += costUsd
+      await recordCostBudget(
+        emitter,
+        run.budget,
+        run.spentCostUsd,
+        stepHandle,
+        runtimeErrors,
+        stepIndex,
+      )
+    }
+    outcome = {
+      ok: true,
+      result,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      durationMs: Date.now() - actionStarted,
+    }
+  } catch (err) {
+    runtimeErrors.push(runtimeError('act', stepIndex, err))
+    outcome = {
+      ok: false,
+      error: lastErrorMessage(run),
+      durationMs: Date.now() - actionStarted,
+    }
+    if ((config.actionFailure ?? 'continue') === 'stop') {
+      await runTrace(emitter, runtimeErrors, stepIndex, () =>
+        stepHandle?.fail(outcome.error ?? 'action failed'),
+      )
+      const step = buildStep(
+        run,
+        { decision, beforeState, evalsBefore, scoreBefore, actionStarted, stepHandle, outcome },
+        stepIndex,
+        run.state,
+      )
+      run.history.push(step)
+      await runOnStep(config.onStep, step, runtimeErrors)
+      return {
+        ended: await settle(run, {
+          pass: false,
+          completed: false,
+          reason: outcome.error ?? 'action failed',
+          score: averageScore(run.evals),
+          failureClass: 'unknown',
+          stoppedBy: 'runtime-error',
+        }),
+      }
+    }
+  }
+  return {
+    next: { decision, beforeState, evalsBefore, scoreBefore, actionStarted, stepHandle, outcome },
+  }
+}
+
+function buildStep<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  attempt: ActionAttempt<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+  afterState: TState,
+): ControlStep<TState, TAction, TActionResult, TEval> {
+  return {
+    index: stepIndex,
+    decision: attempt.decision,
+    beforeState: attempt.beforeState,
+    afterState,
+    evalsBefore: attempt.evalsBefore,
+    evalsAfter: run.evals,
+    actionOutcome: attempt.outcome,
+    startedAt: new Date(attempt.actionStarted).toISOString(),
+    endedAt: new Date().toISOString(),
+  }
+}
+
+/** Observe and validate after the action. A failure records the step and ends the run. */
+async function observeAfterAction<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  attempt: ActionAttempt<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  const { config, emitter, runtimeErrors } = run
+  let observationPhase: 'observe' | 'validate' = 'observe'
+  try {
+    run.state = await config.observe({ history: run.history, abortSignal: run.signal })
+    observationPhase = 'validate'
+    run.evals = await config.validate({
+      intent: config.intent,
+      state: run.state,
+      history: run.history,
+      abortSignal: run.signal,
+    })
+    await recordEvalSpans(
+      emitter,
+      run.evals,
+      `step-${stepIndex}`,
+      runtimeErrors,
+      stepIndex,
+      attempt.stepHandle?.span.spanId,
+    )
+    return undefined
+  } catch (err) {
+    runtimeErrors.push(runtimeError(observationPhase, stepIndex, err))
+    const afterState = observationPhase === 'observe' ? attempt.beforeState : run.state
+    const step = buildStep(run, attempt, stepIndex, afterState)
+    run.history.push(step)
+    await runTrace(emitter, runtimeErrors, stepIndex, () =>
+      attempt.stepHandle?.fail(lastErrorMessage(run)),
+    )
+    await runOnStep(config.onStep, step, runtimeErrors)
+    return settleOnRuntimeError(run, { value: afterState })
+  }
+}
+
+/** Record the finished step, then apply the no-progress, budget and stop-policy checks that follow it. */
+async function recordStepAndCheck<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRun<TState, TAction, TActionResult, TEval>,
+  attempt: ActionAttempt<TState, TAction, TActionResult, TEval>,
+  stepIndex: number,
+): Promise<RunResult<TState, TAction, TActionResult, TEval> | undefined> {
+  const { config, emitter, runtimeErrors } = run
+  const scoreAfter = averageScore(run.evals)
+  const stateFingerprint = fingerprintState(run.state, config.stopPolicies)
+  const noProgressSignal = run.progressDetector.observe({ stateFingerprint, score: scoreAfter })
+  const noProgressStreak = run.progressDetector.streak
+
+  const step = buildStep(run, attempt, stepIndex, run.state)
+  run.history.push(step)
+  const { outcome, stepHandle } = attempt
+  if (outcome.ok) {
+    await runTrace(emitter, runtimeErrors, stepIndex, () =>
+      stepHandle?.end({
+        attributes: {
+          actionCostUsd: outcome.costUsd ?? null,
+          spentCostUsd: run.spentCostUsd,
+          scoreBefore: attempt.scoreBefore ?? null,
+          scoreAfter: scoreAfter ?? null,
+          noProgressStreak,
+        },
+      }),
+    )
+  } else {
+    await runTrace(emitter, runtimeErrors, stepIndex, () =>
+      stepHandle?.fail(outcome.error ?? 'action failed', {
+        attributes: {
+          spentCostUsd: run.spentCostUsd,
+          noProgressStreak,
+        },
+      }),
+    )
+  }
+  await runOnStep(config.onStep, step, runtimeErrors)
+
+  if (noProgressSignal) {
+    return settle(run, {
+      pass: false,
+      completed: true,
+      reason: noProgressSignal.reason,
+      score: scoreAfter,
+      failureClass: 'tool_recovery_failure',
+      stoppedBy: 'stop-policy',
+    })
+  }
+
+  const postStepBudgetStop = budgetStopDecision(run.budget, run.spentCostUsd)
+  if (postStepBudgetStop.stop) {
+    return settle(run, {
+      pass: false,
+      completed: false,
+      reason: postStepBudgetStop.reason,
+      score: scoreAfter,
+      failureClass: 'budget_exceeded',
+      stoppedBy: 'budget',
+    })
+  }
+
+  return checkStopPolicy(run, makeRunContext(run, stepIndex + 1), stepIndex + 1)
 }
 
 function makeContext<TState, TAction, TActionResult, TEval extends ControlEvalResult>(

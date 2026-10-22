@@ -16,7 +16,7 @@ import type { ControlScreening } from './control-policy'
 export class AdmissionDenominatorError extends CaptureIntegrityError {}
 
 /** A row handed to the pre-pass carried a field only an analyst could produce. */
-export class AdmissionIndependenceError extends CaptureIntegrityError {}
+class AdmissionIndependenceError extends CaptureIntegrityError {}
 
 // ── Rows ─────────────────────────────────────────────────────────────
 

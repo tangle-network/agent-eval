@@ -36,10 +36,10 @@ import {
 } from './mini-swe-scaffold'
 
 /** A rollout ran outside the pinned policy, so its evidence cannot be used. */
-export class ContinuationPolicyViolationError extends CaptureIntegrityError {}
+class ContinuationPolicyViolationError extends CaptureIntegrityError {}
 
 /** Two arms did not run the same policy, so their difference is not the intervention. */
-export class ContinuationSymmetryError extends CaptureIntegrityError {}
+class ContinuationSymmetryError extends CaptureIntegrityError {}
 
 export interface PinnedContinuationPolicy {
   /** Stable name for the frozen configuration, recorded on every rollout. */

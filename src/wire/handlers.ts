@@ -30,7 +30,7 @@ import {
   type TracesIngestResponse,
   type VersionResponse,
   WIRE_VERSION,
-  type FeedbackTrajectory as WireFeedbackTrajectory,
+  type WireFeedbackTrajectory,
 } from './schemas'
 
 /** Caller-fixable error. The transport renders this to 4xx + ErrorResponse. */
@@ -341,7 +341,7 @@ export async function handleTracesIngest(
 }
 
 /**
- * `POST /v1/feedback` — accept a single `FeedbackTrajectory` from the
+ * `POST /v1/feedback` — accept a single `WireFeedbackTrajectory` from the
  * production runtime. Idempotent on `id`: re-posting the same trajectory
  * replaces the prior record.
  */
@@ -356,7 +356,7 @@ export async function handleFeedbackIngest(
       503,
     )
   }
-  // The wire `FeedbackTrajectory` aligns 1:1 with the internal type;
+  // The wire `WireFeedbackTrajectory` aligns 1:1 with the internal type;
   // cast through `unknown` since the wire schema is a Zod-inferred
   // structural type with optional fields the internal store consumes.
   await stores.feedbackStore.save(req as unknown as Parameters<FeedbackTrajectoryStore['save']>[0])

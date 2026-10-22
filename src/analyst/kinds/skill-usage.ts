@@ -21,13 +21,13 @@
 
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ExactCapableAnalyst } from '../exact-types'
-import type { AnalystContext, AnalystFinding, AnalystSeverity } from '../types'
-import { computeFindingId } from '../types'
+
+
+
 
 // ── Input model ──────────────────────────────────────────────────────
 
-export type SkillKind = 'public' | 'private'
+type SkillKind = 'public' | 'private'
 
 /** One skill's multi-signal usage + structure. All counts are deterministic. */
 export interface SkillUsageRecord {
@@ -76,9 +76,7 @@ export interface SkillUsageScanConfig {
 
 // ── Deterministic thresholds ─────────────────────────────────────────
 
-/** Anthropic's authoring guidance keeps SKILL.md short; past this with no
- *  `references/` split the body burns context budget every session. */
-const BLOAT_LINE_THRESHOLD = 300
+
 
 const TANGLE_PRIVATE_RE =
   /\b(cli-bridge|tangletools|ops-board|drew-gtr-pro|@tangle-network\/|~\/company|tangle\.tools|gtm-agent)\b|\bkimi\b|\btcloud\b/gi
@@ -229,182 +227,14 @@ export function buildSkillUsageReport(config: SkillUsageScanConfig): SkillUsageR
 
 // ── Finding emission (pure — unit-testable, no LLM, no fs) ────────────
 
-const ANALYST_ID = 'skill-usage'
 
-function finding(
-  area: string,
-  subject: string,
-  claim: string,
-  severity: AnalystSeverity,
-  confidence: number,
-  producedAt: string,
-  recommended: string,
-  evidenceUri: string,
-  rationale?: string,
-): AnalystFinding {
-  return {
-    schema_version: '1.0.0',
-    finding_id: computeFindingId({ analyst_id: ANALYST_ID, area, subject, claim }),
-    analyst_id: ANALYST_ID,
-    produced_at: producedAt,
-    severity,
-    area,
-    claim,
-    rationale,
-    evidence_refs: [{ kind: 'artifact', uri: evidenceUri }],
-    recommended_action: recommended,
-    confidence,
-    subject,
-  }
-}
 
-/** Pure rule pass over a report → findings. Exported for direct/unit use. */
-export function emitSkillUsageFindings(
-  report: SkillUsageReport,
-  producedAt: string,
-): AnalystFinding[] {
-  const out: AnalystFinding[] = []
-  for (const r of report.records) {
-    const directTotal = r.directInvocations + r.slashInvocations
-    const trueUsage = directTotal + r.inboundRefs + r.artifactCount
 
-    // 1. Dead: no usage signal of ANY kind. The only real deprecation candidate.
-    if (trueUsage === 0) {
-      out.push(
-        finding(
-          'skill-usage',
-          r.name,
-          `Skill '${r.name}' has zero usage across all signals (direct, slash, inbound-refs, artifacts)`,
-          'high',
-          0.6,
-          producedAt,
-          'Confirm the skill covers a real recurring job; if not, deprecate. Zero true usage is the only deterministic deprecation candidate.',
-          r.path,
-          'No Skill-tool call, no slash invocation, no sibling dispatches to it, and no on-disk artifacts.',
-        ),
-      )
-    } else if (directTotal === 0 && r.inboundRefs + r.artifactCount > 0) {
-      // 2. Measurement-invisible: real use via orchestration/artifacts, never invoked directly.
-      out.push(
-        finding(
-          'skill-usage',
-          r.name,
-          `Skill '${r.name}' shows 0 direct invocations but is used via orchestration/artifacts (inbound=${r.inboundRefs}, artifacts=${r.artifactCount})`,
-          'info',
-          0.8,
-          producedAt,
-          'Do NOT treat as unused — usage is real but logged under parent skills or on disk. Strengthen direct-invocation discovery only if direct use is desired.',
-          r.path,
-          'The Skill-tool counter undercounts orchestrated/chained leaf skills.',
-        ),
-      )
-    }
 
-    // 3. Discovery gap: low direct use AND weak trigger surface.
-    if (directTotal <= 2 && !r.hasTriggerPhrases) {
-      out.push(
-        finding(
-          'discoverability',
-          r.name,
-          `Skill '${r.name}' is rarely invoked directly and its description has no explicit trigger phrases`,
-          'medium',
-          0.7,
-          producedAt,
-          'Add a `Triggers:` clause with verbatim user phrases to the frontmatter description so the model auto-invokes it.',
-          r.path,
-        ),
-      )
-    }
 
-    // 4. Public-repo leak.
-    if (r.kind === 'public' && r.tanglePrivateRefs > 0) {
-      out.push(
-        finding(
-          'safety',
-          r.name,
-          `Public skill '${r.name}' carries ${r.tanglePrivateRefs} Tangle-private reference(s)`,
-          'high',
-          0.75,
-          producedAt,
-          'Sanitize incidental internal refs (cli-bridge/kimi/tcloud/~company/private repos) or relocate to a private repo. Verify @tangle-network/* refs are to PUBLISHED packages before treating as a leak.',
-          r.path,
-        ),
-      )
-    }
-
-    // 5. Bloat / no progressive disclosure.
-    if (r.lines > BLOAT_LINE_THRESHOLD && !r.hasReferencesDir) {
-      out.push(
-        finding(
-          'maintainability',
-          r.name,
-          `Skill '${r.name}' is ${r.lines} lines with no references/ split (progressive disclosure)`,
-          'medium',
-          0.8,
-          producedAt,
-          `Split detail into references/ loaded on demand; keep SKILL.md a short overview. ${r.lines} lines load into every session's context budget.`,
-          r.path,
-        ),
-      )
-    }
-
-    // 6. No evals (Anthropic's ">=3 evals before docs" rule).
-    if (!r.hasEvalsDir) {
-      out.push(
-        finding(
-          'data-quality',
-          r.name,
-          `Skill '${r.name}' ships no evals/`,
-          'low',
-          0.6,
-          producedAt,
-          'Add evals/evals.json with >=3 scenarios proving the skill beats baseline; gives regression coverage.',
-          r.path,
-        ),
-      )
-    }
-
-    // 7. No run logging → invisible to /reflect and /governor.
-    if (!r.logsRuns) {
-      out.push(
-        finding(
-          'observability',
-          r.name,
-          `Skill '${r.name}' never appends to .evolve/skill-runs.jsonl`,
-          'low',
-          0.55,
-          producedAt,
-          'Append one run line to .evolve/skill-runs.jsonl on completion, or declare it a non-logging leaf, so the self-improvement loop can see it ran.',
-          r.path,
-        ),
-      )
-    }
-  }
-  return out
-}
 
 // ── The Analyst ──────────────────────────────────────────────────────
 
-class SkillUsageAnalyst implements ExactCapableAnalyst<SkillUsageReport> {
-  readonly id = ANALYST_ID
-  readonly description =
-    'Deterministic multi-signal skill-usage analysis: flags dead skills, measurement-invisible (orchestrated) usage, discovery gaps, public-repo leaks, bloat, missing evals, and missing run-logging.'
-  readonly inputKind = 'custom' as const
-  readonly cost = { kind: 'deterministic' as const, est_usd_per_run: 0 }
-  readonly version = '1.0.0'
-  readonly executionConfig = {
-    kind: 'skill-usage',
-    bloat_line_threshold: BLOAT_LINE_THRESHOLD,
-    produced_at_source: 'tags.producedAt-or-system-clock',
-  } as const
 
-  async analyze(input: SkillUsageReport, ctx: AnalystContext): Promise<AnalystFinding[]> {
-    const producedAt = ctx.tags?.producedAt ?? new Date().toISOString()
-    ctx.log?.(
-      `skill-usage: ${input.records.length} skills over ${input.generatedFromTraces} transcripts`,
-    )
-    return emitSkillUsageFindings(input, producedAt)
-  }
-}
 
-export const SKILL_USAGE_ANALYST = new SkillUsageAnalyst()
+

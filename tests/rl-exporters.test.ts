@@ -8,7 +8,7 @@ import {
   toPrmJsonl,
   toPrmRows,
   toSftJsonl,
-  toSftRows,
+  toSftRowsWithLookups,
 } from '../src/rl/exporters'
 import type { PreferenceTriple } from '../src/rl/preferences'
 import type { PrmTrainingTriple, StepReward } from '../src/rl/process-reward'
@@ -236,10 +236,10 @@ describe('toGrpoRows', () => {
   })
 })
 
-describe('toSftRows', () => {
+describe('toSftRowsWithLookups', () => {
   it('recovers a gap line as system + user + assistant from the text lookups', async () => {
     const lines = [line({ runId: 'a', scenarioId: 's', score: 0.9, gap: true })]
-    const rows = await toSftRows(lines, {
+    const rows = await toSftRowsWithLookups(lines, {
       promptOf: (id) => `user-prompt-${id}`,
       completionOf: (id) => `assistant-${id}`,
       systemOf: () => 'You are helpful.',
@@ -256,7 +256,7 @@ describe('toSftRows', () => {
       line({ runId: 'good', scenarioId: 's', score: 0.95 }),
       line({ runId: 'bad', scenarioId: 's', score: 0.2 }),
     ]
-    const rows = await toSftRows(lines, {
+    const rows = await toSftRowsWithLookups(lines, {
       promptOf: () => 'p',
       completionOf: () => 'c',
       include: (rollout) => (rollout.outcome.reward ?? 0) >= 0.5,
@@ -267,7 +267,7 @@ describe('toSftRows', () => {
 
   it('omits system message when systemOf returns null', async () => {
     const lines = [line({ runId: 'a', scenarioId: 's', score: 0.5, gap: true })]
-    const rows = await toSftRows(lines, {
+    const rows = await toSftRowsWithLookups(lines, {
       promptOf: () => 'p',
       completionOf: () => 'c',
       systemOf: () => null,
@@ -297,7 +297,7 @@ describe('toSftRows', () => {
       completionOf: () => 'c',
     }
 
-    const rows = await toSftRows([search, dev, zero, unscored, failed, holdout], base)
+    const rows = await toSftRowsWithLookups([search, dev, zero, unscored, failed, holdout], base)
     expect(rows.map((row) => row.meta?.runId)).toEqual(['search'])
   })
 
@@ -313,8 +313,8 @@ describe('toSftRows', () => {
       completionOf: () => 'c',
     }
 
-    expect(await toSftRows([holdout], base)).toEqual([])
-    const rows = await toSftRows([holdout], {
+    expect(await toSftRowsWithLookups([holdout], base)).toEqual([])
+    const rows = await toSftRowsWithLookups([holdout], {
       ...base,
       allowHeldOutTrainingData: true,
     })

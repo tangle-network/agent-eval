@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GateDecision } from '../src/held-out-gate'
+import type { HeldOutGateDecision } from '../src/held-out-gate'
 import type { RunRecord } from '../src/run-record'
 import { gainHistogram, paretoChart, researchReport, summaryTable } from '../src/summary-report'
 
@@ -106,7 +106,7 @@ describe('paretoChart', () => {
 
   it('overlays gate decisions when provided', () => {
     const runs = [rec('cand', 0, 'holdout', 0.8, 0.1)]
-    const decision: GateDecision = {
+    const decision: HeldOutGateDecision = {
       promote: true,
       candidateId: 'cand',
       baselineId: 'base',
@@ -258,7 +258,7 @@ describe('researchReport', () => {
       runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001, 0.08, `task-${i}`))
       runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, candidateCost, `task-${i}`))
     }
-    const decision: GateDecision = {
+    const decision: HeldOutGateDecision = {
       promote: false,
       candidateId: 'candidate',
       baselineId: 'baseline',
@@ -402,7 +402,7 @@ describe('researchReport', () => {
       runs.push(rec('baseline', i, 'holdout', 0.5 + i * 0.001, 0.08, `task-${i}`))
       runs.push(rec('candidate', i, 'holdout', 0.7 + i * 0.001, 0.1, `task-${i}`))
     }
-    const decision: GateDecision = {
+    const decision: HeldOutGateDecision = {
       promote: false,
       candidateId: 'candidate',
       baselineId: 'baseline',

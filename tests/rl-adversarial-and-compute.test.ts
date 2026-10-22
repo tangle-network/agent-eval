@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestOfN, paretoFrontier, runComputeCurve, selfConsistency } from '../src/rl/compute-curves'
+import { bestOfN, paretoCostScoreFrontier, runComputeCurve, selfConsistency } from '../src/rl/compute-curves'
 
 describe('bestOfN', () => {
   it('picks the highest-scoring sample', async () => {
@@ -31,7 +31,7 @@ describe('selfConsistency', () => {
   })
 })
 
-describe('runComputeCurve + paretoFrontier', () => {
+describe('runComputeCurve + paretoCostScoreFrontier', () => {
   it('produces a sorted curve and a positive log-slope under "more compute helps"', async () => {
     const curve = await runComputeCurve({
       candidateId: 'cand',
@@ -50,8 +50,8 @@ describe('runComputeCurve + paretoFrontier', () => {
     expect(curve.best.budgetId).toBe('16x')
   })
 
-  it('paretoFrontier removes dominated points', () => {
-    const front = paretoFrontier([
+  it('paretoCostScoreFrontier removes dominated points', () => {
+    const front = paretoCostScoreFrontier([
       { candidateId: 'cheap_bad', budgetId: '1x', cost: 1, score: 0.4 },
       { candidateId: 'cheap_good', budgetId: '1x', cost: 1, score: 0.7 },
       { candidateId: 'pricey_great', budgetId: '4x', cost: 4, score: 0.85 },

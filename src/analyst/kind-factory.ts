@@ -452,7 +452,7 @@ function toAnalystFinding(
   })
 }
 
-export function renderPriorFindings(prior: AnalystContext['priorFindings']): string {
+function renderPriorFindings(prior: AnalystContext['priorFindings']): string {
   if (!prior || prior.length === 0) return ''
   const maxRows = 40
   const rows = prior.slice(0, maxRows).map((finding) => {

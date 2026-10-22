@@ -143,13 +143,7 @@ export const FINDING_SUBJECT_PATTERNS: ReadonlyArray<{
   { kind: 'cluster', pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' },
 ]
 
-/** True when `subject` matches the grammar. The portable half of the parser:
- *  the same decision the Python client makes from the emitted contract. */
-export function isFindingSubject(subject: string): boolean {
-  const trimmed = subject.trim()
-  if (trimmed.length === 0) return false
-  return FINDING_SUBJECT_PATTERNS.some((entry) => new RegExp(entry.pattern).test(trimmed))
-}
+
 
 // ── parser ────────────────────────────────────────────────────────────
 

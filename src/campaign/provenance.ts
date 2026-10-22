@@ -277,7 +277,7 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
 }
 
 /** Build the durable provenance record from a completed loop result. */
-export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>(
+function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>(
   args: BuildLoopProvenanceArgs<TArtifact, TScenario>,
 ): LoopProvenanceRecord {
   if (!args.runId.trim() || !args.runDir.trim()) {
@@ -603,18 +603,7 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
   })
 }
 
-/** Recompute and validate the self-addressed durable record. */
-export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopProvenanceRecord {
-  if (record.schema !== 'tangle.loop-provenance') {
-    throw new Error('loop provenance has an unsupported schema')
-  }
-  const { recordDigest, ...recordWithoutDigest } = record
-  if (recordDigest !== canonicalDigest(recordWithoutDigest)) {
-    throw new Error('loop provenance record digest does not match its contents')
-  }
-  assertGateContributions(record.gate?.contributingGates, 'loop provenance')
-  return record
-}
+
 
 /** SHA-256 over the RFC 8785 canonical JSON of `value`. Throws
  * `LedgerCanonicalizationError` for a value with no canonical form. */
@@ -737,7 +726,7 @@ function hashId(parts: string[]): string {
  * Times are synthesized monotonically off a single base so the span tree is
  * orderable; the substrate does not retain per-candidate wall-clock starts.
  */
-export function loopProvenanceSpans(
+function loopProvenanceSpans(
   record: LoopProvenanceRecord,
   opts: { baseTimeMs?: number } = {},
 ): TraceSpanEvent[] {

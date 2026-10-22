@@ -80,7 +80,7 @@ export interface HostedClient {
 }
 
 /** A request the server refused, after any retries. */
-export class HostedRequestError extends Error {
+class HostedRequestError extends Error {
   readonly status: number
   readonly body: string
   constructor(url: string, status: number, body: string) {

@@ -1,6 +1,6 @@
 /** Compare executable decision policies using the existing matrix runner, not another evaluator. */
 import type { CostReceipt } from '../src/cost-ledger'
-import type { EvaluationContext, Evaluator } from '../src/evaluation'
+import type { EvaluationContext, CostedEvaluator } from '../src/evaluation'
 import type { SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneState } from '../src/systemone-protocol'
 import { runAgentMatrix, withCellSpend } from '../src/matrix'
 
@@ -27,7 +27,7 @@ export interface DecisionConfiguration {
 export async function compareDecisions(options: {
   cases: DecisionCase[]
   configurations: DecisionConfiguration[]
-  evaluate: Evaluator<SystemOneRequest, SystemOneResult>
+  evaluate: CostedEvaluator<SystemOneRequest, SystemOneResult>
   context?: Omit<EvaluationContext, 'callId'>
   maxConcurrency?: number
   repetitions?: number
@@ -36,7 +36,7 @@ export async function compareDecisions(options: {
     sourceUnit: string
     configuration: { id: string; version: string }
     request: SystemOneRequest
-    result: Awaited<ReturnType<Evaluator<SystemOneRequest, SystemOneResult>>>
+    result: Awaited<ReturnType<CostedEvaluator<SystemOneRequest, SystemOneResult>>>
     decision: string | null
   }) => void | Promise<void>
 }) {

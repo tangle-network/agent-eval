@@ -25,7 +25,7 @@ import type { ChatMessage } from '../schema'
 export const DEFAULT_CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
 /** Claude Code's project-directory slug for a working directory. */
-export function claudeProjectSlug(cwd: string): string {
+function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9-]/g, '-')
 }
 
@@ -85,7 +85,7 @@ const USAGE_FIELDS = [
  * The messages+usage projection of a normalized session. A usage field is null when any answered
  * model call did not report it, so a partial sum is never mistaken for the session's usage.
  */
-export function transcriptFromSession(session: HarnessSession): ClaudeTranscript {
+function transcriptFromSession(session: HarnessSession): ClaudeTranscript {
   const gaps = session.integrity.gaps.filter((gap) =>
     /is not a JSON record|still being written/u.test(gap),
   )

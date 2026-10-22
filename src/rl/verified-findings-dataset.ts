@@ -76,7 +76,7 @@ export interface ReplayBatchFix {
   failureVanished: boolean | null
 }
 
-export interface ReplayBatchReport {
+export interface ReplayBatchReportFile {
   generatedAt: string
   cases: ReplayBatchCase[]
 }
@@ -100,7 +100,7 @@ export interface NormalizedStep {
   observation?: string | null
 }
 
-export interface PrefixDivergence {
+export interface RecordedPrefixDivergence {
   step: number
   /** `unknown-expectation` marks a step the recording carries no returncode
    *  for: it could not be confirmed, so it is not agreement. */
@@ -116,14 +116,14 @@ export interface CaseVerdictDetail {
   prefixExecuted: number
   recordedReturncode: number
   signatureBasis: string | null
-  prefixDivergences: PrefixDivergence[]
+  prefixDivergences: RecordedPrefixDivergence[]
   armACommand: string | null
   runIds: { original: string | null; armA: string | null }
 }
 
 // ── Row schema ──────────────────────────────────────────────────────
 
-export interface TrajectoryStep {
+export interface DatasetTrajectoryStep {
   stepId: number
   action: string
   observation: string | null
@@ -170,7 +170,7 @@ export interface VerifiedFindingRow {
   /** Prefix context 1..k — post-k steps are excluded so a trainer never sees the future. */
   trajectory: {
     window: { start: number; end: number }
-    steps: TrajectoryStep[]
+    steps: DatasetTrajectoryStep[]
   }
   verification: {
     reproduced: boolean
@@ -185,7 +185,7 @@ export interface VerifiedFindingRow {
     /** Steps the recording carries no returncode for. Nonzero here means part
      *  of the prefix replay was never confirmed against the recording. */
     prefixUnknownExpectations: number
-    prefixDivergenceDetail: PrefixDivergence[] | null
+    prefixDivergenceDetail: RecordedPrefixDivergence[] | null
     armAExit: number | null
     armAReturncodeMatch: boolean
     armACommand: string | null
@@ -283,7 +283,7 @@ function deriveFixOutcome(caseId: string, batchCase: ReplayBatchCase): VerifiedF
 function truncateObservation(
   observation: string | null | undefined,
   maxChars: number,
-): Pick<TrajectoryStep, 'observation' | 'observationTruncated' | 'observationChars'> {
+): Pick<DatasetTrajectoryStep, 'observation' | 'observationTruncated' | 'observationChars'> {
   if (observation === null || observation === undefined) {
     return { observation: null, observationTruncated: false, observationChars: 0 }
   }
@@ -301,7 +301,7 @@ function truncateObservation(
  * Join one batch case with its gold label and trajectory into a row.
  * Throws on any join inconsistency — never emits a partially joined row.
  */
-export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): VerifiedFindingRow {
+function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): VerifiedFindingRow {
   const { batchCase, label, steps, detail } = args
   const caseId = `${args.runId}/${batchCase.corpus}/${batchCase.trajId}`
   const maxObservationChars = args.maxObservationChars ?? DEFAULT_MAX_OBSERVATION_CHARS
@@ -378,7 +378,7 @@ export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): Veri
   }
 
   const stepAtK = steps[k - 1]!
-  const trajectorySteps: TrajectoryStep[] = steps.slice(0, k).map((step) => ({
+  const trajectorySteps: DatasetTrajectoryStep[] = steps.slice(0, k).map((step) => ({
     stepId: step.step_id,
     action: step.action,
     ...truncateObservation(step.observation, maxObservationChars),
@@ -443,7 +443,7 @@ export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): Veri
   }
 }
 
-export function summarizeVerifiedFindings(rows: VerifiedFindingRow[]): VerifiedFindingsSummary {
+function summarizeVerifiedFindings(rows: VerifiedFindingRow[]): VerifiedFindingsSummary {
   const summary: VerifiedFindingsSummary = {
     rows: rows.length,
     reproduced: 0,
@@ -529,7 +529,7 @@ interface CaseVerdictFile {
   prefixExecuted: number
   recordedReturncode: number
   signatureBasis?: string | null
-  prefixDivergences?: PrefixDivergence[]
+  prefixDivergences?: RecordedPrefixDivergence[]
   armA?: { command?: string | null } | null
   runIds?: { original?: string | null; armA?: string | null } | null
 }
@@ -573,7 +573,7 @@ export function loadVerifiedFindingsDataset(
   source: VerifiedFindingsSource,
 ): VerifiedFindingsDataset {
   const report = readJson(source.batchReportPath, 'batch report')
-  const parsedReport = report.value as ReplayBatchReport
+  const parsedReport = report.value as ReplayBatchReportFile
   if (!Array.isArray(parsedReport.cases) || parsedReport.cases.length === 0) {
     throw new Error(`verified-findings: batch report at ${source.batchReportPath} has no cases`)
   }

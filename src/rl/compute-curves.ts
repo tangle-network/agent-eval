@@ -202,7 +202,7 @@ export interface ParetoPointInput {
   score: number
 }
 
-export function paretoFrontier(points: ParetoPointInput[]): ParetoPointInput[] {
+export function paretoCostScoreFrontier(points: ParetoPointInput[]): ParetoPointInput[] {
   const onFrontier: ParetoPointInput[] = []
   for (const p of points) {
     const dominated = points.some(

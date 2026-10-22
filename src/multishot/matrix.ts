@@ -12,7 +12,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CostProvenance } from '../cost-ledger'
 import type { MatrixResult } from '../matrix'
 import { runAgentMatrix, withCellSpend } from '../matrix'
-import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
+import { type MultishotJudgeConfig, type JudgeScore, runJudge } from './judges'
 import { type MultishotShot, runMultishot } from './multishot'
 import {
   assertMultishotShotResult,
@@ -37,11 +37,11 @@ export interface ArtifactJudgeInput<TPersona extends MultishotPersona> {
 
 export interface MultishotJudges<TPersona extends MultishotPersona> {
   /** Scores the full transcript end-to-end (always runs). */
-  conversation: JudgeConfig<ConversationJudgeInput<TPersona>>
+  conversation: MultishotJudgeConfig<ConversationJudgeInput<TPersona>>
   /** Scores each code-type artifact. Optional — omit when domain has no code artifacts. */
-  codeReview?: JudgeConfig<ArtifactJudgeInput<TPersona>>
+  codeReview?: MultishotJudgeConfig<ArtifactJudgeInput<TPersona>>
   /** Scores each non-code (research/content/template) artifact. Optional. */
-  contentQuality?: JudgeConfig<ArtifactJudgeInput<TPersona>>
+  contentQuality?: MultishotJudgeConfig<ArtifactJudgeInput<TPersona>>
   /** Which artifact types route to codeReview. Defaults to ['code']. */
   codeArtifactTypes?: string[]
   /** Which artifact types route to contentQuality. Defaults to ['research']. */
@@ -451,9 +451,9 @@ function shotCostSubtotal(
 }
 
 function withJudgeMaxTokens<TInput>(
-  judge: JudgeConfig<TInput>,
+  judge: MultishotJudgeConfig<TInput>,
   maxTokens: number | undefined,
-): JudgeConfig<TInput> {
+): MultishotJudgeConfig<TInput> {
   if (maxTokens === undefined || judge.maxTokens !== undefined) return judge
   return { ...judge, maxTokens }
 }

@@ -7,7 +7,7 @@ import type {
 import { sha256Digest } from './benchmark-verification-artifacts'
 
 /** Build an override from instruction text. Blank text is a caller error. */
-export function analystInstructionsOverrideFromText(text: string): AnalystInstructionsOverride {
+function analystInstructionsOverrideFromText(text: string): AnalystInstructionsOverride {
   if (typeof text !== 'string' || !text.trim()) {
     throw new Error('analyst instructions override must contain non-empty instruction text')
   }

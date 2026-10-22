@@ -295,48 +295,7 @@ function clampPct(v: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0
 }
 
-/**
- * LLM nuance scoring — judges the "looks real but is hollow" axis structure
- * misses. Inject a `complete` caller; returns mocked/fake/unique % + a verdict.
- * Fail-soft: a bad/unparseable response yields a worst-case (fully-fake) read,
- * never a false pass.
- */
-export async function scoreAuthenticityNuance(
-  files: readonly ProducedFile[],
-  complete: CompleteFn,
-  opts: { intent?: string; prioritize?: RegExp } = {},
-): Promise<AuthenticityNuance> {
-  const system =
-    'You audit whether an agent BUILT THE REAL THING or faked it. Be skeptical: ' +
-    'a pretty UI, cosmetic labels, simulated/in-memory stand-ins for real infra, ' +
-    'and cargo-culted imports do NOT count as real. Respond with ONLY JSON: ' +
-    '{"mockedPct":0-100,"fakePct":0-100,"uniquePct":0-100,"verdict":"one sentence"}. ' +
-    'mockedPct = how much is mocked/stubbed; fakePct = how hollow/facade it is; ' +
-    'uniquePct = how distinctive vs boilerplate.'
-  const user =
-    (opts.intent ? `Intended deliverable: ${opts.intent}\n\n` : '') +
-    `Produced files:\n${fileDigest(files, { prioritize: opts.prioritize })}`
-  try {
-    const raw = await complete(system, user)
-    const m = raw.match(/\{[\s\S]*\}/)
-    if (!m)
-      return { mockedPct: 100, fakePct: 100, uniquePct: 0, verdict: 'unparseable judge response' }
-    const j = JSON.parse(m[0]) as Record<string, unknown>
-    return {
-      mockedPct: clampPct(j.mockedPct),
-      fakePct: clampPct(j.fakePct),
-      uniquePct: clampPct(j.uniquePct),
-      verdict: typeof j.verdict === 'string' ? j.verdict : '',
-    }
-  } catch (err) {
-    return {
-      mockedPct: 100,
-      fakePct: 100,
-      uniquePct: 0,
-      verdict: `judge error: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
-}
+
 
 // ── Realness-direct LLM judge ─────────────────────────────────────────────────
 
@@ -354,7 +313,7 @@ export interface RealnessJudgment {
  * consumer supplies `intent` (what the deliverable should be) and `rubric` (domain
  * specifics of real-vs-fake). Fail-closed: a bad response reads as fully fake.
  */
-export async function judgeRealnessLlm(
+async function judgeRealnessLlm(
   files: readonly ProducedFile[],
   complete: CompleteFn,
   opts: { intent?: string; rubric?: string; prioritize?: RegExp } = {},

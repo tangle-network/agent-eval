@@ -14,7 +14,7 @@ import {
   toDpoRows,
   toGrpoRows,
   toPrmRows,
-  toSftRows,
+  toSftRowsWithLookups,
 } from '../rl/exporters'
 import {
   extractPreferences,
@@ -336,9 +336,9 @@ describe('a realness-gated run exports at reward 0 on every training path', () =
     expect(byRun.get('run-honest')).toBe(HONEST_SCORE)
   })
 
-  it('toSftRows never emits the gamed trajectory as an imitation target', async () => {
+  it('toSftRowsWithLookups never emits the gamed trajectory as an imitation target', async () => {
     const { rows: lines } = await mintRolloutRows([honest, gamed], new InMemoryTraceStore())
-    const rows = await toSftRows(lines, lookups)
+    const rows = await toSftRowsWithLookups(lines, lookups)
     expect(rows.some((r) => r.meta?.runId === 'run-gamed')).toBe(false)
     expect(rows.some((r) => r.meta?.runId === 'run-honest')).toBe(true)
   })
@@ -1005,7 +1005,7 @@ describe('the runtime backstop composes EVERY check, not the ones it remembered'
   })
 
   it('refuses it on the rl/ reward reader and the SFT path built on it', async () => {
-    await expect(toSftRows([forged], lookups)).rejects.toThrow(/realness_screened: false/)
+    await expect(toSftRowsWithLookups([forged], lookups)).rejects.toThrow(/realness_screened: false/)
   })
 
   it('refuses it when it arrives as CONTEXT to a line-less exporter', () => {

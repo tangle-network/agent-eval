@@ -181,27 +181,4 @@ function parseSseJson(raw: string): unknown | null {
   }
 }
 
-/**
- * Extract usage from an HTTP `Response` without consuming the caller's body:
- * clones, reads the text, and tries the JSON parser first, then the SSE
- * accumulator. Best-effort — returns null on any read/parse miss so a usage tee
- * never takes down the underlying call.
- */
-export async function extractUsageFromResponse(
-  response: Response,
-  sseOptions?: ExtractUsageFromSseOptions,
-): Promise<ExtractedUsage | null> {
-  let text: string
-  try {
-    text = await response.clone().text()
-  } catch {
-    return null
-  }
-  let json: unknown
-  try {
-    json = JSON.parse(text)
-  } catch {
-    json = undefined
-  }
-  return extractUsage(json) ?? extractUsageFromSse(text, sseOptions)
-}
+

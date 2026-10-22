@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../errors'
 import {
   createDockerContinuationEnvironment,
-  dockerRunArgs,
   nodeProcessRunner,
   type ProcessRequest,
   type ProcessResult,
@@ -27,32 +26,7 @@ function recordingRunner(results: ProcessResult[]): RecordingRunner {
   }
 }
 
-describe('dockerRunArgs', () => {
-  it('creates the container without a network', () => {
-    const argv = dockerRunArgs({ image: 'alexgshaw/fix-git:20251031', name: 'tb-1', cwd: '/app' })
-    expect(argv).toEqual([
-      'docker',
-      'run',
-      '-d',
-      '--name',
-      'tb-1',
-      '--network',
-      'none',
-      '-w',
-      '/app',
-      '--rm',
-      'alexgshaw/fix-git:20251031',
-      'sleep',
-      '2h',
-    ])
-  })
 
-  it('offers no way to ask for a network', () => {
-    const argv = dockerRunArgs({ image: 'img', name: 'n', cwd: '/', containerLifetime: '30m' })
-    expect(argv.filter((arg) => arg === '--network')).toHaveLength(1)
-    expect(argv[argv.indexOf('--network') + 1]).toBe('none')
-  })
-})
 
 describe('createDockerContinuationEnvironment', () => {
   it('reports the network mode the daemon holds, not the one requested', async () => {

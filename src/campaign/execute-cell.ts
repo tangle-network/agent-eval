@@ -73,52 +73,54 @@ export interface ExecuteCellResult<TArtifact> {
   retry?: boolean
 }
 
-export async function executeCell<TScenario extends Scenario, TArtifact>(
-  args: ExecuteCellArgs<TScenario, TArtifact>,
-): Promise<ExecuteCellResult<TArtifact>> {
-  const storage = args.storage
-  const cellDir = cellDirectory(args.opts.runDir, args.slot.cellId)
-  storage.ensureDir(cellDir)
-  const stableCostTags = stableCostTagsFor(args.opts, args.slot)
-  const costTags = { ...stableCostTags, runAttemptId: args.runAttemptId }
-  const attemptCostTags = { ...costTags, attemptNumber: String(args.attempt) }
+type CellArgs<TScenario extends Scenario, TArtifact> = ExecuteCellArgs<TScenario, TArtifact>
 
-  // Resumability: cache key = (manifestHash, scenarioId, rep)
-  const cachePath = join(cellDir, 'cached-result.json')
-  if (args.resumable) {
-    const cached = readCachedCell<TArtifact>({
-      storage,
-      cachePath,
-      cellId: args.slot.cellId,
-      manifestHash: args.manifestHash,
-    })
-    if (
-      cached.status === 'miss' &&
-      cacheIssueRequiresExplicitRerun(cached.reason) &&
-      !args.opts.rerunInvalidCachedCells
-    ) {
-      throw invalidCachedCellsError([{ cellId: args.slot.cellId, reason: cached.reason }])
+/** A cached cell is reused only when its receipts still match the ledger; invalid cache entries need an explicit rerun. */
+function reuseCachedCell<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  cachePath: string,
+  stableCostTags: ReturnType<typeof stableCostTagsFor>,
+): ExecuteCellResult<TArtifact> | undefined {
+  const cached = readCachedCell<TArtifact>({
+    storage: args.storage,
+    cachePath,
+    cellId: args.slot.cellId,
+    manifestHash: args.manifestHash,
+  })
+  if (
+    cached.status === 'miss' &&
+    cacheIssueRequiresExplicitRerun(cached.reason) &&
+    !args.opts.rerunInvalidCachedCells
+  ) {
+    throw invalidCachedCellsError([{ cellId: args.slot.cellId, reason: cached.reason }])
+  }
+  if (cached.status === 'hit' && (!cached.cell.error || args.opts.reuseFailedCells)) {
+    const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
+    if (receiptProblem === undefined) {
+      const cell = withCurrentAgentModelEvidence(cached.cell, args.costLedger, stableCostTags)
+      enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
+      return { cell: { ...cell, cached: true }, artifactsByPath: {} }
     }
-    if (cached.status === 'hit' && (!cached.cell.error || args.opts.reuseFailedCells)) {
-      const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
-      if (receiptProblem === undefined) {
-        const cell = withCurrentAgentModelEvidence(cached.cell, args.costLedger, stableCostTags)
-        enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
-        return { cell: { ...cell, cached: true }, artifactsByPath: {} }
-      }
-      if (!args.opts.rerunInvalidCachedCells) {
-        throw invalidCachedCellsError([
-          {
-            cellId: args.slot.cellId,
-            reason: 'invalid-cost-receipts',
-            detail: receiptProblem,
-          },
-        ])
-      }
+    if (!args.opts.rerunInvalidCachedCells) {
+      throw invalidCachedCellsError([
+        {
+          cellId: args.slot.cellId,
+          reason: 'invalid-cost-receipts',
+          detail: receiptProblem,
+        },
+      ])
     }
   }
+  return undefined
+}
 
-  const startMs = Date.now()
+/** The directories, writers, abort chain and dispatch context of one execution attempt. */
+function openAttempt<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  cellDir: string,
+  attemptCostTags: Record<string, string>,
+) {
+  const { storage } = args
   const attempt = { runAttemptId: args.runAttemptId, number: args.attempt }
   const attemptDir = cellAttemptDirectory(cellDir, attempt)
   const artifactDir = join(attemptDir, 'artifacts')
@@ -147,7 +149,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/identity.json`] = identityPath
   storage.write(join(cellDir, 'latest-attempt.json'), JSON.stringify(attempt))
   const trace = args.buildTraceWriter(args.slot.cellId, traceDir)
-  let paidCallStarted = false
+  const paid = { started: false }
   const artifacts: CampaignArtifactWriter = {
     async write(path, content) {
       const fullPath = resolve(artifactDir, path)
@@ -171,9 +173,16 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       return artifacts.write(path, JSON.stringify(value, null, 2))
     },
   }
+
+  // Per-cell abort signal, chained to the campaign signal. The dispatch sees
+  // THIS signal so a timeout (below) can abort just this cell's in-flight work
+  // without tearing down sibling cells — and a signal-honoring dispatch
+  // releases its open request instead of leaking it past the deadline.
+  const cellAbort = new AbortController()
+  const onCampaignAbort = () => cellAbort.abort((args.signal as { reason?: unknown }).reason)
   const cost: CampaignCostMeter = {
     async runPaidCall(input) {
-      paidCallStarted = true
+      paid.started = true
       const result = await args.costLedger.runPaidCall({
         ...input,
         channel: input.channel ?? 'agent',
@@ -194,12 +203,6 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     rep: args.slot.rep,
   })
 
-  // Per-cell abort signal, chained to the campaign signal. The dispatch sees
-  // THIS signal so a timeout (below) can abort just this cell's in-flight work
-  // without tearing down sibling cells — and a signal-honoring dispatch
-  // releases its open request instead of leaking it past the deadline.
-  const cellAbort = new AbortController()
-  const onCampaignAbort = () => cellAbort.abort((args.signal as { reason?: unknown }).reason)
   if (args.signal.aborted) cellAbort.abort((args.signal as { reason?: unknown }).reason)
   else args.signal.addEventListener('abort', onCampaignAbort, { once: true })
 
@@ -214,11 +217,32 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     cost,
     placement,
   }
+  return {
+    attempt,
+    attemptDir,
+    attemptPrefix,
+    artifactsByPath,
+    trace,
+    paid,
+    cellAbort,
+    onCampaignAbort,
+    ctx,
+  }
+}
 
+type OpenAttempt<TScenario extends Scenario, TArtifact> = ReturnType<
+  typeof openAttempt<TScenario, TArtifact>
+>
+
+/** Dispatch the scenario under the per-cell abort and the dispatch deadline. A failure is recorded, not thrown. */
+async function dispatchCell<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  run: OpenAttempt<TScenario, TArtifact>,
+) {
+  const { cellAbort, onCampaignAbort, ctx } = run
   let artifact: TArtifact | undefined
   let errorMessage: string | undefined
   let failure: CellFailure | undefined
-  let fatalCellError: unknown
   let dispatched: Promise<TArtifact> | undefined
   const timeoutMs = args.dispatchTimeoutMs
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined
@@ -268,7 +292,17 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     removeAbortListener()
     args.signal.removeEventListener('abort', onCampaignAbort)
   }
+  return { artifact, errorMessage, failure, dispatched }
+}
 
+/** A dispatch that ignored cancellation, or paid calls that never settled, mean no trustworthy cell result exists. */
+async function awaitCellShutdown<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  run: OpenAttempt<TScenario, TArtifact>,
+  dispatched: Promise<TArtifact> | undefined,
+  costTags: Record<string, string>,
+): Promise<void> {
+  const { trace, paid } = run
   if (dispatched) {
     const dispatchSettled = await settlesWithin(dispatched, args.dispatchShutdownTimeoutMs)
     if (!dispatchSettled) {
@@ -278,25 +312,30 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       )
     }
   }
-  if (paidCallStarted) {
-    if (typeof args.costLedger.waitForIdle !== 'function') {
-      await trace.flush()
-      throw new CostAccountingIncompleteError(
-        `cost ledger for cell '${args.slot.cellId}' cannot prove that paid calls stopped`,
-      )
-    }
-    const paidCallsSettled = await args.costLedger.waitForIdle({
-      timeoutMs: args.dispatchShutdownTimeoutMs,
-      filter: { channel: 'agent', phase: args.costPhase, tags: costTags },
-    })
-    if (!paidCallsSettled) {
-      await trace.flush()
-      throw new CostAccountingIncompleteError(
-        `paid calls for cell '${args.slot.cellId}' did not settle within ${args.dispatchShutdownTimeoutMs}ms; no campaign result was produced`,
-      )
-    }
+  if (!paid.started) return
+  if (typeof args.costLedger.waitForIdle !== 'function') {
+    await trace.flush()
+    throw new CostAccountingIncompleteError(
+      `cost ledger for cell '${args.slot.cellId}' cannot prove that paid calls stopped`,
+    )
   }
+  const paidCallsSettled = await args.costLedger.waitForIdle({
+    timeoutMs: args.dispatchShutdownTimeoutMs,
+    filter: { channel: 'agent', phase: args.costPhase, tags: costTags },
+  })
+  if (!paidCallsSettled) {
+    await trace.flush()
+    throw new CostAccountingIncompleteError(
+      `paid calls for cell '${args.slot.cellId}' did not settle within ${args.dispatchShutdownTimeoutMs}ms; no campaign result was produced`,
+    )
+  }
+}
 
+/** The agent spend of this attempt: cost, token usage and the models that served it. */
+function measureAgentUsage<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  costTags: Record<string, string>,
+) {
   const agentReceipts = args.costLedger.list({ channel: 'agent', tags: costTags })
   const agentCost = args.costLedger.summary({ channel: 'agent', tags: costTags })
   const tokenUsage: CampaignTokenUsage = {
@@ -311,25 +350,23 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       ? { cacheWrite: agentCost.cacheWriteTokens }
       : {}),
   }
-  const agentModelEvidence = modelEvidenceFromReceipts(agentReceipts)
-  const dispatchResult = {
-    cellId: args.slot.cellId,
-    artifact,
-    error: errorMessage,
-    costUsd: agentCost.totalCostUsd,
-    tokenUsage,
-  }
-  try {
-    enforceDispatchUsage(dispatchResult, args.opts.expectUsage ?? 'warn')
-  } catch (error) {
-    await trace.flush()
-    throw error
-  }
+  return { agentCost, tokenUsage, agentModelEvidence: modelEvidenceFromReceipts(agentReceipts) }
+}
 
-  // Run judges (only if we have an artifact). A judge that throws invalidates
-  // the cell — recorded as `error`, NOT folded into a fake composite:0 (a fake
-  // zero is indistinguishable from a real zero and poisons every aggregate).
+/**
+ * Run judges (only if we have an artifact). A judge that throws invalidates
+ * the cell — recorded as `error`, NOT folded into a fake composite:0 (a fake
+ * zero is indistinguishable from a real zero and poisons every aggregate).
+ */
+async function judgeArtifact<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  artifact: TArtifact | undefined,
+  attemptCostTags: Record<string, string>,
+) {
   const judgeScores: Record<string, JudgeScore> = {}
+  let errorMessage: string | undefined
+  let failure: CellFailure | undefined
+  let fatalCellError: unknown
   if (artifact !== undefined) {
     for (const judge of args.opts.judges ?? []) {
       if (judge.appliesTo && !judge.appliesTo(args.slot.scenario)) continue
@@ -351,7 +388,92 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       }
     }
   }
+  return { judgeScores, errorMessage, failure, fatalCellError }
+}
 
+/** Write the failure receipt and decide whether `cellRetry` dispatches this slot again. */
+function recordCellFailure<TScenario extends Scenario, TArtifact>(
+  args: CellArgs<TScenario, TArtifact>,
+  run: OpenAttempt<TScenario, TArtifact>,
+  failure: CellFailure,
+  cell: CampaignCellResult<TArtifact>,
+  costTags: Record<string, string>,
+  fatalCellError: unknown,
+): boolean {
+  const { attemptDir, attemptPrefix, artifactsByPath } = run
+  const receipt: CampaignCellFailureReceipt<TArtifact> = {
+    schemaVersion: 1,
+    runAttemptId: args.runAttemptId,
+    recordedAt: args.now().toISOString(),
+    failure: {
+      stage: failure.stage,
+      ...(failure.judge ? { judge: failure.judge } : {}),
+      error: serializeCellError(failure.cause),
+    },
+    cell,
+    cost: args.costLedger.summary({ phase: args.costPhase, tags: costTags }),
+  }
+  // A retried attempt keeps its evidence in its own execution directory
+  // and never fires `onFailure` — a
+  // retryable failure is not a campaign error until attempts are exhausted.
+  // A cancelled campaign and a fatal accounting error are never retried.
+  const retry =
+    args.cellRetry !== undefined &&
+    args.attempt < args.cellRetry.attempts &&
+    !args.signal.aborted &&
+    fatalCellError === undefined &&
+    args.cellRetry.retryable(receipt.failure)
+  const failurePath = join(attemptDir, 'failure-receipt.json')
+  args.storage.write(failurePath, JSON.stringify(receipt, null, 2))
+  artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/failure-receipt.json`] = failurePath
+  if (!retry) args.onFailure?.(failure)
+  return retry
+}
+
+export async function executeCell<TScenario extends Scenario, TArtifact>(
+  args: ExecuteCellArgs<TScenario, TArtifact>,
+): Promise<ExecuteCellResult<TArtifact>> {
+  const storage = args.storage
+  const cellDir = cellDirectory(args.opts.runDir, args.slot.cellId)
+  storage.ensureDir(cellDir)
+  const stableCostTags = stableCostTagsFor(args.opts, args.slot)
+  const costTags = { ...stableCostTags, runAttemptId: args.runAttemptId }
+  const attemptCostTags = { ...costTags, attemptNumber: String(args.attempt) }
+
+  // Resumability: cache key = (manifestHash, scenarioId, rep)
+  const cachePath = join(cellDir, 'cached-result.json')
+  if (args.resumable) {
+    const reused = reuseCachedCell(args, cachePath, stableCostTags)
+    if (reused) return reused
+  }
+
+  const startMs = Date.now()
+  const run = openAttempt(args, cellDir, attemptCostTags)
+  const { attempt, attemptDir, attemptPrefix, artifactsByPath, trace } = run
+  const dispatch = await dispatchCell(args, run)
+  await awaitCellShutdown(args, run, dispatch.dispatched, costTags)
+  const { artifact } = dispatch
+  const { agentCost, tokenUsage, agentModelEvidence } = measureAgentUsage(args, costTags)
+  try {
+    enforceDispatchUsage(
+      {
+        cellId: args.slot.cellId,
+        artifact,
+        error: dispatch.errorMessage,
+        costUsd: agentCost.totalCostUsd,
+        tokenUsage,
+      },
+      args.opts.expectUsage ?? 'warn',
+    )
+  } catch (error) {
+    await trace.flush()
+    throw error
+  }
+
+  const judged = await judgeArtifact(args, artifact, attemptCostTags)
+  const failure = judged.failure ?? dispatch.failure
+  const errorMessage = judged.failure ? judged.errorMessage : dispatch.errorMessage
+  const { judgeScores, fatalCellError } = judged
   if (failure) {
     await waitForFailedCellCostSettlement({
       costLedger: args.costLedger,
@@ -389,35 +511,9 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     error: errorMessage,
   }
 
-  let retry = false
-  if (failure) {
-    const receipt: CampaignCellFailureReceipt<TArtifact> = {
-      schemaVersion: 1,
-      runAttemptId: args.runAttemptId,
-      recordedAt: args.now().toISOString(),
-      failure: {
-        stage: failure.stage,
-        ...(failure.judge ? { judge: failure.judge } : {}),
-        error: serializeCellError(failure.cause),
-      },
-      cell,
-      cost: args.costLedger.summary({ phase: args.costPhase, tags: costTags }),
-    }
-    // A retried attempt keeps its evidence in its own execution directory
-    // and never fires `onFailure` — a
-    // retryable failure is not a campaign error until attempts are exhausted.
-    // A cancelled campaign and a fatal accounting error are never retried.
-    retry =
-      args.cellRetry !== undefined &&
-      args.attempt < args.cellRetry.attempts &&
-      !args.signal.aborted &&
-      fatalCellError === undefined &&
-      args.cellRetry.retryable(receipt.failure)
-    const failurePath = join(attemptDir, 'failure-receipt.json')
-    storage.write(failurePath, JSON.stringify(receipt, null, 2))
-    artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/failure-receipt.json`] = failurePath
-    if (!retry) args.onFailure?.(failure)
-  }
+  const retry = failure
+    ? recordCellFailure(args, run, failure, cell, costTags, fatalCellError)
+    : false
 
   await trace.flush()
   const resultPath = join(attemptDir, 'result.json')

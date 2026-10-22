@@ -102,7 +102,7 @@ export interface AnalystFinding {
 }
 
 /** Every finding schema this package reads. Writers emit 1.1.0 only when a 1.1.0 field is set. */
-export const ANALYST_FINDING_SCHEMA_VERSIONS = ['1.0.0', '1.1.0'] as const
+const ANALYST_FINDING_SCHEMA_VERSIONS = ['1.0.0', '1.1.0'] as const
 
 export type AnalystFindingSchemaVersion = (typeof ANALYST_FINDING_SCHEMA_VERSIONS)[number]
 

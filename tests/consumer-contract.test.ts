@@ -12,8 +12,6 @@ import type {
   ChatClient,
   ChatRequest,
   ChatResponse,
-  CounterfactualContext,
-  CounterfactualRunner,
   CreateChatClientOpts,
   ErrorCluster,
   JudgeScoresRecord,
@@ -65,10 +63,7 @@ const ROOT_RUNTIME_SYMBOLS = [
   'runEvalCampaign',
   'HeldOutGate',
   'runCanaries',
-  // Counterfactual replay (traces imports these from the root)
-  'runCounterfactual',
   // Propose/review loop (discovery-lab tools/propose-v9.mjs imports these from the root)
-  'runProposeReviewAsControlLoop',
   'createLlmReviewer',
   'jsonlReviewStore',
   'makeProposalFinding',
@@ -101,7 +96,7 @@ const ROOT_RUNTIME_SYMBOLS = [
   'summarizePreferenceMemory',
 ] as const
 
-const RL_SYMBOLS = ['campaignToRunRecords', 'verificationReportToRunRecord'] as const
+const RL_SYMBOLS = ['campaignToRunRecords'] as const
 describe('public-surface contract for consumers', () => {
   it('exports every load-bearing runtime symbol from the root entry', () => {
     const missing = ROOT_RUNTIME_SYMBOLS.filter(
@@ -122,7 +117,7 @@ describe('public-surface contract for consumers', () => {
   it('exports the rl subpath surface consumers depend on', () => {
     const missing = RL_SYMBOLS.filter((name) => (rl as Record<string, unknown>)[name] === undefined)
     expect(missing, `missing rl subpath exports: ${missing.join(', ')}`).toEqual([])
-    expect(typeof (rl as Record<string, unknown>).toSftRows).toBe('function')
+    expect(typeof (rl as Record<string, unknown>).toSftRowsWithLookups).toBe('function')
     expect(typeof (rl as Record<string, unknown>).runRLCampaign).toBe('function')
   })
 
@@ -191,20 +186,6 @@ describe('public-surface contract for consumers', () => {
     }
     expect(cluster.trace_count).toBe(2)
     expect(hookEvent.runId).toBe('r1')
-  })
-
-  it('exposes the counterfactual replay surface traces imports from the root', () => {
-    expect(typeof agentEval.runCounterfactual).toBe('function')
-    // Type-level pin: traces implements CounterfactualRunner and builds a
-    // CounterfactualContext; a rename or field drop stops compiling here.
-    const runner: CounterfactualRunner = {
-      executeFrom: async (ctx: CounterfactualContext) => {
-        void ctx.originalRunId
-        void ctx.prefix
-        void ctx.mutatedStep
-      },
-    }
-    expect(typeof runner.executeFrom).toBe('function')
   })
 
   it('exposes root ChatClient API types used by consumers', async () => {

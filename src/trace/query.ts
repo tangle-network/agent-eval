@@ -70,7 +70,7 @@ export function hasCapturedToolArgs(span: ToolSpan): boolean {
 }
 
 /** Sum an LLM-span array into aggregate token + cost. */
-export function aggregateLlm(spans: LlmSpan[]): {
+function aggregateLlm(spans: LlmSpan[]): {
   inputTokens: number
   outputTokens: number
   cachedTokens: number
@@ -111,7 +111,7 @@ export function runFailureClass(run: Run): FailureClass {
  * read from a run without a caller-supplied extractor. The type derives from
  * this array, so a new metric cannot be declared without an extractor arm.
  */
-export const RUN_METRICS = [
+const RUN_METRICS = [
   'score',
   'overallScore',
   'pass',

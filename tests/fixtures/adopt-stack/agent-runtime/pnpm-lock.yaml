@@ -1,0 +1,148 @@
+# Recorded from tangle-network/agent-runtime c54e6810e0ce: the catalogs and the root importer only.
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+catalogs:
+  default:
+    '@arethetypeswrong/cli':
+      specifier: 0.18.5
+      version: 0.18.5
+    '@modelcontextprotocol/sdk':
+      specifier: 1.30.0
+      version: 1.30.0
+    '@tangle-network/agent-eval':
+      specifier: '>=0.215.0 <0.216.0'
+      version: 0.215.0
+    '@tangle-network/agent-interface':
+      specifier: '>=5.7.0 <6.0.0'
+      version: 5.7.0
+    '@tangle-network/agent-knowledge':
+      specifier: ^22.0.3
+      version: 22.0.3
+    '@tangle-network/agent-trace-contract':
+      specifier: ^2.1.0
+      version: 2.1.0
+    '@tangle-network/sandbox':
+      specifier: '>=0.63.10 <0.63.11'
+      version: 0.63.10
+    '@types/node':
+      specifier: 26.4.0
+      version: 26.4.0
+    publint:
+      specifier: 0.3.24
+      version: 0.3.24
+    tsdown:
+      specifier: 0.22.14
+      version: 0.22.14
+    tsx:
+      specifier: 4.23.12
+      version: 4.23.12
+    typescript:
+      specifier: 6.0.3
+      version: 6.0.3
+    zod:
+      specifier: 4.6.5
+      version: 4.6.5
+
+importers:
+
+  .:
+    dependencies:
+      '@earendil-works/pi-codemode':
+        specifier: 1.0.4
+        version: 1.0.4
+      '@tangle-network/agent-core':
+        specifier: '>=0.12.0 <0.13.0'
+        version: 0.12.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+      '@tangle-network/agent-knowledge':
+        specifier: ^22.0.3
+        version: 22.0.3(@tangle-network/agent-eval@0.215.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)
+      '@tangle-network/agent-profile-materialize':
+        specifier: '>=0.25.2 <0.26.0'
+        version: 0.25.2(@tangle-network/agent-interface@5.7.0)
+      '@tangle-network/agent-trace-contract':
+        specifier: 'catalog:'
+        version: 2.1.0
+      tar-stream:
+        specifier: 3.2.1
+        version: 3.2.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: 'catalog:'
+        version: 0.18.5
+      '@biomejs/biome':
+        specifier: ^2.5.11
+        version: 2.5.11
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.30.0(supports-color@10.2.2)(zod@4.6.5)
+      '@tangle-network/agent-eval':
+        specifier: 0.215.0
+        version: 0.215.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+      '@tangle-network/agent-interface':
+        specifier: 5.7.0
+        version: 5.7.0
+      '@tangle-network/agent-provider-cli-bridge':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@tangle-network/agent-provider-daytona':
+        specifier: 0.6.0
+        version: 0.6.0
+      '@tangle-network/agent-provider-e2b':
+        specifier: 0.6.0
+        version: 0.6.0
+      '@tangle-network/agent-provider-tangle':
+        specifier: 4.2.2
+        version: 4.2.2(@tangle-network/sandbox@0.63.10(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
+      '@tangle-network/sandbox':
+        specifier: 0.63.10
+        version: 0.63.10(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.0
+      '@types/tar-stream':
+        specifier: 3.1.4
+        version: 3.1.4
+      miniflare:
+        specifier: 4.20260722.0
+        version: 4.20260722.0
+      oxc-parser:
+        specifier: 0.147.0
+        version: 0.147.0
+      publint:
+        specifier: 'catalog:'
+        version: 0.3.24
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(@arethetypeswrong/core@0.18.5)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.12
+      typedoc:
+        specifier: 0.28.20
+        version: 0.28.20(typescript@6.0.3)
+      typedoc-plugin-markdown:
+        specifier: 4.13.0
+        version: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      typescript-consumer:
+        specifier: npm:typescript@7.0.2
+        version: typescript@7.0.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.4.0)(vite@7.3.2(@types/node@26.4.0)(tsx@4.23.12)(yaml@2.9.0))
+      wrangler:
+        specifier: 4.127.0
+        version: 4.127.0
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
+

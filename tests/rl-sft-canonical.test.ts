@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildRlDataset, type RlDatasetConfig } from '../src/rl/dataset'
-import { type SftLookups, toGrpoRows, toSftRows } from '../src/rl/exporters'
+import { type SftLookups, toGrpoRows, toSftRowsWithLookups } from '../src/rl/exporters'
 import { toSftRows as canonicalSftRows } from '../src/rollout/exporters'
 import { fixtureRolloutLine } from '../src/rollout/fixtures'
 import type { ChatMessage, MintedRolloutLine, RolloutSplit } from '../src/rollout/schema'
@@ -67,7 +67,7 @@ function splitLine(split: RolloutSplit): MintedRolloutLine {
   return fixtureRolloutLine({ task: { ...base.task, split } })
 }
 
-describe('rl/toSftRows over captured transcripts', () => {
+describe('rl/toSftRowsWithLookups over captured transcripts', () => {
   it('ships a captured tool conversation to the SFT JSONL line byte-for-byte', async () => {
     const messages: ChatMessage[] = [
       { role: 'system', content: 'You are a coding worker.' },
@@ -133,7 +133,7 @@ describe('rl/toSftRows over captured transcripts', () => {
         { role: 'assistant', content: 'Second answer' },
       ],
     })
-    const rows = await toSftRows([first, second], noLookups)
+    const rows = await toSftRowsWithLookups([first, second], noLookups)
     expect(rows.map((row) => row.meta?.rolloutId)).toEqual(['worker-one', 'worker-two'])
     expect(rows.map((row) => row.messages)).toEqual([first.messages, second.messages])
   })
@@ -146,7 +146,7 @@ describe('rl/toSftRows over captured transcripts', () => {
         ...base.messages,
       ],
     })
-    const rows = await toSftRows([line], noLookups)
+    const rows = await toSftRowsWithLookups([line], noLookups)
     expect(rows[0]!.messages).toEqual(base.messages)
     expect(line.messages).toHaveLength(base.messages.length + 1)
   })
@@ -155,13 +155,13 @@ describe('rl/toSftRows over captured transcripts', () => {
     const line = fixtureRolloutLine({
       messages: [{ role: 'assistant', content: 'Not this invocation', is_copied_context: true }],
     })
-    expect(await toSftRows([line], textLookups)).toEqual([])
+    expect(await toSftRowsWithLookups([line], textLookups)).toEqual([])
     await expect(buildRlDataset([line], textLookups, config)).rejects.toThrow(/no trainable rows/)
   })
 
   it('recovers a gap line from the text lookups and labels the recovery', async () => {
     const gap = gapLine()
-    expect((await toSftRows([gap], textLookups))[0]!.messages).toEqual(recoveredMessages)
+    expect((await toSftRowsWithLookups([gap], textLookups))[0]!.messages).toEqual(recoveredMessages)
 
     const bundle = await buildRlDataset([gap], textLookups, config)
     const recovered = JSON.parse(bundle.files['train.sft.jsonl']!)
@@ -189,7 +189,7 @@ describe('rl/toSftRows over captured transcripts', () => {
   it('preserves unknown screening as unknown and retains screened verdicts', async () => {
     const unknown = fixtureRolloutLine()
     const screened = withOutcome({ realness_screened: true })
-    const rows = await toSftRows([unknown, screened], noLookups)
+    const rows = await toSftRowsWithLookups([unknown, screened], noLookups)
     expect(rows.map((row) => row.meta?.realness_screened)).toEqual([null, true])
     expect(rows.map((row) => row.meta?.realness_gated)).toEqual([false, false])
   })
@@ -207,11 +207,11 @@ describe('rl/toSftRows over captured transcripts', () => {
       splitLine('holdout'),
     ]
     expect(canonicalSftRows(ineligible)).toEqual([])
-    expect(await toSftRows(ineligible, noLookups)).toEqual([])
+    expect(await toSftRowsWithLookups(ineligible, noLookups)).toEqual([])
     // Ineligible gap lines never reach the lookups either.
     const gap = gapLine()
     const ineligibleGap = fixtureRolloutLine({ ...gap, task: { ...gap.task, split: 'dev' } })
-    expect(await toSftRows([ineligibleGap], noLookups)).toEqual([])
+    expect(await toSftRowsWithLookups([ineligibleGap], noLookups)).toEqual([])
   })
 
   it('shares explicit split selection without relaxing the default', async () => {
@@ -223,7 +223,7 @@ describe('rl/toSftRows over captured transcripts', () => {
       { splitFilter: ['dev'] as RolloutSplit[] },
       { splitFilter: [] as RolloutSplit[] },
     ]) {
-      const rows = await toSftRows(lines, { ...noLookups, ...options })
+      const rows = await toSftRowsWithLookups(lines, { ...noLookups, ...options })
       expect(rows.map((row) => row.messages)).toEqual(
         canonicalSftRows(lines, options).map((row) => row.messages),
       )
@@ -243,13 +243,13 @@ describe('rl/toSftRows over captured transcripts', () => {
   })
 
   it('honors the extra filter and exclusive threshold before text recovery', async () => {
-    expect(await toSftRows([gapLine()], { ...noLookups, include: () => false })).toEqual([])
+    expect(await toSftRowsWithLookups([gapLine()], { ...noLookups, include: () => false })).toEqual([])
     const line = withOutcome({ reward: 0.5 })
-    expect(await toSftRows([line], { ...noLookups, minimumQualityExclusive: 0.5 })).toEqual([])
-    expect(await toSftRows([line], { ...noLookups, minimumQualityExclusive: 0.49 })).toHaveLength(1)
+    expect(await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.5 })).toEqual([])
+    expect(await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.49 })).toHaveLength(1)
     for (const threshold of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       await expect(
-        toSftRows([line], { ...noLookups, minimumQualityExclusive: threshold }),
+        toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: threshold }),
       ).rejects.toThrow(/must be finite/)
     }
   })
@@ -264,10 +264,10 @@ describe('rl/toSftRows over captured transcripts', () => {
       { ...base.outcome, reward: '1' as unknown as number },
     ]) {
       const forged = { ...base, outcome }
-      await expect(toSftRows([forged], noLookups)).rejects.toThrow()
+      await expect(toSftRowsWithLookups([forged], noLookups)).rejects.toThrow()
     }
     await expect(
-      toSftRows([{ ...base, outcome: { ...base.outcome, realness_gated: true } }], {
+      toSftRowsWithLookups([{ ...base, outcome: { ...base.outcome, realness_gated: true } }], {
         ...noLookups,
         include: () => false,
       }),

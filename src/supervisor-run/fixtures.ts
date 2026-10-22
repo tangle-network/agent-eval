@@ -6,7 +6,7 @@
 
 import { NO_SOURCE_LIMITS, type SupervisorRunSources, type WorkerLogSource } from './types'
 
-export const FIXTURE_T0 = Date.parse('2026-07-23T00:00:00.000Z')
+const FIXTURE_T0 = Date.parse('2026-07-23T00:00:00.000Z')
 
 export const fixtureAt = (sec: number): string => new Date(FIXTURE_T0 + sec * 1000).toISOString()
 

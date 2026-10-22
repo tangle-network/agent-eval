@@ -41,4 +41,5 @@ export type { CorrelationInterval, OutcomeReduction } from './outcome-observatio
 export * from './outcome-store'
 export * from './plants'
 export * from './rubric-predictive-validity'
-export * from './sentinel'
+export { evalHealthStamp, fileSentinelStore, judgeSentinelReport, snapshotFromAgreement, snapshotFromCalibration, snapshotFromSentinelSet, validateSentinelSnapshot } from './sentinel'
+export type { EvalHealthStamp, JudgeSentinelOptions, SentinelMetricName, SentinelMetrics, SentinelReport, SentinelSetOptions, SentinelSnapshot, SentinelStore, SentinelThresholds, SentinelTrend, SnapshotMeta } from './sentinel'

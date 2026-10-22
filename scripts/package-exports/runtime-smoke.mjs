@@ -1,6 +1,7 @@
 import { run } from './process.mjs'
 
-export function verifyRuntimeImports(appDir) {
+/** Imports the root, analyst and profile-cell entries from the packed package and checks their runtime shape. */
+function verifyCoreImports(appDir) {
   run(
     process.execPath,
     [
@@ -116,6 +117,10 @@ export function verifyRuntimeImports(appDir) {
     ],
     appDir,
   )
+}
+
+/** Imports the rl entry from the packed package and checks its runtime shape. */
+function verifyRlImports(appDir) {
   run(
     process.execPath,
     [
@@ -123,7 +128,7 @@ export function verifyRuntimeImports(appDir) {
       '--eval',
       `
         const rl = await import('@tangle-network/agent-eval/rl')
-        for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRows', 'runRLCampaign']) {
+        for (const name of ['campaignToRunRecords', 'extractPreferences', 'buildRlDataset', 'toSftRowsWithLookups', 'runRLCampaign']) {
           if (!(name in rl)) throw new Error('missing rl export ' + name)
         }
         if ('isTrainingRunEligible' in rl) {
@@ -341,4 +346,9 @@ export function verifyRuntimeImports(appDir) {
     ],
     appDir,
   )
+}
+
+export function verifyRuntimeImports(appDir) {
+  verifyCoreImports(appDir)
+  verifyRlImports(appDir)
 }

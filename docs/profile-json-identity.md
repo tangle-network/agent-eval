@@ -26,8 +26,7 @@ contributes to the cell ID, so a source identity join should compare both kind
 and hash. A loose product-specific fingerprint must not claim to be a validated
 canonical AgentProfile merely because it is JSON-serializable.
 
-Regression coverage: `tests/profile-json-canonical.test.ts`, together with the
-existing `tests/agent-profile-cell.test.ts`. Run the repository typecheck, full
+Regression coverage: `tests/agent-profile-cell.test.ts`. Run the repository typecheck, full
 suite, build and package checks before release. This document does not allocate
 or announce a package version; release metadata and downstream peer ranges must
 be updated together by the normal release process.

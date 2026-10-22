@@ -107,6 +107,7 @@ try {
     './hosted': ['import', 'types'],
     './experiment': ['import', 'types'],
     './wire': ['import', 'types'],
+    './lock-holder': ['import', 'types'],
     './openapi.json': ['default'],
   }
 

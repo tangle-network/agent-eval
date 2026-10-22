@@ -1,10 +1,10 @@
+import { isRecord } from '../llm-client/json'
 import { validateRolloutLine } from '../rollout/schema'
 import { evidence, issue, MAX_EXAMPLES } from './integrity-issues'
 import type { SupervisorRunIntegrityEvidence, SupervisorRunIntegrityIssue } from './integrity-types'
 import { nonEmptyString } from './source-facts'
 import type { SupervisorRunTree } from './types'
 
-import { isRecord } from '../llm-client/json'
 interface NodeRecord {
   readonly index: number
   readonly raw: Record<string, unknown>
@@ -95,16 +95,45 @@ interface TreeIssueUncertainty {
   readonly uncertainIds?: ReadonlySet<string>
 }
 
-export function treeIssues(
-  tree: SupervisorRunTree,
-  uncertainty: TreeIssueUncertainty = {},
-): SupervisorRunIntegrityIssue[] {
-  const out: SupervisorRunIntegrityIssue[] = []
+/** What the checks share about one tree: its node rows, the rows by id, and how many rows have no usable id. */
+interface TreeView {
+  tree: SupervisorRunTree
+  uncertainty: TreeIssueUncertainty
+  records: NodeRecord[]
+  byId: Map<string, NodeRecord[]>
+  unique: (NodeRecord & { readonly id: string })[]
+  unknownIdentityRows: number
+}
+
+function buildTreeView(tree: SupervisorRunTree, uncertainty: TreeIssueUncertainty): TreeView {
   const records = (tree.nodes as readonly unknown[]).map(nodeRecord)
   const malformedSourceRows = tree.gaps
     .filter((gap) => gap.code === 'source-row-malformed')
     .reduce((count, gap) => count + (gap.count ?? 1), 0)
 
+  const byId = new Map<string, NodeRecord[]>()
+  for (const record of records) {
+    if (record.id === null) continue
+    const matches = byId.get(record.id) ?? []
+    matches.push(record)
+    byId.set(record.id, matches)
+  }
+
+  const unknownIdentityRows =
+    records.filter((record) => record.id === null).length +
+    Math.max(malformedSourceRows, uncertainty.unknownIdentityRows ?? 0)
+  const unique = records.filter(
+    (record): record is NodeRecord & { readonly id: string } =>
+      record.id !== null && byId.get(record.id)?.length === 1,
+  )
+
+  return { tree, uncertainty, records, byId, unique, unknownIdentityRows }
+}
+
+/** Nodes that fail canonical rollout validation, and the checks that cannot run for them. */
+function schemaIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { records } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   for (const record of records) {
     if (record.errors.length === 0) continue
     out.push(
@@ -138,15 +167,13 @@ export function treeIssues(
       }),
     )
   }
+  return out
+}
 
-  const byId = new Map<string, NodeRecord[]>()
-  for (const record of records) {
-    if (record.id === null) continue
-    const matches = byId.get(record.id) ?? []
-    matches.push(record)
-    byId.set(record.id, matches)
-  }
-
+/** Rollout ids claimed by more than one node. */
+function duplicateIdIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { byId } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   for (const [rolloutId, matches] of byId) {
     if (matches.length < 2) continue
     out.push(
@@ -171,15 +198,16 @@ export function treeIssues(
       }),
     )
   }
+  return out
+}
 
-  const unknownIdentityRows =
-    records.filter((record) => record.id === null).length +
-    Math.max(malformedSourceRows, uncertainty.unknownIdentityRows ?? 0)
-  const unique = records.filter(
-    (record): record is NodeRecord & { readonly id: string } =>
-      record.id !== null && byId.get(record.id)?.length === 1,
-  )
-
+/** Whether the declared root exists and is unambiguous; returns the root row when it does. */
+function rootIssues(view: TreeView): {
+  issues: SupervisorRunIntegrityIssue[]
+  root: NodeRecord | undefined
+} {
+  const { tree, records, byId, unknownIdentityRows } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   let root: NodeRecord | undefined
   if (tree.rootId === null) {
     out.push(
@@ -229,6 +257,16 @@ export function treeIssues(
     }
   }
 
+  return { issues: out, root }
+}
+
+/** The root must be parentless and labeled a supervisor. */
+function rootShapeIssues(
+  view: TreeView,
+  root: NodeRecord | undefined,
+): SupervisorRunIntegrityIssue[] {
+  const { tree } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   if (root !== undefined) {
     if (root.parent !== undefined && root.parent !== null) {
       out.push(
@@ -260,7 +298,13 @@ export function treeIssues(
       )
     }
   }
+  return out
+}
 
+/** Parent-child edges: detached nodes, missing parents, cross-run edges and impossible orderings. */
+function edgeIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { tree, uncertainty, byId, unique, unknownIdentityRows } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   for (const record of unique) {
     if (record.parent === undefined) continue
     if (record.parent === null) {
@@ -383,6 +427,13 @@ export function treeIssues(
     }
   }
 
+  return out
+}
+
+/** Invocations timestamped as closing before they started. */
+function closeBeforeStartIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { unique } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   for (const record of unique) {
     const start = metric(record, ['spawned_at', 'started_at'])
     const close = metric(record, ['settled_at', 'completed_at', 'finished_at'])
@@ -404,6 +455,13 @@ export function treeIssues(
     )
   }
 
+  return out
+}
+
+/** Parent cycles, each reported once. */
+function parentCycleIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { byId, unique } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   const emittedCycles = new Set<string>()
   const resolved = new Set<string>()
   for (const start of unique) {
@@ -452,6 +510,16 @@ export function treeIssues(
     for (const id of path) resolved.add(id)
   }
 
+  return out
+}
+
+/** A completed run whose children never recorded a terminal outcome. */
+function childTerminalIssues(
+  view: TreeView,
+  root: NodeRecord | undefined,
+): SupervisorRunIntegrityIssue[] {
+  const { unique } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   if (root?.completed === true) {
     const missingTerminal = unique.filter(
       (record) => record.id !== root?.id && record.terminal === false,
@@ -478,6 +546,13 @@ export function treeIssues(
     }
   }
 
+  return out
+}
+
+/** Rows with neither inlined messages nor a retained transcript. */
+function transcriptIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { records } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   // A row whose messages are not inlined still has its transcript when the source retained it
   // by reference; only a row with neither is missing one.
   const uninlined = records.filter((record) => record.messages?.length === 0)
@@ -508,6 +583,13 @@ export function treeIssues(
     )
   }
 
+  return out
+}
+
+/** Rows without the canonical agent-profile identity. */
+function profileIssues(view: TreeView): SupervisorRunIntegrityIssue[] {
+  const { records } = view
+  const out: SupervisorRunIntegrityIssue[] = []
   const missingProfiles = records.filter((record) => record.profileId === null)
   if (missingProfiles.length > 0) {
     out.push(
@@ -533,4 +615,24 @@ export function treeIssues(
   }
 
   return out
+}
+
+export function treeIssues(
+  tree: SupervisorRunTree,
+  uncertainty: TreeIssueUncertainty = {},
+): SupervisorRunIntegrityIssue[] {
+  const view = buildTreeView(tree, uncertainty)
+  const { issues: rootProblems, root } = rootIssues(view)
+  return [
+    ...schemaIssues(view),
+    ...duplicateIdIssues(view),
+    ...rootProblems,
+    ...rootShapeIssues(view, root),
+    ...edgeIssues(view),
+    ...closeBeforeStartIssues(view),
+    ...parentCycleIssues(view),
+    ...childTerminalIssues(view, root),
+    ...transcriptIssues(view),
+    ...profileIssues(view),
+  ]
 }

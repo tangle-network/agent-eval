@@ -8,7 +8,7 @@
 // But the runJudge primitive is fully generic: any input maps to a score plus
 // explicit observed, estimated, or uncaptured cost.
 
-import type { JudgeScore } from '../campaign/types'
+import type { JudgeDimension, JudgeScore } from '../campaign/types'
 import type { CostProvenance } from '../cost-ledger'
 import type { LlmCallMetadata, LlmUsage } from '../llm-client'
 import { estimateCost, isModelPriced } from '../metrics'
@@ -16,18 +16,11 @@ import type { MultishotTransport, MultishotTransportResponse } from './types'
 
 // Canonical declaration lives in campaign/types.ts. Multishot emits the same
 // shape on its producer-defined 0-10 scale.
-export type { JudgeScore } from '../campaign/types'
+export type { JudgeDimension, JudgeScore } from '../campaign/types'
 
 export const DEFAULT_JUDGE_MODEL = 'openai/gpt-4o-mini'
 
-export interface JudgeDimension {
-  /** JSON field name + score key. */
-  key: string
-  /** Description shown in the judge's user prompt. */
-  description: string
-}
-
-export interface JudgeConfig<TInput> {
+export interface MultishotJudgeConfig<TInput> {
   /** Display name (for trace + log). */
   name: string
   /** Caller-owned execution for this judge's call. agent-eval issues no
@@ -54,7 +47,7 @@ export interface JudgeRunResult {
 }
 
 export async function runJudge<TInput>(
-  judge: JudgeConfig<TInput>,
+  judge: MultishotJudgeConfig<TInput>,
   input: TInput,
 ): Promise<JudgeRunResult> {
   const model = judge.model ?? DEFAULT_JUDGE_MODEL

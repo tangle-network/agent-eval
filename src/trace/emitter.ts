@@ -28,7 +28,7 @@ import type {
   RetrievalSpan,
   Run,
   RunCaptureReport,
-  RunOutcome,
+  TraceRunOutcome,
   SandboxSpan,
   Span,
   SpanKind,
@@ -48,7 +48,7 @@ export interface RunCompleteHookContext {
   emitter: TraceEmitter
   store: TraceStore
   /** Outcome the caller passed to `endRun` (undefined for `abortRun`). */
-  outcome?: RunOutcome
+  outcome?: TraceRunOutcome
   /** Final run status. */
   status: 'completed' | 'failed' | 'aborted'
 }
@@ -198,7 +198,7 @@ export class TraceEmitter {
    * End the Run. The final record carries `capture`: the store writes made
    * before it and how many were dropped.
    */
-  async endRun(outcome?: RunOutcome): Promise<void> {
+  async endRun(outcome?: TraceRunOutcome): Promise<void> {
     const status: 'completed' | 'failed' = outcome?.pass === false ? 'failed' : 'completed'
     const capture = this.captureStats()
     await this.write('updateRun', () =>

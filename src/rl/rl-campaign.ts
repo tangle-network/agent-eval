@@ -46,7 +46,7 @@ import {
   type SftLookups,
   toDpoRows,
   toGrpoRows,
-  toSftRows,
+  toSftRowsWithLookups,
 } from './exporters'
 import {
   type ExtractPreferencesOptions,
@@ -256,7 +256,7 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
     trainerRows.grpo = await toGrpoRows(rolloutLines, opts.trainerExport.grpo)
   }
   if (opts.trainerExport?.sft) {
-    trainerRows.sft = await toSftRows(rolloutLines, opts.trainerExport.sft)
+    trainerRows.sft = await toSftRowsWithLookups(rolloutLines, opts.trainerExport.sft)
   }
 
   const summary = buildSummary({

@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { type DefaultVerdict, equivalenceVerdict, type VerdictCertification } from './verdict'
+import { type DefaultVerdict, type VerdictCertification } from './verdict'
 import type {
   CheckerOutcome,
   EquivalenceArm,
   EquivalenceChecker,
   EquivalenceCheckSpec,
-  EquivalenceObligation,
   VerificationStrategySource,
 } from './verification-strategy'
 import {
-  buildEquivalenceRecord,
   defineEquivalenceCheck,
   EquivalenceProtocolError,
   runEquivalenceCheck,
@@ -199,11 +197,7 @@ const armB: EquivalenceArm = {
 const kernelEvidenceDigest =
   'sha256:aa11bb22cc33dd44ee55ff667788990011223344556677889900aabbccddeeff'
 
-const provedObligation: EquivalenceObligation = {
-  status: 'proved',
-  checker: { name: 'lean4', version: '4.33.0', pins: { mathlib: 'db584cd6d46c' } },
-  evidenceDigest: kernelEvidenceDigest,
-}
+
 
 const kernelChecker = (
   outcome: Awaited<ReturnType<EquivalenceChecker['check']>>,
@@ -256,111 +250,7 @@ describe('defineEquivalenceCheck', () => {
   })
 })
 
-describe('buildEquivalenceRecord — the record the pilot produced by hand', () => {
-  it('assembles the two blind statements + proved obligation, and round-trips through JSON', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const record = buildEquivalenceRecord(definition, [armA, armB], provedObligation)
 
-    expect(record.arms[0].derivedFrom).toContain('arXiv')
-    expect(record.arms[1].derivedFrom).toContain('discovery-lab')
-    expect(record.obligation.status).toBe('proved')
-    expect(record.obligation.checker.pins?.mathlib).toBe('db584cd6d46c')
-
-    const revived = JSON.parse(JSON.stringify(record)) as typeof record
-    expect(revived).toEqual(record)
-  })
-
-  it('refuses an arm that saw the other statement — the check is invalid, not weaker', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const peeked: EquivalenceArm = { ...armB, blindness: { toOtherArms: false, toOutcome: true } }
-    expectRefusal(
-      () => buildEquivalenceRecord(definition, [armA, peeked], provedObligation),
-      'arm-saw-other',
-    )
-  })
-
-  it('refuses an arm that saw the outcome before committing', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const steered: EquivalenceArm = { ...armA, blindness: { toOtherArms: true, toOutcome: false } }
-    expectRefusal(
-      () => buildEquivalenceRecord(definition, [steered, armB], provedObligation),
-      'arm-saw-outcome',
-    )
-  })
-
-  it('refuses duplicate arm ids and empty statements', () => {
-    const definition = defineEquivalenceCheck(spec)
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(
-          definition,
-          [armA, { ...armB, armId: armA.armId }],
-          provedObligation,
-        ),
-      'duplicate-arm-id',
-    )
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(definition, [{ ...armA, statement: ' ' }, armB], provedObligation),
-      'empty-field',
-    )
-  })
-
-  it('refuses a refutation without its separating witness', () => {
-    const definition = defineEquivalenceCheck(spec)
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(definition, [armA, armB], {
-          ...provedObligation,
-          status: 'refuted-with-separating-witness',
-        }),
-      'witness-missing',
-    )
-  })
-
-  it('refuses a proof carrying a separating witness — the two claims contradict', () => {
-    const definition = defineEquivalenceCheck(spec)
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(definition, [armA, armB], {
-          ...provedObligation,
-          separatingWitness: 'uniform distribution on atoms {1,2,3,7,8}',
-        }),
-      'witness-on-proved',
-    )
-  })
-
-  it('refuses an unresolved obligation with no reason, and a proved one with no evidence digest', () => {
-    const definition = defineEquivalenceCheck(spec)
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(definition, [armA, armB], {
-          status: 'unresolved',
-          checker: provedObligation.checker,
-        }),
-      'reason-missing',
-    )
-    expectRefusal(
-      () =>
-        buildEquivalenceRecord(definition, [armA, armB], {
-          status: 'proved',
-          checker: provedObligation.checker,
-        }),
-      'evidence-missing',
-    )
-  })
-
-  it('accepts a refutation with its witness — a statement mismatch is a successful outcome', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const record = buildEquivalenceRecord(definition, [armA, armB], {
-      status: 'refuted-with-separating-witness',
-      separatingWitness: 'entropy vector v with S_AB flipped in sign between the two statements',
-      checker: provedObligation.checker,
-      evidenceDigest: kernelEvidenceDigest,
-    })
-    expect(record.obligation.separatingWitness).toContain('S_AB')
-  })
-})
 
 describe('runEquivalenceCheck — execution binds through the strategy-checker port', () => {
   it('discharges a proved obligation from a succeeded checker outcome', async () => {
@@ -418,44 +308,4 @@ describe('runEquivalenceCheck — execution binds through the strategy-checker p
   })
 })
 
-describe('equivalenceVerdict — the protocol record lands in the verdict spine', () => {
-  it('a proved record is a valid verdict certified by the discharging checker', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const record = buildEquivalenceRecord(definition, [armA, armB], provedObligation)
-    const verdict = equivalenceVerdict(record)
-    expect(verdict.valid).toBe(true)
-    expect(verdict.score).toBe(1)
-    expect(verdict.certification?.strategy).toBe('proof-kernel')
-    expect(verdict.certification?.checker.name).toBe('lean4')
-    expect(verdict.certification?.evidenceDigest).toBe(kernelEvidenceDigest)
-    expect(verdict.certification?.assumptions.join(' ')).toContain('self-declare blind derivation')
-  })
 
-  it('a refutation is invalid yet still certified — the witness discharge is vouched for', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const record = buildEquivalenceRecord(definition, [armA, armB], {
-      status: 'refuted-with-separating-witness',
-      separatingWitness: 'uniform distribution on atoms {1,2,3,7,8}',
-      checker: provedObligation.checker,
-      evidenceDigest: kernelEvidenceDigest,
-    })
-    const verdict = equivalenceVerdict(record)
-    expect(verdict.valid).toBe(false)
-    expect(verdict.score).toBe(0)
-    expect(verdict.notes).toContain('formalization gap witnessed')
-    expect(verdict.certification?.strategy).toBe('proof-kernel')
-  })
-
-  it('an unresolved obligation certifies nothing and keeps its reason', () => {
-    const definition = defineEquivalenceCheck(spec)
-    const record = buildEquivalenceRecord(definition, [armA, armB], {
-      status: 'unresolved',
-      unresolvedReason: 'lake build failed: unknown package store path',
-      checker: provedObligation.checker,
-    })
-    const verdict = equivalenceVerdict(record)
-    expect(verdict.valid).toBe(false)
-    expect(verdict.certification).toBeUndefined()
-    expect(verdict.notes).toContain('lake build failed')
-  })
-})

@@ -32,7 +32,7 @@ import type {
 import { validateProductBenchmarkManifest, validateProductBenchmarkRecord } from './index'
 
 /** Full mutable-surface superset a product arm may declare. */
-export const productBenchmarkMutableSurfaces = [
+const productBenchmarkMutableSurfaces = [
   'prompt',
   'resources.files',
   'tools',

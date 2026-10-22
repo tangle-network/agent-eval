@@ -13,7 +13,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '1340bdb155f062be26028c367d5f65dcd470c3417bdf0ab615fa0fab121f3d72'
+  '2cbded9c738fb0bea1a90ac7da6714c75b6c7aae70aebf6ef4c833df2db652f8'
 
 export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
   '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
@@ -46,6 +46,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-instructions-override.ts',
   'src/analyst/benchmark-public-adapters.ts',
   'src/analyst/benchmark-public-calibration.ts',
+  'src/analyst/benchmark-public-chunked.ts',
   'src/analyst/benchmark-public-consensus.ts',
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
@@ -115,6 +116,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/index.ts',
   'src/ledger-core/journal-file.ts',
   'src/ledger-core/journal.ts',
+  'src/ledger-core/lock-holder.ts',
   'src/ledger-core/merkle.ts',
   'src/ledger-core/projector-snapshot.ts',
   'src/ledger-core/trusted-head.ts',
@@ -170,7 +172,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '9e117172c27e6f980ff0919597e34b0fc0196dab025f3815b8c98a63b3def162'
+  'ae18283837ab8e3eb1feb97e54f9b2574a45737e455a8c6b457c17f044bf5df9'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

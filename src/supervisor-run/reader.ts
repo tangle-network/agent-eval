@@ -6,10 +6,10 @@
  * this module owns path discovery and report output for Runtime runs.
  */
 
-import { appendFile, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { analyzeSupervisorRunSources } from './analyze'
-import { renderSupervisorRunHeadline, renderSupervisorRunMarkdown } from './render'
+
 import { isRuntimeSupervisorRunDir, readRuntimeSupervisorRun } from './runtime-reader'
 import type { SupervisorRunReader, SupervisorRunReport, SupervisorRunSources } from './types'
 
@@ -45,68 +45,11 @@ export interface WriteSupervisorRunOptions {
   readonly reportDir?: string
 }
 
-/**
- * Read a completed run, write `run-report.json` + `run-report.md` beside its
- * artifacts, and append the headline block to the run log. Never throws on a
- * missing artifact — a run that produced nothing still yields a report whose
- * every metric says why.
- */
-export async function writeSupervisorRunReport(
-  runDir: string,
-  opts: WriteSupervisorRunOptions = {},
-): Promise<SupervisorRunReport> {
-  const sources = await readRuntimeSupervisorRun(runDir)
-  const report = analyzeSupervisorRunSources(sources)
-  const md = renderSupervisorRunMarkdown(report)
-  const dest = opts.reportDir ?? runDir
-  const stem = opts.reportDir === undefined ? 'run-report' : supervisorReportStem(runDir)
-  if (opts.reportDir !== undefined) await mkdir(opts.reportDir, { recursive: true }).catch(() => {})
-  await writeFile(join(dest, `${stem}.json`), JSON.stringify(report, null, 1)).catch(() => {})
-  await writeFile(join(dest, `${stem}.md`), md).catch(() => {})
-  const headline = renderSupervisorRunHeadline(report)
-  if (opts.appendHeadlineTo !== undefined) {
-    await appendFile(opts.appendHeadlineTo, `${headline}\n`).catch(() => {})
-  }
-  if (opts.echo !== false) console.log(headline)
-  return report
-}
 
-/**
- * File stem for out-of-tree reports. Built from the run path's identifying
- * segments — candidate tag (the segment under `arm-runs/`), rep, instance, arm
- * — so two runs of the same instance from different candidates/reps never
- * overwrite each other.
- */
-function supervisorReportStem(runDir: string): string {
-  const parts = runDir.split('/').filter(Boolean)
-  const arm = parts[parts.length - 1] ?? 'cell'
-  const iid = parts[parts.length - 2] ?? 'instance'
-  const rep = parts.find((p) => /^rep-\d+$/.test(p))
-  const armRunsIdx = parts.indexOf('arm-runs')
-  const tag = armRunsIdx >= 0 ? parts[armRunsIdx + 1] : undefined
-  return [tag, rep, iid, arm]
-    .filter((s): s is string => s !== undefined && s !== 'runs')
-    .join('.')
-    .replace(/[^A-Za-z0-9._-]/g, '_')
-}
 
-/**
- * Best-effort wrapper for a hot path: a reporting failure must never kill a run
- * that already produced real work. Returns null and logs the reason instead.
- */
-export async function writeSupervisorRunReportSafe(
-  runDir: string,
-  opts: WriteSupervisorRunOptions = {},
-): Promise<SupervisorRunReport | null> {
-  try {
-    return await writeSupervisorRunReport(runDir, opts)
-  } catch (err) {
-    console.log(
-      `RUN-REPORT failed for ${runDir}: ${err instanceof Error ? err.message : String(err)}`,
-    )
-    return null
-  }
-}
+
+
+
 
 /**
  * Every Runtime supervisor run below `root`.

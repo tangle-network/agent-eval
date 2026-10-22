@@ -28,7 +28,7 @@ interface CliProviderRoute {
  * endpoint, is a half-configured server. `/v1/judge` then refuses with
  * `llm_not_configured` instead of calling an unintended endpoint.
  */
-export function resolveCliProviderRoute(
+function resolveCliProviderRoute(
   env: NodeJS.ProcessEnv = process.env,
 ): CliProviderRoute | undefined {
   const explicitBaseUrl = nonEmpty(env.AGENT_EVAL_LLM_BASE_URL)
