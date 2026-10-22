@@ -1,9 +1,9 @@
 import { isDeepStrictEqual } from 'node:util'
+import { isRecord } from '../llm-client/json'
 import type {
   ExternalOptimizerResumeMode,
   ExternalOptimizerRunnerCommand,
 } from './external-optimizer-contracts'
-import { isRecord } from '../llm-client/json'
 import {
   assertExternalOptimizerPackageSource,
   type ExternalOptimizerPackageSource,
@@ -16,14 +16,14 @@ import type {
   OptimizationPythonRuntime,
 } from './optimization-method'
 
-interface ExternalOptimizerRuntimeIdentity<TPackage extends string> {
+export interface ExternalOptimizerRuntimeIdentity<TPackage extends string> {
   python: OptimizationPythonRuntime
   bridge: ExternalOptimizerPackageSource<'agent-eval-rpc'>
   optimizer: ExternalOptimizerPackageSource<TPackage>
   engineModules: OptimizationModuleSource[]
 }
 
-interface ObservedExternalOptimizerRuntime {
+export interface ObservedExternalOptimizerRuntime {
   source: OptimizationPackageSource
   bridge: OptimizationPackageSource
   modules: OptimizationModuleSource[]

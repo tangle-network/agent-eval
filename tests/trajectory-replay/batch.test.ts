@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runReplayBatch, seededSample } from '../../src/trajectory-replay/batch'
+import { runReplayBatch } from '../../src/trajectory-replay/batch'
+import { seededSample } from '../../src/trajectory-replay/batch-fix'
 import { enumerateReplayableCases, parseCorpusFlag } from '../../src/trajectory-replay/corpus'
 import {
   buildFixPrompt,

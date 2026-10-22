@@ -50,20 +50,32 @@ export class ExactAnalystRunExecutionError extends Error {
   }
 }
 
-export async function* executePlanStream(
-  plan: AnalystExecutionPlan,
-): AsyncGenerator<AnalystRunEvent, void, void> {
+/** What every analyst step of one plan execution shares and updates. */
+interface PlanRun {
+  readonly plan: AnalystExecutionPlan
+  readonly exact: boolean
+  readonly correlationId: string
+  readonly startedAt: string
+  readonly deadlineMs: number | undefined
+  readonly runSignal: AbortSignal | undefined
+  readonly runnableCount: number
+  readonly totalWeight: number | undefined
+  remainingUsd: number | undefined
+  readonly upstreamFindings: AnalystFinding[]
+  readonly executions: AnalystExecution[]
+  executionFailure: unknown
+}
+
+/** 'stop' ends the analyst loop (an exact run's failure, recorded on the run); 'next' goes on. */
+type StepOutcome = 'next' | 'stop'
+
+function startPlanRun(plan: AnalystExecutionPlan): PlanRun {
   const exact = plan.executionSnapshot !== undefined
   if (exact && plan.signal?.aborted) throw abortReason(plan.signal)
 
-  const correlationId = `ar_${randomUUID().slice(0, 12)}`
-  const log = plan.log
-  const startedAt = new Date().toISOString()
   const started = Date.now()
   const timeoutSignal =
     plan.totalTimeoutMs === null ? undefined : AbortSignal.timeout(plan.totalTimeoutMs)
-  const runSignal = combineAbortSignals(plan.signal ?? undefined, timeoutSignal)
-  const deadlineMs = plan.totalTimeoutMs === null ? undefined : started + plan.totalTimeoutMs
   const runnable = plan.prepared
     .filter(
       (
@@ -74,7 +86,6 @@ export async function* executePlanStream(
       } => candidate.input.kind === 'present',
     )
     .map((candidate) => candidate.analyst)
-  let remainingUsd = plan.budget.kind === 'dynamic' ? plan.budget.policy.totalUsd : undefined
   const weights = plan.budget.kind === 'dynamic' ? plan.budget.policy.weights : undefined
   const totalWeight =
     weights &&
@@ -87,333 +98,400 @@ export async function* executePlanStream(
   if (totalWeight === 0) {
     throw new Error('BudgetPolicy.weights must allocate positive weight to a runnable analyst')
   }
-  const upstreamFindings: AnalystFinding[] = []
+  return {
+    plan,
+    exact,
+    correlationId: `ar_${randomUUID().slice(0, 12)}`,
+    startedAt: new Date(started).toISOString(),
+    deadlineMs: plan.totalTimeoutMs === null ? undefined : started + plan.totalTimeoutMs,
+    runSignal: combineAbortSignals(plan.signal ?? undefined, timeoutSignal),
+    runnableCount: runnable.length,
+    totalWeight,
+    remainingUsd: plan.budget.kind === 'dynamic' ? plan.budget.policy.totalUsd : undefined,
+    upstreamFindings: [],
+    executions: [],
+    executionFailure: undefined,
+  }
+}
 
+export async function* executePlanStream(
+  plan: AnalystExecutionPlan,
+): AsyncGenerator<AnalystRunEvent, void, void> {
+  const st = startPlanRun(plan)
   yield snapshotExecutionEvent(
     {
       type: 'run-started',
       run_id: plan.runId,
-      correlation_id: correlationId,
-      started_at: startedAt,
+      correlation_id: st.correlationId,
+      started_at: st.startedAt,
       analyst_ids: plan.prepared.map(({ analyst }) => analyst.id),
       ...(plan.executionSnapshot === undefined ? {} : { execution_plan: plan.executionSnapshot }),
+    },
+    st.exact,
+  )
+  for (const { analyst, input } of plan.prepared) {
+    const outcome = yield* runAnalyst(st, analyst, input)
+    if (outcome === 'stop') break
+  }
+  yield* finishRun(st)
+}
+
+/** Record an analyst skipped because the run was aborted; an exact run fails on it. */
+async function* skipAborted(
+  st: PlanRun,
+  analyst: Analyst,
+  runSignal: AbortSignal,
+  latencyMs?: number,
+): AsyncGenerator<AnalystRunEvent, StepOutcome, void> {
+  const { plan, exact } = st
+  const summary = abortedBeforeStartSummary(analyst, runSignal, latencyMs)
+  st.executions.push({ summary, findings: [], budgetDebitUsd: 0 })
+  if (latencyMs === undefined) {
+    plan.log(`[analyst] skip ${analyst.id} — run aborted`, {
+      runId: plan.runId,
+      reason: summary.reason,
+    })
+  }
+  yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
+  if (exact) {
+    st.executionFailure = abortReason(runSignal)
+    return 'stop'
+  }
+  return 'next'
+}
+
+/** An analyst whose input never arrived is skipped; its after-hook still runs. */
+async function* skipMissingInput(
+  st: PlanRun,
+  analyst: Analyst,
+): AsyncGenerator<AnalystRunEvent, StepOutcome, void> {
+  const { plan, exact, runSignal } = st
+  const summary: AnalystRunSummary = {
+    analyst_id: analyst.id,
+    status: 'skipped',
+    reason: `missing input of kind '${analyst.inputKind}'`,
+    findings_count: 0,
+    latency_ms: 0,
+    usage: zeroUsage(),
+  }
+  st.executions.push({ summary, findings: [], budgetDebitUsd: 0 } satisfies AnalystExecution)
+  plan.log(`[analyst] skip ${analyst.id} — missing input`, {
+    runId: plan.runId,
+    kind: analyst.inputKind,
+  })
+  const hookValues = snapshotAfterHookValues(summary, [], exact)
+  try {
+    await waitForHook(
+      plan.hooks.onAfterAnalyze
+        ? () =>
+            plan.hooks.onAfterAnalyze?.({
+              analyst,
+              summary: hookValues.summary,
+              findings: hookValues.findings,
+              runId: plan.runId,
+            })
+        : undefined,
+      runSignal,
+    )
+  } catch (error) {
+    if (!exact) throw error
+    st.executionFailure = error
+  }
+  yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
+  return st.executionFailure !== undefined ? 'stop' : 'next'
+}
+
+/** The context handed to one analyst, with the usage receipts it will record into. */
+function buildAnalystContext(st: PlanRun, analyst: Analyst) {
+  const { plan, exact } = st
+  const allocatedUsd =
+    plan.executionSnapshot === undefined
+      ? allocateBudget(plan.budget.kind === 'dynamic' ? plan.budget.policy : undefined, {
+          analyst,
+          remainingUsd: st.remainingUsd,
+          runningCount: st.runnableCount,
+          totalWeight: st.totalWeight,
+        })
+      : exactPlannedAllocation(plan.executionSnapshot, analyst.id)
+  const budgetCeilingUsd = plan.executionSnapshot === undefined ? st.remainingUsd : allocatedUsd
+  const usageReceipts: AnalystUsageReceipt[] = []
+  const contextTags = plan.tags === null ? undefined : { ...plan.tags }
+  const priorFindings = selectPriorFindings(plan.priorFindings ?? undefined, analyst.id)
+  const chainedFindings =
+    plan.chainFindings && st.upstreamFindings.length > 0 ? [...st.upstreamFindings] : undefined
+  const ctx: AnalystContext = {
+    runId: plan.runId,
+    correlationId: st.correlationId,
+    deadlineMs: st.deadlineMs,
+    budgetUsd: allocatedUsd,
+    costLedger: plan.costLedger ?? undefined,
+    costPhase: plan.costPhase ?? undefined,
+    chat: plan.chat,
+    tags: contextTags,
+    log: (message, fields) =>
+      plan.log(`[${analyst.id}] ${message}`, {
+        runId: plan.runId,
+        correlationId: st.correlationId,
+        ...fields,
+      }),
+    signal: st.runSignal,
+    priorFindings,
+    upstreamFindings: chainedFindings,
+    recordUsage: (receipt) => {
+      if (!exact) {
+        assertValidAnalystUsageReceipt(receipt)
+        usageReceipts.push(receipt)
+        return
+      }
+      usageReceipts.push(
+        snapshotUsageReceiptOnce(receipt, `AnalystRegistry.runExact analyst "${analyst.id}" usage`),
+      )
+    },
+  }
+  if (exact) {
+    if (contextTags) deepFreezeCanonicalJson(contextTags)
+    if (priorFindings) deepFreezeCanonicalJson(priorFindings)
+    if (chainedFindings) deepFreezeCanonicalJson(chainedFindings)
+    Object.freeze(ctx)
+  }
+  return { ctx, usageReceipts, budgetCeilingUsd }
+}
+
+/** Run the analyst's own analysis. A failure is recorded; the on-error hook may still contribute findings. */
+async function analyzeOne(
+  st: PlanRun,
+  analyst: Analyst,
+  value: unknown,
+  analystContext: AnalystContext,
+  executionSignal: AbortSignal | undefined,
+) {
+  const { plan, exact, runSignal } = st
+  let findings: AnalystFinding[]
+  let lifecycleFailure: unknown
+  let analysisFailure: Error | undefined
+  try {
+    if (runSignal?.aborted) throw abortReason(runSignal)
+    const analyzed = await waitForOperation(
+      (analyst as Analyst<unknown>).analyze(value, analystContext),
+      executionSignal,
+      analystAbortGraceMs(analyst),
+    )
+    findings = snapshotExecutionFindings(
+      analyzed,
+      exact,
+      `AnalystRegistry.runExact analyst "${analyst.id}" findings`,
+    )
+  } catch (error) {
+    const cause = error instanceof Error ? error : new Error(String(error))
+    analysisFailure = cause
+    let hookFindings: AnalystFinding[] = []
+    if (!executionSignal?.aborted) {
+      try {
+        const rawHookFindings =
+          (await waitForHook(
+            plan.hooks.onError
+              ? () =>
+                  plan.hooks.onError?.({
+                    analyst,
+                    error: cause,
+                    runId: plan.runId,
+                  })
+              : undefined,
+            executionSignal,
+          )) ?? []
+        hookFindings = snapshotExecutionFindings(
+          rawHookFindings,
+          exact,
+          `AnalystRegistry.runExact analyst "${analyst.id}" onError findings`,
+        )
+      } catch (error) {
+        lifecycleFailure = error
+      }
+    }
+    findings = hookFindings
+  }
+  return { findings, analysisFailure, lifecycleFailure }
+}
+
+/** The summary of one finished analyst, logged as ok or failed. */
+function summarizeAnalyst(
+  st: PlanRun,
+  analyst: Analyst,
+  analysis: { findings: AnalystFinding[]; analysisFailure: Error | undefined },
+  usage: AnalystUsageReceipt,
+  t0: number,
+  effectiveBudget: number | undefined,
+): AnalystRunSummary {
+  const { plan, exact } = st
+  const { findings, analysisFailure } = analysis
+  if (analysisFailure === undefined) {
+    const summary: AnalystRunSummary = {
+      analyst_id: analyst.id,
+      status: 'ok',
+      findings_count: findings.length,
+      latency_ms: Date.now() - t0,
+      usage,
+      ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
+    }
+    plan.log(`[analyst] ok ${analyst.id}`, {
+      runId: plan.runId,
+      findings: findings.length,
+      latency_ms: summary.latency_ms,
+      cost_usd: knownCostUsd(usage),
+      cost_kind: usage.cost.kind,
+      input_tokens: usage.tokens?.input ?? null,
+      output_tokens: usage.tokens?.output ?? null,
+    })
+    return summary
+  }
+  const errorClass = analysisFailure.constructor.name || 'Error'
+  const errorMessage =
+    exact && analysisFailure.message.length === 0
+      ? 'Analyst failed without an error message'
+      : analysisFailure.message
+  const summary: AnalystRunSummary = {
+    analyst_id: analyst.id,
+    status: 'failed',
+    findings_count: findings.length,
+    latency_ms: Date.now() - t0,
+    usage,
+    ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
+    error: { class: errorClass, message: errorMessage },
+  }
+  plan.log(`[analyst] FAIL ${analyst.id}`, {
+    runId: plan.runId,
+    error_class: errorClass,
+    error: errorMessage,
+    cost_usd: knownCostUsd(usage),
+    cost_kind: usage.cost.kind,
+  })
+  return summary
+}
+
+/** One analyst: allocate, run, summarize, and record it on the run. */
+async function* runAnalyst(
+  st: PlanRun,
+  analyst: Analyst,
+  input: AnalystExecutionPlan['prepared'][number]['input'],
+): AsyncGenerator<AnalystRunEvent, StepOutcome, void> {
+  const { plan, exact, runSignal } = st
+  const t0 = Date.now()
+  if (runSignal?.aborted) return yield* skipAborted(st, analyst, runSignal)
+  if (input.kind === 'missing') return yield* skipMissingInput(st, analyst)
+
+  const { ctx, usageReceipts, budgetCeilingUsd } = buildAnalystContext(st, analyst)
+  try {
+    await waitForHook(
+      plan.hooks.onBeforeAnalyze
+        ? () => plan.hooks.onBeforeAnalyze?.({ analyst, ctx, runId: plan.runId })
+        : undefined,
+      runSignal,
+    )
+  } catch (error) {
+    if (!exact) throw error
+    st.executionFailure = error
+    return 'stop'
+  }
+  if (runSignal?.aborted) return yield* skipAborted(st, analyst, runSignal, Date.now() - t0)
+  let effectiveBudget: number | undefined
+  try {
+    effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, budgetCeilingUsd, analyst.id)
+  } catch (error) {
+    if (!exact) throw error
+    st.executionFailure = error
+    return 'stop'
+  }
+  const analystContext: AnalystContext = exact ? ctx : { ...ctx }
+  const executionSignal = exact ? ctx.signal : runSignal
+  yield snapshotExecutionEvent(
+    {
+      type: 'analyst-started',
+      analyst_id: analyst.id,
+      started_at: new Date(t0).toISOString(),
     },
     exact,
   )
 
-  const executions: AnalystExecution[] = []
-  let executionFailure: unknown
+  const analysis = await analyzeOne(st, analyst, input.value, analystContext, executionSignal)
+  const { findings, lifecycleFailure } = analysis
+  let usage: AnalystUsageReceipt
+  try {
+    usage = resolveUsage(analyst, usageReceipts, exact)
+  } catch (error) {
+    if (!exact) throw error
+    st.executionFailure = error
+    return 'stop'
+  }
+  const summary = summarizeAnalyst(st, analyst, analysis, usage, t0, effectiveBudget)
+  logUncapturedBudgetWarning({
+    analyst,
+    runId: plan.runId,
+    budgetUsd: effectiveBudget,
+    usage,
+    log: plan.log,
+  })
 
-  for (const { analyst, input } of plan.prepared) {
-    const t0 = Date.now()
-    if (runSignal?.aborted) {
-      const summary = abortedBeforeStartSummary(analyst, runSignal)
-      executions.push({ summary, findings: [], budgetDebitUsd: 0 })
-      log(`[analyst] skip ${analyst.id} — run aborted`, {
-        runId: plan.runId,
-        reason: summary.reason,
-      })
-      yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
-      if (exact) {
-        executionFailure = abortReason(runSignal)
-        break
-      }
-      continue
-    }
-
-    if (input.kind === 'missing') {
-      const summary: AnalystRunSummary = {
-        analyst_id: analyst.id,
-        status: 'skipped',
-        reason: `missing input of kind '${analyst.inputKind}'`,
-        findings_count: 0,
-        latency_ms: 0,
-        usage: zeroUsage(),
-      }
-      const execution = { summary, findings: [], budgetDebitUsd: 0 } satisfies AnalystExecution
-      executions.push(execution)
-      log(`[analyst] skip ${analyst.id} — missing input`, {
-        runId: plan.runId,
-        kind: analyst.inputKind,
-      })
-      const hookValues = snapshotAfterHookValues(summary, [], exact)
-      try {
-        await waitForHook(
-          plan.hooks.onAfterAnalyze
-            ? () =>
-                plan.hooks.onAfterAnalyze?.({
-                  analyst,
-                  summary: hookValues.summary,
-                  findings: hookValues.findings,
-                  runId: plan.runId,
-                })
-            : undefined,
-          runSignal,
-        )
-      } catch (error) {
-        if (!exact) throw error
-        executionFailure = error
-      }
-      yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
-      if (executionFailure !== undefined) break
-      continue
-    }
-
-    const allocatedUsd =
-      plan.executionSnapshot === undefined
-        ? allocateBudget(plan.budget.kind === 'dynamic' ? plan.budget.policy : undefined, {
-            analyst,
-            remainingUsd,
-            runningCount: runnable.length,
-            totalWeight,
-          })
-        : exactPlannedAllocation(plan.executionSnapshot, analyst.id)
-    const budgetCeilingUsd = plan.executionSnapshot === undefined ? remainingUsd : allocatedUsd
-    const usageReceipts: AnalystUsageReceipt[] = []
-    const contextTags = plan.tags === null ? undefined : { ...plan.tags }
-    const priorFindings = selectPriorFindings(plan.priorFindings ?? undefined, analyst.id)
-    const chainedFindings =
-      plan.chainFindings && upstreamFindings.length > 0 ? [...upstreamFindings] : undefined
-    const ctx: AnalystContext = {
-      runId: plan.runId,
-      correlationId,
-      deadlineMs,
-      budgetUsd: allocatedUsd,
-      costLedger: plan.costLedger ?? undefined,
-      costPhase: plan.costPhase ?? undefined,
-      chat: plan.chat,
-      tags: contextTags,
-      log: (message, fields) =>
-        log(`[${analyst.id}] ${message}`, {
-          runId: plan.runId,
-          correlationId,
-          ...fields,
-        }),
-      signal: runSignal,
-      priorFindings,
-      upstreamFindings: chainedFindings,
-      recordUsage: (receipt) => {
-        if (!exact) {
-          assertValidAnalystUsageReceipt(receipt)
-          usageReceipts.push(receipt)
-          return
-        }
-        usageReceipts.push(
-          snapshotUsageReceiptOnce(
-            receipt,
-            `AnalystRegistry.runExact analyst "${analyst.id}" usage`,
-          ),
-        )
-      },
-    }
-    if (exact) {
-      if (contextTags) deepFreezeCanonicalJson(contextTags)
-      if (priorFindings) deepFreezeCanonicalJson(priorFindings)
-      if (chainedFindings) deepFreezeCanonicalJson(chainedFindings)
-      Object.freeze(ctx)
-    }
-
+  const execution = {
+    summary,
+    findings,
+    budgetDebitUsd: budgetDebit(summary.usage, effectiveBudget),
+  } satisfies AnalystExecution
+  if (exact) {
     try {
-      await waitForHook(
-        plan.hooks.onBeforeAnalyze
-          ? () => plan.hooks.onBeforeAnalyze?.({ analyst, ctx, runId: plan.runId })
-          : undefined,
-        runSignal,
-      )
+      executionCost([...st.executions, execution], true)
     } catch (error) {
-      if (!exact) throw error
-      executionFailure = error
-      break
-    }
-    if (runSignal?.aborted) {
-      const summary = abortedBeforeStartSummary(analyst, runSignal, Date.now() - t0)
-      executions.push({ summary, findings: [], budgetDebitUsd: 0 })
-      yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
-      if (exact) {
-        executionFailure = abortReason(runSignal)
-        break
-      }
-      continue
-    }
-    let effectiveBudget: number | undefined
-    try {
-      effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, budgetCeilingUsd, analyst.id)
-    } catch (error) {
-      if (!exact) throw error
-      executionFailure = error
-      break
-    }
-    const analystContext: AnalystContext = exact ? ctx : { ...ctx }
-    const executionSignal = exact ? ctx.signal : runSignal
-    yield snapshotExecutionEvent(
-      {
-        type: 'analyst-started',
-        analyst_id: analyst.id,
-        started_at: new Date(t0).toISOString(),
-      },
-      exact,
-    )
-
-    let findings: AnalystFinding[]
-    let summary: AnalystRunSummary
-    let lifecycleFailure: unknown
-    let analysisFailure: Error | undefined
-    try {
-      if (runSignal?.aborted) throw abortReason(runSignal)
-      const analyzed = await waitForOperation(
-        (analyst as Analyst<unknown>).analyze(input.value, analystContext),
-        executionSignal,
-        analystAbortGraceMs(analyst),
-      )
-      findings = snapshotExecutionFindings(
-        analyzed,
-        exact,
-        `AnalystRegistry.runExact analyst "${analyst.id}" findings`,
-      )
-    } catch (error) {
-      const cause = error instanceof Error ? error : new Error(String(error))
-      analysisFailure = cause
-      let hookFindings: AnalystFinding[] = []
-      if (!executionSignal?.aborted) {
-        try {
-          const rawHookFindings =
-            (await waitForHook(
-              plan.hooks.onError
-                ? () =>
-                    plan.hooks.onError?.({
-                      analyst,
-                      error: cause,
-                      runId: plan.runId,
-                    })
-                : undefined,
-              executionSignal,
-            )) ?? []
-          hookFindings = snapshotExecutionFindings(
-            rawHookFindings,
-            exact,
-            `AnalystRegistry.runExact analyst "${analyst.id}" onError findings`,
-          )
-        } catch (error) {
-          lifecycleFailure = error
-        }
-      }
-      findings = hookFindings
-    }
-
-    let usage: AnalystUsageReceipt
-    try {
-      usage = resolveUsage(analyst, usageReceipts, exact)
-    } catch (error) {
-      if (!exact) throw error
-      executionFailure = error
-      break
-    }
-    if (analysisFailure === undefined) {
-      summary = {
-        analyst_id: analyst.id,
-        status: 'ok',
-        findings_count: findings.length,
-        latency_ms: Date.now() - t0,
-        usage,
-        ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
-      }
-      log(`[analyst] ok ${analyst.id}`, {
-        runId: plan.runId,
-        findings: findings.length,
-        latency_ms: summary.latency_ms,
-        cost_usd: knownCostUsd(usage),
-        cost_kind: usage.cost.kind,
-        input_tokens: usage.tokens?.input ?? null,
-        output_tokens: usage.tokens?.output ?? null,
-      })
-    } else {
-      const errorClass = analysisFailure.constructor.name || 'Error'
-      const errorMessage =
-        exact && analysisFailure.message.length === 0
-          ? 'Analyst failed without an error message'
-          : analysisFailure.message
-      summary = {
-        analyst_id: analyst.id,
-        status: 'failed',
-        findings_count: findings.length,
-        latency_ms: Date.now() - t0,
-        usage,
-        ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
-        error: { class: errorClass, message: errorMessage },
-      }
-      log(`[analyst] FAIL ${analyst.id}`, {
-        runId: plan.runId,
-        error_class: errorClass,
-        error: errorMessage,
-        cost_usd: knownCostUsd(usage),
-        cost_kind: usage.cost.kind,
-      })
-    }
-    logUncapturedBudgetWarning({
-      analyst,
-      runId: plan.runId,
-      budgetUsd: effectiveBudget,
-      usage,
-      log,
-    })
-
-    const execution = {
-      summary,
-      findings,
-      budgetDebitUsd: budgetDebit(summary.usage, effectiveBudget),
-    } satisfies AnalystExecution
-    if (exact) {
-      try {
-        executionCost([...executions, execution], true)
-      } catch (error) {
-        executionFailure = error
-        break
-      }
-    }
-    executions.push(execution)
-    if (plan.budget.kind === 'dynamic' && remainingUsd !== undefined) {
-      remainingUsd = Math.max(0, remainingUsd - execution.budgetDebitUsd)
-    }
-    if (plan.chainFindings) upstreamFindings.push(...findings)
-    if (lifecycleFailure !== undefined) {
-      if (!exact) throw lifecycleFailure
-      executionFailure = lifecycleFailure
-      break
-    }
-
-    const hookValues = snapshotAfterHookValues(summary, findings, exact)
-    try {
-      await waitForHook(
-        plan.hooks.onAfterAnalyze
-          ? () =>
-              plan.hooks.onAfterAnalyze?.({
-                analyst,
-                summary: hookValues.summary,
-                findings: hookValues.findings,
-                runId: plan.runId,
-              })
-          : undefined,
-        executionSignal,
-      )
-    } catch (error) {
-      if (!exact) throw error
-      executionFailure = error
-      break
-    }
-    yield snapshotExecutionEvent({ type: 'analyst-completed', summary, findings }, exact)
-    if (exact && runSignal?.aborted) {
-      executionFailure = abortReason(runSignal)
-      break
+      st.executionFailure = error
+      return 'stop'
     }
   }
+  st.executions.push(execution)
+  if (plan.budget.kind === 'dynamic' && st.remainingUsd !== undefined) {
+    st.remainingUsd = Math.max(0, st.remainingUsd - execution.budgetDebitUsd)
+  }
+  if (plan.chainFindings) st.upstreamFindings.push(...findings)
+  if (lifecycleFailure !== undefined) {
+    if (!exact) throw lifecycleFailure
+    st.executionFailure = lifecycleFailure
+    return 'stop'
+  }
 
+  const hookValues = snapshotAfterHookValues(summary, findings, exact)
+  try {
+    await waitForHook(
+      plan.hooks.onAfterAnalyze
+        ? () =>
+            plan.hooks.onAfterAnalyze?.({
+              analyst,
+              summary: hookValues.summary,
+              findings: hookValues.findings,
+              runId: plan.runId,
+            })
+        : undefined,
+      executionSignal,
+    )
+  } catch (error) {
+    if (!exact) throw error
+    st.executionFailure = error
+    return 'stop'
+  }
+  yield snapshotExecutionEvent({ type: 'analyst-completed', summary, findings }, exact)
+  if (exact && runSignal?.aborted) {
+    st.executionFailure = abortReason(runSignal)
+    return 'stop'
+  }
+  return 'next'
+}
+
+/** Assemble the result, run the completion hook, and yield it. A failed exact run throws with its partial receipt. */
+async function* finishRun(st: PlanRun): AsyncGenerator<AnalystRunEvent, void, void> {
+  const { plan, runSignal, executions } = st
   const summaries = executions.map(({ summary }) => summary)
   const findings = executions.flatMap((execution) => execution.findings)
-  const cost = executionCost(executions, exact)
+  const cost = executionCost(executions, st.exact)
   const baseResult: AnalystRunResult = {
     run_id: plan.runId,
-    correlation_id: correlationId,
-    started_at: startedAt,
+    correlation_id: st.correlationId,
+    started_at: st.startedAt,
     ended_at: new Date().toISOString(),
     findings,
     per_analyst: summaries,
@@ -430,7 +508,7 @@ export async function* executePlanStream(
   }
 
   let completeResult: ExactAnalystRunResult | undefined
-  if (executionFailure === undefined) {
+  if (st.executionFailure === undefined) {
     try {
       completeResult = snapshotExactAnalystRunReceipt(
         {
@@ -447,17 +525,19 @@ export async function* executePlanStream(
         runSignal,
       )
     } catch (error) {
-      executionFailure = error
+      st.executionFailure = error
     }
   }
-  if (runSignal?.aborted) executionFailure ??= abortReason(runSignal)
-  if (executionFailure === undefined && completeResult) {
+  if (runSignal?.aborted) st.executionFailure ??= abortReason(runSignal)
+  if (st.executionFailure === undefined && completeResult) {
     yield snapshotExecutionEvent({ type: 'run-completed', result: completeResult }, true)
     return
   }
 
   const cause =
-    executionFailure instanceof Error ? executionFailure : new Error(String(executionFailure))
+    st.executionFailure instanceof Error
+      ? st.executionFailure
+      : new Error(String(st.executionFailure))
   const errorClass = cause.constructor.name || 'Error'
   const errorMessage =
     cause.message.trim().length === 0 ? 'Exact analyst run failed without a message' : cause.message

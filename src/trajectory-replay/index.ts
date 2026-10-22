@@ -27,14 +27,85 @@ export {
   type ReplayBatchOptions,
   type ReplayBatchReport,
   runReplayBatch,
-  seededSample,
 } from './batch'
-export { type CaseResources, type CorpusSpec, type CwdSource, type EnumerationResult, type ExcludedCase, type ReplayableCase, type ReplayExclusionReason, type ResourceResolution } from './corpus'
-export { type ReplayExecBackend, type ReplayExecBackendFactory, type ReplayExecResult, type ReplayExecSession } from './exec'
-export { classifyVerdict, type FindingReplayability, type FindingReplaySource, type FindingVerification, type FindingVerificationStatus, type ResolvedFindingReplay, type VerifiableFinding, type VerifyFindingsOptions, type VerifyFindingsRun, verifyFindings } from './findings'
-export { type ChatCompletionCaller, type ChatOutcome, type ChatUsage, type FailedFixAttempt, type FixGenerationOutcome, type FixPromptInput } from './fix'
-export { type FixArmExecution, type FixArmExecutor, type FixLoopAttemptRecord, type FixLoopOptions, type FixLoopResult } from './fix-loop'
-export { type DockerImagePreparerOptions, dockerImagePreparer, type ImagePreparation, type ImagePreparer } from './image-preparer'
-export { classifyObservation, type DecodedTrajectory, decodeRecordedTurns, finalRecordedOutcome, type RecordedFinalOutcome, type RecordedObservationKind, type RecordedTrajectoryStep, type RecordedTrajectoryTurn } from './steps'
-export { type ArmExecutionResult, type IngestedTrajectory, PREFIX_DIVERGENCE_TOLERANCE_PCT, type PrefixDivergence, type PrefixDivergenceKind, type PrefixReplayResult, type ReplayArmVerdict, type ReplayVerdict, type ReplayVerifyOptions, replayVerify, type SandboxCounterfactualRunnerOptions } from './verify'
-export { type AnalystReplayFinding, type IncorrectStepsSubject, type ReplayFindingOptions, type ReplayFindingResult, type ResolvedReplayInvocation, replayVerifyFinding } from './wire'
+export { seededSample } from './batch-fix'
+export type {
+  CaseResources,
+  CorpusSpec,
+  CwdSource,
+  EnumerationResult,
+  ExcludedCase,
+  ReplayableCase,
+  ReplayExclusionReason,
+  ResourceResolution,
+} from './corpus'
+export type {
+  ReplayExecBackend,
+  ReplayExecBackendFactory,
+  ReplayExecResult,
+  ReplayExecSession,
+} from './exec'
+export {
+  classifyVerdict,
+  type FindingReplayability,
+  type FindingReplaySource,
+  type FindingVerification,
+  type FindingVerificationStatus,
+  type ResolvedFindingReplay,
+  type VerifiableFinding,
+  type VerifyFindingsOptions,
+  type VerifyFindingsRun,
+  verifyFindings,
+} from './findings'
+export type {
+  ChatCompletionCaller,
+  ChatOutcome,
+  ChatUsage,
+  FailedFixAttempt,
+  FixGenerationOutcome,
+  FixPromptInput,
+} from './fix'
+export type {
+  FixArmExecution,
+  FixArmExecutor,
+  FixLoopAttemptRecord,
+  FixLoopOptions,
+  FixLoopResult,
+} from './fix-loop'
+export {
+  type DockerImagePreparerOptions,
+  dockerImagePreparer,
+  type ImagePreparation,
+  type ImagePreparer,
+} from './image-preparer'
+export {
+  classifyObservation,
+  type DecodedTrajectory,
+  decodeRecordedTurns,
+  finalRecordedOutcome,
+  type RecordedFinalOutcome,
+  type RecordedObservationKind,
+  type RecordedTrajectoryStep,
+  type RecordedTrajectoryTurn,
+} from './steps'
+export {
+  type ArmExecutionResult,
+  type IngestedTrajectory,
+  PREFIX_DIVERGENCE_TOLERANCE_PCT,
+  type PrefixDivergence,
+  type PrefixDivergenceKind,
+  type PrefixReplayResult,
+  type ReplayArmVerdict,
+  type ReplayVerdict,
+  type ReplayVerifyOptions,
+  replayVerify,
+  type SandboxCounterfactualRunnerOptions,
+} from './verify'
+export {
+  type AnalystReplayFinding,
+  type IncorrectStepsSubject,
+  type ReplayFindingOptions,
+  type ReplayFindingResult,
+  type ResolvedReplayInvocation,
+  replayVerifyFinding,
+} from './wire'

@@ -14,7 +14,6 @@ import type {
   PairedMeasurementEvaluation,
 } from './measured-comparison-types'
 import {
-  assertKnownCost,
   dimensionScore,
   projectPairedMeasurement,
   sharedProjectedDimensions,
@@ -30,6 +29,17 @@ import {
 export function evaluatePairedMeasurements<TRun>(
   options: EvaluatePairedMeasurementsOptions<TRun>,
 ): PairedMeasurementEvaluation {
+  const s0 = validatePairedInput({ options })
+  const s1 = pairedEstimates(s0)
+  const s2 = dimensionRegressions(s1)
+  const s3 = runTotals(s2)
+  const s4 = budgetAndChecks(s3)
+  return pairedVerdict(s4)
+}
+
+/** The checked policy and measurements, their cell ids, shared dimensions and score arrays. */
+function validatePairedInput<TRun>(prev: { options: EvaluatePairedMeasurementsOptions<TRun> }) {
+  const { options } = prev
   if (options.measurements.length === 0) {
     throw new Error('paired measurement evaluation requires at least one paired cell')
   }
@@ -61,6 +71,41 @@ export function evaluatePairedMeasurements<TRun>(
     criticalDimensions,
     regressionTolerance,
   } = policy
+  return {
+    ...prev,
+    preparationCost,
+    policy,
+    measurements,
+    cellIds,
+    dimensions,
+    baselineScores,
+    candidateScores,
+    confidence,
+    resamples,
+    bootstrapSeed,
+    deltaThreshold,
+    minProductiveRuns,
+    budgetUsd,
+    criticalDimensions,
+    regressionTolerance,
+  }
+}
+
+/** Held-out significance, the overall, cost and latency estimates, and the observed power. */
+function pairedEstimates<TRun>(prev: ReturnType<typeof validatePairedInput<TRun>>) {
+  const {
+    options,
+    measurements,
+    cellIds,
+    dimensions,
+    baselineScores,
+    candidateScores,
+    confidence,
+    resamples,
+    bootstrapSeed,
+    deltaThreshold,
+    minProductiveRuns,
+  } = prev
   const significance = heldoutSignificance(
     { before: baselineScores, after: candidateScores, cellIds },
     {
@@ -151,6 +196,23 @@ export function evaluatePairedMeasurements<TRun>(
     confidence,
     sharedScorerChannel: options.sharedScorerChannel,
   })
+  return { ...prev, significance, overall, objectives, cost, latency, power }
+}
+
+/** Critical dimensions that regressed, on either burden of proof. */
+function dimensionRegressions<TRun>(prev: ReturnType<typeof pairedEstimates<TRun>>) {
+  const {
+    measurements,
+    dimensions,
+    confidence,
+    resamples,
+    bootstrapSeed,
+    minProductiveRuns,
+    criticalDimensions,
+    regressionTolerance,
+    objectives,
+    power,
+  } = prev
   const powerSufficient = power.sufficient
   const guardedDimensions = new Set(criticalDimensions)
   const missingCriticalDimensions = criticalDimensions.filter(
@@ -188,6 +250,19 @@ export function evaluatePairedMeasurements<TRun>(
       (objective.confidenceInterval.lower < -regressionTolerance ||
         regressionProven.has(objective.name)),
   )
+  return {
+    ...prev,
+    powerSufficient,
+    guardedDimensions,
+    missingCriticalDimensions,
+    regressionProven,
+    regressions,
+  }
+}
+
+/** Run completion, per-task regressions and the measurement cost. */
+function runTotals<TRun>(prev: ReturnType<typeof dimensionRegressions<TRun>>) {
+  const { options, measurements } = prev
   const measurementCostUsd = measurements.reduce(
     (sum, measurement) => sum + measurement.baseline.costUsd + measurement.candidate.costUsd,
     0,
@@ -254,7 +329,35 @@ export function evaluatePairedMeasurements<TRun>(
       : 'estimated',
   }
   const measurementCost = options.measurementCost ?? derivedMeasurementCost
-  assertKnownCost(measurementCost, 'paired measurement cost')
+  return {
+    ...prev,
+    measurementCostUsd,
+    measurementWorkDurationMs,
+    completedRuns,
+    incompleteRuns,
+    regressedTasks,
+    sharedTaskFailures,
+    repairedTasks,
+    derivedMeasurementCost,
+    measurementCost,
+  }
+}
+
+/** Total cost against the budget, and the checks the verdict is drawn from. */
+function budgetAndChecks<TRun>(prev: ReturnType<typeof runTotals<TRun>>) {
+  const {
+    options,
+    preparationCost,
+    budgetUsd,
+    significance,
+    powerSufficient,
+    missingCriticalDimensions,
+    regressions,
+    incompleteRuns,
+    regressedTasks,
+    derivedMeasurementCost,
+    measurementCost,
+  } = prev
   if (
     options.measurementCost !== undefined &&
     (measurementCost.provenance !== derivedMeasurementCost.provenance ||
@@ -294,6 +397,38 @@ export function evaluatePairedMeasurements<TRun>(
     regressions.length > 0 ||
     missingCriticalDimensions.length > 0 ||
     !budgetPassed
+  return { ...prev, totalCost, budgetPassed, checks, shipped, hardFailure }
+}
+
+/** The verdict, its reasons and the evaluation record. */
+function pairedVerdict<TRun>(
+  prev: ReturnType<typeof budgetAndChecks<TRun>>,
+): PairedMeasurementEvaluation {
+  const {
+    options,
+    baselineScores,
+    confidence,
+    deltaThreshold,
+    budgetUsd,
+    significance,
+    overall,
+    objectives,
+    power,
+    powerSufficient,
+    missingCriticalDimensions,
+    regressions,
+    measurementWorkDurationMs,
+    incompleteRuns,
+    regressedTasks,
+    sharedTaskFailures,
+    repairedTasks,
+    measurementCost,
+    totalCost,
+    budgetPassed,
+    checks,
+    shipped,
+    hardFailure,
+  } = prev
   const reasons = [
     ...(significance.significant ? [] : [significanceReason(significance, deltaThreshold)]),
     ...(powerSufficient || significance.fewRuns ? [] : [power.reason]),

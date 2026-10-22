@@ -30,7 +30,13 @@ import {
   type RolloutLine,
   type RolloutSplit,
 } from '../rollout/schema'
-import { asRecord, parseJsonRecord, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
+import {
+  asRecord,
+  parseJsonRecord,
+  parseSupervisorTree,
+  type SpawnRow,
+  type SupervisorTreeFacts,
+} from './source-facts'
 import { readTerminalRecord } from './terminal-record'
 import {
   isUnavailable,
@@ -95,33 +101,13 @@ export function supervisorRunRolloutLines(
   return supervisorRunRolloutLinesFromFacts(src, parseSupervisorTree(src), opts)
 }
 
-/** Mint rollout rows from an already parsed source without reading its JSONL again. */
-export function supervisorRunRolloutLinesFromFacts(
+/** What the root and worker rows share: the parsed run record, the row template and the gap collector. */
+function rolloutContext(
   src: SupervisorRunSources,
   tree: SupervisorTreeFacts,
-  opts: SupervisorRolloutOptions = {},
-): SupervisorRunTree {
-  const gaps: SupervisorRunTreeGap[] = []
-  if (src.journal === null) {
-    gaps.push({
-      code: 'journal-unavailable',
-      message: `${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'}; no nodes recoverable`,
-    })
-    return { rootId: null, nodes: [], gaps }
-  }
-  // `journalInvalidRows` covers rows the parser could not interpret at all, including JSON
-  // objects in a shape it does not recognize — so a journal it read but understood none of
-  // reports an explicit gap instead of an empty tree.
-  const malformedSourceRows =
-    tree.journalInvalidRows + tree.spawns.filter((spawn) => !spawn.valid).length
-  if (malformedSourceRows > 0) {
-    gaps.push({
-      code: 'source-row-malformed',
-      message: `${malformedSourceRows} of ${tree.journalRows} journal row(s) were unusable and excluded from the tree`,
-      count: malformedSourceRows,
-    })
-  }
-
+  opts: SupervisorRolloutOptions,
+  gaps: SupervisorRunTreeGap[],
+) {
   const state = tree.state
   const result = parseJsonRecord(src.result)
   const judge = parseJsonRecord(src.judge)
@@ -159,7 +145,6 @@ export function supervisorRunRolloutLinesFromFacts(
     tool_defs: [] as RolloutLine['tool_defs'],
   } satisfies Partial<RolloutLine> & Record<string, unknown>
 
-  const nodes: RolloutLine[] = []
   const noteCaptureGaps = (
     owner: string,
     nodeId: string,
@@ -194,128 +179,165 @@ export function supervisorRunRolloutLinesFromFacts(
     }
     return incomplete ? 'workspace capture evidence incomplete' : null
   }
+  return {
+    src,
+    tree,
+    opts,
+    gaps,
+    state,
+    result,
+    judge,
+    stateResult,
+    terminal,
+    rootId,
+    capturedAt,
+    base,
+    noteCaptureGaps,
+  }
+}
 
-  // ── root: the supervisor invocation ────────────────────────────────────
-  if (rootId !== null) {
-    const rootSpawn = tree.spawns.find((spawn) => spawn.valid && spawn.id === rootId)
-    const judgeResolved = typeof judge?.resolved === 'boolean' ? judge.resolved : null
-    const judgeScore = typeof judge?.score === 'number' ? judge.score : null
-    const reward = judgeScore ?? (judgeResolved === null ? null : judgeResolved ? 1 : 0)
-    if (reward === null) {
-      gaps.push({
-        code: 'root-reward-unavailable',
-        message: 'no judge verdict for this run',
-        nodeId: rootId,
-      })
-    }
-    const wallMs =
-      tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
-        ? tree.completedAt - tree.startedAt
-        : null
-    const captures = src.rootWorkspaceCaptures
-    const captureGap = noteCaptureGaps(`root ${JSON.stringify(rootId)}`, rootId, captures)
-    nodes.push({
-      ...base,
-      rollout_id: rootId,
-      parent_rollout_id: null,
-      role: rootSpawn?.role ?? 'supervisor',
-      policy: {
-        harness: opts.supervisorHarness ?? null,
-        harness_version: null,
-        model: opts.supervisorModel ?? null,
-        provider: null,
-        profile_commit: null,
-        agent_profile_cell_id: rootSpawn?.profileDigest ?? null,
-        sampling: null,
-      },
-      outcome: {
-        // `reward` and `realness_gated` are written by one call, in the module
-        // that owns the gate. This is the SECOND producer of rollout rewards —
-        // the judge verdict in the supervision run dir, not `mintRolloutRows` —
-        // and it wrote `reward` by hand while never stating the flag, so
-        // `isLineRealnessGated` was structurally false for every supervisor and
-        // worker row ever emitted here. `unscreenedRewardFields` is the honest
-        // name for what this producer can claim: a supervision journal carries
-        // no `RunRecord.outcome.realness`, so no authenticity gate has run on
-        // this score, and `realness_gated: false` states that rather than
-        // implying it by omission. These rows stay plain `RolloutLine`s, so a
-        // caller feeding them to a training exporter must `assertMinted` first.
-        ...unscreenedRewardFields(reward),
-        reward_source: src.judgeSource,
-        verdict: judge ?? null,
-        metrics: {
-          arm: src.arm,
-          sup_status: isUnavailable(terminal.supStatus) ? null : terminal.supStatus,
-          sup_verdict: typeof state?.verdict === 'string' ? state.verdict : null,
-          delivered: typeof stateResult.delivered === 'boolean' ? stateResult.delivered : null,
-          verify_pass: typeof result?.verify_pass === 'boolean' ? result.verify_pass : null,
-          started_at: tree.startedAt,
-          completed_at: tree.completedAt,
-          workers_spawned: tree.workerSpawns.length,
-          brain_metered_events: tree.brain.meteredCount,
-          runtime: rootSpawn?.runtime ?? null,
-          profile_digest: rootSpawn?.profileDigest ?? null,
-        },
-        is_completed: terminal.completed === true,
-        is_truncated: false,
-        // A recorded non-delivery names its cause: Runtime's no-winner reason,
-        // else the recorded error's message. A run with no terminal record has
-        // no error to report, and a delivered run has none.
-        error:
-          terminal.completed !== false
-            ? null
-            : !isUnavailable(terminal.supReason) && terminal.supReason !== null
-              ? terminal.supReason
-              : !isUnavailable(terminal.failure) && terminal.failure !== null
-                ? (terminal.failure.message ?? terminal.failure.name)
-                : null,
-        realness_gated: false,
-      },
-      cost: {
-        ...EMPTY_COST,
-        usd:
-          src.limits.spendUsd !== null
-            ? null
-            : typeof stateResult.spentUsd === 'number'
-              ? stateResult.spentUsd
-              : tree.brain.usd,
-        tokens_in: src.limits.managerTokens === null ? tree.brain.tokensIn : null,
-        tokens_out: src.limits.managerTokens === null ? tree.brain.tokensOut : null,
-        cache_read:
-          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheRead : null,
-        cache_write:
-          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheWrite : null,
-        wall_s: wallMs === null ? null : wallMs / 1000,
-      },
-      artifacts: {
-        patch_path: typeof result?.patchPath === 'string' ? result.patchPath : null,
-        run_dir: src.supRunDir,
-        // Only a reader's declared artifact: a guessed path would read as retained evidence.
-        transcript_ref: src.rootTranscriptRef ?? null,
-      },
-      provenance: {
-        captured_at: capturedAt,
-        capture: 'backfill',
-        lossy_projection: true,
-        ...(captures === undefined ? {} : { workspace_captures: captures }),
-        gap: [
-          src.rootTranscriptRef == null
-            ? 'supervision journal carries structure and spend, not the brain transcript'
-            : 'brain transcript retained by reference; messages not inlined into this row',
-          captureGap,
-        ]
-          .filter((reason): reason is string => reason !== null)
-          .join('; '),
-      },
-    })
-  } else {
+type RolloutContext = ReturnType<typeof rolloutContext>
+
+/** The supervisor invocation row, or nothing when the journal never named a root. */
+function rootRolloutNode(ctx: RolloutContext): RolloutLine | null {
+  const {
+    src,
+    tree,
+    opts,
+    gaps,
+    state,
+    result,
+    judge,
+    stateResult,
+    terminal,
+    rootId,
+    capturedAt,
+    noteCaptureGaps,
+    base,
+  } = ctx
+  if (rootId === null) {
     gaps.push({
       code: 'root-spawn-unavailable',
       message: 'no parentless spawned event in the journal',
     })
+    return null
   }
+  const rootSpawn = tree.spawns.find((spawn) => spawn.valid && spawn.id === rootId)
+  const judgeResolved = typeof judge?.resolved === 'boolean' ? judge.resolved : null
+  const judgeScore = typeof judge?.score === 'number' ? judge.score : null
+  const reward = judgeScore ?? (judgeResolved === null ? null : judgeResolved ? 1 : 0)
+  if (reward === null) {
+    gaps.push({
+      code: 'root-reward-unavailable',
+      message: 'no judge verdict for this run',
+      nodeId: rootId,
+    })
+  }
+  const wallMs =
+    tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
+      ? tree.completedAt - tree.startedAt
+      : null
+  const captures = src.rootWorkspaceCaptures
+  const captureGap = noteCaptureGaps(`root ${JSON.stringify(rootId)}`, rootId, captures)
+  return {
+    ...base,
+    rollout_id: rootId,
+    parent_rollout_id: null,
+    role: rootSpawn?.role ?? 'supervisor',
+    policy: {
+      harness: opts.supervisorHarness ?? null,
+      harness_version: null,
+      model: opts.supervisorModel ?? null,
+      provider: null,
+      profile_commit: null,
+      agent_profile_cell_id: rootSpawn?.profileDigest ?? null,
+      sampling: null,
+    },
+    outcome: {
+      // `reward` and `realness_gated` are written by one call, in the module
+      // that owns the gate. This is the SECOND producer of rollout rewards —
+      // the judge verdict in the supervision run dir, not `mintRolloutRows` —
+      // and it wrote `reward` by hand while never stating the flag, so
+      // `isLineRealnessGated` was structurally false for every supervisor and
+      // worker row ever emitted here. `unscreenedRewardFields` is the honest
+      // name for what this producer can claim: a supervision journal carries
+      // no `RunRecord.outcome.realness`, so no authenticity gate has run on
+      // this score, and `realness_gated: false` states that rather than
+      // implying it by omission. These rows stay plain `RolloutLine`s, so a
+      // caller feeding them to a training exporter must `assertMinted` first.
+      ...unscreenedRewardFields(reward),
+      reward_source: src.judgeSource,
+      verdict: judge ?? null,
+      metrics: {
+        arm: src.arm,
+        sup_status: isUnavailable(terminal.supStatus) ? null : terminal.supStatus,
+        sup_verdict: typeof state?.verdict === 'string' ? state.verdict : null,
+        delivered: typeof stateResult.delivered === 'boolean' ? stateResult.delivered : null,
+        verify_pass: typeof result?.verify_pass === 'boolean' ? result.verify_pass : null,
+        started_at: tree.startedAt,
+        completed_at: tree.completedAt,
+        workers_spawned: tree.workerSpawns.length,
+        brain_metered_events: tree.brain.meteredCount,
+        runtime: rootSpawn?.runtime ?? null,
+        profile_digest: rootSpawn?.profileDigest ?? null,
+      },
+      is_completed: terminal.completed === true,
+      is_truncated: false,
+      // A recorded non-delivery names its cause: Runtime's no-winner reason,
+      // else the recorded error's message. A run with no terminal record has
+      // no error to report, and a delivered run has none.
+      error:
+        terminal.completed !== false
+          ? null
+          : !isUnavailable(terminal.supReason) && terminal.supReason !== null
+            ? terminal.supReason
+            : !isUnavailable(terminal.failure) && terminal.failure !== null
+              ? (terminal.failure.message ?? terminal.failure.name)
+              : null,
+      realness_gated: false,
+    },
+    cost: {
+      ...EMPTY_COST,
+      usd:
+        src.limits.spendUsd !== null
+          ? null
+          : typeof stateResult.spentUsd === 'number'
+            ? stateResult.spentUsd
+            : tree.brain.usd,
+      tokens_in: src.limits.managerTokens === null ? tree.brain.tokensIn : null,
+      tokens_out: src.limits.managerTokens === null ? tree.brain.tokensOut : null,
+      cache_read:
+        src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheRead : null,
+      cache_write:
+        src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheWrite : null,
+      wall_s: wallMs === null ? null : wallMs / 1000,
+    },
+    artifacts: {
+      patch_path: typeof result?.patchPath === 'string' ? result.patchPath : null,
+      run_dir: src.supRunDir,
+      // Only a reader's declared artifact: a guessed path would read as retained evidence.
+      transcript_ref: src.rootTranscriptRef ?? null,
+    },
+    provenance: {
+      captured_at: capturedAt,
+      capture: 'backfill',
+      lossy_projection: true,
+      ...(captures === undefined ? {} : { workspace_captures: captures }),
+      gap: [
+        src.rootTranscriptRef == null
+          ? 'supervision journal carries structure and spend, not the brain transcript'
+          : 'brain transcript retained by reference; messages not inlined into this row',
+        captureGap,
+      ]
+        .filter((reason): reason is string => reason !== null)
+        .join('; '),
+    },
+  }
+}
 
-  // ── workers: one node per spawn, keyed to its spawner ───────────────────
+/** The journal closes and the reader's worker sources, joined to spawns by stable id first and by label only as a fallback. */
+function workerLookups(ctx: RolloutContext) {
+  const { src, tree } = ctx
   const closeById = new Map(tree.closes.map((c) => [c.id, c]))
   const sourceById = new Map(
     (src.workers ?? []).filter(hasWorkerId).map((worker) => [worker.workerId, worker]),
@@ -325,132 +347,178 @@ export function supervisorRunRolloutLinesFromFacts(
       .filter((worker) => worker.workerId === undefined)
       .map((worker) => [worker.label, worker]),
   )
-  // Stable ids are authoritative. Labels are a compatibility join for stores
-  // that predate workerId and are only safe when the store keeps them unique.
-  for (const spawn of tree.workerSpawns) {
-    if (spawn.role === null) {
-      gaps.push({
-        code: 'node-role-unavailable',
-        message: `child ${JSON.stringify(spawn.label)} has no explicit invocation role`,
-        nodeId: spawn.id,
-      })
-      continue
-    }
-    const close = closeById.get(spawn.id) ?? null
-    const workerSource = sourceById.get(spawn.id) ?? fallbackSourceByLabel.get(spawn.label) ?? null
-    const facts =
-      tree.workerLogs.get(workerSource?.workerId ?? workerSource?.label ?? spawn.label) ?? null
-    const wallMs =
-      facts?.started != null && facts.finishedAt != null ? facts.finishedAt - facts.started : null
-    const score = close?.score ?? facts?.score ?? null
-    const passed = close?.valid ?? facts?.passed ?? null
-    const reward = score ?? (passed === null ? null : passed ? 1 : 0)
-    if (reward === null) {
-      gaps.push({
-        code: 'child-reward-unavailable',
-        message: `child ${JSON.stringify(spawn.label)} has no verify verdict`,
-        nodeId: spawn.id,
-      })
-    }
-    const isSupervisor = spawn.role === 'supervisor'
-    const captures = workerSource?.workspaceCaptures
-    const captureGap = noteCaptureGaps(`child ${JSON.stringify(spawn.label)}`, spawn.id, captures)
-    nodes.push({
-      ...base,
-      rollout_id: spawn.id,
-      parent_rollout_id: spawn.parent,
-      role: spawn.role,
-      policy: {
-        harness: isSupervisor ? (opts.supervisorHarness ?? null) : (opts.workerHarness ?? null),
-        harness_version: null,
-        model: isSupervisor ? (opts.supervisorModel ?? null) : (opts.workerModel ?? null),
-        provider: null,
-        profile_commit: null,
-        agent_profile_cell_id: spawn.profileDigest,
-        sampling: null,
-      },
-      outcome: {
-        // Same producer, same claim: a child reward is a self-verify verdict
-        // from the journal that no realness gate has seen.
-        ...unscreenedRewardFields(reward),
-        reward_source:
-          reward === null ? null : score === null ? 'worker-self-verify' : 'worker-verdict-score',
-        verdict:
-          close === null
-            ? null
-            : {
-                kind: close.kind,
-                status: close.status,
-                verdict: close.rawVerdict,
-                valid: close.valid,
-                score: close.score,
-              },
-        metrics: {
-          label: spawn.label,
-          spawned_at: spawn.at,
-          settled_at: close?.at ?? null,
-          started_at: facts?.started ?? null,
-          finished_at: facts?.finishedAt ?? null,
-          wall_ms: wallMs,
-          patch_bytes: workerSource?.patchBytes ?? facts?.finishedPatchBytes ?? null,
-          evidence_bytes: facts?.evidenceBytes ?? null,
-          steers_queued: facts?.steersQueued ?? null,
-          steers_delivered: facts?.steersDelivered ?? null,
-          questions: facts?.questions ?? null,
-          runtime: spawn.runtime,
-          profile_digest: spawn.profileDigest,
-        },
-        is_completed: close?.kind === 'settled' && close.status === 'done',
-        is_truncated: close?.kind === 'cancelled',
-        error:
-          close?.kind === 'cancelled'
-            ? (close.reason ?? 'cancelled')
-            : close?.status === 'down'
-              ? (close.reason ?? 'child down')
-              : null,
-        realness_gated: false,
-      },
-      // `close.spend` is only a measurement when the close event carried one;
-      // a store that never priced this worker must leave null, not 0.
-      cost: {
-        ...EMPTY_COST,
-        usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
-        tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
-        tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
-        // Mirror the tokens_in/out journal fallback so a source whose
-        // `settled` spend carries cache counters is not reported as null cache
-        // beside real tokens. Gate on `hasCache` — a spend object without cache
-        // counters must stay null, not a fabricated 0.
-        cache_read:
-          workerSource?.cacheRead ??
-          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheRead : null),
-        cache_write:
-          workerSource?.cacheWrite ??
-          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
-        wall_s: wallMs === null ? null : wallMs / 1000,
-      },
-      // Only artifacts a reader declares: a guessed path would mint rows pointing at files that
-      // never existed, and a transcript reference reads as retained evidence.
-      artifacts: {
-        patch_path: workerSource?.patchPath ?? null,
-        run_dir: src.supRunDir,
-        transcript_ref: workerSource?.transcriptRef ?? null,
-      },
-      provenance: {
-        captured_at: capturedAt,
-        capture: 'backfill',
-        lossy_projection: true,
-        ...(captures === undefined ? {} : { workspace_captures: captures }),
-        gap: [
-          workerSource?.transcriptRef == null
-            ? 'no worker transcript was retained; messages unavailable'
-            : 'worker transcript retained by reference; messages not inlined into this row',
-          captureGap,
-        ]
-          .filter((reason): reason is string => reason !== null)
-          .join('; '),
-      },
+  return { closeById, sourceById, fallbackSourceByLabel }
+}
+
+type WorkerLookups = ReturnType<typeof workerLookups>
+
+/** One worker row, or nothing when its spawn has no explicit role. */
+function workerRolloutNode(
+  ctx: RolloutContext,
+  lookups: WorkerLookups,
+  spawn: SpawnRow,
+): RolloutLine | null {
+  const { src, tree, opts, gaps, capturedAt, noteCaptureGaps, base } = ctx
+  const { closeById, sourceById, fallbackSourceByLabel } = lookups
+  if (spawn.role === null) {
+    gaps.push({
+      code: 'node-role-unavailable',
+      message: `child ${JSON.stringify(spawn.label)} has no explicit invocation role`,
+      nodeId: spawn.id,
     })
+    return null
+  }
+  const close = closeById.get(spawn.id) ?? null
+  const workerSource = sourceById.get(spawn.id) ?? fallbackSourceByLabel.get(spawn.label) ?? null
+  const facts =
+    tree.workerLogs.get(workerSource?.workerId ?? workerSource?.label ?? spawn.label) ?? null
+  const wallMs =
+    facts?.started != null && facts.finishedAt != null ? facts.finishedAt - facts.started : null
+  const score = close?.score ?? facts?.score ?? null
+  const passed = close?.valid ?? facts?.passed ?? null
+  const reward = score ?? (passed === null ? null : passed ? 1 : 0)
+  if (reward === null) {
+    gaps.push({
+      code: 'child-reward-unavailable',
+      message: `child ${JSON.stringify(spawn.label)} has no verify verdict`,
+      nodeId: spawn.id,
+    })
+  }
+  const isSupervisor = spawn.role === 'supervisor'
+  const captures = workerSource?.workspaceCaptures
+  const captureGap = noteCaptureGaps(`child ${JSON.stringify(spawn.label)}`, spawn.id, captures)
+  return {
+    ...base,
+    rollout_id: spawn.id,
+    parent_rollout_id: spawn.parent,
+    role: spawn.role,
+    policy: {
+      harness: isSupervisor ? (opts.supervisorHarness ?? null) : (opts.workerHarness ?? null),
+      harness_version: null,
+      model: isSupervisor ? (opts.supervisorModel ?? null) : (opts.workerModel ?? null),
+      provider: null,
+      profile_commit: null,
+      agent_profile_cell_id: spawn.profileDigest,
+      sampling: null,
+    },
+    outcome: {
+      // Same producer, same claim: a child reward is a self-verify verdict
+      // from the journal that no realness gate has seen.
+      ...unscreenedRewardFields(reward),
+      reward_source:
+        reward === null ? null : score === null ? 'worker-self-verify' : 'worker-verdict-score',
+      verdict:
+        close === null
+          ? null
+          : {
+              kind: close.kind,
+              status: close.status,
+              verdict: close.rawVerdict,
+              valid: close.valid,
+              score: close.score,
+            },
+      metrics: {
+        label: spawn.label,
+        spawned_at: spawn.at,
+        settled_at: close?.at ?? null,
+        started_at: facts?.started ?? null,
+        finished_at: facts?.finishedAt ?? null,
+        wall_ms: wallMs,
+        patch_bytes: workerSource?.patchBytes ?? facts?.finishedPatchBytes ?? null,
+        evidence_bytes: facts?.evidenceBytes ?? null,
+        steers_queued: facts?.steersQueued ?? null,
+        steers_delivered: facts?.steersDelivered ?? null,
+        questions: facts?.questions ?? null,
+        runtime: spawn.runtime,
+        profile_digest: spawn.profileDigest,
+      },
+      is_completed: close?.kind === 'settled' && close.status === 'done',
+      is_truncated: close?.kind === 'cancelled',
+      error:
+        close?.kind === 'cancelled'
+          ? (close.reason ?? 'cancelled')
+          : close?.status === 'down'
+            ? (close.reason ?? 'child down')
+            : null,
+      realness_gated: false,
+    },
+    // `close.spend` is only a measurement when the close event carried one;
+    // a store that never priced this worker must leave null, not 0.
+    cost: {
+      ...EMPTY_COST,
+      usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
+      tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
+      tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
+      // Mirror the tokens_in/out journal fallback so a source whose
+      // `settled` spend carries cache counters is not reported as null cache
+      // beside real tokens. Gate on `hasCache` — a spend object without cache
+      // counters must stay null, not a fabricated 0.
+      cache_read:
+        workerSource?.cacheRead ??
+        (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheRead : null),
+      cache_write:
+        workerSource?.cacheWrite ??
+        (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
+      wall_s: wallMs === null ? null : wallMs / 1000,
+    },
+    // Only artifacts a reader declares: a guessed path would mint rows pointing at files that
+    // never existed, and a transcript reference reads as retained evidence.
+    artifacts: {
+      patch_path: workerSource?.patchPath ?? null,
+      run_dir: src.supRunDir,
+      transcript_ref: workerSource?.transcriptRef ?? null,
+    },
+    provenance: {
+      captured_at: capturedAt,
+      capture: 'backfill',
+      lossy_projection: true,
+      ...(captures === undefined ? {} : { workspace_captures: captures }),
+      gap: [
+        workerSource?.transcriptRef == null
+          ? 'no worker transcript was retained; messages unavailable'
+          : 'worker transcript retained by reference; messages not inlined into this row',
+        captureGap,
+      ]
+        .filter((reason): reason is string => reason !== null)
+        .join('; '),
+    },
+  }
+}
+
+/** Mint rollout rows from an already parsed source without reading its JSONL again. */
+export function supervisorRunRolloutLinesFromFacts(
+  src: SupervisorRunSources,
+  tree: SupervisorTreeFacts,
+  opts: SupervisorRolloutOptions = {},
+): SupervisorRunTree {
+  const gaps: SupervisorRunTreeGap[] = []
+  if (src.journal === null) {
+    gaps.push({
+      code: 'journal-unavailable',
+      message: `${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'}; no nodes recoverable`,
+    })
+    return { rootId: null, nodes: [], gaps }
+  }
+  // `journalInvalidRows` covers rows the parser could not interpret at all, including JSON
+  // objects in a shape it does not recognize — so a journal it read but understood none of
+  // reports an explicit gap instead of an empty tree.
+  const malformedSourceRows =
+    tree.journalInvalidRows + tree.spawns.filter((spawn) => !spawn.valid).length
+  if (malformedSourceRows > 0) {
+    gaps.push({
+      code: 'source-row-malformed',
+      message: `${malformedSourceRows} of ${tree.journalRows} journal row(s) were unusable and excluded from the tree`,
+      count: malformedSourceRows,
+    })
+  }
+  const ctx = rolloutContext(src, tree, opts, gaps)
+  const nodes: RolloutLine[] = []
+  const root = rootRolloutNode(ctx)
+  if (root) nodes.push(root)
+  const lookups = workerLookups(ctx)
+  for (const spawn of tree.workerSpawns) {
+    const node = workerRolloutNode(ctx, lookups, spawn)
+    if (node) nodes.push(node)
   }
 
   const invalid = nodes.filter((n) => !isRolloutLine(n))
@@ -461,5 +529,5 @@ export function supervisorRunRolloutLinesFromFacts(
       count: invalid.length,
     })
   }
-  return { rootId, nodes, gaps }
+  return { rootId: tree.rootId, nodes, gaps }
 }

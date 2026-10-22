@@ -83,11 +83,32 @@ export type {
 export { EDIT_CREDIT_ESTIMATOR, EDIT_CREDIT_SIGNAL } from './edit-credit-contract'
 export { editCreditText } from './edit-credit-text'
 
+/** A clean step turned so the carrying side is named. */
+interface Oriented {
+  step: Step
+  carrierId: string
+  lackingId: string
+}
+
 /**
  * The edit-credit lens. Pure: the result depends only on `state` and what
  * `readArtifact` returns for its references.
  */
 export function editCredit(state: SearchStateView, options: EditCreditOptions): EditCreditResult {
+  const s0 = editCreditContext({ state, options })
+  const s1 = findGenes(s0)
+  const s2 = trackCarriers(s1)
+  const s3 = cleanSteps(s2)
+  const s4 = geneCredits(s3)
+  const s5 = rankGenes(s4)
+  const s6 = tallyAndLink(s5)
+  const s7 = chanceSignal(s6)
+  return editCreditResult(s7)
+}
+
+/** The search header, split, direction and the content of every node. */
+function editCreditContext(prev: { state: SearchStateView; options: EditCreditOptions }) {
+  const { state, options } = prev
   const header = state.header
   if (!header) throw new Error(`editCredit: search ${state.searchId} has not been opened`)
   const split = options.split ?? rankingSplit(state)
@@ -105,6 +126,24 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   const known = (nodeId: string) => contents.get(nodeId) as KnownContent
   const invalid = new Set(nodes.filter((node) => node.status === 'invalid').map((n) => n.nodeId))
 
+  return {
+    ...prev,
+    header,
+    split,
+    direction,
+    sign,
+    interactionGenes,
+    nodes,
+    byId,
+    contents,
+    known,
+    invalid,
+  }
+}
+
+/** Genes: every lineage edge in ledger order, with the steps between a node and its parents. */
+function findGenes(prev: ReturnType<typeof editCreditContext>) {
+  const { state, byId, contents, known } = prev
   // Genes: every lineage edge, in ledger order. A gene is one locus (a
   // location and its lines); an edge that re-adds a paragraph a delete gene
   // removed drops that gene rather than creating a second one.
@@ -193,6 +232,23 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
     introducedOn.set(edge.edgeId, introducedHere)
   }
 
+  return {
+    ...prev,
+    genes,
+    byLocus,
+    introducedOn,
+    unknownEdges,
+    stepList,
+    stepKeys,
+    lineageEdges,
+    readEdges,
+    edgeOrdinal,
+  }
+}
+
+/** Carrying: every gene against every node whose content is known, and the steps each gene flips. */
+function trackCarriers(prev: ReturnType<typeof findGenes>) {
+  const { nodes, contents, invalid, genes, stepList } = prev
   // Carrying: every gene against every node whose content is known.
   const carriersOf = new Map<string, Set<string>>()
   const carried = new Map<string, string[]>()
@@ -216,6 +272,12 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
     (step) => !invalid.has(step.parentId) && !invalid.has(step.childId),
   )
 
+  return { ...prev, carriersOf, carried, measurable }
+}
+
+/** The edits each gene was introduced in, and the clean steps that isolate each gene. */
+function cleanSteps(prev: ReturnType<typeof trackCarriers>) {
+  const { state, split, genes, introducedOn, carriersOf, measurable } = prev
   // The edits each gene was introduced in: per introducing edge, the genes
   // that edge introduced. The first is the edit the gene was born in.
   const editsOf = new Map<string, Array<ReadonlySet<string>>>()
@@ -238,11 +300,6 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       .sort((left, right) => compareCodeUnits(left[0], right[0])),
   )
 
-  interface Oriented {
-    step: Step
-    carrierId: string
-    lackingId: string
-  }
   const cleanOf = new Map<string, Oriented[]>()
   const flipCount = new Map<string, number>()
   for (const step of measurable) {
@@ -264,6 +321,12 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
     }
   }
 
+  return { ...prev, editsOf, unitMeansOf, cellsDigestOf, cleanOf, flipCount }
+}
+
+/** Per-gene paired credit over the clean steps. */
+function geneCredits(prev: ReturnType<typeof cleanSteps>) {
+  const { split, direction, genes, unitMeansOf, cellsDigestOf, cleanOf } = prev
   const credits = new Map<string, { credit: NodeEstimate; verdict: EditGeneVerdict }>()
   for (const record of genes.values()) {
     const steps = cleanOf.get(record.geneId) ?? []
@@ -311,6 +374,12 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
     )
   }
 
+  return { ...prev, credits }
+}
+
+/** Linkage groups, then the genes in verdict order. */
+function rankGenes(prev: ReturnType<typeof geneCredits>) {
+  const { sign, invalid, genes, carriersOf, editsOf, cleanOf, flipCount, credits } = prev
   // Linkage: the same clean steps, oriented the same way.
   const linkageKey = (geneId: string) =>
     canonicalString(
@@ -367,6 +436,27 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       gain(b.credit, sign) - gain(a.credit, sign) ||
       compareOrder(genes.get(a.geneId)!.order, genes.get(b.geneId)!.order),
   )
+  return { ...prev, linkageKey, linkGroups, geneList, verdictRank }
+}
+
+/** Verdict counts, interactions, skill candidates and lineage rows. */
+function tallyAndLink(prev: ReturnType<typeof rankGenes>) {
+  const {
+    state,
+    header,
+    split,
+    sign,
+    interactionGenes,
+    nodes,
+    byId,
+    contents,
+    genes,
+    carriersOf,
+    carried,
+    unitMeansOf,
+    cleanOf,
+    geneList,
+  } = prev
   const counts = emptyCounts()
   const editCounts = emptyCounts()
   for (const gene of geneList) {
@@ -388,6 +478,12 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   const skillCandidates = skills(geneList, genes, header.subject, split)
   const lineage = lineageRows(state, nodes, byId, contents, carried)
 
+  return { ...prev, counts, editCounts, interactions, skillCandidates, lineage }
+}
+
+/** How many measured edits the lens calls reusable, and how many it would call so by chance. */
+function chanceSignal(prev: ReturnType<typeof tallyAndLink>) {
+  const { split, measurable, geneList, counts, editCounts } = prev
   const isMeasured = (gene: EditGene) =>
     gene.credit.method === 'descriptive' || gene.credit.method === 'bootstrap'
   const measured = geneList.filter(isMeasured).length
@@ -417,6 +513,32 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
           top,
         }
 
+  return { ...prev, isMeasured, measured, measuredLeads, expectedReusable, top, signal }
+}
+
+/** The lens result: the signal and its data. */
+function editCreditResult(prev: ReturnType<typeof chanceSignal>) {
+  const {
+    split,
+    direction,
+    nodes,
+    contents,
+    invalid,
+    unknownEdges,
+    stepList,
+    lineageEdges,
+    readEdges,
+    measurable,
+    geneList,
+    counts,
+    editCounts,
+    interactions,
+    skillCandidates,
+    lineage,
+    measuredLeads,
+    expectedReusable,
+    signal,
+  } = prev
   return {
     signal,
     data: {

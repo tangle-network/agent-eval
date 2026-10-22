@@ -463,25 +463,121 @@ function summarizeDialect(seen: ReadonlySet<JournalRowDialect>): SupervisorJourn
   return seen.has('runtime-envelope') ? 'runtime-envelope' : 'flat'
 }
 
-export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
-  const parsedJournal = parseJsonlWithDiagnostics(src.journal)
-  const events = parsedJournal.rows
-  const state = parseJsonRecord(src.state)
+/** One spawned event as a row; a field that is present but unusable marks the row invalid. */
+function spawnRowOf(
+  ev: JournalEvent,
+  id: string,
+  sourceRow: number,
+  rootId: string | null,
+): SpawnRow {
+  const parent = typeof ev.parent === 'string' && ev.parent.length > 0 ? ev.parent : null
+  const label = typeof ev.label === 'string' ? ev.label : ''
+  const invalidFields: string[] = []
+  if (id.length === 0) invalidFields.push('id')
+  const parentOmittedForFirstRoot = ev.parent === undefined && rootId === null
+  if (
+    ev.parent !== null &&
+    !parentOmittedForFirstRoot &&
+    !(typeof ev.parent === 'string' && ev.parent.length > 0)
+  ) {
+    invalidFields.push('parent')
+  }
+  if (label.length === 0) invalidFields.push('label')
+  if (ev.role !== undefined && ev.role !== 'supervisor' && ev.role !== 'worker') {
+    invalidFields.push('role')
+  }
+  if (
+    ev.profileDigest !== undefined &&
+    !(typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0)
+  ) {
+    invalidFields.push('profileDigest')
+  }
+  if (ev.runtime !== undefined && !(typeof ev.runtime === 'string' && ev.runtime.length > 0)) {
+    invalidFields.push('runtime')
+  }
+  const role: SupervisorRunNodeRole | null =
+    ev.role === 'supervisor' || ev.role === 'worker' ? ev.role : null
+  const valid = invalidFields.length === 0
+  if (valid && parent === null && rootId === null) rootId = id
+  return {
+    sourceRow,
+    id,
+    parent,
+    label,
+    role,
+    profileDigest:
+      typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0 ? ev.profileDigest : null,
+    runtime: typeof ev.runtime === 'string' && ev.runtime.length > 0 ? ev.runtime : null,
+    at: ms(ev.at),
+    valid,
+    invalidFields,
+  }
+}
 
+/** A settled event as a close row, with its verdict and spend. */
+function settledCloseOf(ev: JournalEvent, id: string): CloseRow {
+  const verdict = readVerdict(ev.verdict)
+  return {
+    id,
+    kind: 'settled',
+    status: typeof ev.status === 'string' ? ev.status : null,
+    verdict: verdict.label,
+    valid: verdict.valid,
+    score: verdict.score,
+    rawVerdict: verdict.raw,
+    reason: typeof ev.reason === 'string' ? ev.reason : null,
+    infra: typeof ev.infra === 'boolean' ? ev.infra : null,
+    at: ms(ev.at),
+    spend: readSpend(ev.spent),
+    hasSpend: asRecord(ev.spent).tokens !== undefined,
+  }
+}
+
+/** A cancelled event as a close row: it carries no verdict and no spend. */
+function cancelledCloseOf(ev: JournalEvent, id: string): CloseRow {
+  return {
+    id,
+    kind: 'cancelled',
+    status: 'cancelled',
+    verdict: typeof ev.reason === 'string' ? ev.reason : null,
+    valid: null,
+    score: null,
+    rawVerdict: typeof ev.reason === 'string' ? ev.reason : null,
+    reason: typeof ev.reason === 'string' ? ev.reason : null,
+    infra: null,
+    at: ms(ev.at),
+    spend: {
+      tokens: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        hasCache: false,
+        breakdownKnown: true,
+      },
+      tokensKnown: true,
+      usd: 0,
+      usdKnown: true,
+    },
+    hasSpend: false,
+  }
+}
+
+/** What the journal rows add up to: spawn and close rows, the root, and the rows set aside. */
+interface JournalReading {
+  spawns: SpawnRow[]
+  closes: CloseRow[]
+  rootId: string | null
+  unreadableRows: number
+  ignoredByKind: Map<string, number>
+  dialectsSeen: Set<JournalRowDialect>
+  resourceRecords: ResourceSpendRecord[]
+  meteredRows: Array<{ id: string; spend: SpendLike; at: number | null }>
+}
+
+function readJournal(events: Record<string, unknown>[]): JournalReading {
   const spawns: SpawnRow[] = []
   const closes: CloseRow[] = []
-  let brainIn = 0
-  let brainOut = 0
-  let brainCacheRead = 0
-  let brainCacheWrite = 0
-  let brainHasCache = false
-  let brainCacheBreakdownKnown = true
-  let brainTokensKnownCount = 0
-  let brainTokensUnknownCount = 0
-  let brainUsd = 0
-  let brainUsdKnownCount = 0
-  let brainUsdUnknownCount = 0
-  let meteredCount = 0
   let rootId: string | null = null
   let unreadableRows = 0
   const ignoredByKind = new Map<string, number>()
@@ -511,93 +607,13 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       })
     }
     if (kind === 'spawned') {
-      const parent = typeof ev.parent === 'string' && ev.parent.length > 0 ? ev.parent : null
-      const label = typeof ev.label === 'string' ? ev.label : ''
-      const invalidFields: string[] = []
-      if (id.length === 0) invalidFields.push('id')
-      const parentOmittedForFirstRoot = ev.parent === undefined && rootId === null
-      if (
-        ev.parent !== null &&
-        !parentOmittedForFirstRoot &&
-        !(typeof ev.parent === 'string' && ev.parent.length > 0)
-      ) {
-        invalidFields.push('parent')
-      }
-      if (label.length === 0) invalidFields.push('label')
-      if (ev.role !== undefined && ev.role !== 'supervisor' && ev.role !== 'worker') {
-        invalidFields.push('role')
-      }
-      if (
-        ev.profileDigest !== undefined &&
-        !(typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0)
-      ) {
-        invalidFields.push('profileDigest')
-      }
-      if (ev.runtime !== undefined && !(typeof ev.runtime === 'string' && ev.runtime.length > 0)) {
-        invalidFields.push('runtime')
-      }
-      const role: SupervisorRunNodeRole | null =
-        ev.role === 'supervisor' || ev.role === 'worker' ? ev.role : null
-      const valid = invalidFields.length === 0
-      if (valid && parent === null && rootId === null) rootId = id
-      spawns.push({
-        sourceRow,
-        id,
-        parent,
-        label,
-        role,
-        profileDigest:
-          typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0
-            ? ev.profileDigest
-            : null,
-        runtime: typeof ev.runtime === 'string' && ev.runtime.length > 0 ? ev.runtime : null,
-        at: ms(ev.at),
-        valid,
-        invalidFields,
-      })
+      const spawn = spawnRowOf(ev, id, sourceRow, rootId)
+      if (spawn.valid && spawn.parent === null && rootId === null) rootId = id
+      spawns.push(spawn)
     } else if (kind === 'settled') {
-      const verdict = readVerdict(ev.verdict)
-      closes.push({
-        id,
-        kind: 'settled',
-        status: typeof ev.status === 'string' ? ev.status : null,
-        verdict: verdict.label,
-        valid: verdict.valid,
-        score: verdict.score,
-        rawVerdict: verdict.raw,
-        reason: typeof ev.reason === 'string' ? ev.reason : null,
-        infra: typeof ev.infra === 'boolean' ? ev.infra : null,
-        at: ms(ev.at),
-        spend: readSpend(ev.spent),
-        hasSpend: asRecord(ev.spent).tokens !== undefined,
-      })
+      closes.push(settledCloseOf(ev, id))
     } else if (kind === 'cancelled') {
-      closes.push({
-        id,
-        kind: 'cancelled',
-        status: 'cancelled',
-        verdict: typeof ev.reason === 'string' ? ev.reason : null,
-        valid: null,
-        score: null,
-        rawVerdict: typeof ev.reason === 'string' ? ev.reason : null,
-        reason: typeof ev.reason === 'string' ? ev.reason : null,
-        infra: null,
-        at: ms(ev.at),
-        spend: {
-          tokens: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            hasCache: false,
-            breakdownKnown: true,
-          },
-          tokensKnown: true,
-          usd: 0,
-          usdKnown: true,
-        },
-        hasSpend: false,
-      })
+      closes.push(cancelledCloseOf(ev, id))
     } else if (kind === 'metered') {
       // Deferred: rows are attributed after the loop, once the root is known, so a metered
       // event that precedes the root spawn is never misattributed.
@@ -610,10 +626,35 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       throw new Error(`unhandled journal event kind ${JSON.stringify(unhandled)}`)
     }
   }
+  return {
+    spawns,
+    closes,
+    rootId,
+    unreadableRows,
+    ignoredByKind,
+    dialectsSeen,
+    resourceRecords,
+    meteredRows,
+  }
+}
 
-  // Only root-attributed metered events are the supervisor brain's own spend. A nested
-  // driver meters under its own id; its spend reaches this tree through its settled close,
-  // so folding it into the brain here would count the same tokens twice.
+/** Only root-attributed metered events are the supervisor brain's own spend. A nested driver meters under its own id; its spend reaches this tree through its settled close, so folding it into the brain here would count the same tokens twice. */
+function foldBrainSpend(
+  meteredRows: JournalReading['meteredRows'],
+  rootId: string | null,
+): SupervisorTreeFacts['brain'] {
+  let brainIn = 0
+  let brainOut = 0
+  let brainCacheRead = 0
+  let brainCacheWrite = 0
+  let brainHasCache = false
+  let brainCacheBreakdownKnown = true
+  let brainTokensKnownCount = 0
+  let brainTokensUnknownCount = 0
+  let brainUsd = 0
+  let brainUsdKnownCount = 0
+  let brainUsdUnknownCount = 0
+  let meteredCount = 0
   for (const row of meteredRows) {
     if (rootId === null || row.id !== rootId) continue
     if (row.spend.tokensKnown) {
@@ -635,130 +676,149 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     }
     meteredCount += 1
   }
+  return {
+    tokensIn: brainIn,
+    tokensOut: brainOut,
+    cacheRead: brainCacheRead,
+    cacheWrite: brainCacheWrite,
+    hasCache: brainHasCache,
+    cacheBreakdownKnown: brainCacheBreakdownKnown,
+    tokensKnownCount: brainTokensKnownCount,
+    tokensUnknownCount: brainTokensUnknownCount,
+    usd: brainUsd,
+    usdKnownCount: brainUsdKnownCount,
+    usdUnknownCount: brainUsdUnknownCount,
+    meteredCount,
+  }
+}
 
-  const workerSpawns = spawns.filter((s) => s.valid && s.id !== rootId)
-  const workerIds = new Set(workerSpawns.map((s) => s.id))
-  const workerCloses = closes.filter((c) => workerIds.has(c.id))
-
-  const workerLogs = new Map<string, WorkerLogFacts>()
-  const workerLogRows: WorkerLogFacts[] = []
-  for (const [sourceIndex, w] of (src.workers ?? []).entries()) {
-    const facts: WorkerLogFacts = {
-      sourceIndex,
-      workerId: w.workerId ?? null,
-      label: w.label,
-      inboxCaptured: w.inbox !== null,
-      eventsCaptured: w.events !== null,
-      inboxInvalidRows: 0,
-      eventsInvalidRows: 0,
-      started: null,
-      finished: false,
-      finishedAt: null,
-      passed: null,
-      score: null,
-      finishedPatchBytes: null,
-      evidenceBytes: 0,
-      steersQueued: null,
-      steersDelivered: null,
-      steersQueuedUnavailable: null,
-      steersDeliveredUnavailable: null,
-      questions: 0,
-      steerRequests: [],
-      steerAcknowledgements: [],
-    }
-    const parsedInbox = parseJsonlWithDiagnostics(w.inbox)
-    const parsedEvents = parseJsonlWithDiagnostics(w.events)
-    facts.inboxInvalidRows = parsedInbox.invalidRows
-    facts.eventsInvalidRows = parsedEvents.invalidRows
-    for (const [row, req] of parsedInbox.rows.entries()) {
-      if (typeof req.message !== 'string' || req.message.trim().length === 0) continue
-      facts.steerRequests.push({
-        requestId: typeof req.id === 'string' && req.id.length > 0 ? req.id : null,
-        row,
-      })
-    }
-    for (const [row, ev] of parsedEvents.rows.entries()) {
-      const kind = ev.kind
-      if (kind === 'message') {
-        if (ev.direction === 'up') {
-          facts.questions += 1
-          continue
-        }
-        facts.steerAcknowledgements.push({
-          requestId:
-            typeof ev.requestId === 'string' && ev.requestId.length > 0 ? ev.requestId : null,
-          delivered: typeof ev.delivered === 'boolean' ? ev.delivered : null,
-          row,
-        })
-      } else if (kind === 'started') {
-        facts.started = ms(ev.at)
-      } else if (kind === 'finished') {
-        facts.finished = true
-        facts.finishedAt = ms(ev.at)
-        facts.passed = typeof ev.passed === 'boolean' ? ev.passed : null
-        facts.score = typeof ev.score === 'number' && Number.isFinite(ev.score) ? ev.score : null
-        facts.finishedPatchBytes = typeof ev.patchBytes === 'number' ? ev.patchBytes : null
-        facts.evidenceBytes = typeof ev.evidence === 'string' ? ev.evidence.length : 0
-      }
-    }
-    const requestsById = new Map<string, number>()
-    for (const request of facts.steerRequests) {
-      if (request.requestId === null) continue
-      requestsById.set(request.requestId, (requestsById.get(request.requestId) ?? 0) + 1)
-    }
-    const acknowledgementsById = new Map<string, SteerAcknowledgementFact[]>()
-    for (const acknowledgement of facts.steerAcknowledgements) {
-      if (acknowledgement.requestId === null) continue
-      const matches = acknowledgementsById.get(acknowledgement.requestId) ?? []
-      matches.push(acknowledgement)
-      acknowledgementsById.set(acknowledgement.requestId, matches)
-    }
-    const queueProblems: string[] = []
-    if (!facts.inboxCaptured) queueProblems.push('inbox absent')
-    if (!facts.eventsCaptured) queueProblems.push('events absent')
-    if (facts.inboxInvalidRows > 0) queueProblems.push('inbox contains malformed rows')
-    if (facts.eventsInvalidRows > 0) queueProblems.push('events contain malformed rows')
-    if (facts.steerRequests.some((request) => request.requestId === null)) {
-      queueProblems.push('queued request id missing')
-    }
-    if ([...requestsById.values()].some((count) => count > 1)) {
-      queueProblems.push('queued request id duplicated')
-    }
-    if (facts.steerAcknowledgements.some((acknowledgement) => acknowledgement.requestId === null)) {
-      queueProblems.push('acknowledgement request id missing')
-    }
-    if ([...acknowledgementsById.keys()].some((id) => !requestsById.has(id))) {
-      queueProblems.push('acknowledgement has no queued request')
-    }
-    if (queueProblems.length === 0) {
-      facts.steersQueued = requestsById.size
-    } else {
-      facts.steersQueuedUnavailable = [...new Set(queueProblems)].join('; ')
-    }
-
-    const deliveryProblems = [...queueProblems]
-    if ([...acknowledgementsById.values()].some((rows) => rows.length > 1)) {
-      deliveryProblems.push('acknowledgement request id duplicated')
-    }
-    if (facts.steerAcknowledgements.some((acknowledgement) => acknowledgement.delivered === null)) {
-      deliveryProblems.push('acknowledgement delivery status missing')
-    }
-    if (deliveryProblems.length === 0) {
-      facts.steersDelivered = [...requestsById.keys()].filter((id) => {
-        const acknowledgement = acknowledgementsById.get(id)
-        return acknowledgement?.length === 1 && acknowledgement[0]?.delivered === true
-      }).length
-    } else {
-      facts.steersDeliveredUnavailable = [...new Set(deliveryProblems)].join('; ')
-    }
-    workerLogRows.push(facts)
-    workerLogs.set(workerSourceKey(w), facts)
+/** Steer counts from a worker's inbox and acknowledgements, or the reason they cannot be stated exactly. */
+function accountSteers(facts: WorkerLogFacts): void {
+  const requestsById = new Map<string, number>()
+  for (const request of facts.steerRequests) {
+    if (request.requestId === null) continue
+    requestsById.set(request.requestId, (requestsById.get(request.requestId) ?? 0) + 1)
+  }
+  const acknowledgementsById = new Map<string, SteerAcknowledgementFact[]>()
+  for (const acknowledgement of facts.steerAcknowledgements) {
+    if (acknowledgement.requestId === null) continue
+    const matches = acknowledgementsById.get(acknowledgement.requestId) ?? []
+    matches.push(acknowledgement)
+    acknowledgementsById.set(acknowledgement.requestId, matches)
+  }
+  const queueProblems: string[] = []
+  if (!facts.inboxCaptured) queueProblems.push('inbox absent')
+  if (!facts.eventsCaptured) queueProblems.push('events absent')
+  if (facts.inboxInvalidRows > 0) queueProblems.push('inbox contains malformed rows')
+  if (facts.eventsInvalidRows > 0) queueProblems.push('events contain malformed rows')
+  if (facts.steerRequests.some((request) => request.requestId === null)) {
+    queueProblems.push('queued request id missing')
+  }
+  if ([...requestsById.values()].some((count) => count > 1)) {
+    queueProblems.push('queued request id duplicated')
+  }
+  if (facts.steerAcknowledgements.some((acknowledgement) => acknowledgement.requestId === null)) {
+    queueProblems.push('acknowledgement request id missing')
+  }
+  if ([...acknowledgementsById.keys()].some((id) => !requestsById.has(id))) {
+    queueProblems.push('acknowledgement has no queued request')
+  }
+  if (queueProblems.length === 0) {
+    facts.steersQueued = requestsById.size
+  } else {
+    facts.steersQueuedUnavailable = [...new Set(queueProblems)].join('; ')
   }
 
-  const startedAt = ms(state?.startedAt) ?? spawns[0]?.at ?? null
-  const rootClose = rootId === null ? null : closes.find((close) => close.id === rootId)
-  const completedAt = ms(state?.completedAt) ?? rootClose?.at ?? null
+  const deliveryProblems = [...queueProblems]
+  if ([...acknowledgementsById.values()].some((rows) => rows.length > 1)) {
+    deliveryProblems.push('acknowledgement request id duplicated')
+  }
+  if (facts.steerAcknowledgements.some((acknowledgement) => acknowledgement.delivered === null)) {
+    deliveryProblems.push('acknowledgement delivery status missing')
+  }
+  if (deliveryProblems.length === 0) {
+    facts.steersDelivered = [...requestsById.keys()].filter((id) => {
+      const acknowledgement = acknowledgementsById.get(id)
+      return acknowledgement?.length === 1 && acknowledgement[0]?.delivered === true
+    }).length
+  } else {
+    facts.steersDeliveredUnavailable = [...new Set(deliveryProblems)].join('; ')
+  }
+}
 
+/** Everything one worker's inbox and event log say: timing, verdict, questions and steer accounting. */
+function readWorkerLog(
+  w: NonNullable<SupervisorRunSources['workers']>[number],
+  sourceIndex: number,
+): WorkerLogFacts {
+  const facts: WorkerLogFacts = {
+    sourceIndex,
+    workerId: w.workerId ?? null,
+    label: w.label,
+    inboxCaptured: w.inbox !== null,
+    eventsCaptured: w.events !== null,
+    inboxInvalidRows: 0,
+    eventsInvalidRows: 0,
+    started: null,
+    finished: false,
+    finishedAt: null,
+    passed: null,
+    score: null,
+    finishedPatchBytes: null,
+    evidenceBytes: 0,
+    steersQueued: null,
+    steersDelivered: null,
+    steersQueuedUnavailable: null,
+    steersDeliveredUnavailable: null,
+    questions: 0,
+    steerRequests: [],
+    steerAcknowledgements: [],
+  }
+  const parsedInbox = parseJsonlWithDiagnostics(w.inbox)
+  const parsedEvents = parseJsonlWithDiagnostics(w.events)
+  facts.inboxInvalidRows = parsedInbox.invalidRows
+  facts.eventsInvalidRows = parsedEvents.invalidRows
+  for (const [row, req] of parsedInbox.rows.entries()) {
+    if (typeof req.message !== 'string' || req.message.trim().length === 0) continue
+    facts.steerRequests.push({
+      requestId: typeof req.id === 'string' && req.id.length > 0 ? req.id : null,
+      row,
+    })
+  }
+  for (const [row, ev] of parsedEvents.rows.entries()) {
+    const kind = ev.kind
+    if (kind === 'message') {
+      if (ev.direction === 'up') {
+        facts.questions += 1
+        continue
+      }
+      facts.steerAcknowledgements.push({
+        requestId:
+          typeof ev.requestId === 'string' && ev.requestId.length > 0 ? ev.requestId : null,
+        delivered: typeof ev.delivered === 'boolean' ? ev.delivered : null,
+        row,
+      })
+    } else if (kind === 'started') {
+      facts.started = ms(ev.at)
+    } else if (kind === 'finished') {
+      facts.finished = true
+      facts.finishedAt = ms(ev.at)
+      facts.passed = typeof ev.passed === 'boolean' ? ev.passed : null
+      facts.score = typeof ev.score === 'number' && Number.isFinite(ev.score) ? ev.score : null
+      facts.finishedPatchBytes = typeof ev.patchBytes === 'number' ? ev.patchBytes : null
+      facts.evidenceBytes = typeof ev.evidence === 'string' ? ev.evidence.length : 0
+    }
+  }
+  accountSteers(facts)
+  return facts
+}
+
+/** The earliest and latest stamped event across spawns, closes and metered rows. */
+function eventSpan(
+  spawns: SpawnRow[],
+  closes: CloseRow[],
+  meteredRows: JournalReading['meteredRows'],
+): { firstEventAt: number | null; lastEventAt: number | null } {
   let firstEventAt: number | null = null
   let lastEventAt: number | null = null
   const widenEventSpan = (at: number | null): void => {
@@ -769,6 +829,43 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   for (const spawn of spawns) widenEventSpan(spawn.at)
   for (const close of closes) widenEventSpan(close.at)
   for (const metered of meteredRows) widenEventSpan(metered.at)
+  return { firstEventAt, lastEventAt }
+}
+
+export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
+  const parsedJournal = parseJsonlWithDiagnostics(src.journal)
+  const events = parsedJournal.rows
+  const state = parseJsonRecord(src.state)
+
+  const {
+    spawns,
+    closes,
+    rootId,
+    unreadableRows,
+    ignoredByKind,
+    dialectsSeen,
+    resourceRecords,
+    meteredRows,
+  } = readJournal(events)
+  const brain = foldBrainSpend(meteredRows, rootId)
+
+  const workerSpawns = spawns.filter((s) => s.valid && s.id !== rootId)
+  const workerIds = new Set(workerSpawns.map((s) => s.id))
+  const workerCloses = closes.filter((c) => workerIds.has(c.id))
+
+  const workerLogs = new Map<string, WorkerLogFacts>()
+  const workerLogRows: WorkerLogFacts[] = []
+  for (const [sourceIndex, w] of (src.workers ?? []).entries()) {
+    const facts = readWorkerLog(w, sourceIndex)
+    workerLogRows.push(facts)
+    workerLogs.set(workerSourceKey(w), facts)
+  }
+
+  const startedAt = ms(state?.startedAt) ?? spawns[0]?.at ?? null
+  const rootClose = rootId === null ? null : closes.find((close) => close.id === rootId)
+  const completedAt = ms(state?.completedAt) ?? rootClose?.at ?? null
+
+  const { firstEventAt, lastEventAt } = eventSpan(spawns, closes, meteredRows)
 
   const result = parseJsonRecord(src.result)
   if (result && Object.hasOwn(result, 'spentTotal')) {
@@ -787,20 +884,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     closes,
     workerSpawns,
     workerCloses,
-    brain: {
-      tokensIn: brainIn,
-      tokensOut: brainOut,
-      cacheRead: brainCacheRead,
-      cacheWrite: brainCacheWrite,
-      hasCache: brainHasCache,
-      cacheBreakdownKnown: brainCacheBreakdownKnown,
-      tokensKnownCount: brainTokensKnownCount,
-      tokensUnknownCount: brainTokensUnknownCount,
-      usd: brainUsd,
-      usdKnownCount: brainUsdKnownCount,
-      usdUnknownCount: brainUsdUnknownCount,
-      meteredCount,
-    },
+    brain,
     workerLogs,
     workerLogRows,
     journalRows: events.length + parsedJournal.invalidRows,
