@@ -247,6 +247,7 @@ function parseErrorReceipts(text: string): CostReceipt[] {
 async function replayReceipt(cost: CampaignCostMeter, receipt: CostReceipt): Promise<void> {
   const knownCostUsd = receipt.costUnknown ? undefined : receipt.costUsd
   const observed = (): CostReceiptInput => ({
+    ...(receipt.costBreakdown ? { costBreakdown: receipt.costBreakdown } : {}),
     model: receipt.model,
     inputTokens: receipt.inputTokens,
     outputTokens: receipt.outputTokens,

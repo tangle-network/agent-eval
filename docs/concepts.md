@@ -450,3 +450,34 @@ The root also exports contingency-table inference, normal and Student-t tails, a
 `twoByTwoPValue` chooses Fisher exact inference for sparse expected counts and the Pearson chi-squared tail otherwise.
 A regression with insufficient residual degrees of freedom or constant x retains a null slope p-value.
 These primitives do not choose product acceptance thresholds or authorize release.
+
+### Matrix cost units
+
+`measureCampaignCost` from `/campaign` reads Sandbox's live pricing endpoint and
+Z.AI's published coding-plan credit calculation at execution time. Pass observed
+Router `routerUsd` (including a measured zero), the actual sandbox resource size
+and elapsed seconds, and seat model plus known raw usage. `inputTokens` includes
+`cachedTokens`; cached usage must be explicit, even when zero. Attach its result
+as `costBreakdown` on the existing `ctx.cost.runPaidCall` receipt. Keep
+`actualCostUsd` equal to the observed Router charge, or `costUnknown: true` when
+that charge is unavailable. The receipt validates that these observations agree.
+
+The ledger summary and campaign cell retain Router USD, additional sandbox USD
+and standard model credits separately, with live source URLs, fetch times,
+hashes and the rates actually used. Existing `costUsd` stays the provider USD
+subtotal and its ceiling retains its existing meaning; it is not an all-in total.
+Sandbox seconds are supplied by the execution owner, not assumed from judge time.
+Seat credits are estimates before off-peak discounts and MCP charges, not billed
+credits or amortized seat USD. A changed/unreadable live rate source yields an
+uncaptured component. Unknown cached usage cannot produce a credit estimate.
+Mixed legacy receipts and pending calls keep the split unknown; legacy results
+without a split remain unchanged. Do not add component values across units.
+
+The retained-artifact integration command is
+`node --import tsx scripts/creative-matrix-proof.ts manifest.json output-dir python`.
+Its manifest names three or more real PNG paths, their SHA-256 hashes, source
+measurements and higher-is-better objective maps. An optional `receipt` with
+`receiptSource` replays already-settled raw seat usage into a persisted campaign
+cell. No model or image requests are made. The command runs the official GEPA
+baseline frontier and builds its actual multimodal reflection prompt; it checks
+that every objective and image survives. It proves transport, not creative gain.

@@ -41,6 +41,7 @@ import { ValidationError } from './errors'
 
 export type {
   ChannelRollup,
+  CostBreakdown,
   CostChannel,
   CostLedgerFilter,
   CostLedgerHandle,

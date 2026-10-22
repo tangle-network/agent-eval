@@ -22,6 +22,8 @@ export interface ExternalTextEvaluationResponse {
   info: {
     scenarioId: string
     dimensions: Record<string, number>
+    /** Higher-is-better objectives consumed by GEPA hybrid/Pareto selection. */
+    scores?: Record<string, number>
     notes?: string
     artifact?: unknown
     /** The optimizer score is a finite protocol value; Eval remains the
@@ -224,6 +226,7 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
     info: {
       scenarioId: row.scenarioId,
       dimensions: breakdown.dimensions,
+      scores: { ...breakdown.dimensions },
       status: 'scored',
       ...(row.notes ? { notes: row.notes } : {}),
       ...(artifact !== undefined ? { artifact } : {}),

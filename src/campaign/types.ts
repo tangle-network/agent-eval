@@ -18,6 +18,7 @@
 
 import type { ProposalFinding } from '../analyst/types'
 import type {
+  CostBreakdown,
   CostChannel,
   CostLedgerHandle,
   CostLedgerSummary,
@@ -612,6 +613,8 @@ export interface LabeledScenarioStore {
 // ── The CampaignResult schema (the downstream-tools contract) ─────────
 
 export interface CampaignCellResult<TArtifact> {
+  /** Router USD, sandbox estimate and standard seat credits remain separate units. */
+  costBreakdown?: CostBreakdown
   /** Manifest that produced this cell. Resumability refuses to reuse a cell
    *  whose manifest differs from the current run. */
   manifestHash?: string

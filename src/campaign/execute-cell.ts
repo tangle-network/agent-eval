@@ -496,6 +496,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     rep: args.slot.rep,
     artifact: (artifact ?? null) as TArtifact,
     judgeScores,
+    ...(agentCost.costBreakdown ? { costBreakdown: agentCost.costBreakdown } : {}),
     costUsd: agentCost.totalCostUsd,
     costProvenance: agentCost.costProvenance,
     costCallIds,

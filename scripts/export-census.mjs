@@ -293,9 +293,7 @@ function escapeRegExp(value) {
 function sweepRepository(name, root, names) {
   const hits = { production: [], typeOnly: [], tests: [], mentions: false }
   const mentioned = new Set()
-  for (const file of walk(root, CONSUMER_SOURCE_FILE)) {
-    const text = readFileSync(file, 'utf8')
-    const relativePath = relative(root, file)
+  for (const [relativePath, text] of defaultBranchSources(root)) {
     // Identifier tokens, intersected with the census: one pass per file
     // instead of one regex per census name.
     for (const token of text.match(IDENTIFIER) ?? []) {
@@ -343,19 +341,41 @@ function sweepRepository(name, root, names) {
 }
 
 function gitDescribe(root) {
-  try {
-    const ref = execFileSync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim()
-    const commit = execFileSync('git', ['-C', root, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
-    return { ref, commit }
-  } catch {
-    return { ref: 'unknown', commit: 'unknown' }
-  }
+  const ref = execFileSync('git', ['-C', root, 'symbolic-ref', 'refs/remotes/origin/HEAD'], { encoding: 'utf8' }).trim()
+  const commit = execFileSync('git', ['-C', root, 'rev-parse', ref], { encoding: 'utf8' }).trim()
+  return { ref, commit }
+}
+
+/** Read refs, never a sparse/dirty/other lane's working tree. */
+function defaultBranchSources(root) {
+  const { commit } = gitDescribe(root)
+  const paths = execFileSync('git', ['-C', root, 'ls-tree', '-r', '-z', '--name-only', commit], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    .split('\0').filter((path) => CONSUMER_SOURCE_FILE.test(path) && !path.split('/').some((part) => SKIP_DIRECTORIES.has(part)))
+  const blobs = execFileSync('git', ['-C', root, 'cat-file', '--batch'], {
+    input: paths.map((path) => `${commit}:${path}\n`).join(''), maxBuffer: 256 * 1024 * 1024,
+  })
+  let offset = 0
+  return paths.map((path) => {
+    const end = blobs.indexOf(10, offset)
+    const header = blobs.subarray(offset, end).toString('utf8')
+    const size = Number(header.split(' ')[2])
+    if (end < 0 || !Number.isSafeInteger(size) || size < 0) throw new Error(`Invalid git blob: ${path}`)
+    const text = blobs.subarray(end + 1, end + 1 + size).toString('utf8')
+    offset = end + 1 + size + 1
+    return [path, text]
+  })
 }
 
 function runSweep(specifications) {
   const names = new Set(publishedValueExports().map((row) => row.name))
-  const repositories = []
-  const symbols = {}
+  const previous = JSON.parse(readFileSync(CONSUMERS_PATH, 'utf8'))
+  const refreshed = new Set(specifications.map((value) => value.split('=')[0]))
+  const repositories = previous.repositories.filter((r) => !refreshed.has(r.name)).map((r) => ({ ...r, sweptAt: r.sweptAt ?? previous.sweptAt }))
+  const symbols = structuredClone(previous.symbols)
+  for (const record of Object.values(symbols)) {
+    for (const key of ['production', 'typeOnly', 'tests']) record[key] = record[key].filter((where) => !refreshed.has(where.split(':')[0]))
+    record.mentions = record.mentions.filter((name) => !refreshed.has(name))
+  }
   const touch = (symbol) => (symbols[symbol] ??= { production: [], typeOnly: [], tests: [], mentions: [] })
   for (const specification of specifications) {
     const separator = specification.indexOf('=')
@@ -364,7 +384,7 @@ function runSweep(specifications) {
     const root = resolve(specification.slice(separator + 1))
     const { hits, mentioned } = sweepRepository(name, root, names)
     const { ref, commit } = gitDescribe(root)
-    repositories.push({ name, ref, commit, files: undefined })
+    repositories.push({ name, ref, commit, sweptAt: new Date().toISOString().slice(0, 10) })
     for (const channel of ['production', 'typeOnly', 'tests']) {
       for (const hit of hits[channel]) touch(hit.symbol)[channel].push(hit.where)
     }
@@ -461,12 +481,12 @@ function render({ rows, consumers }) {
   lines.push('')
   lines.push('## Consumer sweep')
   lines.push('')
-  lines.push(`Swept ${consumers.sweptAt} across ${consumers.repositories.length} repositories, each on its default branch:`)
+  lines.push(`Last refresh ${consumers.sweptAt}; retained evidence across ${consumers.repositories.length} repositories. Each row states its own sweep date and revision; older rows are historical, not fresh consumer checks:`)
   lines.push('')
-  lines.push('| repository | ref | commit |')
-  lines.push('| --- | --- | --- |')
+  lines.push('| repository | ref | commit | swept |')
+  lines.push('| --- | --- | --- | --- |')
   for (const repository of consumers.repositories) {
-    lines.push(`| ${repository.name} | ${repository.ref} | \`${repository.commit}\` |`)
+    lines.push(`| ${repository.name} | ${repository.ref} | \`${repository.commit}\` | ${repository.sweptAt ?? consumers.sweptAt} |`)
   }
   lines.push('')
   lines.push('## What this census cannot see')

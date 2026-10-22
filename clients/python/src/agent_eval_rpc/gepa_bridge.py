@@ -8,6 +8,8 @@ engine cannot receive final comparison cases through this bridge.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import copy
 import hashlib
 import math
@@ -121,7 +123,7 @@ def _main() -> None:
         if not isinstance(score, (float, int)) or not math.isfinite(score):
             raise ValueError("agent-eval callback returned an invalid score")
         info = payload.get("info")
-        return float(score), info if isinstance(info, dict) else {}
+        return float(score), _decode_images(info) if isinstance(info, dict) else {}
 
     def evaluate(
         candidate: str | dict[str, str],
@@ -326,6 +328,27 @@ def _main() -> None:
     atomic_write_json(Path(args.output), output)
     if proxy_usage is not None:
         proxy_usage.close()
+
+
+def _decode_images(value: Any) -> Any:
+    """Only explicit inline PNG evidence becomes GEPA images; never read paths/URLs."""
+    if isinstance(value, list):
+        return [_decode_images(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if value.get("type") == "image" and value.get("mimeType") == "image/png":
+        if set(value) != {"type", "mimeType", "data"} or not isinstance(value["data"], str):
+            raise ValueError("GEPA PNG evidence requires only type, mimeType and base64 data")
+        try:
+            data = base64.b64decode(value["data"], validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError("GEPA PNG evidence contains invalid base64") from error
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("GEPA PNG evidence has no PNG signature")
+        from gepa import Image
+
+        return Image(base64_data=value["data"], media_type="image/png")
+    return {key: _decode_images(item) for key, item in value.items()}
 
 
 def _raise_for_callback_status(response: httpx.Response) -> None:

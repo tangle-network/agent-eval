@@ -5,6 +5,7 @@
     "noEmit": true
   },
   "include": [
+    "scripts/creative-matrix-proof.ts",
     "scripts/prove-task-matrix.mts",
     "scripts/render-evidence-index.ts",
     "scripts/record-multishot-golden.ts",
