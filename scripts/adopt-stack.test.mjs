@@ -82,6 +82,49 @@ describe('adopt-stack --dry-run against npm', () => {
     expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
+  // agent-runtime at c54e6810e0ce (package.json sections, pnpm-workspace.yaml,
+  // the lockfile's catalogs and root importer, release/cohort.json): #1946 left
+  // agent-knowledge locked at 22.0.3 under `^22.0.3`, whose agent-eval peer
+  // excludes the adopted agent-eval, and left release/cohort.json behind.
+  test('agent-runtime raises the locked sibling the adopted release excludes and moves its release cohort', async () => {
+    const knowledge = '@tangle-network/agent-knowledge'
+    const evalName = '@tangle-network/agent-eval'
+    const { plan, pkg } = dryRun('agent-runtime', '--packages', evalName)
+    const evalTarget = plan.packages.find((entry) => entry.name === evalName).target
+    const manifest = async (name, version) => (await fetch(`https://registry.npmjs.org/${name.replace('/', '%2f')}/${version}`)).json()
+
+    // The locked 22.0.3 peers agent-eval <0.216.0, so whatever agent-eval is adopted
+    // past it, agent-knowledge rises to a release whose own peer admits it.
+    const raised = plan.held.find((entry) => entry.name === knowledge)
+    if (!satisfies(evalTarget, (await manifest(knowledge, '22.0.3')).peerDependencies[evalName])) {
+      expect(raised?.why).toMatch(/^raised by peer range: @tangle-network\/agent-knowledge@22\.0\.3 peers /)
+      expect(satisfies(evalTarget, (await manifest(knowledge, raised.target)).peerDependencies[evalName])).toBe(true)
+      for (const section of ['package.json dependencies', 'pnpm-workspace.yaml catalog line 31']) {
+        const edit = plan.edits.find((entry) => entry.name === knowledge && `${entry.file} ${entry.section}` === section)
+        expect(edit?.from, section).toBe(pkg.dependencies[knowledge])
+        // The range no longer admits the locked 22.0.3, so the install must move it.
+        expect(satisfies(raised.target, edit.to) && !satisfies('22.0.3', edit.to), `${section} ${edit.to}`).toBe(true)
+      }
+    }
+
+    // The catalog's agent-eval floor rises too: the lock holds 0.215.0 under a range that would still admit it.
+    const catalogEval = plan.edits.find((entry) => entry.name === evalName && entry.file === 'pnpm-workspace.yaml')
+    expect(satisfies(evalTarget, catalogEval.to) && !satisfies('0.215.0', catalogEval.to)).toBe(true)
+
+    // Each moved cohort entry names the planned version and npm's gitHead for it.
+    const cohort = JSON.parse(readFileSync(join(fixtures, 'agent-runtime', 'release', 'cohort.json'), 'utf8')).packages
+    for (const [key, name] of [['agentEval', evalName], ['agentKnowledge', knowledge]]) {
+      const target = plan.packages.find((entry) => entry.name === name)?.target ?? plan.held.find((entry) => entry.name === name)?.target
+      const edit = plan.edits.find((entry) => entry.file === 'release/cohort.json' && entry.section === `packages.${key}`)
+      if (!target || target === cohort[key].version) {
+        expect(edit).toBeUndefined()
+        continue
+      }
+      expect(edit?.from).toBe(`${cohort[key].version} ${cohort[key].ref}`)
+      expect(edit.to).toBe(`${target} ${(await manifest(name, target)).gitHead}`)
+    }
+  }, 60_000)
+
   test('the human plan names the pull request and changes nothing', () => {
     const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, 'agent-knowledge'), '--dry-run'], { encoding: 'utf8' })
     expect(result.status, result.stderr).toBe(0)
