@@ -635,7 +635,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `estimateNodeFromCells` | production | agent-dev-container:products/intelligence/api/src/lib/search-stats.ts |
 | `externalSurface` | production | agent-runtime:scripts/verify-official-optimizers-consumer.mjs |
 | `externalTextOptimizationMethod` | production | agent-app:src/eval-campaign/index.ts |
-| `FileSearchLedger` | production | this package: src/campaign/search-kernel-runner.ts:25 |
+| `FileSearchLedger` | production | this package: src/campaign/search-kernel-runner.ts:27 |
 | `finalizeProfileMatrix` | planned | doc: docs/eval-surface-map.md |
 | `fsCampaignStorage` | production | agent-dev-container:products/intelligence/api/src/lib/eval-engine.ts |
 | `gepaOptimizationMethod` | production | agent-app:src/eval-campaign/index.ts |
