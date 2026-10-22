@@ -306,10 +306,92 @@ const DEFAULT_INTEGRITY: RunIntegrityExpectations = {
   requireOutcome: true,
 }
 
+type CampaignCell<V> = { variant: CampaignVariant<V>; scenario: CampaignScenario; seed: number }
+
+type CampaignRunResult = { record: RunRecord; integrity: RunIntegrityReport }
+
+/** Resolved options shared by every step of one campaign. */
+interface CampaignSettings {
+  seeds: number[]
+  splitTag: RunSplitTag
+  concurrency: number
+  integrity: RunIntegrityExpectations
+  onIntegrityFailure: CampaignIntegrityPolicy
+  now: () => number
+  executionRef: string | null
+  preregistrationHash: string | null
+  rawSinkFactory: (params: CampaignFactoryParams) => RawProviderSink
+}
+
+/**
+ * Mutable state of one campaign's worker pool.
+ *
+ * A genuine (non-CellExecutionError) error from any worker is a bug, not a
+ * run-level failure. We must NOT let `Promise.all` reject mid-flight and
+ * orphan the other workers' in-progress runs (emitters never finalized,
+ * sinks/handles leak, partial work silently discarded). Instead: capture the
+ * first genuine error, stop dispatching new cells so in-flight workers wind
+ * down, finalize every still-open run, then re-throw the aggregated error.
+ */
+interface CampaignPool<V> {
+  opts: EvalCampaignOptions<V>
+  settings: CampaignSettings
+  cells: CampaignCell<V>[]
+  cursor: number
+  aborting: boolean
+  genuineErrors: unknown[]
+  /**
+   * Emitters for runs that are currently mid-flight, keyed by runId. A worker
+   * registers its emitter before invoking the runner and removes it once the
+   * run is finalized (via endRun/abortRun, success or failure). Anything left
+   * here after the pool settles is an orphan we must abort.
+   */
+  openRuns: Map<string, TraceEmitter>
+  runs: RunRecord[]
+  integrityReports: RunIntegrityReport[]
+  failedRuns: FailedRun[]
+}
+
 export async function runEvalCampaign<V>(
   opts: EvalCampaignOptions<V>,
 ): Promise<EvalCampaignResult> {
-  // ── Preflight ──────────────────────────────────────────────────────
+  assertCampaignPreflight(opts)
+  const settings = resolveCampaignSettings(opts)
+  const campaignFingerprint = await fingerprintCampaign(opts, settings)
+
+  const startedAt = new Date(settings.now()).toISOString()
+  const pool: CampaignPool<V> = {
+    opts,
+    settings,
+    cells: planCampaignCells(opts, settings.seeds),
+    cursor: 0,
+    aborting: false,
+    genuineErrors: [],
+    openRuns: new Map(),
+    runs: [],
+    integrityReports: [],
+    failedRuns: [],
+  }
+  await drainCampaignPool(pool)
+
+  const report = await buildCampaignReport(opts, settings, pool.runs)
+  const endedAt = new Date(settings.now()).toISOString()
+
+  return {
+    campaignId: opts.campaignId,
+    campaignFingerprint,
+    preregistrationHash: settings.preregistrationHash,
+    runs: pool.runs,
+    integrityReports: pool.integrityReports,
+    failedRuns: pool.failedRuns,
+    report,
+    startedAt,
+    endedAt,
+  }
+}
+
+/** Reject structurally invalid campaigns before any work starts. */
+function assertCampaignPreflight<V>(opts: EvalCampaignOptions<V>): void {
   if (opts.variants.length === 0) {
     throw new Error('runEvalCampaign: variants must be non-empty.')
   }
@@ -338,33 +420,43 @@ export async function runEvalCampaign<V>(
   if (!opts.commitSha) {
     throw new Error('runEvalCampaign: commitSha is required (every RunRecord needs it).')
   }
+}
 
-  const seeds = opts.seeds ?? [0, 1, 2]
-  const splitTag: RunSplitTag = opts.splitTag ?? 'holdout'
-  const concurrency = Math.max(1, opts.concurrency ?? 1)
-  const integrity = { ...DEFAULT_INTEGRITY, ...(opts.integrity ?? {}) }
-  const onIntegrityFailure: CampaignIntegrityPolicy = opts.onIntegrityFailure ?? 'mark_failed'
-  const now = opts.now ?? (() => Date.now())
-  const executionRef = opts.executionRef ?? null
-  const preregistrationHash = opts.preregistrationHash ?? null
+/** Apply defaults to the optional campaign options. */
+function resolveCampaignSettings<V>(opts: EvalCampaignOptions<V>): CampaignSettings {
+  return {
+    seeds: opts.seeds ?? [0, 1, 2],
+    splitTag: opts.splitTag ?? 'holdout',
+    concurrency: Math.max(1, opts.concurrency ?? 1),
+    integrity: { ...DEFAULT_INTEGRITY, ...(opts.integrity ?? {}) },
+    onIntegrityFailure: opts.onIntegrityFailure ?? 'mark_failed',
+    now: opts.now ?? (() => Date.now()),
+    executionRef: opts.executionRef ?? null,
+    preregistrationHash: opts.preregistrationHash ?? null,
+    rawSinkFactory: opts.rawSinkFactory ?? defaultRawSinkFactory(opts.workDir),
+  }
+}
 
-  const rawSinkFactory = opts.rawSinkFactory ?? defaultRawSinkFactory(opts.workDir)
-
-  // ── Fingerprint ────────────────────────────────────────────────────
-  const campaignFingerprint = await hashJson({
+/** SHA-256 over the canonicalised matrix definition. */
+function fingerprintCampaign<V>(
+  opts: EvalCampaignOptions<V>,
+  settings: CampaignSettings,
+): Promise<string> {
+  return hashJson({
     campaignId: opts.campaignId,
     variants: opts.variants.map((v) => v.id).sort(),
     scenarios: opts.scenarios.map((s) => s.scenarioId).sort(),
-    seeds: [...seeds].sort((a, b) => a - b),
-    splitTag,
+    seeds: [...settings.seeds].sort((a, b) => a - b),
+    splitTag: settings.splitTag,
     comparator: opts.report?.comparator ?? null,
-    executionRef,
-    preregistrationHash,
+    executionRef: settings.executionRef,
+    preregistrationHash: settings.preregistrationHash,
   })
+}
 
-  // ── Plan the matrix ────────────────────────────────────────────────
-  type Cell = { variant: CampaignVariant<V>; scenario: CampaignScenario; seed: number }
-  const cells: Cell[] = []
+/** Expand variants x scenarios x seeds, variant-major. */
+function planCampaignCells<V>(opts: EvalCampaignOptions<V>, seeds: number[]): CampaignCell<V>[] {
+  const cells: CampaignCell<V>[] = []
   for (const variant of opts.variants) {
     for (const scenario of opts.scenarios) {
       for (const seed of seeds) {
@@ -372,203 +464,18 @@ export async function runEvalCampaign<V>(
       }
     }
   }
+  return cells
+}
 
-  const startedAt = new Date(now()).toISOString()
-  const runs: RunRecord[] = []
-  const integrityReports: RunIntegrityReport[] = []
-  const failedRuns: FailedRun[] = []
-
-  // ── Execute (bounded-concurrency worker pool) ──────────────────────
-  // A genuine (non-CellExecutionError) error from any worker is a bug, not a
-  // run-level failure. We must NOT let `Promise.all` reject mid-flight and
-  // orphan the other workers' in-progress runs (emitters never finalized,
-  // sinks/handles leak, partial work silently discarded). Instead: capture the
-  // first genuine error, stop dispatching new cells so in-flight workers wind
-  // down, finalize every still-open run, then re-throw the aggregated error.
-  let cursor = 0
-  let aborting = false
-  const genuineErrors: unknown[] = []
-  // Emitters for runs that are currently mid-flight, keyed by runId. A worker
-  // registers its emitter before invoking the runner and removes it once the
-  // run is finalized (via endRun/abortRun, success or failure). Anything left
-  // here after the pool settles is an orphan we must abort.
-  const openRuns = new Map<string, TraceEmitter>()
-
-  async function worker(): Promise<void> {
-    while (!aborting) {
-      const i = cursor++
-      if (i >= cells.length) return
-      const cell = cells[i]!
-      try {
-        const result = await runOneCell(cell)
-        runs.push(result.record)
-        integrityReports.push(result.integrity)
-      } catch (err) {
-        if (err instanceof CellExecutionError) {
-          failedRuns.push(err.failed)
-          if (err.integrity) integrityReports.push(err.integrity)
-        } else {
-          // Genuine bug — not a runner failure, not an integrity failure.
-          // Capture it and stop dispatching so peers wind down gracefully;
-          // re-thrown after the pool settles. Do not surface here — that would
-          // reject Promise.all and orphan the other workers' runs.
-          genuineErrors.push(err)
-          aborting = true
-          return
-        }
-      }
-    }
-  }
-
-  async function runOneCell(
-    cell: Cell,
-  ): Promise<{ record: RunRecord; integrity: RunIntegrityReport }> {
-    const runId = (opts.runId ?? defaultRunId)({
-      campaignId: opts.campaignId,
-      runId: '', // unused by default generator
-      variantId: cell.variant.id,
-      scenarioId: cell.scenario.scenarioId,
-      seed: cell.seed,
-    })
-    const factoryParams: CampaignFactoryParams = {
-      campaignId: opts.campaignId,
-      runId,
-      variantId: cell.variant.id,
-      scenarioId: cell.scenario.scenarioId,
-      seed: cell.seed,
-    }
-    const store = opts.storeFactory(factoryParams)
-    const rawSink = rawSinkFactory(factoryParams)
-
-    const emitter = new TraceEmitter(store, {
-      runId,
-      now: opts.now,
-      onRunComplete: opts.onRunComplete,
-    })
-    // Track this run as open so a genuine error elsewhere in the pool can
-    // finalize it instead of orphaning it. Removed in the finally below.
-    openRuns.set(runId, emitter)
-
-    const chat = opts.chatFactory({ rawSink, runId })
-
-    const ctx: CampaignRunContext<V> = {
-      runId,
-      experimentId: opts.campaignId,
-      variant: cell.variant.payload,
-      variantId: cell.variant.id,
-      scenarioId: cell.scenario.scenarioId,
-      scenarioTags: cell.scenario.tags ?? {},
-      seed: cell.seed,
-      splitTag,
-      emitter,
-      store,
-      rawSink,
-      chat,
-    }
-
-    try {
-      const wallStart = now()
-      let outcome: CampaignRunOutcome
-      try {
-        outcome = await opts.runner(ctx)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        // The runner threw mid-execution. Abort the run so the emitter
-        // finalizes. The only benign abortRun failure is "the runner never
-        // started the run" (nothing to finalize). A store-write failure (disk
-        // full, FS error) is a genuine diagnostic — surface it rather than
-        // masking it as a plain runner failure.
-        await finalizeAbort(emitter, runId, message)
-        throw new CellExecutionError({
-          runId,
-          variantId: cell.variant.id,
-          scenarioId: cell.scenario.scenarioId,
-          seed: cell.seed,
-          reason: 'runner_threw',
-          error: message,
-        })
-      }
-      const wallMs = now() - wallStart
-
-      const integrityReport = await assertRunCaptured(store, runId, { ...integrity, rawSink })
-      if (!integrityReport.ok) {
-        switch (onIntegrityFailure) {
-          case 'throw':
-            throw new RunIntegrityError(integrityReport)
-          case 'mark_failed':
-            throw new CellExecutionError(
-              {
-                runId,
-                variantId: cell.variant.id,
-                scenarioId: cell.scenario.scenarioId,
-                seed: cell.seed,
-                reason: 'integrity_failed',
-                error: integrityReport.issues.map((i) => i.code).join(', '),
-              },
-              integrityReport,
-            )
-          case 'log':
-            // Caller wants the run admitted with a flagged report; fall through.
-            break
-        }
-      }
-
-      const recordOutcome: RunOutcome = {
-        raw: outcome.raw ?? {},
-      }
-      if (splitTag === 'holdout') recordOutcome.holdoutScore = outcome.score
-      else recordOutcome.searchScore = outcome.score
-      if (outcome.judgeScores !== undefined) recordOutcome.judgeScores = outcome.judgeScores
-
-      const record: RunRecord = {
-        runId,
-        experimentId: opts.campaignId,
-        candidateId: cell.variant.id,
-        seed: cell.seed,
-        model: outcome.model,
-        promptHash: outcome.promptHash,
-        configHash: outcome.configHash,
-        commitSha: opts.commitSha,
-        wallMs,
-        costUsd: outcome.costUsd,
-        costProvenance: outcome.costProvenance,
-        tokenUsage: outcome.tokenUsage,
-        terminalOutcome: 'succeeded',
-        judgeMetadata: outcome.judgeMetadata,
-        outcome: recordOutcome,
-        ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
-        failureMode: outcome.failureMode,
-        splitTag,
-        scenarioId: cell.scenario.scenarioId,
-      }
-      const profileSource =
-        outcome.agentProfile ??
-        (typeof opts.agentProfile === 'function'
-          ? await opts.agentProfile({
-              campaignId: opts.campaignId,
-              runId,
-              variantId: cell.variant.id,
-              scenarioId: cell.scenario.scenarioId,
-              seed: cell.seed,
-              variant: cell.variant.payload,
-              scenarioTags: cell.scenario.tags ?? {},
-            })
-          : opts.agentProfile)
-      if (profileSource !== undefined) {
-        const agentProfile = await resolveAgentProfileCell(profileSource)
-        assertAgentProfileMatchesRun(agentProfile, outcome.model, outcome.promptHash)
-        record.agentProfile = agentProfile
-      }
-      return { record: validateRunRecord(record), integrity: integrityReport }
-    } finally {
-      // This run's worker has finished with it (success, run-level failure, or
-      // genuine error). It is no longer the pool's job to finalize — drop it so
-      // the post-settle sweep doesn't double-abort a finalized run.
-      openRuns.delete(runId)
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(concurrency, cells.length) }, () => worker())
+/**
+ * Run the bounded-concurrency worker pool to completion, finalize any run left
+ * open, and re-throw the genuine errors the workers captured.
+ */
+async function drainCampaignPool<V>(pool: CampaignPool<V>): Promise<void> {
+  const workers = Array.from(
+    { length: Math.min(pool.settings.concurrency, pool.cells.length) },
+    () => campaignWorker(pool),
+  )
   // allSettled (not all): a genuine error in one worker must not reject the
   // pool mid-flight and orphan the others. Each worker captures its own
   // genuine error into `genuineErrors` and returns; we re-throw below.
@@ -578,46 +485,256 @@ export async function runEvalCampaign<V>(
   // stop-dispatch flag these are the runs that were mid-flight in peer workers
   // when the first genuine error fired — abort them so their emitters finalize
   // (hooks fire, store records a terminal status) instead of leaking.
-  for (const [runId, emitter] of openRuns) {
+  for (const [runId, emitter] of pool.openRuns) {
     await finalizeAbort(emitter, runId, 'campaign aborted: genuine error in a sibling run')
   }
-  openRuns.clear()
+  pool.openRuns.clear()
 
-  if (genuineErrors.length > 0) {
-    throw genuineErrors.length === 1
-      ? genuineErrors[0]
+  if (pool.genuineErrors.length > 0) {
+    throw pool.genuineErrors.length === 1
+      ? pool.genuineErrors[0]
       : new AggregateError(
-          genuineErrors,
-          `runEvalCampaign: ${genuineErrors.length} runs failed with genuine (non-run-level) errors`,
+          pool.genuineErrors,
+          `runEvalCampaign: ${pool.genuineErrors.length} runs failed with genuine (non-run-level) errors`,
         )
   }
+}
 
-  // ── Optional research report ───────────────────────────────────────
-  let report: ResearchReport | undefined
-  if (opts.report) {
-    const reportOpts: ResearchReportOptions = {
-      ...opts.report,
-      comparator: opts.report.comparator,
-      split: splitTag === 'dev' ? 'search' : splitTag,
-      generatedAt: new Date(now()).toISOString(),
-      preregistrationHash: preregistrationHash ?? undefined,
+/** Pull cells off the shared cursor until none remain or the pool is aborting. */
+async function campaignWorker<V>(pool: CampaignPool<V>): Promise<void> {
+  while (!pool.aborting) {
+    const i = pool.cursor++
+    if (i >= pool.cells.length) return
+    const cell = pool.cells[i]!
+    try {
+      const result = await runCampaignCell(pool, cell)
+      pool.runs.push(result.record)
+      pool.integrityReports.push(result.integrity)
+    } catch (err) {
+      if (err instanceof CellExecutionError) {
+        pool.failedRuns.push(err.failed)
+        if (err.integrity) pool.integrityReports.push(err.integrity)
+      } else {
+        // Genuine bug — not a runner failure, not an integrity failure.
+        // Capture it and stop dispatching so peers wind down gracefully;
+        // re-thrown after the pool settles. Do not surface here — that would
+        // reject Promise.all and orphan the other workers' runs.
+        pool.genuineErrors.push(err)
+        pool.aborting = true
+        return
+      }
     }
-    report = await researchReport(runs, reportOpts)
+  }
+}
+
+/** Run one matrix cell: runner, integrity check, then the validated RunRecord. */
+async function runCampaignCell<V>(
+  pool: CampaignPool<V>,
+  cell: CampaignCell<V>,
+): Promise<CampaignRunResult> {
+  const { opts, settings } = pool
+  const runId = (opts.runId ?? defaultRunId)({
+    campaignId: opts.campaignId,
+    runId: '', // unused by default generator
+    variantId: cell.variant.id,
+    scenarioId: cell.scenario.scenarioId,
+    seed: cell.seed,
+  })
+  const factoryParams: CampaignFactoryParams = {
+    campaignId: opts.campaignId,
+    runId,
+    variantId: cell.variant.id,
+    scenarioId: cell.scenario.scenarioId,
+    seed: cell.seed,
+  }
+  const store = opts.storeFactory(factoryParams)
+  const rawSink = settings.rawSinkFactory(factoryParams)
+
+  const emitter = new TraceEmitter(store, {
+    runId,
+    now: opts.now,
+    onRunComplete: opts.onRunComplete,
+  })
+  // Track this run as open so a genuine error elsewhere in the pool can
+  // finalize it instead of orphaning it. Removed in the finally below.
+  pool.openRuns.set(runId, emitter)
+
+  const chat = opts.chatFactory({ rawSink, runId })
+
+  const ctx: CampaignRunContext<V> = {
+    runId,
+    experimentId: opts.campaignId,
+    variant: cell.variant.payload,
+    variantId: cell.variant.id,
+    scenarioId: cell.scenario.scenarioId,
+    scenarioTags: cell.scenario.tags ?? {},
+    seed: cell.seed,
+    splitTag: settings.splitTag,
+    emitter,
+    store,
+    rawSink,
+    chat,
   }
 
-  const endedAt = new Date(now()).toISOString()
+  try {
+    const wallStart = settings.now()
+    const outcome = await invokeCampaignRunner(opts, cell, ctx)
+    const wallMs = settings.now() - wallStart
+
+    const integrityReport = await assertRunCaptured(store, runId, {
+      ...settings.integrity,
+      rawSink,
+    })
+    if (!integrityReport.ok) admitOrRejectIntegrity(settings, cell, runId, integrityReport)
+
+    const record = buildCampaignRunRecord(opts, settings, cell, runId, outcome, wallMs)
+    await stampAgentProfile(opts, cell, record, runId, outcome)
+    return { record: validateRunRecord(record), integrity: integrityReport }
+  } finally {
+    // This run's worker has finished with it (success, run-level failure, or
+    // genuine error). It is no longer the pool's job to finalize — drop it so
+    // the post-settle sweep doesn't double-abort a finalized run.
+    pool.openRuns.delete(runId)
+  }
+}
+
+/** Invoke the runner; a throw aborts the run and becomes a run-level failure. */
+async function invokeCampaignRunner<V>(
+  opts: EvalCampaignOptions<V>,
+  cell: CampaignCell<V>,
+  ctx: CampaignRunContext<V>,
+): Promise<CampaignRunOutcome> {
+  try {
+    return await opts.runner(ctx)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // The runner threw mid-execution. Abort the run so the emitter
+    // finalizes. The only benign abortRun failure is "the runner never
+    // started the run" (nothing to finalize). A store-write failure (disk
+    // full, FS error) is a genuine diagnostic — surface it rather than
+    // masking it as a plain runner failure.
+    await finalizeAbort(ctx.emitter, ctx.runId, message)
+    throw new CellExecutionError({
+      runId: ctx.runId,
+      variantId: cell.variant.id,
+      scenarioId: cell.scenario.scenarioId,
+      seed: cell.seed,
+      reason: 'runner_threw',
+      error: message,
+    })
+  }
+}
+
+/** Apply the integrity-failure policy to a report that is not ok. */
+function admitOrRejectIntegrity<V>(
+  settings: CampaignSettings,
+  cell: CampaignCell<V>,
+  runId: string,
+  integrityReport: RunIntegrityReport,
+): void {
+  switch (settings.onIntegrityFailure) {
+    case 'throw':
+      throw new RunIntegrityError(integrityReport)
+    case 'mark_failed':
+      throw new CellExecutionError(
+        {
+          runId,
+          variantId: cell.variant.id,
+          scenarioId: cell.scenario.scenarioId,
+          seed: cell.seed,
+          reason: 'integrity_failed',
+          error: integrityReport.issues.map((i) => i.code).join(', '),
+        },
+        integrityReport,
+      )
+    case 'log':
+      // Caller wants the run admitted with a flagged report; fall through.
+      break
+  }
+}
+
+/** Assemble the RunRecord for a successful run, before profile stamping. */
+function buildCampaignRunRecord<V>(
+  opts: EvalCampaignOptions<V>,
+  settings: CampaignSettings,
+  cell: CampaignCell<V>,
+  runId: string,
+  outcome: CampaignRunOutcome,
+  wallMs: number,
+): RunRecord {
+  const recordOutcome: RunOutcome = {
+    raw: outcome.raw ?? {},
+  }
+  if (settings.splitTag === 'holdout') recordOutcome.holdoutScore = outcome.score
+  else recordOutcome.searchScore = outcome.score
+  if (outcome.judgeScores !== undefined) recordOutcome.judgeScores = outcome.judgeScores
 
   return {
-    campaignId: opts.campaignId,
-    campaignFingerprint,
-    preregistrationHash,
-    runs,
-    integrityReports,
-    failedRuns,
-    report,
-    startedAt,
-    endedAt,
+    runId,
+    experimentId: opts.campaignId,
+    candidateId: cell.variant.id,
+    seed: cell.seed,
+    model: outcome.model,
+    promptHash: outcome.promptHash,
+    configHash: outcome.configHash,
+    commitSha: opts.commitSha,
+    wallMs,
+    costUsd: outcome.costUsd,
+    costProvenance: outcome.costProvenance,
+    tokenUsage: outcome.tokenUsage,
+    terminalOutcome: 'succeeded',
+    judgeMetadata: outcome.judgeMetadata,
+    outcome: recordOutcome,
+    ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
+    failureMode: outcome.failureMode,
+    splitTag: settings.splitTag,
+    scenarioId: cell.scenario.scenarioId,
   }
+}
+
+/** Resolve the run's agent profile (outcome first, then options) and stamp it on the record. */
+async function stampAgentProfile<V>(
+  opts: EvalCampaignOptions<V>,
+  cell: CampaignCell<V>,
+  record: RunRecord,
+  runId: string,
+  outcome: CampaignRunOutcome,
+): Promise<void> {
+  const profileSource =
+    outcome.agentProfile ??
+    (typeof opts.agentProfile === 'function'
+      ? await opts.agentProfile({
+          campaignId: opts.campaignId,
+          runId,
+          variantId: cell.variant.id,
+          scenarioId: cell.scenario.scenarioId,
+          seed: cell.seed,
+          variant: cell.variant.payload,
+          scenarioTags: cell.scenario.tags ?? {},
+        })
+      : opts.agentProfile)
+  if (profileSource !== undefined) {
+    const agentProfile = await resolveAgentProfileCell(profileSource)
+    assertAgentProfileMatchesRun(agentProfile, outcome.model, outcome.promptHash)
+    record.agentProfile = agentProfile
+  }
+}
+
+/** Build the optional research report over the successful runs. */
+async function buildCampaignReport<V>(
+  opts: EvalCampaignOptions<V>,
+  settings: CampaignSettings,
+  runs: RunRecord[],
+): Promise<ResearchReport | undefined> {
+  if (!opts.report) return undefined
+  const reportOpts: ResearchReportOptions = {
+    ...opts.report,
+    comparator: opts.report.comparator,
+    split: settings.splitTag === 'dev' ? 'search' : settings.splitTag,
+    generatedAt: new Date(settings.now()).toISOString(),
+    preregistrationHash: settings.preregistrationHash ?? undefined,
+  }
+  return researchReport(runs, reportOpts)
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────
@@ -647,11 +764,7 @@ class CellExecutionError extends Error {
  * backend down) is a genuine diagnostic and propagates rather than being
  * swallowed.
  */
-async function finalizeAbort(
-  emitter: TraceEmitter,
-  runId: string,
-  reason: string,
-): Promise<void> {
+async function finalizeAbort(emitter: TraceEmitter, runId: string, reason: string): Promise<void> {
   const existing = await emitter.traceStore.getRun(runId)
   if (existing === undefined) return // run never started; nothing to abort
   if (existing.status !== 'running') return // already finalized; never overwrite a real outcome

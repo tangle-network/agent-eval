@@ -1,10 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export function writePublicTypeFixtures(appDir, removedSdkType) {
-  writeFileSync(
-    join(appDir, 'index.ts'),
-    `
+/** The index fixture's imports and its value-level trace checks. */
+function indexValueFixture() {
+  return `
       import {
         CostLedger,
         AnalystRegistry as RootAnalystRegistry,
@@ -152,7 +151,12 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
         packedToolStoreOptions,
       )
       const packedMissingTraceCode: string = new ToolTraceMissingError().code
-      // @ts-expect-error provider SDK types are not part of the public API
+`
+}
+
+/** The index fixture's removed-API type checks, each pinned by a ts-expect-error. */
+function indexRemovedApiFixture(removedSdkType) {
+  return `      // @ts-expect-error provider SDK types are not part of the public API
       type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
       const removedProviderSdk: RemovedProviderSdk = {}
       // @ts-expect-error the credential-bearing transport left the public API (#539)
@@ -327,7 +331,12 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
         }],
         labeledEvidence: [{ uri: 'span://primary' }, { uri: 'span://corroborating' }],
       }
-      const agentRxCase = agentRxBenchmarkCase({
+`
+}
+
+/** The index fixture's remaining runtime-shape checks and its trailing export list. */
+function indexRuntimeFixture() {
+  return `      const agentRxCase = agentRxBenchmarkCase({
         trajectory_id: 'agent-rx',
         failures: [{
           failure_id: 'failure-1',
@@ -532,11 +541,12 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
         packedDistribution,
         packedAttestation,
       ]
-    `,
-  )
-  writeFileSync(
-    join(appDir, 'integrity-imports.ts'),
     `
+}
+
+/** The fixture that imports every integrity type from the root. */
+function integrityImportsFixture() {
+  return `
       import type {
         Scenario as RootScenario,
         JudgeScore as RootJudgeScore,
@@ -659,11 +669,12 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
         heldoutMatches, searchEstimateMethodMatches, exclusion, calibrateJudgeContinuous, positionalBias, selfPreference,
         OutcomeStoreError, FinalEvidenceError, FinalEvidenceConflictError,
       ]
-    `,
-  )
-  writeFileSync(
-    join(appDir, 'canary-import.ts'),
     `
+}
+
+/** The fixture that imports the randomized-canary surface. */
+function canaryImportFixture() {
+  return `
       import {
         decideRandomizedCanary,
         randomizedCanaryObservationDigest,
@@ -721,6 +732,14 @@ export function writePublicTypeFixtures(appDir, removedSdkType) {
           decision.controlBilledCostUsd !== 0) {
         throw new Error('packed canary decision lost refusal or receipt coverage')
       }
-    `,
+    `
+}
+
+export function writePublicTypeFixtures(appDir, removedSdkType) {
+  writeFileSync(
+    join(appDir, 'index.ts'),
+    indexValueFixture() + indexRemovedApiFixture(removedSdkType) + indexRuntimeFixture(),
   )
+  writeFileSync(join(appDir, 'integrity-imports.ts'), integrityImportsFixture())
+  writeFileSync(join(appDir, 'canary-import.ts'), canaryImportFixture())
 }

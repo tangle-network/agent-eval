@@ -47,9 +47,8 @@
  * name itself there.
  */
 
-import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
-
 import { isRecord } from '../llm-client/json'
+import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 
 /** `agent` = a solo evaluation run (no multi-agent topology). */
@@ -522,10 +521,8 @@ export function assertRewardGate(line: RolloutLine, context: string): void {
   }
 }
 
-export function validateRolloutLine(value: unknown): string[] {
-  const errors: string[] = []
-  if (!isRecord(value)) return ['line: not an object']
-
+/** Check the line's identity fields and the policy section. */
+function validateRolloutIdentity(value: Record<string, unknown>, errors: string[]): void {
   if (value.schema !== ROLLOUT_SCHEMA) errors.push(`schema: expected "${ROLLOUT_SCHEMA}"`)
   if (typeof value.rollout_id !== 'string' || value.rollout_id.length === 0)
     errors.push('rollout_id: expected non-empty string')
@@ -577,7 +574,10 @@ export function validateRolloutLine(value: unknown): string[] {
       }
     }
   }
+}
 
+/** Check the messages, tool definitions and steps arrays. */
+function validateRolloutTranscript(value: Record<string, unknown>, errors: string[]): void {
   if (!Array.isArray(value.messages)) {
     errors.push('messages: expected array')
   } else {
@@ -624,7 +624,10 @@ export function validateRolloutLine(value: unknown): string[] {
       })
     }
   }
+}
 
+/** Check the outcome section, the cost section and the reward gate. */
+function validateRolloutOutcomeAndCost(value: Record<string, unknown>, errors: string[]): void {
   validateSection(
     value.outcome,
     'outcome',
@@ -678,7 +681,110 @@ export function validateRolloutLine(value: unknown): string[] {
   ) {
     errors.push('cost.llm_call_count: expected integer|null when present')
   }
+}
 
+/** Check the lossy-projection flag and its gap note. */
+function validateLossyProjection(provenance: Record<string, unknown>, errors: string[]): void {
+  if (provenance.lossy_projection !== undefined && provenance.lossy_projection !== true) {
+    errors.push('provenance.lossy_projection: expected true when present')
+  }
+  if (
+    provenance.lossy_projection === true &&
+    (typeof provenance.gap !== 'string' || provenance.gap.length === 0)
+  ) {
+    errors.push('provenance.gap: required for a lossy projection')
+  }
+}
+
+/** Check the search coordinates of a search-produced rollout. */
+function validateProvenanceSearch(search: unknown, errors: string[]): void {
+  if (search === undefined) return
+  if (
+    !isRecord(search) ||
+    typeof search.searchId !== 'string' ||
+    !search.searchId ||
+    typeof search.nodeId !== 'string' ||
+    !search.nodeId ||
+    typeof search.cellId !== 'string' ||
+    !search.cellId ||
+    !Number.isSafeInteger(search.attempt) ||
+    (search.attempt as number) < 1
+  ) {
+    errors.push('provenance.search: expected exact search, node, cell and positive attempt')
+  }
+}
+
+/** Check each workspace capture's evidence fields. */
+function validateWorkspaceCaptures(captures: unknown, errors: string[]): void {
+  if (captures === undefined || captures === null) return
+  if (!Array.isArray(captures)) {
+    errors.push('provenance.workspace_captures: expected array|null when present')
+    return
+  }
+  for (const [i, capture] of captures.entries()) {
+    if (
+      !isRecord(capture) ||
+      !isStringOrNull(capture.outRef) ||
+      !isStringOrNull(capture.blobPath) ||
+      !isStringOrNull(capture.receiptPointer) ||
+      !('receipt' in capture) ||
+      (capture.attempts !== null && !Array.isArray(capture.attempts)) ||
+      (capture.coverageComplete !== null && typeof capture.coverageComplete !== 'boolean') ||
+      !isStringOrNull(capture.incompleteReason) ||
+      !isStringOrNull(capture.projectionGap)
+    ) {
+      errors.push(`provenance.workspace_captures[${i}]: invalid capture evidence`)
+    }
+  }
+}
+
+/** Check each attempt's evidence and that every execution's ordinals are unique and contiguous from 1. */
+function validateProvenanceAttempts(attempts: unknown, errors: string[]): void {
+  if (attempts === undefined) return
+  if (!Array.isArray(attempts)) {
+    errors.push('provenance.attempts: expected array when present')
+    return
+  }
+  const ordinalsByExecution = new Map<string, Set<number>>()
+  for (const [i, attempt] of attempts.entries()) {
+    if (
+      !isRecord(attempt) ||
+      typeof attempt.executionId !== 'string' ||
+      !attempt.executionId ||
+      !Number.isSafeInteger(attempt.ordinal) ||
+      (attempt.ordinal as number) < 1 ||
+      !isStringOrNull(attempt.providerSessionId) ||
+      !Array.isArray(attempt.nativeSessionIds) ||
+      !attempt.nativeSessionIds.every((id) => typeof id === 'string' && id.length > 0) ||
+      !Array.isArray(attempt.processIds) ||
+      !attempt.processIds.every((id) => typeof id === 'string' && id.length > 0) ||
+      !['succeeded', 'failed', 'cancelled', 'unknown'].includes(attempt.outcome as string) ||
+      !Array.isArray(attempt.missingReasons) ||
+      !attempt.missingReasons.every((reason) => typeof reason === 'string' && reason.length > 0)
+    ) {
+      errors.push(`provenance.attempts[${i}]: invalid attempt evidence`)
+      continue
+    }
+    const executionId = attempt.executionId as string
+    const ordinal = attempt.ordinal as number
+    const seen = ordinalsByExecution.get(executionId) ?? new Set<number>()
+    if (seen.has(ordinal)) {
+      errors.push(`provenance.attempts[${i}]: duplicate execution/ordinal`)
+    }
+    seen.add(ordinal)
+    ordinalsByExecution.set(executionId, seen)
+  }
+  for (const [executionId, ordinals] of ordinalsByExecution) {
+    for (let ordinal = 1; ordinal <= ordinals.size; ordinal++) {
+      if (!ordinals.has(ordinal)) {
+        errors.push(`provenance.attempts: ${executionId} is missing ordinal ${ordinal}`)
+      }
+    }
+  }
+}
+
+/** Check the artifacts and provenance sections. */
+function validateRolloutProvenance(value: Record<string, unknown>, errors: string[]): void {
   validateSection(
     value.artifacts,
     'artifacts',
@@ -707,114 +813,33 @@ export function validateRolloutLine(value: unknown): string[] {
     ],
     errors,
   )
-  if (isRecord(value.provenance)) {
-    if (
-      value.provenance.lossy_projection !== undefined &&
-      value.provenance.lossy_projection !== true
-    ) {
-      errors.push('provenance.lossy_projection: expected true when present')
-    }
-    if (
-      value.provenance.lossy_projection === true &&
-      (typeof value.provenance.gap !== 'string' || value.provenance.gap.length === 0)
-    ) {
-      errors.push('provenance.gap: required for a lossy projection')
-    }
-    const search = value.provenance.search
-    if (search !== undefined) {
-      if (
-        !isRecord(search) ||
-        typeof search.searchId !== 'string' ||
-        !search.searchId ||
-        typeof search.nodeId !== 'string' ||
-        !search.nodeId ||
-        typeof search.cellId !== 'string' ||
-        !search.cellId ||
-        !Number.isSafeInteger(search.attempt) ||
-        (search.attempt as number) < 1
-      ) {
-        errors.push('provenance.search: expected exact search, node, cell and positive attempt')
-      }
-    }
-    const captures = value.provenance.workspace_captures
-    if (captures !== undefined && captures !== null) {
-      if (!Array.isArray(captures)) {
-        errors.push('provenance.workspace_captures: expected array|null when present')
-      } else {
-        for (const [i, capture] of captures.entries()) {
-          if (
-            !isRecord(capture) ||
-            !isStringOrNull(capture.outRef) ||
-            !isStringOrNull(capture.blobPath) ||
-            !isStringOrNull(capture.receiptPointer) ||
-            !('receipt' in capture) ||
-            (capture.attempts !== null && !Array.isArray(capture.attempts)) ||
-            (capture.coverageComplete !== null && typeof capture.coverageComplete !== 'boolean') ||
-            !isStringOrNull(capture.incompleteReason) ||
-            !isStringOrNull(capture.projectionGap)
-          ) {
-            errors.push(`provenance.workspace_captures[${i}]: invalid capture evidence`)
-          }
-        }
-      }
-    }
-    const attempts = value.provenance.attempts
-    if (attempts !== undefined) {
-      if (!Array.isArray(attempts)) {
-        errors.push('provenance.attempts: expected array when present')
-      } else {
-        const ordinalsByExecution = new Map<string, Set<number>>()
-        for (const [i, attempt] of attempts.entries()) {
-          if (
-            !isRecord(attempt) ||
-            typeof attempt.executionId !== 'string' ||
-            !attempt.executionId ||
-            !Number.isSafeInteger(attempt.ordinal) ||
-            (attempt.ordinal as number) < 1 ||
-            !isStringOrNull(attempt.providerSessionId) ||
-            !Array.isArray(attempt.nativeSessionIds) ||
-            !attempt.nativeSessionIds.every((id) => typeof id === 'string' && id.length > 0) ||
-            !Array.isArray(attempt.processIds) ||
-            !attempt.processIds.every((id) => typeof id === 'string' && id.length > 0) ||
-            !['succeeded', 'failed', 'cancelled', 'unknown'].includes(attempt.outcome as string) ||
-            !Array.isArray(attempt.missingReasons) ||
-            !attempt.missingReasons.every(
-              (reason) => typeof reason === 'string' && reason.length > 0,
-            )
-          ) {
-            errors.push(`provenance.attempts[${i}]: invalid attempt evidence`)
-            continue
-          }
-          const executionId = attempt.executionId as string
-          const ordinal = attempt.ordinal as number
-          const seen = ordinalsByExecution.get(executionId) ?? new Set<number>()
-          if (seen.has(ordinal)) {
-            errors.push(`provenance.attempts[${i}]: duplicate execution/ordinal`)
-          }
-          seen.add(ordinal)
-          ordinalsByExecution.set(executionId, seen)
-        }
-        for (const [executionId, ordinals] of ordinalsByExecution) {
-          for (let ordinal = 1; ordinal <= ordinals.size; ordinal++) {
-            if (!ordinals.has(ordinal)) {
-              errors.push(`provenance.attempts: ${executionId} is missing ordinal ${ordinal}`)
-            }
-          }
-        }
-      }
-    }
-    if (value.provenance.gap !== undefined && typeof value.provenance.gap !== 'string') {
-      errors.push('provenance.gap: must be string when present')
-    }
-    const evidence = value.provenance.gated_evidence
-    if (evidence !== undefined) {
-      if (!isRecord(evidence)) {
-        errors.push('provenance.gated_evidence: must be an object when present')
-      } else if (evidence.metrics !== undefined && !isRecord(evidence.metrics)) {
-        errors.push('provenance.gated_evidence.metrics: must be an object when present')
-      }
+  if (!isRecord(value.provenance)) return
+  const provenance = value.provenance
+  validateLossyProjection(provenance, errors)
+  validateProvenanceSearch(provenance.search, errors)
+  validateWorkspaceCaptures(provenance.workspace_captures, errors)
+  validateProvenanceAttempts(provenance.attempts, errors)
+  if (provenance.gap !== undefined && typeof provenance.gap !== 'string') {
+    errors.push('provenance.gap: must be string when present')
+  }
+  const evidence = provenance.gated_evidence
+  if (evidence !== undefined) {
+    if (!isRecord(evidence)) {
+      errors.push('provenance.gated_evidence: must be an object when present')
+    } else if (evidence.metrics !== undefined && !isRecord(evidence.metrics)) {
+      errors.push('provenance.gated_evidence.metrics: must be an object when present')
     }
   }
+}
+
+export function validateRolloutLine(value: unknown): string[] {
+  const errors: string[] = []
+  if (!isRecord(value)) return ['line: not an object']
+
+  validateRolloutIdentity(value, errors)
+  validateRolloutTranscript(value, errors)
+  validateRolloutOutcomeAndCost(value, errors)
+  validateRolloutProvenance(value, errors)
 
   // A gap line must say WHY it is a gap; a full line must not carry a gap note.
   if (Array.isArray(value.messages) && isRecord(value.provenance)) {
