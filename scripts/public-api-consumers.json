@@ -1,190 +1,227 @@
 {
-  "sweptAt": "2026-10-06",
+  "sweptAt": "2026-10-21",
   "repositories": [
     {
       "name": "agent-app",
-      "ref": "main",
-      "commit": "e6c001f"
+      "ref": "refs/remotes/origin/main",
+      "commit": "25c33afc5268aa9d754dd99659b074b9bff890d4",
+      "sweptAt": "2026-10-21"
     },
     {
       "name": "agent-builder",
       "ref": "main",
-      "commit": "6d67aab"
+      "commit": "6d67aab",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "agent-dev-container",
       "ref": "develop",
-      "commit": "0d14b1d"
+      "commit": "0d14b1d",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "agent-knowledge",
       "ref": "main",
-      "commit": "49c7cca"
+      "commit": "49c7cca",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "agent-lab",
       "ref": "main",
-      "commit": "23fb048"
+      "commit": "23fb048",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "agent-runtime",
       "ref": "main",
-      "commit": "a7752c5"
+      "commit": "a7752c5",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "agent-sdk",
       "ref": "main",
-      "commit": "648eaa7"
+      "commit": "648eaa7",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "ai-trading-blueprint",
       "ref": "main",
-      "commit": "e574633"
+      "commit": "e574633",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "blueprint-agent",
       "ref": "develop",
-      "commit": "517650b"
+      "commit": "517650b",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "braid",
       "ref": "main",
-      "commit": "b0fb773"
+      "commit": "b0fb773",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "browser-agent-driver",
       "ref": "main",
-      "commit": "8228dc3"
+      "commit": "8228dc3",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "chatgpt-plugins",
       "ref": "main",
-      "commit": "cdee294"
+      "commit": "cdee294",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "creative-agent",
       "ref": "master",
-      "commit": "a7aca13"
+      "commit": "a7aca13",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "discovery",
       "ref": "master",
-      "commit": "f7ad3f3"
+      "commit": "f7ad3f3",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "discovery-lab",
       "ref": "master",
-      "commit": "5fe4b433"
+      "commit": "5fe4b433",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "factory",
       "ref": "main",
-      "commit": "5e6f50c"
+      "commit": "5e6f50c",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "gtm",
       "ref": "master",
-      "commit": "4938eaa"
+      "commit": "4938eaa",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "gtm-agent",
-      "ref": "master",
-      "commit": "ec24bfa"
+      "ref": "refs/remotes/origin/master",
+      "commit": "96763acddf2a52786fa91a6266e00cde5c344d38",
+      "sweptAt": "2026-10-21"
     },
     {
       "name": "hospitality-agent",
       "ref": "main",
-      "commit": "29d6e30"
+      "commit": "29d6e30",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "insurance-agent",
       "ref": "main",
-      "commit": "8ab1851"
+      "commit": "8ab1851",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "legal-agent",
       "ref": "main",
-      "commit": "2857927"
+      "commit": "2857927",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "ph0ny",
       "ref": "main",
-      "commit": "3af952b"
+      "commit": "3af952b",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "physim",
       "ref": "main",
-      "commit": "6eae114"
+      "commit": "6eae114",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "playproof",
       "ref": "main",
-      "commit": "c49a6a5"
+      "commit": "c49a6a5",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "redteam",
       "ref": "main",
-      "commit": "41c648b"
+      "commit": "41c648b",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "relationships-agent",
       "ref": "main",
-      "commit": "fe73c79"
+      "commit": "fe73c79",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "run-capsule",
       "ref": "main",
-      "commit": "0cd99e5"
+      "commit": "0cd99e5",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "starter-foundry",
       "ref": "main",
-      "commit": "217328c"
+      "commit": "217328c",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "super-agent",
       "ref": "main",
-      "commit": "d0e9bc3"
+      "commit": "d0e9bc3",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "supervisor-lab",
       "ref": "main",
-      "commit": "0f3c189"
+      "commit": "0f3c189",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "tangle-router",
       "ref": "main",
-      "commit": "fa71feb"
+      "commit": "fa71feb",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "tangle-tools",
       "ref": "main",
-      "commit": "0d28216"
+      "commit": "0d28216",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "tax-agent",
       "ref": "main",
-      "commit": "a395120"
+      "commit": "a395120",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "traces",
       "ref": "main",
-      "commit": "499261e"
+      "commit": "499261e",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "trustgate",
       "ref": "main",
-      "commit": "f7f91bd"
+      "commit": "f7f91bd",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "tuner-agent",
       "ref": "main",
-      "commit": "794fb92"
+      "commit": "794fb92",
+      "sweptAt": "2026-10-06"
     },
     {
       "name": "workcomp-agent",
       "ref": "master",
-      "commit": "5ab31cf"
+      "commit": "5ab31cf",
+      "sweptAt": "2026-10-06"
     }
   ],
   "symbols": {
@@ -289,16 +326,12 @@
         "ai-trading-blueprint:evals/src/trading/persona-agent-eval.ts",
         "ai-trading-blueprint:evals/src/trading/scorecard-integration.ts",
         "creative-agent:eval/scorecard-integration.ts",
-        "gtm-agent:eval/scoring/scorecard-integration.ts",
-        "gtm-agent:src/lib/.server/work-products/provenance.ts",
         "legal-agent:src/lib/.server/work-products/profile-hash.ts",
         "tax-agent:apps/web/src/lib/.server/tax/scorecard-profile.ts"
       ],
       "typeOnly": [],
       "tests": [
         "creative-agent:tests/scorecard-wiring.test.ts",
-        "gtm-agent:tests/scorecard-wiring.test.ts",
-        "gtm-agent:tests/work-products.test.ts",
         "insurance-agent:tests/eval/lib/scorecard-integration.ts",
         "insurance-agent:tests/eval/scorecard-wiring.test.ts",
         "legal-agent:tests/eval/lib/scorecard-integration.ts",
@@ -338,12 +371,10 @@
     },
     "aggregateJudgeVerdicts": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/eval/judges/forge-chat-judge.ts",
         "blueprint-agent:scripts/experiments/calibrate-instrument.ts",
         "creative-agent:eval/lib/creative-judges.ts",
         "creative-agent:src/lib/.server/production-loop/judges.ts",
-        "gtm-agent:eval/kernel.ts",
         "legal-agent:scripts/grade-with-ensemble.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
@@ -397,7 +428,6 @@
         "blueprint-agent:scripts/experiments/vb-multi-analyst.ts",
         "creative-agent:eval/analyst-loop.ts",
         "discovery-lab:experiments/trace-review/jev-panel.mjs",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/calibrate-rewrite-kinds.mts",
         "supervisor-lab:archive/bench/analyst/live-smoke.mts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts",
@@ -459,7 +489,6 @@
         "agent-dev-container:packages/intelligence-kernel/src/from-records.ts",
         "agent-runtime:examples/agents-of-all-shapes/shared/intelligence.ts",
         "creative-agent:eval/scripts/insight-report.ts",
-        "gtm-agent:eval/scripts/insight-report.ts",
         "gtm:tools/gtm-doc-eval/evaluate.mjs",
         "starter-foundry:registry/families/agent-research-harness-ts/files/src/research/runner.ts",
         "starter-foundry:registry/layers/agent-eval/auto-research/files/src/eval/auto-research/loop.ts"
@@ -548,8 +577,7 @@
         "agent-dev-container:products/intelligence/api/src/lib/router-trace-analyst.ts",
         "ai-trading-blueprint:evals/src/analysis/rlm-analyst.ts",
         "blueprint-agent:scripts/experiments/lib/analyze-vb-run/analyzers.ts",
-        "creative-agent:eval/trace-analyst-runner.ts",
-        "gtm-agent:eval/loops/research-export.ts"
+        "creative-agent:eval/trace-analyst-runner.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -698,7 +726,6 @@
       "production": [
         "agent-builder:frontier/judges/artifact-head-to-head.ts",
         "creative-agent:eval/lib/judge-ensemble.ts",
-        "gtm-agent:eval/lib/judge-ensemble.ts",
         "insurance-agent:scripts/grade-with-ensemble.ts",
         "legal-agent:scripts/grade-with-ensemble.ts",
         "physim:apps/server/src/scripts/agent-eval/cross-validate-judge.ts",
@@ -752,7 +779,6 @@
       "production": [],
       "typeOnly": [],
       "tests": [
-        "gtm-agent:eval/lib/multishot-graph.test.ts",
         "tax-agent:tests/eval/lib/graph-multishot.test.ts"
       ],
       "mentions": [
@@ -763,9 +789,7 @@
     "assertMultishotMatrixGoldenScenario": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "gtm-agent:eval/lib/multishot-matrix-graph.test.ts"
-      ],
+      "tests": [],
       "mentions": [
         "gtm-agent"
       ]
@@ -811,7 +835,6 @@
     "assertRealBackend": {
       "production": [
         "creative-agent:eval/canonical-runner.ts",
-        "gtm-agent:eval/kernel.ts",
         "supervisor-lab:archive/bench/sequential-arena.ts"
       ],
       "typeOnly": [],
@@ -846,7 +869,6 @@
       "production": [
         "creative-agent:eval/canonical-runner.ts",
         "creative-agent:eval/missions.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "starter-foundry:examples/recruiter-eval-workspace/eval/src/eval/runner.ts",
         "starter-foundry:registry/families/agent-eval-harness-ts/files/src/eval/runner.ts"
       ],
@@ -870,7 +892,6 @@
     "assertServedModel": {
       "production": [
         "creative-agent:eval/lib/persona-driver.ts",
-        "gtm-agent:eval/lib/persona-driver.ts",
         "supervisor-lab:src/learn/episode.ts",
         "supervisor-lab:src/learn/run.ts"
       ],
@@ -923,6 +944,14 @@
         "agent-dev-container",
         "run-capsule",
         "traces"
+      ]
+    },
+    "assessSystemOneDomainMatch": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
       ]
     },
     "assessSystemOneReview": {
@@ -982,6 +1011,7 @@
         "blueprint-agent",
         "chatgpt-plugins",
         "creative-agent",
+        "gtm-agent",
         "ph0ny",
         "super-agent",
         "supervisor-lab",
@@ -1011,13 +1041,11 @@
     "BackendIntegrityError": {
       "production": [
         "creative-agent:eval/leaderboard.ts",
-        "creative-agent:eval/missions.ts",
-        "gtm-agent:eval/suites/persona.ts"
+        "creative-agent:eval/missions.ts"
       ],
       "typeOnly": [],
       "tests": [
         "creative-agent:tests/backend-integrity.test.ts",
-        "gtm-agent:tests/backend-integrity.test.ts",
         "insurance-agent:tests/eval/lib/backend-integrity.ts",
         "legal-agent:tests/eval/lib/backend-integrity.ts",
         "tax-agent:tests/eval/backend-integrity.test.ts",
@@ -1252,7 +1280,6 @@
         "blueprint-agent:scripts/experiments/lib/agent-profile-cell.ts",
         "blueprint-agent:scripts/experiments/lib/vb-climb-definer.ts",
         "creative-agent:eval/agent-profile-cell.ts",
-        "gtm-agent:eval/profiles/agent-profile-cell.ts",
         "workcomp-agent:eval/benchmark/record.ts"
       ],
       "typeOnly": [],
@@ -1437,7 +1464,6 @@
     "calibrateJudge": {
       "production": [
         "creative-agent:eval/calibrate-judges.ts",
-        "gtm-agent:eval/calibrate-judges.ts",
         "insurance-agent:scripts/calibrate-judges.ts",
         "legal-agent:scripts/calibrate-judges.ts",
         "starter-foundry:examples/recruiter-eval-workspace/eval/src/eval/judges/rubric-runner.ts",
@@ -1445,7 +1471,6 @@
       ],
       "typeOnly": [],
       "tests": [
-        "gtm-agent:eval/lib/judge-ensemble.test.ts",
         "legal-agent:tests/eval/lib/judge-sentinel.ts",
         "tax-agent:tests/eval/calibrate-judges.ts"
       ],
@@ -1559,7 +1584,8 @@
       "typeOnly": [],
       "tests": [],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "campaignToRunRecords": {
@@ -1580,8 +1606,7 @@
         "agent-knowledge:src/memory/experiment/learning-pairs.ts",
         "agent-knowledge:src/memory/experiment/learning.ts",
         "agent-knowledge:src/memory/experiment/recovery.ts",
-        "agent-lab:projects/research-ops/deepswe/task-inventory.mts",
-        "gtm-agent:eval/lib/gtm-improvement-identity.ts"
+        "agent-lab:projects/research-ops/deepswe/task-inventory.mts"
       ],
       "typeOnly": [],
       "tests": [
@@ -1724,6 +1749,7 @@
       "tests": [],
       "mentions": [
         "discovery-lab",
+        "gtm-agent",
         "physim"
       ]
     },
@@ -1777,8 +1803,7 @@
     },
     "checkTraceContracts": {
       "production": [
-        "creative-agent:eval/lib/trace-contracts.ts",
-        "gtm-agent:eval/scoring/trace-contracts.ts"
+        "creative-agent:eval/lib/trace-contracts.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -1889,6 +1914,7 @@
         "agent-dev-container",
         "blueprint-agent",
         "browser-agent-driver",
+        "gtm-agent",
         "insurance-agent",
         "legal-agent",
         "ph0ny",
@@ -1953,8 +1979,7 @@
     },
     "CODING_HARNESSES": {
       "production": [
-        "agent-runtime:src/runtime/define-leaderboard.ts",
-        "gtm-agent:eval/matrix/harnesses.ts"
+        "agent-runtime:src/runtime/define-leaderboard.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -1998,7 +2023,6 @@
     },
     "compareOptimizationMethods": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-knowledge:src/optimization.ts",
         "agent-runtime:src/improvement/method-execution.ts",
         "supervisor-lab:src/learn/system-revise.ts",
@@ -2060,8 +2084,7 @@
     },
     "completionVerdict": {
       "production": [
-        "blueprint-agent:scripts/experiments/eval/launch-scoreboard/scoreboard-core.ts",
-        "gtm-agent:eval/kernel.ts"
+        "blueprint-agent:scripts/experiments/eval/launch-scoreboard/scoreboard-core.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -2087,8 +2110,7 @@
     },
     "composeGates": {
       "production": [
-        "creative-agent:eval/lib/fuzz-wiring.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/lib/fuzz-wiring.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -2179,6 +2201,7 @@
       "typeOnly": [],
       "tests": [],
       "mentions": [
+        "agent-app",
         "agent-dev-container",
         "agent-runtime"
       ]
@@ -2372,9 +2395,7 @@
     "costForUsage": {
       "production": [
         "agent-builder:src/lib/.server/llm-cost.ts",
-        "agent-runtime:src/improvement/search-executor.ts",
-        "gtm-agent:eval/fuzz.ts",
-        "gtm-agent:eval/kernel.ts"
+        "agent-runtime:src/improvement/search-executor.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -2418,9 +2439,6 @@
         "creative-agent:eval/lib/persona-driver.ts",
         "creative-agent:scripts/evals/run-driver-soak.ts",
         "discovery-lab:experiments/fleet-ratings/judges.mjs",
-        "gtm-agent:eval/fuzz.ts",
-        "gtm-agent:eval/lib/persona-driver.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/calibrate-rewrite-kinds.mts",
         "supervisor-lab:archive/bench/analyst/live-smoke.mts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts",
@@ -2437,8 +2455,6 @@
         "braid:src/eval/records.ts"
       ],
       "tests": [
-        "agent-app:src/eval-campaign/index.test.ts",
-        "agent-app:tests/eval-compat/identity.compat.ts",
         "agent-dev-container:products/intelligence/api/tests/evals.test.ts",
         "agent-dev-container:products/intelligence/api/tests/optimization-webhooks.test.ts",
         "agent-dev-container:products/intelligence/api/tests/optimizations.test.ts",
@@ -2450,8 +2466,6 @@
         "agent-runtime:tests/kernel/loop-dispatch.test.ts",
         "agent-runtime:tests/runtime/prompt-options-passthrough.test.ts",
         "braid:test/eval.test.ts",
-        "gtm-agent:eval/lib/persona-driver.test.ts",
-        "gtm-agent:eval/loops/self-improve-cost.test.ts",
         "insurance-agent:tests/eval/lib/persona-driver.test.ts",
         "insurance-agent:tests/eval/lib/persona-driver.ts",
         "legal-agent:tests/eval/lib/persona-driver.test.ts",
@@ -2487,10 +2501,6 @@
         "agent-dev-container:products/platform/api/src/lib/router-model-owner.ts",
         "creative-agent:eval/lib/persona-driver.ts",
         "creative-agent:eval/surfaces/system-prompt-head.ts",
-        "gtm-agent:eval/kernel.ts",
-        "gtm-agent:eval/lib/persona-driver.ts",
-        "gtm-agent:eval/lib/router-model-call.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "physim:apps/server/src/lib/external-optimizer-model-call.ts",
         "physim:apps/server/src/lib/trace-analyst.ts",
         "physim:apps/server/src/scripts/agent-eval/self-improve.ts",
@@ -2527,10 +2537,6 @@
         "agent-dev-container:products/platform/api/src/lib/router-model-owner.ts",
         "creative-agent:eval/lib/persona-driver.ts",
         "creative-agent:eval/surfaces/system-prompt-head.ts",
-        "gtm-agent:eval/kernel.ts",
-        "gtm-agent:eval/lib/persona-driver.ts",
-        "gtm-agent:eval/lib/router-model-call.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/router-model-call.mts",
         "workcomp-agent:eval/persona-driver.ts"
       ],
@@ -2624,7 +2630,6 @@
         "discovery-lab:experiments/e1-checker/checker.mjs",
         "discovery-lab:experiments/fleet-ratings/anchors/generate.mjs",
         "discovery-lab:experiments/fleet-ratings/judges.mjs",
-        "gtm-agent:eval/lib/openai-compatible-chat.ts",
         "physim:apps/server/src/lib/trace-analyst.ts",
         "physim:apps/server/src/scripts/agent-eval/self-improve.ts",
         "starter-foundry:examples/recruiter-eval-workspace/eval/src/eval/judge-client.ts",
@@ -2639,7 +2644,6 @@
       "typeOnly": [],
       "tests": [
         "agent-dev-container:products/intelligence/api/tests/intent-audit-analyst.test.ts",
-        "gtm-agent:eval/lib/persona-driver.test.ts",
         "insurance-agent:tests/eval/canonical.ts",
         "insurance-agent:tests/eval/lib/completion.ts",
         "insurance-agent:tests/eval/lib/persona-driver.test.ts",
@@ -2694,8 +2698,6 @@
         "braid:src/adapters/analysis/trace-analysis-adapter.ts",
         "creative-agent:eval/analyst-loop.ts",
         "creative-agent:eval/trace-analyst-runner.ts",
-        "gtm-agent:eval/loops/research-export.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/calibrate-rewrite-kinds.mts",
         "supervisor-lab:archive/bench/analyst/live-smoke.mts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts",
@@ -2785,7 +2787,6 @@
     },
     "createLlmCorrectnessChecker": {
       "production": [
-        "agent-app:src/eval/index.ts",
         "creative-agent:eval/e2e/creative-product-harness.ts"
       ],
       "typeOnly": [],
@@ -2884,7 +2885,6 @@
         "blueprint-agent:scripts/experiments/vb-multi-analyst.ts",
         "braid:src/adapters/analysis/question-analyst.ts",
         "creative-agent:eval/analyst-loop.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/calibrate-rewrite-kinds.mts",
         "supervisor-lab:archive/bench/analyst/live-smoke.mts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts"
@@ -2944,6 +2944,7 @@
         "agent-runtime",
         "discovery",
         "discovery-lab",
+        "gtm-agent",
         "tangle-router",
         "tuner-agent"
       ]
@@ -2986,6 +2987,14 @@
       "tests": [],
       "mentions": [
         "discovery-lab"
+      ]
+    },
+    "DEFAULT_JUDGE_GATE_POLICY": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
       ]
     },
     "DEFAULT_JUDGE_MODEL": {
@@ -3041,7 +3050,6 @@
         "agent-runtime:src/runtime/supervise-surface.ts",
         "creative-agent:eval/agent.config.ts",
         "creative-agent:eval/analyst-loop.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "ph0ny:products/builder/api/src/eval/autoresearch/trace-analyst.ts",
         "traces:src/agentic-routing.ts",
         "traces:src/analyze.ts"
@@ -3074,7 +3082,6 @@
     },
     "defaultDelegationTools": {
       "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts",
         "tuner-agent:src/lib/eval-tools.ts"
       ],
       "typeOnly": [],
@@ -3086,7 +3093,6 @@
     },
     "defaultProductionGate": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/eval/loops/evolution-runner.ts",
         "agent-builder:src/lib/.server/kb/optimization.ts",
         "ai-trading-blueprint:evals/src/trading/harness-self-improve.ts",
@@ -3129,9 +3135,7 @@
       ]
     },
     "defaultShapeFromProfile": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -3219,8 +3223,7 @@
     "detectRewardHacking": {
       "production": [
         "agent-builder:scripts/eval.ts",
-        "creative-agent:eval/canonical-export.ts",
-        "gtm-agent:eval/suites/persona.ts"
+        "creative-agent:eval/canonical-export.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -3290,8 +3293,7 @@
     "diffScorecard": {
       "production": [
         "ai-trading-blueprint:evals/src/trading/scorecard-integration.ts",
-        "creative-agent:eval/scorecard-integration.ts",
-        "gtm-agent:eval/scoring/scorecard-integration.ts"
+        "creative-agent:eval/scorecard-integration.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -3449,7 +3451,6 @@
       "typeOnly": [],
       "tests": [
         "creative-agent:eval/fuzz-wiring.test.ts",
-        "gtm-agent:eval/fuzz.test.ts",
         "insurance-agent:tests/eval/fuzz-wiring.test.ts",
         "legal-agent:tests/eval/fuzz-wiring.test.ts",
         "tax-agent:tests/eval/lib/fuzz-space.test.ts"
@@ -3558,9 +3559,7 @@
       ]
     },
     "estimateMultishotCost": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -3616,7 +3615,6 @@
     "evalHealthStamp": {
       "production": [
         "creative-agent:eval/lib/judge-sentinel.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "physim:apps/server/src/scripts/agent-eval/judge-sentinel.ts"
       ],
       "typeOnly": [],
@@ -3817,8 +3815,7 @@
     "exportRunAsOtlp": {
       "production": [
         "agent-builder:src/lib/.server/eval/analysts/canonical-trace-analyst.ts",
-        "creative-agent:eval/trace-analyst-runner.ts",
-        "gtm-agent:eval/loops/research-export.ts"
+        "creative-agent:eval/trace-analyst-runner.ts"
       ],
       "typeOnly": [],
       "tests": [],
@@ -3842,7 +3839,6 @@
     },
     "externalTextOptimizationMethod": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/kb/optimization.ts",
         "ai-trading-blueprint:evals/src/trading/harness-mutator.ts"
       ],
@@ -3902,10 +3898,8 @@
     },
     "extractProducedState": {
       "production": [
-        "agent-app:src/eval/index.ts",
         "blueprint-agent:scripts/experiments/eval/launch-scoreboard/scoreboard-core.ts",
-        "creative-agent:eval/e2e/creative-product-harness.ts",
-        "gtm-agent:eval/suites/capability.ts"
+        "creative-agent:eval/e2e/creative-product-harness.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -3959,8 +3953,7 @@
     },
     "extractVerifiableRewardsFromRecords": {
       "production": [
-        "creative-agent:eval/canonical-export.ts",
-        "gtm-agent:eval/suites/persona.ts"
+        "creative-agent:eval/canonical-export.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -4105,8 +4098,6 @@
     "fileSentinelStore": {
       "production": [
         "creative-agent:eval/lib/judge-sentinel.ts",
-        "gtm-agent:eval/calibrate-judges.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "physim:apps/server/src/scripts/agent-eval/judge-sentinel.ts",
         "supervisor-lab:archive/bench/comms/calibrate-judges.mts",
         "supervisor-lab:archive/bench/comms/judges.ts"
@@ -4133,7 +4124,6 @@
         "ai-trading-blueprint:evals/src/product/autoresearch-loop-runner.ts",
         "creative-agent:eval/ingestion-server.ts",
         "creative-agent:eval/production-feedback.ts",
-        "gtm-agent:eval/monitoring/ingestion-server.ts",
         "gtm:tools/gtm-doc-eval/capture-feedback.mjs",
         "gtm:tools/gtm-doc-eval/improve.mjs",
         "insurance-agent:scripts/analyze-agent-eval-evidence.ts",
@@ -4143,7 +4133,6 @@
       "typeOnly": [],
       "tests": [
         "creative-agent:eval/ingest.test.ts",
-        "gtm-agent:eval/monitoring/ingest.test.ts",
         "insurance-agent:tests/eval/ingest.test.ts",
         "insurance-agent:tests/eval/ingestion-server.ts",
         "legal-agent:tests/eval/ingest.test.ts",
@@ -4177,16 +4166,11 @@
         "agent-builder:scripts/eval.ts",
         "creative-agent:eval/canonical-runner.ts",
         "creative-agent:eval/missions.ts",
-        "gtm-agent:eval/fuzz.ts",
-        "gtm-agent:eval/kernel.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "starter-foundry:examples/recruiter-eval-workspace/eval/src/eval/runner.ts",
         "starter-foundry:registry/families/agent-eval-harness-ts/files/src/eval/campaign.ts",
         "starter-foundry:registry/families/agent-eval-harness-ts/files/src/eval/runner.ts"
       ],
-      "typeOnly": [
-        "gtm-agent:eval/lib/openai-compatible-chat.ts"
-      ],
+      "typeOnly": [],
       "tests": [
         "insurance-agent:tests/eval/canonical.ts",
         "insurance-agent:tests/eval/fuzz.ts",
@@ -4218,9 +4202,6 @@
         "creative-agent:eval/canonical-runner.ts",
         "creative-agent:eval/ingestion-server.ts",
         "creative-agent:eval/missions.ts",
-        "gtm-agent:eval/agent-eval-traces.ts",
-        "gtm-agent:eval/monitoring/ingestion-server.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "insurance-agent:scripts/analyze-agent-eval-evidence.ts",
         "legal-agent:scripts/analyze-agent-eval-evidence.ts",
         "ph0ny:products/builder/api/src/cli.ts",
@@ -4237,7 +4218,6 @@
       "tests": [
         "blueprint-agent:scripts/experiments/lib/__tests__/agent-eval-archive.test.ts",
         "creative-agent:eval/ingest.test.ts",
-        "gtm-agent:eval/monitoring/ingest.test.ts",
         "insurance-agent:tests/eval/canonical.ts",
         "insurance-agent:tests/eval/fuzz.ts",
         "insurance-agent:tests/eval/ingest.test.ts",
@@ -4310,7 +4290,6 @@
         "agent-builder:scripts/run-canonical-analyst-loop.ts",
         "creative-agent:eval/analyst-loop.ts",
         "creative-agent:eval/canonical-export.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts"
       ],
       "typeOnly": [],
@@ -4382,8 +4361,7 @@
     },
     "flattenOtlpExportToNdjson": {
       "production": [
-        "creative-agent:eval/trace-analyst-runner.ts",
-        "gtm-agent:eval/loops/research-export.ts"
+        "creative-agent:eval/trace-analyst-runner.ts"
       ],
       "typeOnly": [],
       "tests": [],
@@ -4395,8 +4373,7 @@
     "formatScorecardDiff": {
       "production": [
         "ai-trading-blueprint:evals/src/trading/scorecard-integration.ts",
-        "creative-agent:eval/scorecard-integration.ts",
-        "gtm-agent:eval/scoring/scorecard-integration.ts"
+        "creative-agent:eval/scorecard-integration.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -4527,8 +4504,7 @@
     },
     "fuzzAgent": {
       "production": [
-        "creative-agent:eval/fuzz.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/fuzz.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -4623,7 +4599,6 @@
     },
     "gepaOptimizationMethod": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/eval/loops/evolution-runner.ts",
         "agent-dev-container:products/intelligence/api/src/lib/optimization-primitives.ts",
         "agent-runtime:src/improvement/official-optimizers.ts",
@@ -4675,7 +4650,6 @@
       "production": [],
       "typeOnly": [],
       "tests": [
-        "gtm-agent:eval/lib/multishot-graph.test.ts",
         "tax-agent:tests/eval/lib/graph-multishot.test.ts"
       ],
       "mentions": [
@@ -4771,9 +4745,7 @@
       ]
     },
     "harnessAxisOf": {
-      "production": [
-        "gtm-agent:eval/matrix/harnesses.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [
         "legal-agent:tests/eval/self-improve.ts"
@@ -4813,8 +4785,7 @@
         "agent-runtime:bench/src/corpus.ts",
         "blueprint-agent:scripts/experiments/lib/surface-prompt-registry.ts",
         "blueprint-agent:scripts/experiments/research-loop.ts",
-        "blueprint-agent:scripts/experiments/researcher/_runners/prompt-resolver.ts",
-        "gtm-agent:eval/suites/persona.ts"
+        "blueprint-agent:scripts/experiments/researcher/_runners/prompt-resolver.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -4910,8 +4881,7 @@
         "agent-dev-container:products/intelligence/api/src/lib/optimization-evidence-packet.ts",
         "agent-dev-container:products/intelligence/api/src/lib/run-provenance.ts",
         "agent-knowledge:src/memory/improvement/promotion.ts",
-        "blueprint-agent:scripts/experiments/run-compression-search.ts",
-        "gtm-agent:eval/matrix/report.ts"
+        "blueprint-agent:scripts/experiments/run-compression-search.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -4990,7 +4960,6 @@
         "blueprint-agent:scripts/experiments/vb-climb-definer.ts",
         "blueprint-agent:scripts/experiments/vb-climb.ts",
         "creative-agent:eval/self-improve.ts",
-        "gtm-agent:eval/loops/self-improve.ts",
         "physim:apps/server/src/scripts/agent-eval/self-improve.ts"
       ],
       "typeOnly": [],
@@ -5098,7 +5067,6 @@
       ],
       "typeOnly": [],
       "tests": [
-        "agent-app:src/eval-campaign/index.test.ts",
         "agent-dev-container:products/intelligence/api/tests/ingest-optimization-chain.test.ts",
         "agent-knowledge:tests/benchmarks/catalog.test.ts",
         "agent-knowledge:tests/benchmarks/cost.test.ts",
@@ -5197,7 +5165,6 @@
         "blueprint-agent:scripts/experiments/lib/vb-climb.ts",
         "creative-agent:eval/control/creative-onboarding.ts",
         "creative-agent:scripts/evals/run-driver-soak.ts",
-        "gtm-agent:eval/agent-eval-traces.ts",
         "starter-foundry:scripts/agent-eval-scaffold.ts",
         "starter-foundry:scripts/promote-capability-proposal.ts",
         "starter-foundry:scripts/promote-family-proposal.ts",
@@ -5267,7 +5234,6 @@
     },
     "interRaterReliability": {
       "production": [
-        "agent-app:src/eval-campaign/trust-gate.ts",
         "agent-builder:frontier/judges/artifact-head-to-head.ts"
       ],
       "typeOnly": [],
@@ -5481,7 +5447,6 @@
     },
     "isTransientLlmError": {
       "production": [
-        "gtm-agent:eval/lib/openai-compatible-chat.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
       "typeOnly": [],
@@ -5497,9 +5462,7 @@
       ]
     },
     "isTransientTransportFailure": {
-      "production": [
-        "gtm-agent:eval/suites/persona.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -5595,7 +5558,6 @@
         "discovery-lab:experiments/fleet-ratings/anchors/generate.mjs",
         "discovery-lab:experiments/fleet-ratings/judges.mjs",
         "discovery-lab:reports/fleet-observability/rater-exact-calibration.mjs",
-        "gtm-agent:eval/lib/judge-ensemble.ts",
         "physim:apps/server/src/scripts/agent-eval/cross-validate-judge.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
@@ -5616,6 +5578,14 @@
         "tax-agent"
       ]
     },
+    "judgeGateDecision": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
+      ]
+    },
     "judgeReplayGate": {
       "production": [],
       "typeOnly": [],
@@ -5627,8 +5597,6 @@
     "judgeSentinelReport": {
       "production": [
         "creative-agent:eval/lib/judge-sentinel.ts",
-        "gtm-agent:eval/calibrate-judges.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "physim:apps/server/src/scripts/agent-eval/judge-sentinel.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
@@ -5953,8 +5921,7 @@
     "LlmCallError": {
       "production": [
         "agent-dev-container:products/platform/api/src/lib/router-model-owner.ts",
-        "blueprint-agent:scripts/experiments/lib/llm-router.ts",
-        "gtm-agent:eval/lib/openai-compatible-chat.ts"
+        "blueprint-agent:scripts/experiments/lib/llm-router.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -5996,7 +5963,6 @@
     "LlmResponseError": {
       "production": [
         "agent-dev-container:products/intelligence/api/src/lib/optimization-router.ts",
-        "gtm-agent:eval/lib/openai-compatible-chat.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
       "typeOnly": [],
@@ -6030,13 +5996,11 @@
     "loadScorecard": {
       "production": [
         "ai-trading-blueprint:evals/src/trading/scorecard-integration.ts",
-        "creative-agent:eval/scorecard-integration.ts",
-        "gtm-agent:eval/scoring/scorecard-integration.ts"
+        "creative-agent:eval/scorecard-integration.ts"
       ],
       "typeOnly": [],
       "tests": [
         "creative-agent:tests/scorecard-wiring.test.ts",
-        "gtm-agent:tests/scorecard-wiring.test.ts",
         "insurance-agent:tests/eval/lib/scorecard-integration.ts",
         "insurance-agent:tests/eval/scorecard-wiring.test.ts",
         "legal-agent:tests/eval/lib/scorecard-integration.ts",
@@ -6142,9 +6106,6 @@
         "agent-dev-container:products/intelligence/api/src/lib/optimization-router.ts",
         "creative-agent:eval/lib/persona-driver.ts",
         "creative-agent:eval/surfaces/system-prompt-head.ts",
-        "gtm-agent:eval/kernel.ts",
-        "gtm-agent:eval/lib/persona-driver.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "workcomp-agent:eval/persona-driver.ts"
       ],
       "typeOnly": [],
@@ -6228,7 +6189,8 @@
       ],
       "mentions": [
         "agent-dev-container",
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "measuredComparisonFromCandidateExperiment": {
@@ -6239,6 +6201,14 @@
       "tests": [],
       "mentions": [
         "agent-runtime"
+      ]
+    },
+    "measureJudgeAgreement": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
       ]
     },
     "minimumPairsForPairedDeltaTest": {
@@ -6312,10 +6282,6 @@
         "agent-dev-container:products/intelligence/api/src/lib/project-profile-change-preflight.ts",
         "ai-trading-blueprint:evals/src/trading/persona-agent-eval.ts",
         "creative-agent:eval/dispatch-persona.ts",
-        "gtm-agent:eval/adapter/buildGtmProfileFromAddendum.ts",
-        "gtm-agent:eval/lib/model-identity.ts",
-        "gtm-agent:eval/loops/self-improve.ts",
-        "gtm-agent:eval/matrix/harnesses.ts",
         "starter-foundry:scripts/check-bare-alias.ts",
         "supervisor-lab:archive/bench/profile-arena.ts"
       ],
@@ -6342,7 +6308,6 @@
       "production": [],
       "typeOnly": [],
       "tests": [
-        "gtm-agent:eval/lib/persona-driver.test.ts",
         "insurance-agent:tests/eval/lib/persona-driver.test.ts",
         "legal-agent:tests/eval/lib/persona-driver.test.ts"
       ],
@@ -6414,9 +6379,7 @@
       ]
     },
     "MultishotDriverEmptyError": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -6424,9 +6387,7 @@
       ]
     },
     "MultishotFatalToolError": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [
         "tax-agent:tests/eval/multishot.ts"
@@ -6440,7 +6401,6 @@
       "production": [],
       "typeOnly": [],
       "tests": [
-        "gtm-agent:eval/lib/multishot-graph.test.ts",
         "tax-agent:tests/eval/lib/graph-multishot.test.ts"
       ],
       "mentions": [
@@ -6451,17 +6411,14 @@
     "multishotMatrixGoldenScenarios": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "gtm-agent:eval/lib/multishot-matrix-graph.test.ts"
-      ],
+      "tests": [],
       "mentions": [
         "gtm-agent"
       ]
     },
     "mutationProposer": {
       "production": [
-        "creative-agent:eval/fuzz.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/fuzz.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -6682,8 +6639,6 @@
         "blueprint-agent:scripts/experiments/synthesize-coverage-report.ts",
         "blueprint-agent:scripts/experiments/vb-multi-analyst.ts",
         "creative-agent:eval/analyst-loop.ts",
-        "gtm-agent:eval/loops/research-export.ts",
-        "gtm-agent:eval/loops/research-findings.ts",
         "supervisor-lab:archive/bench/analyst/calibrate-rewrite-kinds.mts",
         "supervisor-lab:archive/bench/analyst/live-smoke.mts",
         "supervisor-lab:archive/bench/analyst/run-rewrite-kinds.mts",
@@ -6987,9 +6942,7 @@
       ]
     },
     "paretoSignificanceGate": {
-      "production": [
-        "agent-app:src/eval-campaign/index.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -7004,6 +6957,14 @@
         "agent-dev-container",
         "agent-runtime",
         "agent-sdk"
+      ]
+    },
+    "parseCodeAgentJsonl": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
       ]
     },
     "parseCorpusFlag": {
@@ -7064,7 +7025,6 @@
     },
     "parseRunRecordSafe": {
       "production": [
-        "gtm-agent:scripts/canonical-completeness/records.ts",
         "ph0ny:training/scripts/agent_eval_helper/validate.mjs"
       ],
       "typeOnly": [],
@@ -7175,8 +7135,7 @@
     },
     "perturbationStabilityGate": {
       "production": [
-        "creative-agent:eval/lib/fuzz-wiring.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/lib/fuzz-wiring.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -7235,6 +7194,14 @@
         "agent-runtime"
       ]
     },
+    "prepareSystemOneDomainMatch": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
+      ]
+    },
     "prepareSystemOneReview": {
       "production": [],
       "typeOnly": [],
@@ -7266,11 +7233,7 @@
     },
     "profile": {
       "production": [
-        "agent-app:src/profile/index.ts",
         "creative-agent:src/lib/creative/profile.ts",
-        "gtm-agent:eval/adapter/buildGtmProfileFromAddendum.ts",
-        "gtm-agent:eval/kernel.ts",
-        "gtm-agent:src/lib/gtm/profile.ts",
         "insurance-agent:src/lib/insurance/profile.ts",
         "legal-agent:src/lib/legal/profile.ts",
         "tax-agent:apps/web/src/lib/.server/tax/config/tax-profile.ts"
@@ -7278,7 +7241,6 @@
       "typeOnly": [],
       "tests": [
         "creative-agent:tests/creative-profile.test.ts",
-        "gtm-agent:tests/gtm-profile.test.ts",
         "insurance-agent:tests/eval/matrix.ts",
         "insurance-agent:tests/eval/self-improve.ts",
         "insurance-agent:tests/unit/insurance-profile.test.ts",
@@ -7354,6 +7316,15 @@
       "tests": [],
       "mentions": [
         "agent-dev-container"
+      ]
+    },
+    "promote": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "agent-app",
+        "gtm-agent"
       ]
     },
     "PromptRegistry": {
@@ -7623,8 +7594,7 @@
       "production": [
         "ai-trading-blueprint:evals/src/trading/persona-agent-eval.ts",
         "ai-trading-blueprint:evals/src/trading/scorecard-integration.ts",
-        "creative-agent:eval/scorecard-integration.ts",
-        "gtm-agent:eval/scoring/scorecard-integration.ts"
+        "creative-agent:eval/scorecard-integration.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -7791,8 +7761,7 @@
     },
     "renderCapsuleHtml": {
       "production": [
-        "creative-agent:eval/fuzz.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/fuzz.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -7829,8 +7798,7 @@
     },
     "renderFindingSubject": {
       "production": [
-        "creative-agent:eval/analyst-loop.ts",
-        "gtm-agent:eval/loops/research-findings.ts"
+        "creative-agent:eval/analyst-loop.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -7850,7 +7818,6 @@
     },
     "renderJsonFooter": {
       "production": [
-        "gtm-agent:eval/scoring/multishot-judges.ts",
         "super-agent:evals/conversation-judge.ts"
       ],
       "typeOnly": [],
@@ -8073,6 +8040,7 @@
         "insurance-agent:tests/eval/self-improve.ts"
       ],
       "mentions": [
+        "agent-app",
         "agent-dev-container",
         "blueprint-agent",
         "braid",
@@ -8112,7 +8080,6 @@
         "creative-agent:eval/agent.config.ts",
         "creative-agent:src/lib/.server/production-loop/index.ts",
         "creative-agent:src/lib/.server/production-loop/judges.ts",
-        "gtm-agent:eval/kernel.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
       "typeOnly": [],
@@ -8286,7 +8253,8 @@
         "agent-runtime:tests/improvement-cycle.test.ts"
       ],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "runBoundedProcess": {
@@ -8300,7 +8268,6 @@
     },
     "runCampaign": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-knowledge:src/benchmarks/suite.ts",
         "agent-knowledge:src/memory/experiment/run.ts",
         "agent-lab:projects/playproof/profile-improve.mts",
@@ -8312,7 +8279,6 @@
       ],
       "typeOnly": [],
       "tests": [
-        "agent-app:src/eval-campaign/index.test.ts",
         "agent-knowledge:tests/memory/improvement.test.ts",
         "agent-knowledge:tests/retrieval-eval.test.ts",
         "insurance-agent:tests/eval/self-improve.ts",
@@ -8451,7 +8417,6 @@
     },
     "runJudge": {
       "production": [
-        "gtm-agent:eval/monitoring/live-soak.ts",
         "super-agent:scripts/eval-conversation.ts",
         "tuner-agent:scripts/smoke-judge.mjs"
       ],
@@ -8509,9 +8474,7 @@
       ]
     },
     "runMultishotMatrix": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-matrix-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -8886,7 +8849,8 @@
         "agent-runtime:tests/improvement-cycle.test.ts"
       ],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "sealAgentProfileImprovementSuite": {
@@ -8898,7 +8862,8 @@
         "agent-runtime:tests/improvement-cycle.test.ts"
       ],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "sealAgentProfileImprovementTask": {
@@ -8911,7 +8876,8 @@
         "agent-runtime:tests/improvement-cycle.test.ts"
       ],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "sealCandidateBenchmarkSuite": {
@@ -9219,7 +9185,6 @@
     },
     "selfImprove": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/eval/loops/evolution-runner.ts",
         "agent-builder:src/lib/.server/kb/optimization.ts",
         "agent-dev-container:products/intelligence/api/src/lib/optimization-engine.ts",
@@ -9327,8 +9292,7 @@
     },
     "severityFloorGate": {
       "production": [
-        "creative-agent:eval/lib/fuzz-wiring.ts",
-        "gtm-agent:eval/fuzz.ts"
+        "creative-agent:eval/lib/fuzz-wiring.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -9398,7 +9362,6 @@
     },
     "skillOptOptimizationMethod": {
       "production": [
-        "agent-app:src/eval-campaign/index.ts",
         "agent-dev-container:products/intelligence/api/src/lib/optimization-primitives.ts",
         "agent-runtime:src/improvement/official-optimizers.ts"
       ],
@@ -9431,9 +9394,7 @@
       ]
     },
     "snapshotFromCalibration": {
-      "production": [
-        "gtm-agent:eval/calibrate-judges.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [
         "insurance-agent:tests/eval/lib/judge-sentinel.ts",
@@ -9447,10 +9408,17 @@
         "tax-agent"
       ]
     },
+    "snapshotFromJudgeAgreement": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
+      ]
+    },
     "snapshotFromSentinelSet": {
       "production": [
         "creative-agent:eval/lib/judge-sentinel.ts",
-        "gtm-agent:eval/calibrate-judges.ts",
         "supervisor-lab:archive/bench/comms/judges.ts"
       ],
       "typeOnly": [],
@@ -9525,13 +9493,11 @@
     },
     "startServer": {
       "production": [
-        "creative-agent:eval/ingestion-server.ts",
-        "gtm-agent:eval/monitoring/ingestion-server.ts"
+        "creative-agent:eval/ingestion-server.ts"
       ],
       "typeOnly": [],
       "tests": [
         "creative-agent:eval/ingest.test.ts",
-        "gtm-agent:eval/monitoring/ingest.test.ts",
         "insurance-agent:tests/eval/ingest.test.ts",
         "insurance-agent:tests/eval/ingestion-server.ts",
         "legal-agent:tests/eval/ingestion-server.ts",
@@ -9573,7 +9539,6 @@
         "browser-agent-driver",
         "creative-agent",
         "discovery-lab",
-        "gtm-agent",
         "legal-agent",
         "ph0ny",
         "physim",
@@ -9599,8 +9564,7 @@
         "blueprint-agent:scripts/experiments/lib/llm-router.ts",
         "blueprint-agent:scripts/experiments/lib/synthesis-quality-judge.ts",
         "blueprint-agent:scripts/experiments/synthesize-coverage-report.ts",
-        "creative-agent:src/lib/.server/production-loop/judges.ts",
-        "gtm-agent:eval/lib/openai-compatible-chat.ts"
+        "creative-agent:src/lib/.server/production-loop/judges.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -9665,7 +9629,6 @@
         "ai-trading-blueprint:evals/src/trading/persona-agent-eval.ts",
         "creative-agent:eval/canonical-export.ts",
         "creative-agent:eval/canonical-runner.ts",
-        "gtm-agent:eval/kernel.ts",
         "supervisor-lab:archive/bench/sequential-arena.ts"
       ],
       "typeOnly": [],
@@ -9844,6 +9807,14 @@
       "tests": [],
       "mentions": [
         "discovery-lab"
+      ]
+    },
+    "systemOneEvaluator": {
+      "production": [],
+      "typeOnly": [],
+      "tests": [],
+      "mentions": [
+        "gtm-agent"
       ]
     },
     "SystemOneResponseError": {
@@ -10099,8 +10070,7 @@
     },
     "traceContract": {
       "production": [
-        "creative-agent:eval/lib/trace-contracts.ts",
-        "gtm-agent:eval/scoring/trace-contracts.ts"
+        "creative-agent:eval/lib/trace-contracts.ts"
       ],
       "typeOnly": [],
       "tests": [
@@ -10129,8 +10099,6 @@
         "creative-agent:eval/canonical-runner.ts",
         "creative-agent:eval/missions.ts",
         "creative-agent:scripts/evals/run-driver-soak.ts",
-        "gtm-agent:eval/agent-eval-traces.ts",
-        "gtm-agent:eval/suites/persona.ts",
         "insurance-agent:src/lib/.server/ingestion/chat-trace.ts",
         "legal-agent:src/lib/.server/ingestion/chat-trace.ts",
         "ph0ny:products/builder/api/src/eval/budget.ts",
@@ -10499,7 +10467,6 @@
         "browser-agent-driver:bench/research/webvoyager-agent-eval-loop.mjs",
         "chatgpt-plugins:plugins/agents/inspection/src/index.ts",
         "discovery-lab:experiments/e1-checker/score.mjs",
-        "gtm-agent:eval/research-package.ts",
         "ph0ny:training/scripts/agent_eval_helper/backfill.mjs",
         "ph0ny:training/scripts/agent_eval_helper/canary.mjs",
         "ph0ny:training/scripts/agent_eval_helper/gate.mjs",
@@ -10592,7 +10559,6 @@
         "creative-agent:eval/trace-analyst-runner.ts",
         "creative-agent:src/lib/.server/production-loop/findings-store.ts",
         "creative-agent:src/lib/.server/production-loop/index.ts",
-        "gtm-agent:src/lib/.server/production-loop/index.ts",
         "insurance-agent:src/routes/api.vault.review.ts",
         "legal-agent:src/routes/api.vault.review.ts"
       ],
@@ -10670,7 +10636,8 @@
         "agent-runtime:tests/improvement-cycle.test.ts"
       ],
       "mentions": [
-        "agent-runtime"
+        "agent-runtime",
+        "gtm-agent"
       ]
     },
     "verifyAttestation": {
@@ -10717,7 +10684,6 @@
     },
     "verifyCompletion": {
       "production": [
-        "agent-app:src/eval/index.ts",
         "blueprint-agent:scripts/experiments/lib/completion-verifier-layer.ts",
         "creative-agent:eval/e2e/creative-product-harness.ts"
       ],
@@ -10813,7 +10779,6 @@
     },
     "weightedComposite": {
       "production": [
-        "agent-app:src/eval/index.ts",
         "creative-agent:eval/lib/creative-rubric.ts",
         "physim:apps/server/src/scripts/agent-eval/judge.ts"
       ],
@@ -10945,9 +10910,7 @@
       ]
     },
     "withCellSpend": {
-      "production": [
-        "gtm-agent:eval/lib/multishot-graph.ts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
