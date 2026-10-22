@@ -8,7 +8,7 @@ import { testSuiteDigest } from '../../src/trace-repair/test-oracle'
 import { readTerminalBenchTestSuite } from '../terminal-bench-test-suite'
 import { TB2 } from './settings'
 
-export const run = promisify(execFile)
+const run = promisify(execFile)
 
 // ── Containers, replay, grading ──────────────────────────────────────
 
