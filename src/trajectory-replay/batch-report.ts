@@ -4,9 +4,9 @@ function pct(value: number | null): string {
   return value === null ? '—' : `${(value * 100).toFixed(1)}%`
 }
 
-export function renderBatchReport(report: ReplayBatchReport): string {
-  const lines: string[] = []
-  const { headline, totals } = report
+/** The title and the headline rates, prefix divergence and fix-flip numbers. */
+function pushHeadline(report: ReplayBatchReport, lines: string[]): void {
+  const { headline } = report
   lines.push('# Replay-verify batch report')
   lines.push('')
   lines.push(`Generated ${report.generatedAt}.`)
@@ -53,6 +53,11 @@ export function renderBatchReport(report: ReplayBatchReport): string {
       .map(([attempt, count]) => `attempt ${attempt}: ${count}`)
     lines.push(`- Flips by attempt: ${parts.join(', ')}.`)
   }
+}
+
+/** How many label entries were replayable, executed and excluded, and why. */
+function pushEnumeration(report: ReplayBatchReport, lines: string[]): void {
+  const { totals } = report
   lines.push('')
   lines.push('## Enumeration')
   lines.push('')
@@ -84,6 +89,10 @@ export function renderBatchReport(report: ReplayBatchReport): string {
       lines.push(`| ${corpus} | ${stats.submitOnlyCases} | ${stats.goldsSkippedWithinReplayable} |`)
     }
   }
+}
+
+/** The images that could not be pulled or built. */
+function pushPullFailures(report: ReplayBatchReport, lines: string[]): void {
   if (report.pullFailures.length > 0) {
     lines.push('')
     lines.push('## Image pull/build failures')
@@ -96,6 +105,10 @@ export function renderBatchReport(report: ReplayBatchReport): string {
       )
     }
   }
+}
+
+/** One row per replayed case. */
+function pushCaseResults(report: ReplayBatchReport, lines: string[]): void {
   lines.push('')
   lines.push('## Per-case results')
   lines.push('')
@@ -146,6 +159,10 @@ export function renderBatchReport(report: ReplayBatchReport): string {
       ].join(' | '),
     )
   }
+}
+
+/** The model, calls and tokens spent generating fixes. */
+function pushLlmUsage(report: ReplayBatchReport, lines: string[]): void {
   if (report.llm) {
     lines.push('')
     lines.push('## LLM fix generation')
@@ -155,6 +172,15 @@ export function renderBatchReport(report: ReplayBatchReport): string {
         `${report.llm.promptTokens} prompt + ${report.llm.completionTokens} completion tokens.`,
     )
   }
+}
+
+export function renderBatchReport(report: ReplayBatchReport): string {
+  const lines: string[] = []
+  pushHeadline(report, lines)
+  pushEnumeration(report, lines)
+  pushPullFailures(report, lines)
+  pushCaseResults(report, lines)
+  pushLlmUsage(report, lines)
   lines.push('')
   return lines.join('\n')
 }

@@ -4,11 +4,9 @@ import { surfaceContentHash } from '../surface-identity'
 import type { Scenario } from '../types'
 import type { CompareOptimizationMethodsOptions } from './compare-optimization-methods'
 
-export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
+/** The caller-supplied judges, dispatch function and references, and the baseline surface. */
+function assertCallerInputs<TScenario extends Scenario, TArtifact>(
   opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
-  seed: number,
-  resamples: number,
-  confidence: number,
 ): void {
   if (
     opts.optimizationRunOptions &&
@@ -59,6 +57,12 @@ export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
   } catch (cause) {
     throw new Error('compareOptimizationMethods: baselineSurface is invalid', { cause })
   }
+}
+
+/** Every judge has a unique trimmed name, a score function and uniquely keyed dimensions. */
+function assertJudges<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+): void {
   const judgeNames = new Set<string>()
   for (const judge of opts.judges) {
     if (
@@ -101,6 +105,15 @@ export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
       dimensionKeys.add(dimension.key)
     }
   }
+}
+
+/** The run directory and the seed, resamples and confidence that fix the paired intervals. */
+function assertStatistics<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  seed: number,
+  resamples: number,
+  confidence: number,
+): void {
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('compareOptimizationMethods: runDir must be a non-empty string')
   }
@@ -122,6 +135,12 @@ export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
       `compareOptimizationMethods: resamples must be at least ${minimumResamples} for simultaneous confidence ${confidence} across ${opts.methods.length} methods, got ${resamples}`,
     )
   }
+}
+
+/** Concurrency, timeout and cost limits. */
+function assertLimits<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+): void {
   if (
     opts.optimizationConcurrency !== undefined &&
     (!Number.isSafeInteger(opts.optimizationConcurrency) || opts.optimizationConcurrency <= 0)
@@ -163,6 +182,18 @@ export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
       'compareOptimizationMethods: costCeiling must match the shared CostLedger ceiling',
     )
   }
+}
+
+export function assertComparisonControls<TScenario extends Scenario, TArtifact>(
+  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  seed: number,
+  resamples: number,
+  confidence: number,
+): void {
+  assertCallerInputs(opts)
+  assertJudges(opts)
+  assertStatistics(opts, seed, resamples, confidence)
+  assertLimits(opts)
 }
 
 export function assertConfidence(confidence: number): void {
