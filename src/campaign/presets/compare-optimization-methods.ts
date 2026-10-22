@@ -72,6 +72,11 @@ import type {
   MutableSurface,
   Scenario,
 } from '../types'
+import {
+  assertComparisonControls,
+  assertConfidence,
+  minimumBootstrapResamples,
+} from './comparison-controls'
 
 export interface OptimizationMethodScore {
   evidence?: { baseline: EvidenceReceipt; winner: EvidenceReceipt }
@@ -200,17 +205,32 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
  * Compare complete optimization methods on disjoint train, selection, and final test data.
  */
 export async function compareOptimizationMethods<TScenario extends Scenario, TArtifact>(
-  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  rawOpts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
 ): Promise<OptimizationMethodComparison> {
-  opts = {
-    ...opts,
-    methods: opts.methods.map((method) => ({ ...method })),
-    trainScenarios: structuredClone(opts.trainScenarios),
-    selectionScenarios: structuredClone(opts.selectionScenarios),
-    testScenarios: structuredClone(opts.testScenarios),
-    judges: opts.judges.map(captureJudge),
-    claim: opts.claim && defineEvaluationClaim(opts.claim),
-    finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
+  const s0 = normalizeComparisonOptions({ rawOpts })
+  const s1 = await finalTestScoring(s0)
+  const s2 = await optimizeAllMethods(s1)
+  const s3 = await reserveTestMeasurement(s2)
+  const s4 = await measureWinners(s3)
+  const s5 = scoreMethods(s4)
+  const s6 = pairwiseAgainstBest(s5)
+  return comparisonResult(s6)
+}
+
+/** The captured options, the derived statistics settings, the run directory and the cost ledger. */
+function normalizeComparisonOptions<TScenario extends Scenario, TArtifact>(prev: {
+  rawOpts: CompareOptimizationMethodsOptions<TScenario, TArtifact>
+}) {
+  const { rawOpts } = prev
+  const opts = {
+    ...rawOpts,
+    methods: rawOpts.methods.map((method) => ({ ...method })),
+    trainScenarios: structuredClone(rawOpts.trainScenarios),
+    selectionScenarios: structuredClone(rawOpts.selectionScenarios),
+    testScenarios: structuredClone(rawOpts.testScenarios),
+    judges: rawOpts.judges.map(captureJudge),
+    claim: rawOpts.claim && defineEvaluationClaim(rawOpts.claim),
+    finalEvidence: rawOpts.finalEvidence && captureFinalEvidencePolicy(rawOpts.finalEvidence),
   }
   assertOptimizationMethods(opts.methods)
   assertComparisonPartitions(opts)
@@ -238,6 +258,41 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       costCeilingUsd: opts.costCeiling,
     })
 
+  return {
+    ...prev,
+    opts,
+    searchHistoryPolicy,
+    seed,
+    confidence,
+    optimizationConcurrency,
+    comparisonCount,
+    intervalConfidence,
+    minimumResamples,
+    resamples,
+    evidence,
+    evidenceBySurface,
+    storage,
+    resolvedRunDir,
+    baselineSurface,
+    costLedger,
+  }
+}
+
+/** Scoring a surface on the final test set, and aligning the scores to the designed scenarios. */
+async function finalTestScoring<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof normalizeComparisonOptions<TScenario, TArtifact>>>,
+) {
+  const {
+    opts,
+    seed,
+    intervalConfidence,
+    resamples,
+    evidence,
+    evidenceBySurface,
+    storage,
+    resolvedRunDir,
+    costLedger,
+  } = prev
   const scoreOnTest = async (
     surface: MutableSurface,
     tag: string,
@@ -315,6 +370,31 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     return scenarioIds.map((id) => byScenario[id]!)
   }
 
+  return {
+    ...prev,
+    scoreOnTest,
+    scenarioIds,
+    unitByScenario,
+    units,
+    aggregateUnits,
+    decisionOptions,
+    align,
+  }
+}
+
+/** Reserve final evidence, then finish every method before the first final-test call. */
+async function optimizeAllMethods<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof finalTestScoring<TScenario, TArtifact>>>,
+) {
+  const {
+    opts,
+    seed,
+    optimizationConcurrency,
+    storage,
+    resolvedRunDir,
+    baselineSurface,
+    costLedger,
+  } = prev
   // Finish every method before the first final-test call. Each method gets
   // independent scenario values so one method cannot mutate another's input.
   if (opts.claim?.generalization === 'new-units') {
@@ -376,6 +456,14 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     opts.costCeiling,
     'optimization',
   )
+  return { ...prev, optimizationOwner, optimized }
+}
+
+/** The identity of the final test and the exposure of its evidence. */
+async function reserveTestMeasurement<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof optimizeAllMethods<TScenario, TArtifact>>>,
+) {
+  const { opts, seed, baselineSurface, optimized } = prev
   const testCostIdentity = contentHash({
     baseline: surfaceContentHash(baselineSurface),
     winners: optimized.map((winner) => ({
@@ -404,6 +492,14 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
         ...optimized.map((method) => method.winnerSurface),
       ])
     : undefined
+  return { ...prev, testCostIdentity, testCostPhase, finalEvidence }
+}
+
+/** One final-test measurement per distinct surface. */
+async function measureWinners<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof reserveTestMeasurement<TScenario, TArtifact>>>,
+) {
+  const { baselineSurface, scoreOnTest, align, optimized, testCostPhase } = prev
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
   // spend and prevents model variance from inventing a difference between equal inputs.
   const baselineArr = align(
@@ -430,6 +526,24 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     })
   }
 
+  return { ...prev, baselineArr, testScoresBySurface, winners }
+}
+
+/** Per-method scores, ranked by lift with cost breaking complete ties. */
+function scoreMethods<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof measureWinners<TScenario, TArtifact>>>,
+) {
+  const {
+    evidence,
+    evidenceBySurface,
+    baselineSurface,
+    scenarioIds,
+    units,
+    aggregateUnits,
+    decisionOptions,
+    baselineArr,
+    winners,
+  } = prev
   const scores: OptimizationMethodScore[] = winners.map((w) => {
     const baselineUnits = aggregateUnits(baselineArr)
     const winnerUnits = aggregateUnits(w.arr)
@@ -487,6 +601,14 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   })
   const best = scores[0]!
 
+  return { ...prev, scores, best }
+}
+
+/** The best method against every other, in both directions. */
+function pairwiseAgainstBest<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof scoreMethods<TScenario, TArtifact>>>,
+) {
+  const { aggregateUnits, decisionOptions, winners, scores, best } = prev
   const byName = new Map(winners.map((w) => [w.name, w]))
   const bestArr = aggregateUnits(byName.get(best.name)!.arr)
   const pairwise: OptimizationMethodPairwise[] = scores.slice(1).map((other) => {
@@ -506,6 +628,31 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     }
   })
 
+  return { ...prev, byName, bestArr, pairwise }
+}
+
+/** Total cost against the ceiling, then the comparison record. */
+function comparisonResult<TScenario extends Scenario, TArtifact>(
+  prev: Awaited<ReturnType<typeof pairwiseAgainstBest<TScenario, TArtifact>>>,
+): OptimizationMethodComparison {
+  const {
+    opts,
+    searchHistoryPolicy,
+    seed,
+    confidence,
+    comparisonCount,
+    intervalConfidence,
+    resamples,
+    costLedger,
+    scenarioIds,
+    units,
+    optimized,
+    testCostPhase,
+    finalEvidence,
+    scores,
+    best,
+    pairwise,
+  } = prev
   const optimizationCost = combineComparisonCosts(
     scores.map((score) => ({ label: `method '${score.name}'`, cost: score.optimizationCost })),
   )
@@ -590,167 +737,6 @@ function assertOptimizationMethods<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function assertComparisonControls<TScenario extends Scenario, TArtifact>(
-  opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
-  seed: number,
-  resamples: number,
-  confidence: number,
-): void {
-  if (
-    opts.optimizationRunOptions &&
-    'costCeiling' in (opts.optimizationRunOptions as unknown as Record<string, unknown>)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: optimizationRunOptions.costCeiling is not supported; costCeiling covers optimization and final scoring',
-    )
-  }
-  if (!opts.judges || opts.judges.length === 0) {
-    throw new Error('compareOptimizationMethods: at least one judge is required')
-  }
-  if (typeof opts.dispatchWithSurface !== 'function') {
-    throw new Error('compareOptimizationMethods: dispatchWithSurface must be a function')
-  }
-  if (
-    opts.dispatchRef !== undefined &&
-    (typeof opts.dispatchRef !== 'string' ||
-      opts.dispatchRef.trim().length === 0 ||
-      opts.dispatchRef.trim() !== opts.dispatchRef)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: dispatchRef must be trimmed and non-empty when provided',
-    )
-  }
-  const optimizationDispatchRef = opts.optimizationRunOptions?.dispatchRef
-  if (
-    optimizationDispatchRef !== undefined &&
-    (typeof optimizationDispatchRef !== 'string' ||
-      optimizationDispatchRef.trim().length === 0 ||
-      optimizationDispatchRef.trim() !== optimizationDispatchRef)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: optimizationRunOptions.dispatchRef must be trimmed and non-empty when provided',
-    )
-  }
-  if (
-    opts.dispatchRef !== undefined &&
-    optimizationDispatchRef !== undefined &&
-    opts.dispatchRef !== optimizationDispatchRef
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: dispatchRef must match optimizationRunOptions.dispatchRef when both are provided',
-    )
-  }
-  try {
-    surfaceContentHash(opts.baselineSurface)
-  } catch (cause) {
-    throw new Error('compareOptimizationMethods: baselineSurface is invalid', { cause })
-  }
-  const judgeNames = new Set<string>()
-  for (const judge of opts.judges) {
-    if (
-      !judge ||
-      typeof judge !== 'object' ||
-      typeof judge.name !== 'string' ||
-      judge.name.trim().length === 0 ||
-      judge.name.trim() !== judge.name ||
-      typeof judge.score !== 'function' ||
-      !Array.isArray(judge.dimensions) ||
-      judge.dimensions.length === 0
-    ) {
-      throw new Error(
-        'compareOptimizationMethods: every judge needs a trimmed name, at least one dimension, and score(input)',
-      )
-    }
-    if (judgeNames.has(judge.name)) {
-      throw new Error(`compareOptimizationMethods: duplicate judge name '${judge.name}'`)
-    }
-    judgeNames.add(judge.name)
-    const dimensionKeys = new Set<string>()
-    for (const dimension of judge.dimensions) {
-      if (
-        !dimension ||
-        typeof dimension.key !== 'string' ||
-        dimension.key.trim().length === 0 ||
-        dimension.key.trim() !== dimension.key ||
-        typeof dimension.description !== 'string' ||
-        dimension.description.trim().length === 0
-      ) {
-        throw new Error(
-          `compareOptimizationMethods: judge '${judge.name}' has an invalid dimension`,
-        )
-      }
-      if (dimensionKeys.has(dimension.key)) {
-        throw new Error(
-          `compareOptimizationMethods: judge '${judge.name}' has duplicate dimension '${dimension.key}'`,
-        )
-      }
-      dimensionKeys.add(dimension.key)
-    }
-  }
-  if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
-    throw new Error('compareOptimizationMethods: runDir must be a non-empty string')
-  }
-  if (!Number.isSafeInteger(seed)) {
-    throw new Error(`compareOptimizationMethods: seed must be a safe integer, got ${String(seed)}`)
-  }
-  if (!Number.isSafeInteger(resamples) || resamples <= 0 || resamples > 1_000_000) {
-    throw new Error(
-      `compareOptimizationMethods: resamples must be a positive safe integer no greater than 1000000, got ${String(resamples)}`,
-    )
-  }
-  assertConfidence(confidence)
-  const minimumResamples = minimumBootstrapResamples(
-    confidence,
-    (opts.methods.length * (opts.methods.length + 1)) / 2,
-  )
-  if (resamples < minimumResamples) {
-    throw new Error(
-      `compareOptimizationMethods: resamples must be at least ${minimumResamples} for simultaneous confidence ${confidence} across ${opts.methods.length} methods, got ${resamples}`,
-    )
-  }
-  if (
-    opts.optimizationConcurrency !== undefined &&
-    (!Number.isSafeInteger(opts.optimizationConcurrency) || opts.optimizationConcurrency <= 0)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: optimizationConcurrency must be a positive safe integer',
-    )
-  }
-  if (
-    opts.maxConcurrency !== undefined &&
-    (!Number.isSafeInteger(opts.maxConcurrency) || opts.maxConcurrency <= 0)
-  ) {
-    throw new Error('compareOptimizationMethods: maxConcurrency must be a positive safe integer')
-  }
-  if (
-    opts.dispatchTimeoutMs !== undefined &&
-    (!Number.isSafeInteger(opts.dispatchTimeoutMs) ||
-      opts.dispatchTimeoutMs < 0 ||
-      opts.dispatchTimeoutMs > 2_147_483_647)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: dispatchTimeoutMs must be a non-negative safe integer no greater than 2147483647',
-    )
-  }
-  if (
-    opts.costCeiling !== undefined &&
-    (!Number.isFinite(opts.costCeiling) || opts.costCeiling < 0)
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: costCeiling must be a finite number greater than or equal to 0',
-    )
-  }
-  if (
-    opts.costCeiling !== undefined &&
-    opts.costLedger !== undefined &&
-    opts.costLedger.costCeilingUsd !== opts.costCeiling
-  ) {
-    throw new Error(
-      'compareOptimizationMethods: costCeiling must match the shared CostLedger ceiling',
-    )
-  }
-}
-
 function assertComparisonPartitions<TScenario extends Scenario, TArtifact>(
   opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
 ): void {
@@ -809,19 +795,6 @@ function slug(name: string): string {
       .replace(/^-|-$/g, '')
       .toLowerCase() || 'method'
   )
-}
-
-function assertConfidence(confidence: number): void {
-  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
-    throw new Error(
-      `compareOptimizationMethods: confidence must be a finite number in (0,1), got ${String(confidence)}`,
-    )
-  }
-}
-
-function minimumBootstrapResamples(confidence: number, comparisonCount: number): number {
-  const exact = (2 * comparisonCount) / (1 - confidence)
-  return Math.ceil(exact - Number.EPSILON * Math.max(1, exact) * 32)
 }
 
 function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
