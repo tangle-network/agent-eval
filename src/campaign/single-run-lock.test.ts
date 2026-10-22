@@ -4,7 +4,12 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { transformSync } from 'esbuild'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import {
+  DEAD_PID,
+  writeHolderRecord,
+  writeRunnableLockModules,
+} from '../ledger-core/lock-holder-test-fixtures'
 import { acquireSingleRunLock } from './single-run-lock'
 
 const dir = () => mkdtempSync(join(tmpdir(), 'single-run-lock-'))
@@ -18,27 +23,16 @@ async function synchronizedContenders(options: {
   const releasePath = join(root, 'release')
   const finishPath = join(root, 'finish')
   const modulePath = join(root, 'single-run-lock.mjs')
-  const atomicModulePath = join(root, 'atomic-file-lock.mjs')
+  writeRunnableLockModules(root)
   const source = readFileSync(new URL('./single-run-lock.ts', import.meta.url), 'utf8')
-  const transpile = (input: string): string =>
-    transformSync(input, { loader: 'ts', format: 'esm', target: 'es2022' }).code
   writeFileSync(
     modulePath,
-    transpile(source).replace(
+    transformSync(source, { loader: 'ts', format: 'esm', target: 'es2022' }).code.replace(
       /from ['"]\.\.\/ledger-core\/atomic-file-lock['"]/,
       "from './atomic-file-lock.mjs'",
     ),
   )
-  writeFileSync(
-    atomicModulePath,
-    transpile(readFileSync(new URL('../ledger-core/atomic-file-lock.ts', import.meta.url), 'utf8')),
-  )
-  if (options.stale) {
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ host: hostname(), nonce: 'crashed-owner', pid: 999_999_999 }),
-    )
-  }
+  if (options.stale) writeHolderRecord(lockPath, { nonce: 'crashed-owner', pid: DEAD_PID })
 
   const childSource = `
     import { existsSync } from 'node:fs'
@@ -127,10 +121,7 @@ describe('acquireSingleRunLock', () => {
 
   it('throws naming a live holder', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ host: hostname(), nonce: 'live-holder', pid: process.pid }),
-    )
+    writeHolderRecord(lockPath, { nonce: 'live-holder', pid: process.pid })
     expect(() =>
       acquireSingleRunLock({ lockPath, pid: process.pid + 1, releaseOnExit: false }),
     ).toThrow(/held by live pid/)
@@ -148,48 +139,32 @@ describe('acquireSingleRunLock', () => {
 
   it('reclaims a stale lock whose holder pid is gone', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ host: hostname(), nonce: 'stale-holder', pid: 999_999_999 }),
-    )
+    writeHolderRecord(lockPath, { nonce: 'stale-holder', pid: DEAD_PID })
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
     expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toMatchObject({ pid: process.pid })
     lock.release()
   })
 
-  it('treats a permission-denied owner probe as live', () => {
-    const lockPath = join(dir(), 'gym.lock')
-    const owner = { host: hostname(), nonce: 'permission-denied-holder', pid: 12345 }
-    writeFileSync(lockPath, JSON.stringify(owner))
-    const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
-      throw Object.assign(new Error('denied'), { code: 'EPERM' })
-    })
-    try {
-      expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
-        /held by live pid 12345/,
-      )
-      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
-    } finally {
-      kill.mockRestore()
-    }
-  })
-
   it('fails closed for an owner on another host', () => {
     const lockPath = join(dir(), 'gym.lock')
-    const owner = { host: 'remote-worker.example', nonce: 'remote-owner', pid: 999_999_999 }
-    writeFileSync(lockPath, JSON.stringify(owner))
+    writeHolderRecord(lockPath, {
+      host: 'remote-worker.example',
+      nonce: 'remote-owner',
+      pid: DEAD_PID,
+    })
+    const owner = readFileSync(lockPath, 'utf8')
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
       /held by live pid 999999999/,
     )
-    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
+    expect(readFileSync(lockPath, 'utf8')).toBe(owner)
   })
 
   it('respects other runners lockfiles via alsoCheck without writing them', () => {
     const d = dir()
     const mine = join(d, 'mine.lock')
     const theirs = join(d, 'theirs.lock')
-    const owner = { host: hostname(), nonce: 'other-runner', pid: process.pid }
-    writeFileSync(theirs, JSON.stringify(owner))
+    writeHolderRecord(theirs, { nonce: 'other-runner', pid: process.pid })
+    const owner = JSON.parse(readFileSync(theirs, 'utf8')) as unknown
     expect(() =>
       acquireSingleRunLock({
         lockPath: mine,
@@ -225,10 +200,7 @@ describe('acquireSingleRunLock', () => {
 
   it('fails closed on an interrupted recovery marker', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      `${lockPath}.reclaim`,
-      JSON.stringify({ host: hostname(), nonce: 'active-reclaimer', pid: process.pid }),
-    )
+    writeHolderRecord(`${lockPath}.reclaim`, { nonce: 'active-reclaimer', pid: process.pid })
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
       /recovery is already in progress/,
     )

@@ -5,6 +5,7 @@ import {
   closeSync,
   constants,
   existsSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   openSync,
@@ -13,11 +14,21 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { hostname } from 'node:os'
+import {
+  type LockHolderIdentity,
+  type LockHolderRecord,
+  type LockIdentity,
+  lockHolderVerdict,
+  lockIdentity,
+  parseLockHolderRecord,
+  readLockHolderIdentity,
+} from './lock-holder'
 
-export interface AtomicFileLockOwner {
-  readonly pid: number
-  readonly host: string
+/**
+ * The holder of a lock path. The lock file holds this record plus the identity
+ * of its own inode, so `lockHolderVerdict` can prove a crashed holder dead.
+ */
+export interface AtomicFileLockOwner extends LockHolderIdentity {
   readonly nonce: string
 }
 
@@ -73,7 +84,7 @@ export function tryAcquireAtomicFileLock(
   if (!Number.isSafeInteger(pid) || pid <= 0) {
     throw new AtomicFileLockError('atomic file lock pid must be a positive integer')
   }
-  const owner: AtomicFileLockOwner = { pid, host: hostname(), nonce: randomUUID() }
+  const owner: AtomicFileLockOwner = { ...readLockHolderIdentity(pid), nonce: randomUUID() }
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (existsSync(recoveryPath(options.lockPath))) {
       const recovery = tryAcquireRecoveryLease(options.lockPath, owner, attempt)
@@ -183,7 +194,9 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
     0o600,
   )
   try {
-    writeFileSync(descriptor, `${canonicalOwner(owner)}\n`, 'utf8')
+    // A hard link keeps the inode, so this identity is the lock path's once linked.
+    const lock = lockIdentity(fstatSync(descriptor, { bigint: true }))
+    writeFileSync(descriptor, `${JSON.stringify({ ...owner, lock })}\n`, 'utf8')
     fsyncSync(descriptor)
   } catch (error) {
     closeSync(descriptor)
@@ -203,26 +216,36 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
   }
 }
 
+/** Only a holder proved dead is stale; an alive or unknown holder keeps the lock. */
 function ownerState(lockPath: string): OwnerState {
-  const owner = readOwner(lockPath)
-  if (!owner) return { state: 'missing' }
-  if (owner.host !== hostname()) return { state: 'held', owner }
-  try {
-    process.kill(owner.pid, 0)
-    return { state: 'held', owner }
-  } catch (error) {
-    if (isNoSuchProcess(error)) return { state: 'stale', owner }
-    return { state: 'held', owner }
-  }
+  const current = readOwner(lockPath)
+  if (!current) return { state: 'missing' }
+  const verdict = lockHolderVerdict(current.record, current.identity)
+  return { state: verdict.liveness === 'dead' ? 'stale' : 'held', owner: current.owner }
 }
 
-function readOwner(lockPath: string): AtomicFileLockOwner | undefined {
-  let contents: string
+interface LockFileOwner {
+  readonly owner: AtomicFileLockOwner
+  readonly record: LockHolderRecord & { readonly nonce: string }
+  /** The inode the record was read from, so a verdict compares it with the recorded lock. */
+  readonly identity: LockIdentity
+}
+
+function readOwner(lockPath: string): LockFileOwner | undefined {
+  let descriptor: number
   try {
-    contents = readFileSync(lockPath, 'utf8').trim()
+    descriptor = openSync(lockPath, 'r')
   } catch (error) {
     if (isMissing(error)) return undefined
     throw error
+  }
+  let contents: string
+  let identity: LockIdentity
+  try {
+    identity = lockIdentity(fstatSync(descriptor, { bigint: true }))
+    contents = readFileSync(descriptor, 'utf8').trim()
+  } finally {
+    closeSync(descriptor)
   }
 
   let value: unknown
@@ -231,22 +254,25 @@ function readOwner(lockPath: string): AtomicFileLockOwner | undefined {
   } catch (error) {
     throw invalidOwner(lockPath, error)
   }
-  if (!isOwner(value)) throw invalidOwner(lockPath)
-  return value
+  const record = parseOwnerRecord(value)
+  if (!record) throw invalidOwner(lockPath)
+  const { lock: _lock, ...owner } = record
+  return { owner, record, identity }
 }
 
-function isOwner(value: unknown): value is AtomicFileLockOwner {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const record = value as Record<string, unknown>
-  return (
-    Object.keys(record).length === 3 &&
-    Number.isSafeInteger(record.pid) &&
-    Number(record.pid) > 0 &&
-    typeof record.host === 'string' &&
-    record.host.trim().length > 0 &&
-    typeof record.nonce === 'string' &&
-    record.nonce.trim().length > 0
-  )
+/**
+ * Accept exactly the fields a lock owner writes: a holder record that parses
+ * whole, plus the nonce. A record from before holder identity carried only pid,
+ * host and nonce; it still parses, and its holder is never proved dead.
+ */
+function parseOwnerRecord(value: unknown): LockFileOwner['record'] | undefined {
+  const holder = parseLockHolderRecord(value)
+  if (!holder) return undefined
+  const { nonce, ...rest } = value as Record<string, unknown>
+  if (typeof nonce !== 'string' || nonce.trim().length === 0) return undefined
+  // A field the holder parse dropped is malformed; refuse it instead of guessing.
+  if (Object.keys(rest).length !== Object.keys(holder).length) return undefined
+  return { ...holder, nonce }
 }
 
 function invalidOwner(lockPath: string, cause?: unknown): AtomicFileLockError {
@@ -260,7 +286,7 @@ function invalidOwner(lockPath: string, cause?: unknown): AtomicFileLockError {
 function releaseOwnedPath(lockPath: string, owner: AtomicFileLockOwner): void {
   const current = readOwner(lockPath)
   if (!current) return
-  if (canonicalOwner(current) !== canonicalOwner(owner)) {
+  if (canonicalOwner(current.owner) !== canonicalOwner(owner)) {
     throw new AtomicFileLockError(`atomic file lock owner changed before release (${lockPath})`)
   }
   try {
@@ -284,10 +310,6 @@ function isAlreadyExists(error: unknown): boolean {
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-}
-
-function isNoSuchProcess(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'ESRCH'
 }
 
 function unlinkIfExists(path: string): void {
