@@ -302,7 +302,7 @@ function sweepRepository(name, root, names, commit) {
     if (!text.includes(PACKAGE_NAME)) continue
     let parsed
     try {
-      parsed = parseSync(file, text)
+      parsed = parseSync(relativePath, text)
     } catch {
       continue
     }
