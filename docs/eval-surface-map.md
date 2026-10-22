@@ -85,6 +85,7 @@ Use the decision diagnostics and intervals to distinguish insufficient evidence 
 | `/rl` | Build reward, preference, and supervised datasets from eligible evidence. |
 | `/profile-cell` | Create and validate portable agent-profile identities. |
 | `/authenticity`, `/ledger-core` | Check evidence authenticity and maintain canonical hash-chained journals. |
+| `/lock-holder` | Decide whether a lock's recorded holder is `dead`, `alive` or `unknown` with `lockHolderVerdict`; record a holder with `readLockHolderIdentity`. It imports only Node built-ins, so any lock owner can use it without loading the rest of the package. |
 | [`/rollout`](./rollout.md), `/storyboard` | Serialize training rows and render recorded work. |
 | `/hosted`, `/wire`, `/adapters/http` | Connect hosted storage or expose evaluation through HTTP and RPC. |
 

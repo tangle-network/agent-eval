@@ -114,6 +114,11 @@
       "import": "./dist/ledger-core/index.js",
       "default": "./dist/ledger-core/index.js"
     },
+    "./lock-holder": {
+      "types": "./dist/ledger-core/lock-holder.d.ts",
+      "import": "./dist/ledger-core/lock-holder.js",
+      "default": "./dist/ledger-core/lock-holder.js"
+    },
     "./authenticity": {
       "types": "./dist/authenticity/index.d.ts",
       "import": "./dist/authenticity/index.js",
