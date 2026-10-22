@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CostLedger, type CostReceiptInput } from '../src/cost-ledger'
+import { runCampaign } from '../src/campaign/run-campaign'
 import { measureCampaignCost } from '../src/campaign/cost-breakdown'
 import { createExternalTextEvaluator } from '../src/campaign/external-text-evaluation'
 import type { Scenario } from '../src/campaign/types'
@@ -85,13 +86,23 @@ if (manifest.receipt) {
     ...(receipt.actualCostUsd === undefined ? {} : { routerUsd: receipt.actualCostUsd }),
     sandbox: manifest.sandbox, seat: { model: receipt.model, usage: receipt },
   })
-  const settled = await ledger.runPaidCall({
-    actor: 'retained-seat-receipt', channel: 'agent', phase: 'retained-proof',
-    execute: async () => receipt,
-    receipt: () => ({ ...receipt, costBreakdown }),
+  const campaign = await runCampaign({
+    scenarios: [{ id: 'retained-seat', kind: 'usage-replay' }], runDir: resolve(root, 'seat-cell'),
+    dispatchRef: `retained-seat:${createHash('sha256').update(JSON.stringify(receipt)).digest('hex')}`,
+    resumable: false, expectUsage: 'off',
+    dispatch: async (_scenario, ctx) => {
+      const settled = await ctx.cost.runPaidCall({
+        actor: 'retained-seat-receipt',
+        execute: async () => receipt,
+        receipt: () => ({ ...receipt, costBreakdown }),
+      })
+      if (!settled.succeeded) throw settled.error
+      return { source: manifest.receiptSource }
+    },
   })
-  if (!settled.succeeded) throw settled.error
-  cost = { source: manifest.receiptSource, costBreakdown, receipt: settled.receipt, summary: ledger.summary() }
+  if (campaign.cells.some((cell) => cell.error)) throw new Error('Retained receipt cell failed')
+  cost = { source: manifest.receiptSource, costBreakdown, cell: campaign.cells[0], summary: campaign.cost }
+
 }
 writeFileSync(resolve(root, 'cost.json'), JSON.stringify(cost, null, 2))
 console.log(`Retained ${responses.length}-scenario bridge proof saved to ${root}; model requests: 0`)

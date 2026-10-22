@@ -9,7 +9,7 @@ import type { CostBreakdown, CostUsage } from '../cost-ledger'
 export async function measureCampaignCost(input: {
   routerUsd?: number
   sandbox?: { seconds: number; cpu: number; memoryGB: number; diskGB: number; pool?: string }
-  seat?: { model: string; usage: CostUsage }
+  seat?: { model: string; usage: CostUsage & { usageUnknown?: boolean } }
   signal?: AbortSignal
 }): Promise<CostBreakdown> {
   const sources: CostBreakdown['sources'] = []
@@ -71,7 +71,9 @@ export async function measureCampaignCost(input: {
           s.memoryGB * rates.memoryGBHourUsd! +
           s.diskGB * rates.diskGBHourUsd!,
       )
-      result.sandbox = { kind: 'estimated', usd: (hourly * s.seconds) / 3600 }
+      const usd = (hourly * s.seconds) / 3600
+      finite(usd, 'sandbox USD estimate')
+      result.sandbox = { kind: 'estimated', usd }
       sources.push({ ...snapshot, rates })
     } catch {
       // A missing rate leaves the estimate unknown while preserving Router observations.
@@ -79,6 +81,14 @@ export async function measureCampaignCost(input: {
   }
   if (input.seat) {
     const { usage, model } = input.seat
+    if (usage.usageUnknown) {
+      result.seatCredits = {
+        kind: 'uncaptured',
+        credits: null,
+        reason: 'Seat token usage is unknown',
+      }
+      return result
+    }
     for (const key of ['inputTokens', 'cachedTokens', 'outputTokens'] as const) {
       const value = usage[key]
       if (!Number.isSafeInteger(value) || value! < 0)
@@ -109,7 +119,10 @@ export async function measureCampaignCost(input: {
       const cells = [...matching[0]![1]!.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gu)].map((cell) =>
         cell[1]!.trim(),
       )
-      const multipliers = cells.slice(-3).map(Number)
+      const rateCells = cells.slice(-3)
+      if (rateCells.length !== 3 || rateCells.some((cell) => !/^(?:\d+)(?:\.\d+)?$/u.test(cell)))
+        throw new Error('Invalid live credit multipliers')
+      const multipliers = rateCells.map(Number)
       for (const rate of multipliers) finite(rate, 'credit multiplier')
       const divisor = Number(
         section.match(/Model credit usage[^\n]*\/\s*([\d,]+)/u)?.[1]?.replaceAll(',', ''),
@@ -121,6 +134,7 @@ export async function measureCampaignCost(input: {
           usage.cachedTokens! * cached +
           usage.outputTokens * output) /
         divisor
+      finite(credits, 'standard seat credits')
       result.seatCredits = { kind: 'estimated', credits }
       sources.push({
         ...snapshot,
