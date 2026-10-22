@@ -48,6 +48,16 @@ def main() -> None:
     if len(calls) != len(rows):
         raise ValueError("Unexpected GEPA callback count")
     population = result.to_dict()
+    objective_keys = set(responses[0]["info"]["scores"])
+    if set(population.get("objective_pareto_front", {})) != objective_keys:
+        raise ValueError("Official frontier lost objective keys")
+    aggregate = population.get("val_aggregate_subscores", [])
+    if len(aggregate) != 1 or set(aggregate[0]) != objective_keys:
+        raise ValueError("Official aggregate lost objective scores")
+    for key in objective_keys:
+        expected = sum(row["info"]["scores"][key] for row in responses) / len(responses)
+        if abs(aggregate[0][key] - expected) > 1e-10:
+            raise ValueError(f"Official aggregate changed objective {key}")
     (output / "frontier.json").write_text(json.dumps(population, default=str, indent=2))
     prompt = InstructionProposalSignature.prompt_renderer({
         "current_instruction_doc": "retained-source",

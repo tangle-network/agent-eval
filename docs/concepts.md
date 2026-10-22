@@ -472,3 +472,12 @@ credits or amortized seat USD. A changed/unreadable live rate source yields an
 uncaptured component. Unknown cached usage cannot produce a credit estimate.
 Mixed legacy receipts and pending calls keep the split unknown; legacy results
 without a split remain unchanged. Do not add component values across units.
+
+The retained-artifact integration command is
+`node --import tsx scripts/creative-matrix-proof.ts manifest.json output-dir python`.
+Its manifest names three or more real PNG paths, their SHA-256 hashes, source
+measurements and higher-is-better objective maps. An optional `receipt` with
+`receiptSource` replays already-settled raw seat usage into a persisted campaign
+cell. No model or image requests are made. The command runs the official GEPA
+baseline frontier and builds its actual multimodal reflection prompt; it checks
+that every objective and image survives. It proves transport, not creative gain.

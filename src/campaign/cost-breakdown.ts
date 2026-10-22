@@ -81,11 +81,11 @@ export async function measureCampaignCost(input: {
   }
   if (input.seat) {
     const { usage, model } = input.seat
-    if (usage.usageUnknown) {
+    if (usage.usageUnknown || usage.cachedTokens === undefined) {
       result.seatCredits = {
         kind: 'uncaptured',
         credits: null,
-        reason: 'Seat token usage is unknown',
+        reason: 'Seat token or cached-input usage is unknown',
       }
       return result
     }
