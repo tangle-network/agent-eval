@@ -4,6 +4,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.219.0] — 2026-10-22
+
+- docs(census): refresh consumer evidence with restored imports
+- fix(census): parse consumer blobs with their source paths
+- fix(census): retain evidence when consumer refs are unavailable
+- feat(campaign): preserve matrix cost units and GEPA visual objectives
+- feat(campaign): preserve matrix cost units and GEPA visual objectives
+- feat(campaign): preserve matrix cost units and GEPA visual objectives
+- feat(campaign): preserve matrix cost units and GEPA visual objectives
+- Delete the agent-eval src code nothing calls (steer-firewall.ts, classifyReissue, inMemorySentinelSt (#1059)
+- Un-export container.ts's dead `run` re-export of promisify(execFile): dup_exports 4 to 3 this fire ( (#1058)
+- Delete the one-shot TB-Repair corpus assay (benchmarks/trace-repair/tools/assay-tbench-corpus.mjs) w (#1057)
+- chore: lockfile and dependency-lock pin after merging main
+- docs: regenerate the public API census
+- chore: lockfile and analyst dependency-lock pin for the removed devDependencies
+- refactor(campaign): split SearchKernel's lanes, node progress, artifact cache, proposal slot and completion queue into collaborators
+- refactor: move SearchState's indexes and spend bookkeeping into collaborators
+- chore: drop three devDependencies nothing imports (phoenix-evals, autoevals, yaml)
+- refactor: bring prepareGepaRun, assertComparisonControls and renderBatchReport under 150 lines
+- feat(campaign): preserve matrix cost units and GEPA visual objectives
+
 ## [0.218.1] — 2026-10-22
 
 - fix(deps): agent-core ^0.13.1, so a packed consumer of agent-eval and agent-runtime loads one agent-core (#1054)
