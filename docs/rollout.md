@@ -54,6 +54,15 @@ Where each invariant lives:
 
 ## Runtime capture receipts
 
+Runtime spawn journals accept historical `event` envelopes and atomic `events` envelopes.
+`readRuntimeSupervisorRun()` and the direct `parseSupervisorTree()` analyzer expand each group in order.
+Every group member must be an object with a non-empty event kind; a malformed group contributes no events.
+The file reader throws on corruption, while the direct analyzer counts the whole group as one invalid input row.
+Empty groups are valid no-ops; the direct analyzer counts them under `journalIgnoredRowsByKind.events`.
+`journalRows` counts non-empty input lines, while event counters count each member of a valid group.
+Grouped resource evidence names its member as `journal.rows[N].events[I]`.
+Flat analyzer journals remain supported, and unknown usage flags are preserved.
+
 `readRuntimeSupervisorRun()` reads output references in journal order.
 It reads retained execution results and terminal outputs through the same projector.
 It projects duplicate references to the same node and address once.

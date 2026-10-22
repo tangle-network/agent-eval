@@ -38,6 +38,7 @@ import { join } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
 import type { RolloutWorkspaceCapture } from '../rollout/schema'
 import { readCoordinationLog, readMaybe } from './coordination-reader'
+import { expandJournalEventGroup } from './journal-event-group'
 import { sourceLimits } from './runtime-source-limits'
 import { nonEmptyString, recordOrNull as record } from './source-facts'
 import {
@@ -132,18 +133,22 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
       continue
     }
 
-    if (kind !== 'event') {
-      throw formatError(path, line, "kind must be 'begin' or 'event'")
+    if (kind !== 'event' && kind !== 'events') {
+      throw formatError(path, line, "kind must be 'begin', 'event' or 'events'")
     }
     if (!begun.has(root)) {
       throw formatError(path, line, `event for tree ${JSON.stringify(root)} precedes begin`)
     }
-    const event = record(envelope.event)
-    if (event === null) throw formatError(path, line, 'event must be an object')
-    if (nonEmptyString(event.kind) === null) {
-      throw formatError(path, line, 'event.kind must be a non-empty string')
+    const expanded = expandJournalEventGroup(envelope)
+    if (!expanded.succeeded) throw formatError(path, line, expanded.error)
+    for (const row of expanded.value) {
+      const event = record(row.event)
+      if (event === null) throw formatError(path, line, 'event must be an object')
+      if (nonEmptyString(event.kind) === null) {
+        throw formatError(path, line, 'event.kind must be a non-empty string')
+      }
+      events.push({ root, event: { ...event }, line })
     }
-    events.push({ root, event: { ...event }, line })
   }
 
   if (begins.length === 0) throw formatError(path, 1, 'no begin record')
@@ -869,8 +874,6 @@ export async function readRuntimeSupervisorRun(
     traceCommand: nativeTraceSummary(workers, transcripts.get(normalized.root)),
   }
 }
-
-
 
 /**
  * True when a directory holds any file only Runtime's durable layer writes:
