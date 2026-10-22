@@ -15,7 +15,7 @@
 
 import type { CustomTokenPricing } from '../cost-ledger'
 import type { AnalystBenchmarkRunner } from './benchmark'
-import { runChunkedAnalystDefinition } from './benchmark-public-model'
+import { runChunkedAnalystDefinition } from './benchmark-public-chunked'
 import { runReplVariableAnalystDefinition } from './benchmark-public-rlm'
 import type { PublicAnalystBenchmarkModelConfig } from './benchmark-public-types'
 import { runInlineAnalystDefinition } from './benchmark-runner-prime'
