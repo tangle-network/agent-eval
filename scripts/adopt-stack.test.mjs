@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { satisfies } from './adopt-stack.mjs'
+import { lockedVersions, satisfies } from './adopt-stack.mjs'
 
 // Recorded package.json files: agent-knowledge at b18171b08fb3 and agent-app at
 // 56dc110cfff7, the two manifests whose peer ranges parked deliveries on
@@ -86,42 +86,61 @@ describe('adopt-stack --dry-run against npm', () => {
   // the lockfile's catalogs and root importer, release/cohort.json): #1946 left
   // agent-knowledge locked at 22.0.3 under `^22.0.3`, whose agent-eval peer
   // excludes the adopted agent-eval, and left release/cohort.json behind.
-  test('agent-runtime raises the locked sibling the adopted release excludes and moves its release cohort', async () => {
+  // Assertions hold for whatever npm latest is: they check the plan against the
+  // lockfile it leaves, not against fixed versions.
+  test.each([
+    ['agent-eval only', ['--packages', '@tangle-network/agent-eval']],
+    ['every package', []],
+  ])('agent-runtime (%s): the lockfile it leaves admits its peers, and the release cohort follows it', async (_label, extra) => {
     const knowledge = '@tangle-network/agent-knowledge'
     const evalName = '@tangle-network/agent-eval'
-    const { plan, pkg } = dryRun('agent-runtime', '--packages', evalName)
-    const evalTarget = plan.packages.find((entry) => entry.name === evalName).target
+    const dir = join(fixtures, 'agent-runtime')
+    const { plan, pkg } = dryRun('agent-runtime', ...extra)
+    const locked = lockedVersions(dir).importer
     const manifest = async (name, version) => (await fetch(`https://registry.npmjs.org/${name.replace('/', '%2f')}/${version}`)).json()
+    // What the root importer holds after the plan's package.json edit, if any.
+    const holds = (name) => {
+      const edit = plan.edits.find((entry) => entry.name === name && entry.file === 'package.json' && entry.section !== 'peerDependencies')
+      if (!edit) return locked.get(name)
+      return /^\d+\.\d+\.\d+$/.test(edit.to) || !satisfies(locked.get(name), edit.to) ? edit.version : locked.get(name)
+    }
 
-    // The locked 22.0.3 peers agent-eval <0.216.0, so whatever agent-eval is adopted
-    // past it, agent-knowledge rises to a release whose own peer admits it.
-    const raised = plan.held.find((entry) => entry.name === knowledge)
-    if (!satisfies(evalTarget, (await manifest(knowledge, '22.0.3')).peerDependencies[evalName])) {
-      expect(raised?.why).toMatch(/^raised by peer range: @tangle-network\/agent-knowledge@22\.0\.3 peers /)
-      expect(satisfies(evalTarget, (await manifest(knowledge, raised.target)).peerDependencies[evalName])).toBe(true)
-      for (const section of ['package.json dependencies', 'pnpm-workspace.yaml catalog line 31']) {
-        const edit = plan.edits.find((entry) => entry.name === knowledge && `${entry.file} ${entry.section}` === section)
-        expect(edit?.from, section).toBe(pkg.dependencies[knowledge])
-        // The range no longer admits the locked 22.0.3, so the install must move it.
-        expect(satisfies(raised.target, edit.to) && !satisfies('22.0.3', edit.to), `${section} ${edit.to}`).toBe(true)
+    for (const edit of plan.edits.filter((entry) => entry.file !== 'release/cohort.json' && entry.section !== 'peerDependencies')) {
+      const lock = (edit.file === 'package.json' ? locked : lockedVersions(dir).catalog).get(edit.name)
+      expect(satisfies(edit.version, edit.to), `${edit.name} ${edit.to}`).toBe(true)
+      // A floor rises past the lock only inside the range as written or when a peer requires it.
+      if (lock && !/^\d/.test(edit.from) && !satisfies(lock, edit.to)) {
+        expect(satisfies(edit.version, edit.from) || /^raised by peer range: /.test(edit.why), `${edit.name} ${edit.from} -> ${edit.to}`).toBe(true)
       }
     }
 
-    // The catalog's agent-eval floor rises too: the lock holds 0.215.0 under a range that would still admit it.
-    const catalogEval = plan.edits.find((entry) => entry.name === evalName && entry.file === 'pnpm-workspace.yaml')
-    expect(satisfies(evalTarget, catalogEval.to) && !satisfies('0.215.0', catalogEval.to)).toBe(true)
+    // The agent-knowledge the lockfile keeps admits the agent-eval it gets: 22.0.3
+    // peers agent-eval <0.216.0, so it rises whenever agent-eval moves past that.
+    const evalAt = holds(evalName)
+    const knowledgeAt = holds(knowledge)
+    expect(satisfies(evalAt, (await manifest(knowledge, knowledgeAt)).peerDependencies[evalName]), `${knowledge}@${knowledgeAt} with ${evalName}@${evalAt}`).toBe(true)
+    if (knowledgeAt !== locked.get(knowledge)) {
+      for (const section of ['package.json dependencies', 'pnpm-workspace.yaml catalog line 31']) {
+        const edit = plan.edits.find((entry) => entry.name === knowledge && `${entry.file} ${entry.section}` === section)
+        expect(satisfies(knowledgeAt, edit?.to ?? '') && !satisfies('22.0.3', edit.to), section).toBe(true)
+      }
+    }
 
-    // Each moved cohort entry names the planned version and npm's gitHead for it.
-    const cohort = JSON.parse(readFileSync(join(fixtures, 'agent-runtime', 'release', 'cohort.json'), 'utf8')).packages
+    // agent-eval's own dependency ranges cap the siblings it would otherwise duplicate (agent-core ^0.12.0).
+    for (const [name, range] of Object.entries((await manifest(evalName, evalAt)).dependencies ?? {})) {
+      if (pkg.dependencies[name] && locked.get(name) && satisfies(locked.get(name), range)) expect(satisfies(holds(name), range), `${name}@${holds(name)} under ${range}`).toBe(true)
+    }
+
+    // Each cohort entry follows the version its lock will hold, with npm's gitHead for it.
+    const cohort = JSON.parse(readFileSync(join(dir, 'release', 'cohort.json'), 'utf8')).packages
     for (const [key, name] of [['agentEval', evalName], ['agentKnowledge', knowledge]]) {
-      const target = plan.packages.find((entry) => entry.name === name)?.target ?? plan.held.find((entry) => entry.name === name)?.target
       const edit = plan.edits.find((entry) => entry.file === 'release/cohort.json' && entry.section === `packages.${key}`)
-      if (!target || target === cohort[key].version) {
+      if (holds(name) === cohort[key].version) {
         expect(edit).toBeUndefined()
         continue
       }
       expect(edit?.from).toBe(`${cohort[key].version} ${cohort[key].ref}`)
-      expect(edit.to).toBe(`${target} ${(await manifest(name, target)).gitHead}`)
+      expect(edit.to).toBe(`${holds(name)} ${(await manifest(name, holds(name))).gitHead}`)
     }
   }, 60_000)
 
