@@ -12,9 +12,9 @@ import type {
   SearchOpenedEvent,
   SearchSplit,
 } from './search-ledger-types'
+import type { SearchLedgerIndexes } from './search-state-indexes'
 import type { SearchState } from './search-state-projection'
 import type {
-  NodeRecord,
   SearchCell,
   SearchCompletion,
   SearchNode,
@@ -77,12 +77,13 @@ export class SearchStateView {
     this.state = state
     this.version = version
     this.searchId = state.searchId
-    this.header = state.readHeader()
-    this.closed = state.readClosed()
-    this.head = state.readHead()
-    this.lastOccurredAt = state.readLastOccurredAt()
-    this.audit = state.readAudit()
-    this.budget = state.readBudget()
+    const position = state.readPosition()
+    this.header = position.header
+    this.closed = position.closed
+    this.head = position.head
+    this.lastOccurredAt = position.lastOccurredAt
+    this.audit = position.audit
+    this.budget = position.budget
     const reasons = state.incompleteReasons()
     if (!this.closed) reasons.unshift('search is open')
     this.completion = { complete: this.closed !== null, reasons }
@@ -90,60 +91,60 @@ export class SearchStateView {
 
   /** The node the search started from: the first registered. */
   get rootNodeId(): string | null {
-    return this.live().readNodeIds()[0] ?? null
+    return this.live().nodeIds()[0] ?? null
   }
 
   node(nodeId: string): SearchNode | undefined {
-    return this.live().readNode(nodeId)
+    return this.live().node(nodeId)
   }
 
   hasNode(nodeId: string): boolean {
-    return this.live().readHasNode(nodeId)
+    return this.live().hasNode(nodeId)
   }
 
   /** Node ids in registration order. */
   nodeIds(): string[] {
-    return [...this.live().readNodeIds()]
+    return [...this.live().nodeIds()]
   }
 
   /** Nodes in registration order. */
   nodes(): SearchNode[] {
     const state = this.live()
-    return state.readNodeIds().map((nodeId) => state.readNode(nodeId)!)
+    return state.nodeIds().map((nodeId) => state.node(nodeId)!)
   }
 
   nodeIdForDigest(artifactDigest: string): string | undefined {
-    return this.live().readNodeIdForDigest(artifactDigest)
+    return this.live().nodeIdForDigest(artifactDigest)
   }
 
   edge(edgeId: string): SearchEdgeRecordedEvent | undefined {
-    return this.live().readEdge(edgeId)
+    return this.live().edge(edgeId)
   }
 
   /** Edges in ledger order. */
   edges(): SearchEdgeRecordedEvent[] {
     const state = this.live()
-    return state.readEdgeIds().map((edgeId) => state.readEdge(edgeId)!)
+    return state.edgeIds().map((edgeId) => state.edge(edgeId)!)
   }
 
   cell(cellId: string): SearchCell | undefined {
-    return this.live().readCell(cellId)
+    return this.live().cell(cellId)
   }
 
   /** Cells in allocation order, optionally of one node. */
   cells(filter: { nodeId?: string } = {}): SearchCell[] {
     const state = this.live()
-    return state.readCellIds(filter.nodeId).map((cellId) => state.readCell(cellId)!)
+    return state.cellIds(filter.nodeId).map((cellId) => state.cell(cellId)!)
   }
 
   operation(operationId: string): SearchOperation | undefined {
-    return this.live().readOperation(operationId)
+    return this.live().operation(operationId)
   }
 
   /** A node's scored cells on one split, in allocation order. Unscored cells
    * (errored, cancelled or in flight) are absent, never zero. */
   scoredCells(nodeId: string, split: SearchSplit): SearchScoredCell[] {
-    return this.live().readScoredCells(nodeId, split)
+    return this.live().scoredCells(nodeId, split)
   }
 
   /** Per-unit score means of a node on one split, in unitId order. */
@@ -159,7 +160,7 @@ export class SearchStateView {
         `coordinates name search ${coordinates.searchId}, not ${this.searchId}`,
       )
     }
-    const cell = state.readCell(coordinates.cellId)
+    const cell = state.cell(coordinates.cellId)
     if (!cell || cell.nodeId !== coordinates.nodeId) {
       throw new SearchLedgerError(
         `cell ${coordinates.cellId} of node ${coordinates.nodeId} is not in search ${this.searchId}`,
@@ -170,7 +171,7 @@ export class SearchStateView {
         `cell ${coordinates.cellId} has ${cell.attempts} settled attempt(s), not attempt ${coordinates.attempt}`,
       )
     }
-    const node = state.readNode(cell.nodeId)!
+    const node = state.node(cell.nodeId)!
     if (node.depth === null) {
       throw new SearchLedgerError(
         `node ${node.nodeId} has unknown lineage, so its depth is unknown`,
@@ -187,36 +188,12 @@ export class SearchStateView {
     }
   }
 
-  private live(): SearchState {
+  private live(): SearchLedgerIndexes {
     if (!this.state.isAt(this.version)) {
       throw new SearchLedgerError(
         `this SearchStateView is from sequence ${this.head?.sequence ?? -1}, and the ledger has moved on; read the ledger's state again`,
       )
     }
-    return this.state
-  }
-}
-
-export function nodeView(record: NodeRecord): SearchNode {
-  const latest = record.decisions.at(-1)?.decision ?? null
-  return {
-    nodeId: record.event.nodeId,
-    ordinal: record.ordinal,
-    artifactDigest: record.event.artifactDigest,
-    artifact: record.event.artifact,
-    surfaces: record.event.surfaces,
-    primaryParentId: record.primaryParentId,
-    depth: record.depth,
-    parents: [...record.parents],
-    children: [...record.children],
-    edgeIds: [...record.edgeIds],
-    status: latest?.status ?? null,
-    rung: latest?.status === 'advanced' ? latest.rung : null,
-    finalist: record.finalist,
-    decisions: [...record.decisions],
-    cellCount: record.cellIds.length,
-    spend: { ...record.spend },
-    registeredSequence: record.registeredSequence,
-    updatedSequence: record.updatedSequence,
+    return this.state.index
   }
 }

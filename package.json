@@ -241,11 +241,9 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@arizeai/phoenix-evals": "^2.6.0",
     "@biomejs/biome": "^2.5.14",
     "@types/node": "^26.6.2",
     "ajv": "8.20.0",
-    "autoevals": "^0.3.0",
     "esbuild": "^0.28.2",
     "fast-check": "^4.10.2",
     "husky": "^9.1.7",
@@ -257,8 +255,7 @@
     "tsdown": "^0.23.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1",
-    "yaml": "2.9.1"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=20.19.0"

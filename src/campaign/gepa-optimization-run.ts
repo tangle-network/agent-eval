@@ -35,6 +35,7 @@ import {
   createExternalTextEvaluator,
   decodeExternalTextCandidate,
   describeExternalScenario,
+  type ExternalOptimizationExample,
   encodeExternalTextCandidate,
   mapExternalScenarios,
 } from './external-text-optimization'
@@ -115,6 +116,127 @@ function optimizerAccounting(
   }
 }
 
+/** What the GEPA run key is hashed over; fields added later join only when enabled so earlier run keys keep their identity. */
+function gepaRunMaterial<TScenario extends Scenario, TArtifact>(
+  config: GepaOptimizationMethodConfig<TScenario, TArtifact>,
+  input: OptimizationMethodInput<TScenario, TArtifact>,
+  parts: {
+    name: string
+    runtimeIdentity: Awaited<ReturnType<typeof inspectExternalOptimizerRuntime>>
+    bridgeRunner: GepaOptimizationMethodConfig<TScenario, TArtifact>['runner']
+    seedCandidate: ReturnType<typeof encodeExternalTextCandidate>
+    trainSet: readonly ExternalOptimizationExample[]
+    selectionSet: readonly ExternalOptimizationExample[]
+    maxCandidateChars: number
+    maxPopulationCandidates: number
+    maxEvidenceChars: number
+  },
+) {
+  const {
+    name,
+    runtimeIdentity,
+    bridgeRunner,
+    seedCandidate,
+    trainSet,
+    selectionSet,
+    maxCandidateChars,
+    maxPopulationCandidates,
+    maxEvidenceChars,
+  } = parts
+  return {
+    optimizer: 'gepa',
+    runtime: runtimeIdentity,
+    method: name,
+    evaluationId: config.evaluationId,
+    dispatchRef: input.runOptions.dispatchRef ?? null,
+    seed: input.seed,
+    recipe: snapshotJson(config.recipe, 'GEPA run settings'),
+    engineModules: config.engineModules ?? [],
+    objective: config.objective,
+    background: config.background ?? '',
+    seedCandidate,
+    trainSet,
+    selectionSet,
+    maxCandidateChars,
+    maxPopulationCandidates,
+    maxEvidenceChars,
+    evaluationCallbackLimits: resolveExternalOptimizerCallbackLimits(
+      config.evaluationCallbackLimits,
+    ),
+    optimizerModel: config.optimizer
+      ? {
+          model: config.optimizer.model,
+          callRef: config.optimizer.callRef,
+          budget: config.optimizer.budget,
+          // Included only when enabled so pre-existing run keys keep
+          // their identity.
+          ...(config.optimizer.anthropicEndpoint === true ? { anthropicEndpoint: true } : {}),
+        }
+      : null,
+    runner: externalOptimizerRunnerIdentity(bridgeRunner, 'agent_eval_rpc.gepa_bridge'),
+    trustResumeState: config.trustResumeState === true,
+  }
+}
+
+/** Starts the callback server the GEPA bridge calls back into: evaluations are counted against the run budget and observed into the log. */
+async function startGepaCallback<TScenario extends Scenario, TArtifact>(
+  config: GepaOptimizationMethodConfig<TScenario, TArtifact>,
+  input: OptimizationMethodInput<TScenario, TArtifact>,
+  parts: {
+    runDir: string
+    runId: string
+    runBudget: ReturnType<typeof openExternalOptimizerRunBudget>
+    observationLog: ReturnType<typeof openExternalOptimizerObservationLog>
+    evaluationLimit: number
+    maxCandidateChars: number
+    maxEvidenceChars: number
+  },
+) {
+  const {
+    runDir,
+    runId,
+    runBudget,
+    observationLog,
+    evaluationLimit,
+    maxCandidateChars,
+    maxEvidenceChars,
+  } = parts
+  const signal = input.runOptions.signal
+  const scenarioById = mapExternalScenarios(
+    input.trainScenarios,
+    input.selectionScenarios,
+    'GEPA bridge',
+  )
+  const evaluate = createExternalTextEvaluator({
+    input,
+    label: 'GEPA bridge',
+    runDir,
+    compatibleRunId: runId,
+    costPhase: 'gepa.external-evaluation',
+    costTags: runBudget.attemptTags,
+    costLedger: input.costLedger,
+    scenarioById,
+    maxCandidateChars,
+    maxEvidenceChars,
+    describeArtifact: config.describeArtifact,
+  })
+  let attemptEvaluationCount = 0
+  return startExternalOptimizerCallback({
+    token: randomBytes(32).toString('hex'),
+    maxEvaluations: evaluationLimit,
+    acceptEvaluation: () => {
+      const accepted = runBudget.acceptEvaluation()
+      if (accepted === undefined) return undefined
+      attemptEvaluationCount += 1
+      return attemptEvaluationCount
+    },
+    evaluate,
+    observe: observationLog.observe,
+    ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
+    ...(signal ? { signal } : {}),
+  })
+}
+
 /** The settled inputs of one GEPA run: its identity, budgets, evaluation callback and logs. */
 export async function prepareGepaRun<TScenario extends Scenario, TArtifact>(
   config: GepaOptimizationMethodConfig<TScenario, TArtifact>,
@@ -169,39 +291,17 @@ export async function prepareGepaRun<TScenario extends Scenario, TArtifact>(
   const populationScenarioIds = (selectionSet.length > 0 ? selectionSet : trainSet).map(
     (scenario) => scenario.id,
   )
-  const runMaterial = {
-    optimizer: 'gepa',
-    runtime: runtimeIdentity,
-    method: name,
-    evaluationId: config.evaluationId,
-    dispatchRef: input.runOptions.dispatchRef ?? null,
-    seed: input.seed,
-    recipe: snapshotJson(config.recipe, 'GEPA run settings'),
-    engineModules: config.engineModules ?? [],
-    objective: config.objective,
-    background: config.background ?? '',
+  const runMaterial = gepaRunMaterial(config, input, {
+    name,
+    runtimeIdentity,
+    bridgeRunner,
     seedCandidate,
     trainSet,
     selectionSet,
     maxCandidateChars,
     maxPopulationCandidates,
     maxEvidenceChars,
-    evaluationCallbackLimits: resolveExternalOptimizerCallbackLimits(
-      config.evaluationCallbackLimits,
-    ),
-    optimizerModel: config.optimizer
-      ? {
-          model: config.optimizer.model,
-          callRef: config.optimizer.callRef,
-          budget: config.optimizer.budget,
-          // Included only when enabled so pre-existing run keys keep
-          // their identity.
-          ...(config.optimizer.anthropicEndpoint === true ? { anthropicEndpoint: true } : {}),
-        }
-      : null,
-    runner: externalOptimizerRunnerIdentity(bridgeRunner, 'agent_eval_rpc.gepa_bridge'),
-    trustResumeState: config.trustResumeState === true,
-  }
+  })
   const compatibleRunId = externalOptimizerCompatibleRunKey(runMaterial)
   const runId = externalOptimizerRunKey({
     material: runMaterial,
@@ -225,38 +325,14 @@ export async function prepareGepaRun<TScenario extends Scenario, TArtifact>(
         path: `${runDir}/model-executions-${attemptId}.jsonl`,
       })
     : undefined
-  const scenarioById = mapExternalScenarios(
-    input.trainScenarios,
-    input.selectionScenarios,
-    'GEPA bridge',
-  )
-  const evaluate = createExternalTextEvaluator({
-    input,
-    label: 'GEPA bridge',
+  const callback = await startGepaCallback(config, input, {
     runDir,
-    compatibleRunId: runId,
-    costPhase: 'gepa.external-evaluation',
-    costTags: runBudget.attemptTags,
-    costLedger,
-    scenarioById,
+    runId,
+    runBudget,
+    observationLog,
+    evaluationLimit,
     maxCandidateChars,
     maxEvidenceChars,
-    describeArtifact: config.describeArtifact,
-  })
-  let attemptEvaluationCount = 0
-  const callback = await startExternalOptimizerCallback({
-    token: randomBytes(32).toString('hex'),
-    maxEvaluations: evaluationLimit,
-    acceptEvaluation: () => {
-      const accepted = runBudget.acceptEvaluation()
-      if (accepted === undefined) return undefined
-      attemptEvaluationCount += 1
-      return attemptEvaluationCount
-    },
-    evaluate,
-    observe: observationLog.observe,
-    ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
-    ...(signal ? { signal } : {}),
   })
 
   return {
