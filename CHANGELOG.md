@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.220.2] — 2026-10-22
+
+- fix(analyst): refresh live dependency identity after security updates
+- fix(supervisor-run): read atomic Runtime journal event groups
+- fix(adoption): honor the caller Node runtime pin
+- fix(deps): update Python transport security patches
+
 ## [0.220.1] — 2026-10-22
 
 - fix(publish): never move npm latest to an older version
