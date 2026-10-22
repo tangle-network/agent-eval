@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { onTestFinished } from 'vitest'
 import { ANALYST_BENCHMARK_OBSERVATIONS_FILE } from './benchmark-command'
 import type { AnalystUsageReceipt } from './types'
 
@@ -38,6 +39,7 @@ export async function codeTraceFixture(
   options: { labeledStep?: number; withVerificationArtifacts?: boolean } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'analyst-benchmark-command-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
   const traceDir = join(root, 'traces')
   const artifactDir = join(root, 'artifacts')
   const caseArtifactDir = join(artifactDir, 'trace-1', 'cases', 'trace-1')
@@ -85,6 +87,7 @@ export async function codeTraceFixture(
 
 export async function agentRxFixture(options: { caseCount?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'analyst-benchmark-agentrx-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
   const traceDir = join(root, 'traces')
   const outDir = join(root, 'out')
   const labelsPath = join(root, 'labels.json')

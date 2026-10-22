@@ -1,7 +1,7 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CostCallConflictError, CostLedger, type CostLedgerPersistence } from '../cost-ledger'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
@@ -27,6 +27,12 @@ function directConfig(
     timeoutMs: 30_000,
     ...overrides,
   }
+}
+
+function responseCacheDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'benchmark-model-cache-'))
+  onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
 }
 
 describe('createPublicBenchmarkDirectRunner', () => {
@@ -567,7 +573,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const traceId = 'trace-1'
     const durability = {
       runIdentitySha256: 'a'.repeat(64),
-      responseCacheDir: mkdtempSync(join(tmpdir(), 'benchmark-model-cache-')),
+      responseCacheDir: responseCacheDir(),
     }
     const state = { events: '', revision: '0', rejectSettlement: true }
     const persistence: CostLedgerPersistence = {
@@ -643,7 +649,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const traceId = 'trace-1'
     const durability = {
       runIdentitySha256: 'b'.repeat(64),
-      responseCacheDir: mkdtempSync(join(tmpdir(), 'benchmark-model-cache-')),
+      responseCacheDir: responseCacheDir(),
     }
     const state = { events: '', revision: '0' }
     const persistence: CostLedgerPersistence = {
