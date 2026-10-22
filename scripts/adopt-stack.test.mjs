@@ -108,10 +108,19 @@ describe('adopt-stack --dry-run against npm', () => {
     for (const edit of plan.edits.filter((entry) => entry.file !== 'release/cohort.json' && entry.section !== 'peerDependencies')) {
       const lock = (edit.file === 'package.json' ? locked : lockedVersions(dir).catalog).get(edit.name)
       expect(satisfies(edit.version, edit.to), `${edit.name} ${edit.to}`).toBe(true)
-      // A floor rises past the lock only inside the range as written or when a peer requires it.
-      if (lock && !/^\d/.test(edit.from) && !satisfies(lock, edit.to)) {
-        expect(satisfies(edit.version, edit.from) || /^raised by peer range: /.test(edit.why), `${edit.name} ${edit.from} -> ${edit.to}`).toBe(true)
-      }
+      if (!lock || /^\d/.test(edit.from)) continue
+      // A locked range is never only widened: an edit moves the lock, so the range never admits an untested version.
+      expect(satisfies(lock, edit.to), `${edit.name} ${edit.from} -> ${edit.to} keeps ${lock}`).toBe(false)
+      // It moves inside the range as written, for a peer, or (a catalog entry) to the root pin.
+      expect(satisfies(edit.version, edit.from) || /^raised by peer range: /.test(edit.why) || (edit.file === 'pnpm-workspace.yaml' && holds(edit.name) === edit.version), `${edit.name} ${edit.from} -> ${edit.to}`).toBe(true)
+    }
+
+    // Workspace importers that resolve through the catalog (bench) end on the root's version.
+    for (const [name, lock] of lockedVersions(dir).catalog) {
+      if (!pkg.devDependencies[name] && !pkg.dependencies[name]) continue
+      const edit = plan.edits.find((entry) => entry.name === name && entry.file === 'pnpm-workspace.yaml')
+      const catalogHolds = edit && !satisfies(lock, edit.to) ? edit.version : lock
+      expect(catalogHolds, `${name}: catalog ${edit?.to ?? 'unchanged'} vs root ${holds(name)}`).toBe(holds(name))
     }
 
     // The agent-knowledge the lockfile keeps admits the agent-eval it gets: 22.0.3

@@ -27,11 +27,16 @@
 //   without one, the planned version is held inside the sibling's peer range.
 //   agent-runtime#1946 kept agent-knowledge 22.0.3 (peer agent-eval <0.216.0)
 //   under `^22.0.3` while adopting agent-eval 0.217.1, and pnpm refused it.
-//   Holds and raises repeat until no target moves (at most 5 passes).
+//   Each pass rebuilds targets from npm latest with the current raises and all
+//   holds so far, so a raise a later hold made unnecessary drops out.
 // - An install keeps a locked version its range still admits. A range whose
 //   lock is older than a target inside the range as written gets its floor
-//   raised (`^22.0.3` -> `^22.0.7`), as does one a peer raise requires; a range
-//   that must widen to reach the target is only widened and its lock stays.
+//   raised (`^22.0.3` -> `^22.0.7`), as does one a peer raise requires. A pnpm
+//   catalog entry follows the root pin when that moves to the target, so every
+//   workspace importer resolves the same version. Any other locked dependency
+//   or catalog range stays as written: only peer ranges widen.
+// - A lockfile this script cannot read (or yarn/bun) stops the plan, since
+//   every hold, raise and cohort edit depends on what it holds.
 // - A caller's release/cohort.json entries move to the version the lockfile
 //   will hold for each planned package and its source commit (npm gitHead,
 //   else the release tag); an entry whose lock does not move stays.
@@ -231,8 +236,10 @@ export function lockedVersions(dir) {
       if (name && entry?.version) record(importer, name, entry.version)
     }
   }
-  const unread = (existsSync(pnpmLock) || existsSync(npmLock)) && !importer.size && !catalog.size
-  return { importer, catalog, warning: unread ? 'the lockfile records no root dependency versions this script can read; peer checks fall back to the manifest pins' : null }
+  const other = ['yarn.lock', 'bun.lock', 'bun.lockb'].find((file) => existsSync(join(dir, file)))
+  const unread = existsSync(pnpmLock) || existsSync(npmLock) ? (!importer.size && !catalog.size ? 'the lockfile records no root dependency version this script can read' : null)
+    : other ? `${other} is a lockfile this script cannot read` : null
+  return { importer, catalog, unread }
 }
 
 // ---- registry ----
@@ -263,21 +270,25 @@ const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
  * unknown). An install keeps a locked version its range still admits, so a
  * range whose lock is older than `target` gets its floor raised, but only when
  * `target` is inside the range as written (a compatible update) or `force` is
- * set (a peer range requires it). A range that has to widen to reach `target`
- * is only widened, and its lock stays.
+ * set (a peer range requires it, or the caller's root pin moves to it). A
+ * locked range otherwise stays as written, so a published dependency range
+ * never admits a version no gate installed; only peer ranges widen.
  */
 function respec(spec, target, locked, force = false) {
   if (EXACT.test(spec)) return { to: spec === target ? null : target, holds: target }
   // Protocols, git shorthands and dist-tags are the caller's choice, not a version.
   if (PROTOCOL.test(spec) || spec.includes('/') || /^[a-wyzA-WYZ]/.test(spec)) return { to: null, holds: locked ?? null }
-  const widened = widenRange(spec, target)
-  const keeps = locked && satisfies(locked, widened)
-  if (keeps && compare(release(locked), release(target)) < 0 && (force || satisfies(target, spec))) {
-    const to = raiseFloor(widened, target)
+  if (!locked) {
+    // Nothing locked: the install resolves the newest version the range admits.
+    const widened = widenRange(spec, target)
+    return { to: widened === spec ? null : widened, holds: target }
+  }
+  if (compare(release(locked), release(target)) < 0 && (force || satisfies(target, spec))) {
+    const to = raiseFloor(widenRange(spec, target), target)
     if (!satisfies(target, to) || satisfies(locked, to)) throw new Error(`raising "${spec}" to ${target} gave "${to}", which does not move the locked ${locked} to it`)
     return { to, holds: target }
   }
-  return { to: widened === spec ? null : widened, holds: keeps ? locked : target }
+  return { to: null, holds: locked }
 }
 
 const CATALOG_LINE = /^(\s+)(['"]?)(@tangle-network\/[\w.-]+)\2(\s*:\s*)(['"]?)([^'"#]+?)\5(\s*(?:#.*)?)$/
@@ -321,7 +332,9 @@ export async function plan(dir, requested = []) {
   const catalogSpecs = new Map()
   if (workspaceText !== null) catalogLines(workspaceText, (name, spec) => void (catalogSpecs.has(name) || catalogSpecs.set(name, spec)))
   const locks = lockedVersions(dir)
-  const warnings = locks.warning ? [locks.warning] : []
+  // Every hold, raise and cohort edit reads the lock; guessing it would publish edits no install backs.
+  if (locks.unread && pinned.size) throw new Error(`${locks.unread}, so the versions it holds are unknown and no plan is made`)
+  const warnings = []
   const warn = (text) => warnings.includes(text) || warnings.push(text)
 
   // The version the root lockfile holds before the plan (an exact pin, else the
@@ -341,54 +354,69 @@ export async function plan(dir, requested = []) {
     return false
   }
 
-  // Repeat until no target moves: each hold or raise can change what the
-  // other direction sees.
+  // Each pass rebuilds the targets from npm latest, then applies the current
+  // raises and every hold so far, so a raise a later hold made unnecessary
+  // drops out. Holds only accumulate, so the passes settle.
+  const baseline = new Map(targets)
+  const peerHolds = new Map()
+  let raises = new Map()
   for (let pass = 0; ; pass++) {
-    if (pass === 5) {
-      warn('the peer and dependency holds did not settle after 5 passes; the plan uses the last pass')
+    if (pass === 6) {
+      warn('the peer and dependency holds did not settle after 6 passes; the plan uses the last pass')
       break
     }
-    const snapshot = JSON.stringify([...targets])
+    targets.clear()
+    for (const [name, entry] of [...baseline, ...raises]) targets.set(name, entry)
 
     // Holds: each planned release's peer ranges constrain the caller's
     // @tangle-network pins, adopted or not, and its dependency ranges cap an
     // adopted target that would otherwise leave a second copy behind (a range
-    // the current version already escapes is ignored).
-    const rules = new Map()
-    for (const name of [...targets.keys()]) {
-      const at = planned(name) ?? targets.get(name).target
-      const manifest = (await doc(name)).versions[at]
-      for (const [kind, ranges] of [['peers', manifest?.peerDependencies], ['depends on', manifest?.dependencies]]) {
-        for (const [other, range] of Object.entries(ranges ?? {})) {
-          if (other === name || !pinned.has(other) || !other.startsWith(SCOPE)) continue
-          if (kind === 'depends on' && (!targets.has(other) || !before(other) || !parsed(`${name}@${at}`, kind, other, range) || !satisfies(before(other), range))) continue
-          if (kind === 'peers' && !parsed(`${name}@${at}`, kind, other, range)) continue
-          rules.set(other, [...(rules.get(other) ?? []), { by: `${name}@${at}`, kind, range }])
+    // the current version already escapes is ignored). A sibling's peer range
+    // that no newer sibling meets holds the adopted package too (peerHolds).
+    for (let round = 0; round < 6; round++) {
+      const snapshot = JSON.stringify([...targets])
+      const rules = new Map([...peerHolds].map(([name, list]) => [name, [...list]]))
+      for (const name of [...targets.keys()]) {
+        const at = planned(name) ?? targets.get(name).target
+        const manifest = (await doc(name)).versions[at]
+        for (const [kind, ranges] of [['peers', manifest?.peerDependencies], ['depends on', manifest?.dependencies]]) {
+          for (const [other, range] of Object.entries(ranges ?? {})) {
+            if (other === name || !pinned.has(other) || !other.startsWith(SCOPE)) continue
+            if (kind === 'depends on' && (!targets.has(other) || !before(other) || !parsed(`${name}@${at}`, kind, other, range) || !satisfies(before(other), range))) continue
+            if (kind === 'peers' && !parsed(`${name}@${at}`, kind, other, range)) continue
+            rules.set(other, [...(rules.get(other) ?? []), { by: `${name}@${at}`, kind, range }])
+          }
         }
       }
-    }
-    for (const [sibling, list] of rules) {
-      const current = targets.get(sibling)?.target ?? before(sibling)
-      if (!current || list.every(({ range }) => satisfies(current, range))) continue
-      const peers = list.filter(({ kind }) => kind === 'peers')
-      const siblingDoc = await doc(sibling)
-      // Dependency caps that no release meets together with the peers are dropped: a second copy beats no install.
-      const all = newestIn(siblingDoc, list.map(({ range }) => range))
-      const used = all ? list : peers
-      const allowed = all ?? newestIn(siblingDoc, peers.map(({ range }) => range))
-      const reason = used.map(({ by, kind, range }) => `${by} ${kind} ${range}`).join('; ')
-      if (!allowed) throw new Error(`no published ${sibling} satisfies every planned peer range (${reason})`)
-      if (!all) warn(`no ${sibling} meets both its peer ranges and ${list.filter(({ kind }) => kind !== 'peers').map(({ by, range }) => `${by} depends on ${range}`).join('; ')}; held by the peer ranges only`)
-      if (allowed !== current) targets.set(sibling, { latest: siblingDoc.latest, target: allowed, why: `held by ${used.every(({ kind }) => kind === 'peers') ? 'peer ranges' : 'peer and dependency ranges'}: ${reason}` })
+      for (const [sibling, list] of rules) {
+        const current = targets.get(sibling)?.target ?? before(sibling)
+        if (!current || list.every(({ range }) => satisfies(current, range))) continue
+        const peers = list.filter(({ kind }) => kind === 'peers')
+        const siblingDoc = await doc(sibling)
+        // Dependency caps that no release meets together with the peers are dropped: a second copy beats no install.
+        const all = newestIn(siblingDoc, list.map(({ range }) => range))
+        const used = all ? list : peers
+        const allowed = all ?? newestIn(siblingDoc, peers.map(({ range }) => range))
+        const reason = used.map(({ by, kind, range }) => `${by} ${kind} ${range}`).join('; ')
+        if (!allowed) throw new Error(`no published ${sibling} satisfies every planned peer range (${reason})`)
+        if (!all) warn(`no ${sibling} meets both its peer ranges and ${list.filter(({ kind }) => kind !== 'peers').map(({ by, range }) => `${by} depends on ${range}`).join('; ')}; held by the peer ranges only`)
+        if (allowed !== current) targets.set(sibling, { latest: siblingDoc.latest, target: allowed, why: `held by ${used.every(({ kind }) => kind === 'peers') ? 'peer ranges' : 'peer and dependency ranges'}: ${reason}` })
+      }
+      if (JSON.stringify([...targets]) === snapshot) break
     }
 
-    // Raises: a sibling whose planned version's own peer range excludes a
-    // planned target rises to the newest release of the same major whose peers
-    // admit every planned target, even when its range already admits npm
-    // latest. Without one, the excluded targets are held inside the sibling's
-    // current peer ranges.
+    // Raises, recomputed against this pass's targets: a sibling whose version
+    // without a raise peers a range that excludes a planned target rises to the
+    // newest release of the same major whose peers admit every planned target,
+    // even when its range already admits npm latest. Without one, the excluded
+    // targets are held inside the sibling's peer ranges from the next pass on.
+    const next = new Map()
+    let held = false
     for (const sibling of [...pinned.keys()].sort()) {
+      const raisedEntry = targets.get(sibling)
+      if (raises.has(sibling)) baseline.has(sibling) ? targets.set(sibling, baseline.get(sibling)) : targets.delete(sibling)
       const current = planned(sibling)
+      if (raisedEntry) targets.set(sibling, raisedEntry)
       if (!current) continue
       const siblingDoc = await doc(sibling)
       const excluded = (version) => Object.entries(siblingDoc.versions[version]?.peerDependencies ?? {})
@@ -399,16 +427,18 @@ export async function plan(dir, requested = []) {
         .filter((v) => release(v) && release(v)[0] === release(current)[0] && compare(release(v), release(current)) > 0 && !excluded(v).length)
         .sort((a, b) => compare(release(a), release(b))).at(-1)
       if (raised) {
-        targets.set(sibling, { latest: siblingDoc.latest, target: raised, force: true, why: `raised by peer range: ${reason}` })
+        next.set(sibling, { latest: siblingDoc.latest, target: raised, force: true, why: `raised by peer range: ${reason}` })
         continue
       }
       for (const [peer, range] of excluded(current)) {
-        const held = newestIn(await doc(peer), [range])
-        if (!held) throw new Error(`no published ${peer} satisfies ${sibling}@${current}'s peer range ${range}`)
-        targets.set(peer, { ...targets.get(peer), target: held, force: false, why: `held by peer ranges: ${sibling}@${current} peers ${range}` })
+        const list = peerHolds.get(peer) ?? []
+        if (list.some((rule) => rule.range === range && rule.by === `${sibling}@${current}`)) continue
+        peerHolds.set(peer, [...list, { by: `${sibling}@${current}`, kind: 'peers', range }])
+        held = true
       }
     }
-    if (JSON.stringify([...targets]) === snapshot) break
+    if (!held && JSON.stringify([...next]) === JSON.stringify([...raises])) break
+    raises = next
   }
 
   const edits = []
@@ -428,7 +458,9 @@ export async function plan(dir, requested = []) {
   if (workspaceText !== null) {
     workspace.text = catalogLines(workspaceText, (name, spec, section) => {
       const entry = targets.get(name)
-      const to = entry && respec(spec, entry.target, locks.catalog.get(name), entry.force).to
+      // An unused catalog entry resolves nothing; a used one follows the root pin when that moves to the target.
+      if (!entry || !locks.catalog.has(name)) return null
+      const to = respec(spec, entry.target, locks.catalog.get(name), entry.force || planned(name) === entry.target).to
       if (to) workspace.edits.push({ file: 'pnpm-workspace.yaml', section, name, from: spec, to, version: entry.target, why: entry.why })
       return to
     })
