@@ -290,10 +290,10 @@ function escapeRegExp(value) {
  * import, every namespace member access, and every name mentioned anywhere in
  * the repository — the last one covers the binds the import graph cannot see.
  */
-function sweepRepository(name, root, names) {
+function sweepRepository(name, root, names, commit) {
   const hits = { production: [], typeOnly: [], tests: [], mentions: false }
   const mentioned = new Set()
-  for (const [relativePath, text] of defaultBranchSources(root)) {
+  for (const [relativePath, text] of defaultBranchSources(root, commit)) {
     // Identifier tokens, intersected with the census: one pass per file
     // instead of one regex per census name.
     for (const token of text.match(IDENTIFIER) ?? []) {
@@ -347,8 +347,7 @@ function gitDescribe(root) {
 }
 
 /** Read refs, never a sparse/dirty/other lane's working tree. */
-function defaultBranchSources(root) {
-  const { commit } = gitDescribe(root)
+function defaultBranchSources(root, commit) {
   const paths = execFileSync('git', ['-C', root, 'ls-tree', '-r', '-z', '--name-only', commit], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
     .split('\0').filter((path) => CONSUMER_SOURCE_FILE.test(path) && !path.split('/').some((part) => SKIP_DIRECTORIES.has(part)))
   const blobs = execFileSync('git', ['-C', root, 'cat-file', '--batch'], {
@@ -368,22 +367,40 @@ function defaultBranchSources(root) {
 
 function runSweep(specifications) {
   const names = new Set(publishedValueExports().map((row) => row.name))
-  const previous = JSON.parse(readFileSync(CONSUMERS_PATH, 'utf8'))
-  const refreshed = new Set(specifications.map((value) => value.split('=')[0]))
-  const repositories = previous.repositories.filter((r) => !refreshed.has(r.name)).map((r) => ({ ...r, sweptAt: r.sweptAt ?? previous.sweptAt }))
+  let previous
+  try {
+    previous = JSON.parse(readFileSync(CONSUMERS_PATH, 'utf8'))
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error // Corrupt evidence must not be silently discarded.
+    previous = { repositories: [], symbols: {} }
+  }
+  const updates = []
+  const skipped = []
+  for (const specification of specifications) {
+    const separator = specification.indexOf('=')
+    if (separator < 1) throw new Error(`export-census: --sweep needs name=path, got '${specification}'`)
+    const name = specification.slice(0, separator)
+    const root = resolve(specification.slice(separator + 1))
+    try {
+      const identity = gitDescribe(root)
+      const evidence = sweepRepository(name, root, names, identity.commit)
+      updates.push({ name, ...identity, ...evidence })
+    } catch (error) {
+      // An unreadable ref is unavailable evidence, not proof of zero consumers.
+      skipped.push({ name, reason: String(error.message).slice(0, 1000) })
+      process.stderr.write(`skipped ${name}: default-branch evidence unavailable; retaining prior evidence\n`)
+    }
+  }
+  const refreshed = new Set(updates.map((item) => item.name))
+  const repositories = previous.repositories.filter((r) => !refreshed.has(r.name))
+    .map((r) => ({ ...r, sweptAt: r.sweptAt ?? previous.sweptAt }))
   const symbols = structuredClone(previous.symbols)
   for (const record of Object.values(symbols)) {
     for (const key of ['production', 'typeOnly', 'tests']) record[key] = record[key].filter((where) => !refreshed.has(where.split(':')[0]))
     record.mentions = record.mentions.filter((name) => !refreshed.has(name))
   }
   const touch = (symbol) => (symbols[symbol] ??= { production: [], typeOnly: [], tests: [], mentions: [] })
-  for (const specification of specifications) {
-    const separator = specification.indexOf('=')
-    if (separator < 0) throw new Error(`export-census: --sweep needs name=path, got '${specification}'`)
-    const name = specification.slice(0, separator)
-    const root = resolve(specification.slice(separator + 1))
-    const { hits, mentioned } = sweepRepository(name, root, names)
-    const { ref, commit } = gitDescribe(root)
+  for (const { name, ref, commit, hits, mentioned } of updates) {
     repositories.push({ name, ref, commit, sweptAt: new Date().toISOString().slice(0, 10) })
     for (const channel of ['production', 'typeOnly', 'tests']) {
       for (const hit of hits[channel]) touch(hit.symbol)[channel].push(hit.where)
@@ -398,6 +415,7 @@ function runSweep(specifications) {
     sweptAt: new Date().toISOString().slice(0, 10),
     repositories: repositories.sort((a, b) => a.name.localeCompare(b.name)),
     symbols: Object.fromEntries(Object.entries(symbols).sort(([a], [b]) => a.localeCompare(b))),
+    skipped,
   }
   writeFileSync(CONSUMERS_PATH, `${JSON.stringify(payload, null, 2)}\n`)
   process.stderr.write(`wrote ${relative(REPOSITORY_ROOT, CONSUMERS_PATH)}\n`)
@@ -489,6 +507,10 @@ function render({ rows, consumers }) {
     lines.push(`| ${repository.name} | ${repository.ref} | \`${repository.commit}\` | ${repository.sweptAt ?? consumers.sweptAt} |`)
   }
   lines.push('')
+  for (const item of consumers.skipped ?? []) {
+    lines.push(`Refresh skipped ${item.name}: default-branch evidence unavailable; any prior row remains historical.`)
+    lines.push('')
+  }
   lines.push('## What this census cannot see')
   lines.push('')
   lines.push('Every gap below makes a `none` less certain, so each one is answered by keeping the symbol, never by deleting it.')
