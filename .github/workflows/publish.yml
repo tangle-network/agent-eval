@@ -214,7 +214,19 @@ jobs:
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public --registry=https://registry.npmjs.org
+            # Tag pushes can reach Actions out of order (v0.219.0's run started
+            # after v0.220.0 had published), and `npm publish` moves `latest` to
+            # whatever it publishes. An older version therefore publishes under
+            # its release line's tag, and `latest` only ever moves forward.
+            LATEST=$(npm view "$NAME" dist-tags.latest --registry=https://registry.npmjs.org 2>/dev/null || true)
+            TAG=$(VERSION="$VERSION" LATEST="$LATEST" node -e "
+              const parse = (v) => v.split('.').map(Number)
+              const [v, l] = [process.env.VERSION, process.env.LATEST]
+              const newer = !l || parse(v).reduce((acc, n, i) => acc || (n !== parse(l)[i] ? (n > parse(l)[i] ? 1 : -1) : 0), 0) > 0
+              console.log(newer ? 'latest' : 'release-' + parse(v).slice(0, 2).join('.'))
+            ")
+            echo "Publishing $NAME@$VERSION with dist-tag $TAG (registry latest: ${LATEST:-none})"
+            npm publish --provenance --access public --tag "$TAG" --registry=https://registry.npmjs.org
           fi
 
   publish-pypi:
