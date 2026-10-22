@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.220.1] — 2026-10-22
+
+- fix(publish): never move npm latest to an older version
+
 ## [0.220.0] — 2026-10-22
 
 - feat(rl): export buildPairwiseFromCampaign from /rl
