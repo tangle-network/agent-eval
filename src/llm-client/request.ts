@@ -148,15 +148,24 @@ async function recordAttemptEvent(
   })
 }
 
-/** Wait for this client's pacing slot. Every wake rechecks, so concurrent waiters cannot dispatch a catch-up burst. */
-async function awaitPacingSlot(run: AttemptRun): Promise<void> {
+/**
+ * Wait for this client's pacing slot, and claim it. Every wake rechecks, so concurrent waiters
+ * cannot dispatch a catch-up burst; the claim is made in the same synchronous step that finds the
+ * slot free, so no other waiter can slip in between the check and the claim.
+ */
+async function awaitPacingSlot(run: AttemptRun): Promise<number> {
   const { opts, pacing, minIntervalMs } = run
   while (true) {
     opts.signal?.throwIfAborted()
     if (deadlineExceeded(run.deadlineStart, opts.deadlineMs)) throw deadlineError(run)
     const waitMs =
       pacing.lastStartedAt === undefined ? 0 : pacing.lastStartedAt + minIntervalMs - Date.now()
-    if (waitMs <= 0) return
+    if (waitMs <= 0) {
+      // Queue time consumes the operation deadline, not the HTTP timeout.
+      const started = Date.now()
+      pacing.lastStartedAt = started
+      return started
+    }
     await run.retryDelay(waitMs)
   }
 }
@@ -348,12 +357,11 @@ async function runAttempt(run: AttemptRun, attempt: number): Promise<AttemptOutc
   const state: AttemptState = { dispatched: false, errorRecorded: false }
   try {
     if (run.minIntervalMs > 0) {
-      await awaitPacingSlot(run)
-      // Queue time consumes the operation deadline, not the HTTP timeout.
-      started = Date.now()
+      started = await awaitPacingSlot(run)
+    } else {
+      // Claim the slot before any await so a concurrent waiter cannot take it.
+      run.pacing.lastStartedAt = started
     }
-    // Claim the slot before any await so a concurrent waiter cannot take it.
-    run.pacing.lastStartedAt = started
     state.dispatched = true
     timeoutHandle = setTimeout(() => controller.abort(), Math.min(run.timeoutMs, run.remainingMs()))
     await recordAttemptEvent(run, attempt, {
