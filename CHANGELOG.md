@@ -4,6 +4,31 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.218.0] — 2026-10-22
+
+- One dead-owner rule: agent-eval exports the proof that a lock holder is dead, and its own file lock  (#1050)
+- chore(analyst): re-pin benchmark implementation digest
+- refactor(campaign): split compareOptimizationMethods into staged steps and move control admission to its own module
+- refactor(contract): split evaluatePairedMeasurements into staged steps
+- fix(llm-client): claim the pacing slot in the same step that finds it free
+- refactor(campaign): split executeCell into cache, attempt, dispatch, judge and failure steps
+- refactor(search): split editCredit into staged steps
+- refactor(supervisor-run): split parseSupervisorTree into journal, brain spend, worker log and span steps
+- refactor(supervisor-run): split rollout node minting into root, worker and context steps
+- refactor(llm-client): split callLlmAttempts into attempt steps
+- refactor(analyst): split executePlanStream into one step per analyst phase
+- refactor(supervisor-run): split treeIssues into one function per integrity check
+- refactor(gepa): split gepaOptimizationMethod.optimize into prepare, run, verify, record and cost steps
+- refactor(campaign): split defaultProductionGate into one function per check
+- refactor(trajectory-replay): split runReplayBatch into phases and move the fix phase and report rendering to their own modules
+- refactor(control): split runAgentControlLoop into named steps
+- refactor(supervisor-run): split analyzeSupervisorRunSources into named metric steps
+- fix(adopt-stack): keep catalogs with the root pin and never only widen a lock
+- fix(adopt-stack): raise floors only inside the compatible window
+- fix(adopt-stack): resolve peers from the lockfile and move release/cohort.json
+- docs: drop the reference to the deleted profile JSON test
+- docs(changelog): link the consumer PRs for 0.217
+
 ## [0.217.1] — 2026-10-21
 
 0.217.0 was tagged but never published: its package fixture check failed. 0.217.1 is the first published release of the 0.217 changes; the breaking changes listed under 0.217.0 below apply to it.
