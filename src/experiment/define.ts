@@ -66,7 +66,7 @@ import {
 import { type AdmissionExecution, executeAdmissionRule } from './funnel'
 
 /** A sealed experiment whose digest no longer matches its spec. */
-export class SealIntegrityError extends ValidationError {}
+class SealIntegrityError extends ValidationError {}
 
 // ── Spec ─────────────────────────────────────────────────────────────
 

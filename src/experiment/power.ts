@@ -26,7 +26,7 @@ import { ValidationError } from '../errors'
 import { mulberry32 } from '../statistics'
 
 /** A design refused at configuration time, before any spend. */
-export class DesignRefusalError extends ValidationError {}
+class DesignRefusalError extends ValidationError {}
 
 export interface ClusteredPowerOptions {
   /** Rows per independent cluster, e.g. [6, 3, 3, 2]. */

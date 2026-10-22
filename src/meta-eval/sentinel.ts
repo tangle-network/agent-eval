@@ -234,21 +234,6 @@ export interface SentinelStore {
   history(judgeId?: string): Promise<SentinelSnapshot[]>
 }
 
-export function inMemorySentinelStore(initial: SentinelSnapshot[] = []): SentinelStore {
-  for (const s of initial) validateSentinelSnapshot(s)
-  const items = initial.map((s) => ({ ...s, metrics: { ...s.metrics } }))
-  return {
-    async append(snapshot) {
-      validateSentinelSnapshot(snapshot)
-      items.push({ ...snapshot, metrics: { ...snapshot.metrics } })
-    },
-    async history(judgeId) {
-      const all = items.map((s) => ({ ...s, metrics: { ...s.metrics } }))
-      return judgeId === undefined ? all : all.filter((s) => s.judgeId === judgeId)
-    },
-  }
-}
-
 /**
  * JSONL store — one snapshot per line, appended atomically per call.
  * A corrupt or shape-invalid line is a loud error naming the file and

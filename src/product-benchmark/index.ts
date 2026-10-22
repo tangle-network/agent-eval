@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { ValidationError } from '../errors'
 import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 
-export const productBenchmarkSplits = ['practice', 'dev', 'holdout', 'safety', 'sentinel'] as const
+const productBenchmarkSplits = ['practice', 'dev', 'holdout', 'safety', 'sentinel'] as const
 
 export type ProductBenchmarkSplit = (typeof productBenchmarkSplits)[number]
 

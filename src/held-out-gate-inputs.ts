@@ -198,7 +198,7 @@ function hasFiniteScore(run: RunRecord, split: ScorePreference): boolean {
  * paired, so this check can only ever add a refusal, never move a verdict that
  * was already being made on a complete set.
  */
-export function splitCoverage(
+function splitCoverage(
   baseline: RunRecord[],
   candidate: RunRecord[],
   split: ScorePreference,
