@@ -1,66 +1,26 @@
 # trace-repair tools
 
-## assay-tbench-corpus.mjs
+## Corpus admission
 
-Cost gate for TB-Repair.
-It measures whether the public Terminal-Bench 2.0 trajectory dump holds enough replayable failed `mini-swe-agent` trajectories to justify a fleet campaign, and it answers that question before any budget is spent.
-
-The tool reads the parquet shards with the duckdb CLI, cross-references upstream task definitions, and writes `ASSAY.md` plus `assay.json` into the data directory.
-Every input is verified on entry.
-A missing shard, a missing clone, or a missing duckdb binary fails loud instead of producing a partial report.
-
-### Run it
-
-```bash
-node benchmarks/trace-repair/tools/assay-tbench-corpus.mjs \
-  --data-dir ~/bench-cache/tbench-20260808 \
-  [--tb2 DIR] [--duckdb PATH] \
-  [--check-images | --images-json PATH] \
-  [--verify-task NAME]
-```
-
-- `--data-dir` holds the `train-*.parquet` shards and receives both report files. Default: `~/bench-cache/tbench-20260808`.
-- `--tb2` points at a `harbor-framework/terminal-bench-2` clone. Default: `<data-dir>/tb2`.
-- `--check-images` reads image manifests from Docker Hub, which rate-limits anonymous callers. `--images-json` replays a manifest capture instead, and the report records which of the two produced its numbers.
-- `--verify-task NAME` runs the real grading loop on one task: grade the untouched image, apply the task's reference solution (`solve.sh` in the task image), re-grade. It adds the "Grading mechanism proven end-to-end" section. Without the flag that section is absent.
-
-A full pass over both shards takes about 10 seconds.
-`--verify-task` adds the task's own solve time, roughly 3 minutes for `gcode-to-text`.
-
-### Reproducibility
-
-Every query orders by a deterministic tiebreaker, so two runs over the same inputs produce byte-identical reports apart from the generated timestamp and, under `--verify-task`, the measured wall-clock seconds.
-Treat any other difference as an input that moved.
-
-### Admission tiers
-
-Admission is tiered on what survived the scrape, not on raw failure.
-17.8% of recorded commands — 19,266 of 107,989 on failed `mini-swe-agent` rows — were replaced by an elision marker, and the marker is a per-occurrence counter rather than a content dictionary, so the dropped text carries no recovery key.
+Admission keys on what survived the public Terminal-Bench 2.0 trajectory dump, not on raw failure.
+The dump replaced some recorded text with an elision marker that is a per-occurrence counter rather than a content dictionary, so the dropped text carries no recovery key.
 Affected rows are filtered, never repaired.
 
-Tiers are a cost gate over the whole dump, not an admission rule.
-They read a row's fields in bulk and do not pair a command with the observation of its own turn, so a row's tier is an upper bound on its replayability.
+Prefix replay re-executes recorded commands and regenerates observations.
+A placeholder in an observation costs the analyst context but never breaks execution; a placeholder in a command does break it.
+Requiring observations and reasoning intact as well is stricter and biases the set toward short trajectories, because a long run has more chances to lose a field.
+
 `scripts/tb-corpus-rows.ts` decodes every turn through `trajectory-replay/steps`, and its row set is the one an admission funnel consumes.
+[trace-repair-admission.md](../../../docs/trace-repair-admission.md) owns the admission rule and its measured counts.
 
-- **Tier B** — every recorded command intact. This is the admission set for prefix replay: replay re-executes recorded commands and regenerates observations, so a placeholder in an observation costs the analyst context but never breaks execution. A placeholder in a command does break it.
-- **Tier A** — Tier B plus observations and reasoning intact. Stricter, and biased toward short trajectories, because a long run has more chances to lose a field.
+## certify-task-oracle.sh
 
-### Evidence layout
+Certifies that a task can separate a solved state from an unsolved one, **and** that it answers about the state at all.
+It runs the harbor grading loop by hand against the published image, in batch, across as many tasks as you name.
 
-The tool writes into `--data-dir`, which stays outside the repo because the parquet shards are about 211 MiB.
+This is the recurring operation: certify the task set a campaign is about to sample from, and write per-task evidence.
 
-```
-<data-dir>/
-  train-0000{0,1}-of-00002.parquet   corpus shards
-  tb2/                               pinned terminal-bench-2 clone
-  ASSAY.md                           report, human-readable
-  assay.json                         same measurements, machine-readable
-  tb2_images.json                    captured image manifests for --images-json
-```
-
-### Pins and decay
-
-Pin the clone at `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+Grade against the pinned terminal-bench-2 commit, `tb2Commit` in [`tb-images.lock.json`](../tb-images.lock.json).
 Task definitions move under unchanged names, so an unpinned clone silently regrades against different tests.
 
 Never rebuild a task image from its `environment/Dockerfile` for replay work.
@@ -68,16 +28,8 @@ Local builds drift from the published images the trajectories were recorded agai
 Pull the published image per task.
 
 33 of 89 reference solutions fetch from the network at solve time, which makes a certified fail -> pass loop a decaying asset.
-Re-certify with `certify-task-oracle.sh` before a campaign.
-Exclude `make-doom-for-mips`: it has a 0.0% pass rate across all 52,104 rows.
-
-## certify-task-oracle.sh
-
-Certifies that a task can separate a solved state from an unsolved one, **and** that it answers about the state at all.
-It runs the harbor grading loop by hand against the published image, in batch, across as many tasks as you name.
-
-`assay-tbench-corpus.mjs --verify-task` proves the same loop for one task and folds the result into the assay report.
-This script is the recurring operation: certify the task set a campaign is about to sample from, and write per-task evidence.
+Re-certify before a campaign.
+Exclude `make-doom-for-mips`: it has a 0.0% pass rate across all 52,104 rows of the trajectory dump.
 
 ```bash
 benchmarks/trace-repair/tools/certify-task-oracle.sh [options] TASK [TASK...]
