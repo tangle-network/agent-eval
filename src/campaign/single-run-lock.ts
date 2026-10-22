@@ -5,9 +5,9 @@
  * other: each resets/mutates environment state mid-cell of the other, and
  * every score from both becomes garbage that LOOKS like worker variance
  * (agent-lab R357 burned hours on flip-flopping scores before tracing them
- * to exactly this). The fix is a pid lockfile: refuse to start while a live
- * holder exists, reclaim stale locks whose pid is gone, release only if the
- * lock is still ours.
+ * to exactly this). The fix is a holder lockfile: refuse to start while the
+ * holder may be alive, reclaim a lock whose holder is proved dead
+ * (`lockHolderVerdict`), release only if the lock is still ours.
  *
  * `alsoCheck` exists because independent runners can guard the same shared
  * resource with differently named lockfiles; a runner must respect all of
@@ -53,8 +53,8 @@ function unavailableError(path: string, unavailable: AtomicFileLockUnavailable):
 }
 
 /**
- * Acquire the lock or throw naming the live holder. A stale lock (holder pid
- * no longer running) is reclaimed by one contender. An interrupted reclaim
+ * Acquire the lock or throw naming the holder. A lock whose holder is proved
+ * dead is reclaimed by one contender. An interrupted reclaim
  * leaves a marker that fails closed instead of admitting overlapping runs.
  */
 export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock {

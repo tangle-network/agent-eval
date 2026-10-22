@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './campaign/storage'
@@ -15,9 +15,8 @@ import {
   costForTokenPricing,
   costForUsage,
 } from './cost-ledger'
+import { DEAD_PID, writeHolderRecord } from './ledger-core/lock-holder-test-fixtures'
 import { canonicalJson } from './verdict-cache'
-
-
 
 describe('costForUsage', () => {
   it('prices a known model and flags costUnknown=false', () => {
@@ -933,11 +932,10 @@ describe('CostLedger', () => {
 
   it('blocks dispatch while another process holds the filesystem lock', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-claim-'))
-    writeFileSync(
-      join(runDir, 'cost-ledger.jsonl.lock'),
-      `${JSON.stringify({ host: hostname(), nonce: 'active-process', pid: process.pid })}\n`,
-      'utf8',
-    )
+    writeHolderRecord(join(runDir, 'cost-ledger.jsonl.lock'), {
+      nonce: 'active-process',
+      pid: process.pid,
+    })
     const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
     let calls = 0
 
@@ -966,11 +964,7 @@ describe('CostLedger', () => {
   it('recovers a stale filesystem lock left by a crashed writer', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-stale-lock-'))
     const lockPath = join(runDir, 'cost-ledger.jsonl.lock')
-    writeFileSync(
-      lockPath,
-      `${JSON.stringify({ host: hostname(), nonce: 'crashed-process', pid: 999_999_999 })}\n`,
-      'utf8',
-    )
+    writeHolderRecord(lockPath, { nonce: 'crashed-process', pid: DEAD_PID })
     const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
 
     try {
