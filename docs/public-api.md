@@ -458,8 +458,8 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `buildTraceToolsForGroup` | production | this package: src/analyst/kind-factory.ts:15 |
 | `calibrateFailureModes` | planned | doc: docs/finding-layers.md |
 | `classifyTeamShape` | none | only this package's tests: tests/finding-layers.test.ts:16 |
-| `CODE_TRACE_BENCH_ANALYST_PROMPT` | production | this package: scripts/gepa-analyst/configuration.ts:5 |
-| `codeTraceBenchCase` | production | this package: scripts/gepa-analyst/scenarios.ts:5 |
+| `CODE_TRACE_BENCH_ANALYST_PROMPT` | production | this package: src/analyst/benchmark-runner-prime.ts:11 |
+| `codeTraceBenchCase` | production | this package: benchmarks/trace-analysis/codetracebench-glm52-20260730/summarize-codetracer.mjs:6 |
 | `codeTracerPredictionsToFindings` | production | this package: benchmarks/trace-analysis/codetracebench-glm52-20260730/summarize-codetracer.mjs:6 |
 | `computeFindingId` | production | agent-runtime:src/runtime/index.ts |
 | `CONTROL_INTEGRITY_ANALYST` | planned | named in discovery-lab (bind not in the import graph) |
@@ -502,7 +502,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `LAB_NODE_ID` | production | this package: src/analyst/promote.ts:28 |
 | `lineageRoots` | production | this package: src/analyst/promote.ts:37 |
 | `loadFailureModeGold` | planned | doc: docs/finding-layers.md |
-| `loadPublicBenchmarkRows` | production | this package: scripts/gepa-analyst/scenarios.ts:6 |
+| `loadPublicBenchmarkRows` | production | this package: src/analyst/failure-modes.ts:24 |
 | `lowestCommonAncestor` | production | this package: src/analyst/promote.ts:28 |
 | `makeFinding` | production | agent-dev-container:products/intelligence/api/src/lib/consultant/candidates.ts |
 | `makeProposalFinding` | production | agent-lab:projects/playproof/code-surface.ts |
