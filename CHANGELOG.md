@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.218.1] — 2026-10-22
+
+- fix(deps): agent-core ^0.13.1, so a packed consumer of agent-eval and agent-runtime loads one agent-core (#1054)
+- docs: regenerate the public API census for the moved analyst modules
+- refactor: split the randomized canary, rollout line validator and public analyst runners into named steps; re-pin the analyst digest
+- refactor: split runEvalCampaign, runSelfImproveMethod and the held-out gate into named steps
+- refactor(campaign): split skillOpt, retained dispatch and runOptimization into named steps
+- refactor: split the gated-stop A/B and GSM8K comparison script mains into named steps
+- refactor: split the external text optimizer run and the package-export fixture writers into named steps
+
 ## [0.218.0] — 2026-10-22
 
 - One dead-owner rule: agent-eval exports the proof that a lock holder is dead, and its own file lock  (#1050)
