@@ -101,7 +101,7 @@ if (manifest.receipt) {
     },
   })
   if (campaign.cells.some((cell) => cell.error)) throw new Error('Retained receipt cell failed')
-  cost = { source: manifest.receiptSource, costBreakdown, cell: campaign.cells[0], summary: campaign.cost }
+  cost = { source: manifest.receiptSource, costBreakdown, cell: campaign.cells[0], summary: campaign.aggregates.cost }
 
 }
 writeFileSync(resolve(root, 'cost.json'), JSON.stringify(cost, null, 2))
