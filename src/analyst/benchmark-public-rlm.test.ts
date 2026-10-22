@@ -1,8 +1,8 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
@@ -112,7 +112,9 @@ main().catch((error) => {
 `
 
 async function sequenceChildScript(findingsPerSample: unknown[][]): Promise<string> {
-  const counterPath = join(await mkdtemp(join(tmpdir(), 'rlm-consensus-')), 'counter')
+  const counterDir = await mkdtemp(join(tmpdir(), 'rlm-consensus-'))
+  onTestFinished(() => rm(counterDir, { recursive: true, force: true }))
+  const counterPath = join(counterDir, 'counter')
   return SEQUENCE_CHILD_SCRIPT.replace('__COUNTER_PATH__', JSON.stringify(counterPath)).replace(
     '__SAMPLES__',
     JSON.stringify(findingsPerSample),
