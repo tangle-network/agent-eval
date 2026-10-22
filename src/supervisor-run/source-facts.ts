@@ -1,3 +1,4 @@
+import { expandJournalEventGroup } from './journal-event-group'
 import {
   type Measured,
   type NamedResourceReceipt,
@@ -293,7 +294,7 @@ export interface SupervisorTreeFacts {
   readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
   /** Every worker source row, including duplicate identities that a map cannot retain. */
   readonly workerLogRows: readonly WorkerLogFacts[]
-  /** Every non-empty journal line, whatever shape it turned out to have. */
+  /** Every non-empty input journal line; a group occupies one line regardless of its size. */
   readonly journalRows: number
   /**
    * Journal lines this parser could not interpret at all: invalid JSON, non-objects, and
@@ -313,10 +314,11 @@ export interface SupervisorTreeFacts {
    */
   readonly journalIgnoredRowsByKind: Readonly<Record<string, number>>
   /**
-   * Every metered row read, root-attributed or not. `brain.meteredCount` covers only the
+   * Every metered event read, root-attributed or not. `brain.meteredCount` covers only the
    * root's own spend; a nested driver's metered rows are understood but reach this tree
-   * through that driver's settled close, so this total is what keeps row accounting exact:
-   * journalRows = spawns + closes + journalMeteredRows + ignored + journalInvalidRows.
+   * through that driver's settled close. Event counters count each group member, while
+   * journalRows and journalInvalidRows count input lines. Without groups, journalRows equals
+   * spawns + closes + journalMeteredRows + ignored + journalInvalidRows.
    */
   readonly journalMeteredRows: number
   /** Which dialect(s) the journal's rows were actually written in. */
@@ -374,7 +376,7 @@ export function workerSourceKey(
  *
  * `runtime-envelope` — the records `agent-runtime`'s `FileSpawnJournal` writes:
  * a `{kind:'begin', root, at}` header followed by `{kind:'event', root, event}`
- * envelopes (`agent-runtime/src/durable/spawn-journal.ts`, `appendRecord`). It is
+ * or atomic `{kind:'events', root, events:[...]}` envelopes. It is
  * the layout `createFileRunContext(dir)` produces at `<dir>/spawn-journal.jsonl`.
  * This dialect is READ, not tolerated: agent-runtime is the writer, so a reader
  * that could not interpret it was the defect, and `journalDialect` records which
@@ -585,45 +587,62 @@ function readJournal(events: Record<string, unknown>[]): JournalReading {
   const resourceRecords: ResourceSpendRecord[] = []
   const meteredRows: Array<{ id: string; spend: SpendLike; at: number | null }> = []
   for (const [sourceRow, row] of events.entries()) {
-    const reading = readJournalRow(row)
-    if (reading.outcome === 'unreadable') {
+    const expanded = expandJournalEventGroup(row)
+    if (!expanded.succeeded) {
       unreadableRows += 1
       continue
     }
-    dialectsSeen.add(reading.dialect)
-    if (reading.outcome === 'ignored') {
-      ignoredByKind.set(reading.kind, (ignoredByKind.get(reading.kind) ?? 0) + 1)
-      continue
+    if (expanded.value.length === 0) {
+      dialectsSeen.add('runtime-envelope')
+      ignoredByKind.set('events', (ignoredByKind.get('events') ?? 0) + 1)
     }
-    const { kind, event: ev } = reading
-    const id = typeof ev.id === 'string' ? ev.id : ''
-    if (kind === 'metered' || kind === 'settled' || kind === 'cancelled') {
-      const field = kind === 'metered' ? 'spend' : 'spent'
-      resourceRecords.push({
-        nodeId: id || null,
-        kind,
-        source: `journal.rows[${sourceRow}].${reading.dialect === 'runtime-envelope' ? 'event.' : ''}${field}.resources`,
-        resources: readResources(asRecord(kind === 'metered' ? ev.spend : ev.spent).resources),
-      })
-    }
-    if (kind === 'spawned') {
-      const spawn = spawnRowOf(ev, id, sourceRow, rootId)
-      if (spawn.valid && spawn.parent === null && rootId === null) rootId = id
-      spawns.push(spawn)
-    } else if (kind === 'settled') {
-      closes.push(settledCloseOf(ev, id))
-    } else if (kind === 'cancelled') {
-      closes.push(cancelledCloseOf(ev, id))
-    } else if (kind === 'metered') {
-      // Deferred: rows are attributed after the loop, once the root is known, so a metered
-      // event that precedes the root spawn is never misattributed.
-      meteredRows.push({ id, spend: readSpend(ev.spend), at: ms(ev.at) })
-    } else {
-      // `TREE_EVENT_KINDS` and these branches are one contract: adding a kind to the set
-      // without a branch here would silently drop its rows, which is the defect this
-      // accounting exists to prevent. The compiler refuses the omission.
-      const unhandled: never = kind
-      throw new Error(`unhandled journal event kind ${JSON.stringify(unhandled)}`)
+    for (const [eventIndex, eventRow] of expanded.value.entries()) {
+      const reading = readJournalRow(eventRow)
+      if (reading.outcome === 'unreadable') {
+        unreadableRows += 1
+        continue
+      }
+      dialectsSeen.add(reading.dialect)
+      if (reading.outcome === 'ignored') {
+        ignoredByKind.set(reading.kind, (ignoredByKind.get(reading.kind) ?? 0) + 1)
+        continue
+      }
+      const { kind, event: ev } = reading
+      const id = typeof ev.id === 'string' ? ev.id : ''
+      if (kind === 'metered' || kind === 'settled' || kind === 'cancelled') {
+        const field = kind === 'metered' ? 'spend' : 'spent'
+        const prefix =
+          row.kind === 'events'
+            ? `events[${eventIndex}].`
+            : reading.dialect === 'runtime-envelope'
+              ? 'event.'
+              : ''
+        resourceRecords.push({
+          nodeId: id || null,
+          kind,
+          source: `journal.rows[${sourceRow}].${prefix}${field}.resources`,
+          resources: readResources(asRecord(kind === 'metered' ? ev.spend : ev.spent).resources),
+        })
+      }
+      if (kind === 'spawned') {
+        const spawn = spawnRowOf(ev, id, sourceRow, rootId)
+        if (spawn.valid && spawn.parent === null && rootId === null) rootId = id
+        spawns.push(spawn)
+      } else if (kind === 'settled') {
+        closes.push(settledCloseOf(ev, id))
+      } else if (kind === 'cancelled') {
+        closes.push(cancelledCloseOf(ev, id))
+      } else if (kind === 'metered') {
+        // Deferred: rows are attributed after the loop, once the root is known, so a metered
+        // event that precedes the root spawn is never misattributed.
+        meteredRows.push({ id, spend: readSpend(ev.spend), at: ms(ev.at) })
+      } else {
+        // `TREE_EVENT_KINDS` and these branches are one contract: adding a kind to the set
+        // without a branch here would silently drop its rows, which is the defect this
+        // accounting exists to prevent. The compiler refuses the omission.
+        const unhandled: never = kind
+        throw new Error(`unhandled journal event kind ${JSON.stringify(unhandled)}`)
+      }
     }
   }
   return {
