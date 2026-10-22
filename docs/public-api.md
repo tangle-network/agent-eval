@@ -443,7 +443,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `ANALYST_BENCHMARK_OBSERVATIONS_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:9 |
 | `analystDefinitionAsymmetries` | planned | doc: docs/trace-analysis.md |
 | `analystDefinitionProtocolSha256` | planned | doc: docs/trace-analysis.md |
-| `AnalystExpressivenessError` | production | this package: src/analyst/benchmark-public-model.ts:56 |
+| `AnalystExpressivenessError` | production | this package: src/analyst/benchmark-public-chunked.ts:36 |
 | `AnalystRegistry` | production | agent-runtime:examples/improve/improve.ts |
 | `analystUsageReceiptFromPrimeUsage` | production | this package: src/analyst/benchmark-runner-prime.ts:19 |
 | `askTraceQuestions` | planned | doc: docs/systemone-behavior-review.md |
@@ -482,7 +482,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `emitControlIntegrityFindings` | planned | named in discovery-lab (bind not in the import graph) |
 | `evidenceRefsFromRawFinding` | production | agent-dev-container:products/intelligence/api/src/lib/router-trace-analyst.ts |
 | `ExactAnalystRunExecutionError` | production | discovery-lab:runner/evidence-review.mjs |
-| `expandCodeTraceFailureBlocks` | production | this package: src/analyst/benchmark-public-model.ts:29 |
+| `expandCodeTraceFailureBlocks` | production | this package: src/analyst/benchmark-public-model.ts:9 |
 | `FAILURE_MODE_KIND_SPEC` | planned | consumer tests: legal-agent:tests/eval/analysts/completion-coverage.ts |
 | `FAILURE_MODE_LABELS` | none | — |
 | `FAILURE_MODES_ANALYST_ID` | none | — |
@@ -524,7 +524,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `publicDirectAnalystDefinition` | planned | doc: docs/trace-analysis.md |
 | `publicRlmAnalystDefinition` | planned | doc: docs/trace-analysis.md |
 | `queryFindings` | planned | doc: docs/finding-layers.md |
-| `RAW_FINDING_SCHEMA_PROMPT` | production | this package: src/analyst/benchmark-public-rlm.ts:36 |
+| `RAW_FINDING_SCHEMA_PROMPT` | production | this package: src/analyst/benchmark-public-rlm.ts:39 |
 | `RawAnalystFindingSchema` | production | this package: scripts/emit-finding-contract.ts:20 |
 | `readAnalystBenchmarkArtifact` | production | this package: src/analyst/benchmark-command.ts:42 |
 | `readFindingScope` | planned | doc: docs/finding-layers.md |
@@ -1184,8 +1184,8 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `GATE_CHECK_IDS` | production | this package: src/rollout/release/gate-report.ts:47 |
 | `GATE_CHECKS` | planned | doc: docs/rollout.md |
 | `GATE_POLICIES` | production | this package: src/rollout/release/gate-report.ts:47 |
-| `gatedEvidenceOf` | production | this package: src/rollout/schema.ts:50 |
-| `gateErrors` | production | this package: src/rollout/schema.ts:50 |
+| `gatedEvidenceOf` | production | this package: src/rollout/schema.ts:51 |
+| `gateErrors` | production | this package: src/rollout/schema.ts:51 |
 | `gateGamedOutcome` | planned | named in discovery-lab (bind not in the import graph) |
 | `isRealnessGated` | production | starter-foundry:src/lib/held-out-gate.ts |
 | `isRolloutLine` | production | this package: src/supervisor-run/rollout-nodes.ts:27 |
