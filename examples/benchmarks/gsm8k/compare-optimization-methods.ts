@@ -273,8 +273,48 @@ const judge: JudgeConfig<Artifact, GsmScenario> = {
 const round = (n: number) => Math.round(n * 1000) / 1000
 const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000
 
-async function main() {
-  // Load + slice (sorted by id for a deterministic, auditable corpus).
+interface Scenarios {
+  train: GsmScenario[]
+  selection: GsmScenario[]
+  test: GsmScenario[]
+}
+
+type OptimizerOwner = Awaited<ReturnType<typeof loadOptimizerExecutionOwner>>
+type OptimizerModelBudget = ReturnType<typeof optimizerModelBudgetFromEnv>
+type Comparison = Awaited<ReturnType<typeof compareOptimizationMethods<GsmScenario, Artifact>>>
+
+/** Budgets and execution owners for the two optimizers. */
+interface Optimizers {
+  gepaModelBudget: OptimizerModelBudget
+  skillOptModelBudget: OptimizerModelBudget
+  runner: { command: string }
+  gepaOwner: OptimizerOwner
+  skillOptOwner: OptimizerOwner
+}
+
+/** Where this run writes, and when it started. */
+interface RunOutput {
+  outputRoot: string
+  runRoot: string
+  startedAt: number
+}
+
+/** The measured totals the artifact and the printed report both read. */
+interface RunSummary {
+  comparison: Comparison
+  integrity: ReturnType<typeof summarizeBackendIntegrity>
+  best: Comparison['best']
+  baselineSmoke: number
+  baselineSmokeCostUsd: number
+  totalCostUsd: number
+  elapsedSec: number
+  testResult: string
+}
+
+type WorkerFn = ReturnType<typeof makeWorker>
+
+// Load + slice (sorted by id for a deterministic, auditable corpus).
+async function loadScenarios(): Promise<Scenarios> {
   const toScenario = (
     it: { id: string; payload: { question: string; answer: string } },
     tag: string,
@@ -287,23 +327,22 @@ async function main() {
   })
   const search = (await loadDataset('search')).sort((a, b) => a.id.localeCompare(b.id))
   const holdout = (await loadDataset('holdout')).sort((a, b) => a.id.localeCompare(b.id))
-  const trainScenarios = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'train'))
-  const selectionScenarios = search
+  const train = search.slice(0, TRAIN_N).map((it) => toScenario(it, 'train'))
+  const selection = search
     .slice(TRAIN_N, TRAIN_N + SELECTION_N)
     .map((it) => toScenario(it, 'selection'))
-  const testScenarios = holdout.slice(0, TEST_N).map((it) => toScenario(it, 'test'))
-  if (
-    trainScenarios.length < TRAIN_N ||
-    selectionScenarios.length < SELECTION_N ||
-    testScenarios.length < TEST_N
-  ) {
+  const test = holdout.slice(0, TEST_N).map((it) => toScenario(it, 'test'))
+  if (train.length < TRAIN_N || selection.length < SELECTION_N || test.length < TEST_N) {
     throw new Error(
-      `GSM8K corpus too small: train ${trainScenarios.length}/${TRAIN_N}, selection ${selectionScenarios.length}/${SELECTION_N}, test ${testScenarios.length}/${TEST_N}. Stage more rows.`,
+      `GSM8K corpus too small: train ${train.length}/${TRAIN_N}, selection ${selection.length}/${SELECTION_N}, test ${test.length}/${TEST_N}. Stage more rows.`,
     )
   }
+  return { train, selection, test }
+}
 
-  // Resolve optimizer budgets and execution owners before the paid smoke
-  // pass, so a configuration fault cannot spend anything.
+// Resolve optimizer budgets and execution owners before the paid smoke
+// pass, so a configuration fault cannot spend anything.
+async function resolveOptimizers(): Promise<Optimizers> {
   const gepaModelBudget = optimizerModelBudgetFromEnv(
     'GEPA',
     MAX_OPTIMIZER_MODEL_COST_USD,
@@ -321,20 +360,14 @@ async function main() {
     loadOptimizerExecutionOwner(GEPA_MODEL),
     loadOptimizerExecutionOwner(SKILLOPT_MODEL),
   ])
+  return { gepaModelBudget, skillOptModelBudget, runner, gepaOwner, skillOptOwner }
+}
 
-  const worker = makeWorker()
-  const outputRoot = join(process.cwd(), '.evolve', 'benchmarks', 'gsm8k-proposer-comparison')
-  const runRoot = join(outputRoot, String(Date.now()))
-  mkdirSync(runRoot, { recursive: true })
-  const startedAt = Date.now()
-
-  console.log('GSM8K: official GEPA and SkillOpt')
-  console.log(`  model=${MODEL}  base=${BASE_URL}`)
-  console.log(
-    `  train=${trainScenarios.length} selection=${selectionScenarios.length} final=${testScenarios.length}`,
-  )
-
-  // ── Baseline smoke on selection: confirm headroom without touching test. ──
+// Baseline smoke on selection: confirm headroom without touching test.
+async function runBaselineSmoke(
+  worker: WorkerFn,
+  selectionScenarios: GsmScenario[],
+): Promise<{ baselineSmoke: number; smokeLedger: CostLedger }> {
   let baselineSmoke = 0
   const smokeLedger = new CostLedger(MAX_SMOKE_COST_USD)
   const smokeCost: DispatchContext['cost'] = {
@@ -354,12 +387,12 @@ async function main() {
   console.log(
     `  baseline selection accuracy = ${round(baselineSmoke)} ${baselineSmoke >= 0.85 ? '(low headroom)' : '(headroom available)'}`,
   )
-  if (SMOKE) {
-    console.log('SMOKE=1: baseline only, stopping before optimization.')
-    return
-  }
+  return { baselineSmoke, smokeLedger }
+}
 
-  const methods: OptimizationMethod<GsmScenario, Artifact>[] = [
+function buildMethods(o: Optimizers): OptimizationMethod<GsmScenario, Artifact>[] {
+  const { gepaModelBudget, skillOptModelBudget, runner, gepaOwner, skillOptOwner } = o
+  return [
     gepaOptimizationMethod<GsmScenario, Artifact>({
       name: 'gepa',
       objective: DRIVER_TARGET,
@@ -409,13 +442,20 @@ async function main() {
       runner,
     }),
   ]
+}
 
-  const comparison = await compareOptimizationMethods<GsmScenario, Artifact>({
-    methods,
+function runComparison(
+  worker: WorkerFn,
+  scenarios: Scenarios,
+  optimizers: Optimizers,
+  runRoot: string,
+): Promise<Comparison> {
+  return compareOptimizationMethods<GsmScenario, Artifact>({
+    methods: buildMethods(optimizers),
     baselineSurface: BASELINE_SURFACE,
-    trainScenarios,
-    selectionScenarios,
-    testScenarios,
+    trainScenarios: scenarios.train,
+    selectionScenarios: scenarios.selection,
+    testScenarios: scenarios.test,
     dispatchWithSurface: (surface, scenario, ctx) =>
       worker(String(surface), scenario as GsmScenario, ctx),
     judges: [judge],
@@ -435,7 +475,14 @@ async function main() {
     dispatchTimeoutMs: CALL_TIMEOUT_MS,
     expectUsage: 'assert',
   })
+}
 
+function summarizeRun(
+  comparison: Comparison,
+  baselineSmoke: number,
+  smokeLedger: CostLedger,
+  startedAt: number,
+): RunSummary {
   const integrity = summarizeBackendIntegrity(records)
   assertRealBackend(records, { allowMixed: false })
   const best = comparison.best
@@ -446,16 +493,35 @@ async function main() {
     integrity.verdict === 'real' && best.liftCi.low > 0
       ? 'interval-above-zero'
       : 'interval-includes-zero-or-backend-invalid'
+  return {
+    comparison,
+    integrity,
+    best,
+    baselineSmoke,
+    baselineSmokeCostUsd,
+    totalCostUsd,
+    elapsedSec,
+    testResult,
+  }
+}
 
-  const artifact = {
+function buildArtifact(
+  scenarios: Scenarios,
+  optimizers: Optimizers,
+  startedAt: number,
+  summary: RunSummary,
+) {
+  const { comparison, integrity, best, baselineSmoke, baselineSmokeCostUsd, totalCostUsd } = summary
+  const { gepaModelBudget, skillOptModelBudget, gepaOwner, skillOptOwner } = optimizers
+  return {
     task: {
       corpus: 'gsm8k',
       judge: 'deterministic-exact-match',
-      trainN: trainScenarios.length,
-      selectionN: selectionScenarios.length,
-      testN: testScenarios.length,
-      trainScenarioIds: trainScenarios.map(({ id }) => id),
-      selectionScenarioIds: selectionScenarios.map(({ id }) => id),
+      trainN: scenarios.train.length,
+      selectionN: scenarios.selection.length,
+      testN: scenarios.test.length,
+      trainScenarioIds: scenarios.train.map(({ id }) => id),
+      selectionScenarioIds: scenarios.selection.map(({ id }) => id),
       testScenarioIds: comparison.testScenarioIds,
     },
     models: {
@@ -564,14 +630,29 @@ async function main() {
       publishedAt: new Date(startedAt).toISOString(),
       command: process.argv,
       workerLlmCalls: records.length,
-      elapsedSec,
+      elapsedSec: summary.elapsedSec,
     },
-    testResult,
+    testResult: summary.testResult,
   }
+}
 
-  const artifactPath = join(runRoot, 'comparison.json')
+function writeAndReport(
+  artifact: ReturnType<typeof buildArtifact>,
+  summary: RunSummary,
+  output: RunOutput,
+): void {
+  const {
+    comparison,
+    integrity,
+    best,
+    baselineSmokeCostUsd,
+    totalCostUsd,
+    elapsedSec,
+    testResult,
+  } = summary
+  const artifactPath = join(output.runRoot, 'comparison.json')
   writeFileSync(artifactPath, JSON.stringify(artifact, null, 2))
-  writeFileSync(join(outputRoot, 'latest.json'), JSON.stringify(artifact, null, 2))
+  writeFileSync(join(output.outputRoot, 'latest.json'), JSON.stringify(artifact, null, 2))
 
   console.log('GSM8K comparison results, ranked by test lift')
   for (const s of artifact.comparison.scores) {
@@ -588,6 +669,34 @@ async function main() {
   console.log(`  best=${best.name} lift=${round(best.lift)} CI.low=${round(best.liftCi.low)}`)
   console.log(`  testResult=${testResult}`)
   console.log(`  artifact: ${artifactPath}`)
+}
+
+async function main() {
+  const scenarios = await loadScenarios()
+  const optimizers = await resolveOptimizers()
+
+  const worker = makeWorker()
+  const outputRoot = join(process.cwd(), '.evolve', 'benchmarks', 'gsm8k-proposer-comparison')
+  const runRoot = join(outputRoot, String(Date.now()))
+  mkdirSync(runRoot, { recursive: true })
+  const startedAt = Date.now()
+
+  console.log('GSM8K: official GEPA and SkillOpt')
+  console.log(`  model=${MODEL}  base=${BASE_URL}`)
+  console.log(
+    `  train=${scenarios.train.length} selection=${scenarios.selection.length} final=${scenarios.test.length}`,
+  )
+
+  const { baselineSmoke, smokeLedger } = await runBaselineSmoke(worker, scenarios.selection)
+  if (SMOKE) {
+    console.log('SMOKE=1: baseline only, stopping before optimization.')
+    return
+  }
+
+  const comparison = await runComparison(worker, scenarios, optimizers, runRoot)
+  const summary = summarizeRun(comparison, baselineSmoke, smokeLedger, startedAt)
+  const artifact = buildArtifact(scenarios, optimizers, startedAt, summary)
+  writeAndReport(artifact, summary, { outputRoot, runRoot, startedAt })
 }
 
 main().catch((err) => {
