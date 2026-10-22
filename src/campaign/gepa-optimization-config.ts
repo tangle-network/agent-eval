@@ -1,9 +1,9 @@
+import { isRecord } from '../llm-client/json'
 import {
   assertJsonValue,
   assertNoCredentialValues,
   resolveExternalOptimizerCallbackLimits,
 } from './external-optimizer-process'
-import { isRecord } from '../llm-client/json'
 import { snapshotExternalOptimizerRunner } from './external-optimizer-run-config'
 import type {
   GepaAdaptiveEngineRun,
