@@ -11,7 +11,7 @@ import { CaptureIntegrityError } from '../errors'
 import type { MatchedBudgetRule } from './ast/budget'
 
 /** Arms whose realized budgets diverge past the registered tolerance. */
-export class MatchedBudgetError extends CaptureIntegrityError {}
+class MatchedBudgetError extends CaptureIntegrityError {}
 
 export interface ArmRealizedBudget {
   armId: string

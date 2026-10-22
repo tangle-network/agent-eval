@@ -13,7 +13,7 @@
  * typed failure, and nothing here reads a file or the network.
  */
 
-export const DOMAIN_TAXONOMY_SCHEMA = 'agent-eval.domain-taxonomy.v1'
+const DOMAIN_TAXONOMY_SCHEMA = 'agent-eval.domain-taxonomy.v1'
 
 /** Id of the implicit root every top-level domain hangs under. */
 export const LAB_NODE_ID = 'lab'

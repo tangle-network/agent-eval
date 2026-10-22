@@ -19,7 +19,7 @@ import { evaluatePredicate } from './ast/predicate'
 import type { AdmissionRule } from './ast/selection'
 
 /** A funnel stage gained rows, double-counted them, or failed to reconcile. */
-export class FunnelIntegrityError extends CaptureIntegrityError {}
+class FunnelIntegrityError extends CaptureIntegrityError {}
 
 export interface FunnelStageCount {
   id: string
@@ -141,7 +141,7 @@ export function buildFunnel(input: {
 }
 
 /** A chain that does not add up is a broken denominator, so this throws. */
-export function assertFunnelReconciles(funnel: ExperimentFunnel): void {
+function assertFunnelReconciles(funnel: ExperimentFunnel): void {
   const excluded = funnel.stages.reduce((sum, stage) => sum + stage.excluded, 0)
   if (funnel.input !== funnel.surviving + excluded) {
     throw new FunnelIntegrityError(

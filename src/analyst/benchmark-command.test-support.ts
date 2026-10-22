@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { onTestFinished } from 'vitest'
-import { ANALYST_BENCHMARK_OBSERVATIONS_FILE } from './benchmark-command'
 import type { AnalystUsageReceipt } from './types'
 
 export const UNKNOWN_USAGE: AnalystUsageReceipt = {
@@ -16,24 +15,6 @@ export const AGENT_RX_TEST_REVISION = 'abcdef0123456789abcdef0123456789abcdef01'
 export const TEST_MODEL_OWNER_MODULE = fileURLToPath(
   new URL('../../tests/fixtures/benchmark-model-owner.mjs', import.meta.url),
 )
-
-export async function progressRows(outDir: string): Promise<
-  Array<{
-    sequence: number
-    observation: {
-      runnerId: string
-      caseId: string
-      repetition: number
-    }
-  }>
-> {
-  const text = await readFile(join(outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE), 'utf8')
-  return text
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
-}
 
 export async function codeTraceFixture(
   options: { labeledStep?: number; withVerificationArtifacts?: boolean } = {},
@@ -176,28 +157,6 @@ export function agentRxCommandArgs(fixture: {
     '--limit',
     '1',
   ]
-}
-
-export function codeTraceRow(
-  id: string,
-  options: {
-    agent: string
-    model: string
-    difficulty: string
-    solved: boolean
-    incorrect: number[]
-  },
-): Record<string, unknown> {
-  return {
-    traj_id: id,
-    agent: options.agent,
-    model: options.model,
-    task_name: id,
-    difficulty: options.difficulty,
-    solved: options.solved,
-    step_count: 2,
-    incorrect_stages: [{ stage_id: 1, incorrect_step_ids: options.incorrect }],
-  }
 }
 
 function otlpSpan(traceId: string, spanId: string, output: string): string {

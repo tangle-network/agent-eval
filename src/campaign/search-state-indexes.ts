@@ -73,7 +73,7 @@ export class SearchLedgerIndexes {
   }
 }
 
-export function nodeView(record: NodeRecord): SearchNode {
+function nodeView(record: NodeRecord): SearchNode {
   const latest = record.decisions.at(-1)?.decision ?? null
   return {
     nodeId: record.event.nodeId,

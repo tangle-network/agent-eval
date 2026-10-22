@@ -277,7 +277,7 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
 }
 
 /** Build the durable provenance record from a completed loop result. */
-export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>(
+function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>(
   args: BuildLoopProvenanceArgs<TArtifact, TScenario>,
 ): LoopProvenanceRecord {
   if (!args.runId.trim() || !args.runDir.trim()) {
@@ -726,7 +726,7 @@ function hashId(parts: string[]): string {
  * Times are synthesized monotonically off a single base so the span tree is
  * orderable; the substrate does not retain per-candidate wall-clock starts.
  */
-export function loopProvenanceSpans(
+function loopProvenanceSpans(
   record: LoopProvenanceRecord,
   opts: { baseTimeMs?: number } = {},
 ): TraceSpanEvent[] {

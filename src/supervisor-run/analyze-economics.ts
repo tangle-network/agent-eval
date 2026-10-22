@@ -96,7 +96,7 @@ export function buildPerWorker(a: Analysis, f: SpendFacts, t: TotalUsd): PerWork
 }
 
 /** The supervisor brain's tokens, cache and USD. */
-export function buildBrainSpend(
+function buildBrainSpend(
   a: Analysis,
   f: SpendFacts,
   t: TotalUsd,
@@ -167,7 +167,7 @@ export function buildBrainSpend(
 }
 
 /** The workers' tokens, cache and USD. */
-export function buildWorkerSpend(
+function buildWorkerSpend(
   a: Analysis,
   f: SpendFacts,
   t: TotalUsd,

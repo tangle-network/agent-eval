@@ -11,16 +11,14 @@
  * how: a paired step changed, one run replaced, added or removed a step, or the
  * runs ran the same steps in a different order.
  *
- * `diffSteps` reads plain `DiffStep` lists, so the same diff serves agent-eval
- * trace stores (`firstDivergenceView`) and flat OTLP spans
- * (`diffStepsFromSpans`). Use it to attribute "why is variant B better?" to a
- * step, and to compare sibling or parent and child runs of a search tree.
+ * `diffSteps` reads plain `DiffStep` lists, so the same diff serves any step
+ * source, including flat OTLP spans (`diffStepsFromSpans`). Use it to
+ * attribute "why is variant B better?" to a step, and to compare sibling or
+ * parent and child runs of a search tree.
  */
 
 import type { DiagnosisSpan } from '../diagnosis/spans'
-import type { Span } from '../trace/schema'
-import type { TraceStore } from '../trace/store'
-import { buildTrajectory, type TrajectoryStep } from '../trajectory'
+import type { TrajectoryStep } from '../trajectory'
 
 /** One step of a run, as the diff reads it. */
 export interface DiffStep {
@@ -224,37 +222,6 @@ export interface DivergenceReport {
   commonPrefixLen: number
   /** The step diff behind the first divergence, over trajectory step indexes. */
   diff: StepDiff
-}
-
-export async function firstDivergenceView(
-  store: TraceStore,
-  runA: string,
-  runB: string,
-): Promise<DivergenceReport> {
-  const [a, b] = await Promise.all([buildTrajectory(store, runA), buildTrajectory(store, runB)])
-  const diff = diffSteps(a.steps.map(trajectoryDiffStep), b.steps.map(trajectoryDiffStep))
-  const divergence = diff.firstDivergence
-  return {
-    runA,
-    runB,
-    firstDivergenceIndex: divergence?.index ?? null,
-    ...(divergence?.a != null ? { aStep: a.steps[divergence.a] } : {}),
-    ...(divergence?.b != null ? { bStep: b.steps[divergence.b] } : {}),
-    ...(divergence ? { reason: divergence.reason } : {}),
-    commonPrefixLen: diff.commonPrefixLen,
-    diff,
-  }
-}
-
-function trajectoryDiffStep(step: TrajectoryStep): DiffStep {
-  const span: Span = step.span
-  const fields: Record<string, string | number | boolean | null> = {
-    status: span.status ?? null,
-  }
-  if (span.kind === 'tool') fields.tool = span.toolName
-  if (span.kind === 'llm') fields.model = span.model
-  if (span.kind === 'judge') fields.dimension = span.dimension
-  return { id: span.spanId, name: span.name, kind: span.kind, fields }
 }
 
 // ── flat OTLP spans ───────────────────────────────────────────────────

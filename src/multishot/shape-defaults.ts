@@ -12,7 +12,7 @@ import type { MultishotPersona, MultishotShape } from './types'
 
 /** Persona payload rendered as stable `- key: value` lines. `id` is identity,
  *  not voice, and structured values are serialized so nothing is dropped. */
-export function renderPersonaFacts(persona: MultishotPersona): string {
+function renderPersonaFacts(persona: MultishotPersona): string {
   const lines: string[] = []
   for (const [key, value] of Object.entries(persona)) {
     if (key === 'id' || value === undefined) continue
@@ -27,7 +27,7 @@ export function renderPersonaFacts(persona: MultishotPersona): string {
 
 /** Default opening user message: the persona introduces itself with its whole
  *  payload and asks the agent (as described by the profile) to take over. */
-export function defaultMultishotOpener(profile: AgentProfile, persona: MultishotPersona): string {
+function defaultMultishotOpener(profile: AgentProfile, persona: MultishotPersona): string {
   const facts = renderPersonaFacts(persona)
   const agentDescription = profile.description ?? profile.name ?? 'the agent'
   return [
@@ -40,7 +40,7 @@ export function defaultMultishotOpener(profile: AgentProfile, persona: Multishot
 
 /** Default driver system prompt: roleplay the persona from its payload, stay
  *  in character, push back on vague answers, and never go silent. */
-export function defaultMultishotDriverSystemPrompt(
+function defaultMultishotDriverSystemPrompt(
   profile: AgentProfile,
   persona: MultishotPersona,
 ): string {
