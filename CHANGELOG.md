@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.220.0] — 2026-10-22
+
+- feat(rl): export buildPairwiseFromCampaign from /rl
+
 ## [0.219.0] — 2026-10-22
 
 - docs(census): refresh consumer evidence with restored imports
