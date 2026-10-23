@@ -79,6 +79,22 @@ describe('recorded AgentRx gold admission', () => {
     expect(loaded.value.agentRxRows).toBe(loaded.value.unmapped.length)
   })
 
+  it('refuses invalid root provenance rather than returning a typed but unusable exclusion', async () => {
+    const user = rows.find((row) => row.trajectory_id === 71)!
+    const path = join(dir, 'invalid-root.json')
+    writeFileSync(
+      path,
+      JSON.stringify([
+        {
+          ...user,
+          failures: user.failures.map((failure) => ({ ...failure, step_number: 0 })),
+        },
+      ]),
+    )
+    const loaded = await loadFailureModeGold({ agentRxLabelsPath: path })
+    expect(loaded).toMatchObject({ succeeded: false, error: { kind: 'invalid' } })
+  })
+
   it('preserves the old recorded labels and failed calibration across new source admission', async () => {
     const path = join(fixtures, 'legacy-calibration.json')
     const before = readFileSync(path)

@@ -21,6 +21,7 @@ import { type SystemOneEvaluatorOptions, systemOneAnalyst } from '../systemone'
 import type { SystemOneQuestions, SystemOneState } from '../systemone-protocol'
 import { normalizeAgentRxCategory } from './benchmark-dataset-agentrx'
 import type { AgentRxRow } from './benchmark-dataset-types'
+import { externalId, positiveStep } from './benchmark-dataset-utils'
 import { loadPublicBenchmarkRows } from './benchmark-public-data'
 import type { FindingCalibration, FindingScope } from './finding-scope'
 import { type Analyst, type AnalystContext, type AnalystFinding, makeFinding } from './types'
@@ -135,13 +136,20 @@ function failureModeGoldFromAgentRx(
   const unmapped: FailureModeGold['unmapped'] = []
   const ids = new Set<string>()
   for (const row of rows) {
-    const id = `agentrx:${String(row.trajectory_id)}`
+    const id = `agentrx:${externalId(row.trajectory_id, 'AgentRx trajectory id')}`
     if (ids.has(id)) throw new TypeError(`AgentRx trajectory '${row.trajectory_id}' repeats`)
     ids.add(id)
-    const rootId = row.root_cause_failure_id ?? row.root_cause?.failure_id
+    const rootId = externalId(
+      row.root_cause_failure_id ?? row.root_cause?.failure_id,
+      `AgentRx trajectory '${row.trajectory_id}' root-cause failure id`,
+    )
     const root = row.failures.find((failure) => String(failure.failure_id) === String(rootId))
     if (!root)
       throw new TypeError(`AgentRx trajectory '${row.trajectory_id}' has no root-cause failure`)
+    const step = positiveStep(
+      root.step_number,
+      `AgentRx trajectory '${row.trajectory_id}' root step`,
+    )
     const category = normalizeAgentRxCategory(root.failure_category)
     if (!Object.hasOwn(AGENT_RX_FAILURE_MODE_MAP, category)) {
       throw new RangeError(
@@ -163,7 +171,7 @@ function failureModeGoldFromAgentRx(
         id,
         category,
         reason,
-        root: { failureId: String(root.failure_id), step: root.step_number, actor },
+        root: { failureId: rootId, step, actor },
       })
     } else if (label !== null && label !== undefined) {
       gold.push({ id, label })
