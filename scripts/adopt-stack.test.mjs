@@ -1,10 +1,11 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { lockedVersions, satisfies } from './adopt-stack.mjs'
+import { lockedVersions, mergeWhenApproved, plan, prepareBranch, satisfies, writePlan } from './adopt-stack.mjs'
+import { installedVersion, resolvedVersions } from './adopt-stack-workspace.mjs'
 
 // Recorded package.json files: agent-knowledge at b18171b08fb3 and agent-app at
 // 56dc110cfff7, the two manifests whose peer ranges parked deliveries on
@@ -161,197 +162,93 @@ describe('adopt-stack --dry-run against npm', () => {
   }, 60_000)
 })
 
-// The delivery path against a real local git remote, real pnpm and real npm.
-// Only `gh` is a stand-in: it keeps pull requests in a JSON file and answers the
-// `pr list --json number,body` fields the script reads (checked against
-// `gh pr list --help`), so this proves the script's model of the GitHub API,
-// not GitHub itself.
-// The repository requires a review: a new pull request starts REVIEW_REQUIRED,
-// and a merge before approval is refused with gh's policy message (recorded
-// from agent-knowledge#268). When `state.bot` is on, the approval bot approves
-// right after the script first reads the decision. `state.refusal` makes every
-// merge fail with that message instead.
-const POLICY_REFUSAL = 'X Pull request tangle-network/agent-knowledge#268 is not mergeable: the base branch policy prohibits the merge.\nTo have the pull request merged after all the requirements have been met, add the `--auto` flag.\nTo use administrator privileges to immediately merge the pull request, add the `--admin` flag.'
-const GH_STUB = `#!/usr/bin/env node
-const fs = require('node:fs')
-const file = process.env.GH_STUB_STATE
-const state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { prs: [] }
-const [, sub, ...rest] = process.argv.slice(2)
-const flag = (name) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-const pr = state.prs.find((entry) => String(entry.number) === rest[0])
-let refused = null
-if (sub === 'list') {
-  const open = state.prs.filter((entry) => entry.state === 'open' && entry.head === flag('--head') && entry.base === flag('--base'))
-  const fields = flag('--json').split(',')
-  console.log(JSON.stringify(open.map((entry) => Object.fromEntries(fields.map((field) => [field, entry[field]])))))
-} else if (sub === 'create') {
-  const number = state.prs.length + 1
-  state.prs.push({ number, state: 'open', head: flag('--head'), base: flag('--base'), title: flag('--title'), body: fs.readFileSync(flag('--body-file'), 'utf8'), comments: [], reviewDecision: 'REVIEW_REQUIRED', merges: 0, views: 0 })
-  console.log('https://github.com/example/caller/pull/' + number)
-} else if (sub === 'edit') {
-  if (flag('--title')) pr.title = flag('--title')
-  if (flag('--body-file')) pr.body = fs.readFileSync(flag('--body-file'), 'utf8')
-} else if (sub === 'comment') pr.comments.push(flag('--body'))
-else if (sub === 'close') pr.state = 'closed'
-else if (sub === 'view' && flag('--json') === 'reviewDecision') {
-  pr.views++
-  console.log(JSON.stringify({ reviewDecision: pr.reviewDecision }))
-  if (state.bot) pr.reviewDecision = 'APPROVED'
-} else if (sub === 'merge') {
-  pr.merges++
-  if (rest.includes('--admin') || rest.includes('--auto')) refused = 'gh stub: --admin and --auto are forbidden'
-  else if (state.refusal) refused = state.refusal
-  else if (pr.reviewDecision === 'REVIEW_REQUIRED') refused = ${JSON.stringify(POLICY_REFUSAL)}
-  else Object.assign(pr, { state: 'merged', mergedHead: flag('--match-head-commit') })
-} else { console.error('gh stub: unsupported ' + process.argv.slice(2).join(' ')); process.exit(1) }
-fs.writeFileSync(file, JSON.stringify(state))
-if (refused) { console.error(refused); process.exit(1) }
-`
-
-describe('adopt-stack delivery through git, pnpm and a gh stand-in', () => {
-  test('re-gates only a changed plan or a failed gate, and merges when asked', async () => {
+// Real registry artifacts, workspace installs and local Git histories. No gh,
+// registry, filesystem or package-manager stand-ins participate in this proof.
+describe('adopt-stack effective workspace delivery', () => {
+  test.each(['package.json', 'pnpm-workspace.yaml'])('reconciles %s overrides and rejects installed drift', async (overrideFile) => {
     const brand = '@tangle-network/brand'
-    const latestBrand = await latest(brand)
-    for (const old of ['1.25.0', '1.26.0']) expect(latestBrand).not.toBe(old)
-
-    const root = mkdtempSync(join(tmpdir(), 'adopt-stack-delivery-'))
-    const bin = join(root, 'bin')
-    mkdirSync(bin)
-    writeFileSync(join(bin, 'gh'), GH_STUB)
-    chmodSync(join(bin, 'gh'), 0o755)
-    writeFileSync(join(root, 'gitconfig'), '')
-    const ghState = join(root, 'gh.json')
-    const gateLog = join(root, 'gates.log')
-    const env = {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      // An empty global config keeps machine hooks and identities out of the run.
-      GIT_CONFIG_GLOBAL: join(root, 'gitconfig'),
-      GIT_CONFIG_NOSYSTEM: '1',
-      GH_STUB_STATE: ghState,
-      GATE_LOG: gateLog,
-      // The approval wait advances on the stand-in's state, not the wall clock.
-      ADOPT_STACK_POLL_MS: '0',
+    const current = await latest(brand)
+    const old = '1.25.0'
+    expect(current).not.toBe(old)
+    const root = mkdtempSync(join(tmpdir(), 'adopt-effective-'))
+    const save = (file, value) => {
+      mkdirSync(dirname(join(root, file)), { recursive: true })
+      writeFileSync(join(root, file), typeof value === 'string' ? value : `${JSON.stringify(value, null, 2)}\n`)
     }
-    const git = (cwd, ...argv) => execFileSync('git', argv, { cwd, env, encoding: 'utf8' }).trim()
-    const seedCommit = (cwd, message) => git(cwd, '-c', 'user.name=seed', '-c', 'user.email=seed@example.com', 'commit', '-qam', message)
-    const remote = join(root, 'remote.git')
-    const seed = join(root, 'seed')
-    const pinBrand = (version) => writeFileSync(join(seed, 'package.json'), `${JSON.stringify({ name: 'adopt-stack-delivery-fixture', private: true, devDependencies: { [brand]: version } }, null, 2)}\n`)
-    const gates = () => readFileSync(gateLog, 'utf8').split('\n').filter(Boolean).length
-    const gh = () => JSON.parse(readFileSync(ghState, 'utf8'))
-    const setGh = (patch) => writeFileSync(ghState, JSON.stringify({ ...gh(), ...patch }))
-    const prs = () => gh().prs
-    const marker = () => /adopt-stack:plan=(\w+) result=([\w-]+)/.exec(prs().at(-1).body).slice(1)
-    const branchHead = () => git(root, 'ls-remote', remote, 'refs/heads/chore/adopt-stack').split(/\s/)[0]
-    let runs = 0
-    const adopt = (gate, ...extra) => {
-      const work = join(root, `work-${++runs}`)
-      git(root, 'clone', '-q', remote, work)
-      return { work, ...spawnSync(process.execPath, [script, '--gate', gate, '--default-branch', 'main', ...extra], { cwd: work, env, encoding: 'utf8' }) }
-    }
-    const pass = 'echo gate >> "$GATE_LOG"'
-    const fail = 'echo gate >> "$GATE_LOG"; exit 1'
-
+    const pnpm = (...args) => execFileSync('pnpm', args, { cwd: root, stdio: 'pipe' })
     try {
-      git(root, 'init', '-q', '--bare', '-b', 'main', remote)
-      git(root, 'init', '-q', '-b', 'main', seed)
-      pinBrand('1.25.0')
-      // A tracked file the post-pin command rewrites, like agent-app's peer floors.
-      writeFileSync(join(seed, 'floors.json'), '{}\n')
-      writeFileSync(join(seed, 'pnpm-workspace.yaml'), 'autoInstallPeers: false\nminimumReleaseAgeExclude:\n  - "@tangle-network/*"\n')
-      execFileSync('pnpm', ['install', '--lockfile-only'], { cwd: seed, env, stdio: 'pipe' })
-      git(seed, 'add', '.')
-      seedCommit(seed, 'seed')
-      git(seed, 'remote', 'add', 'origin', remote)
-      git(seed, 'push', '-q', 'origin', 'main')
-      writeFileSync(ghState, JSON.stringify({ prs: [], bot: true }))
-
-      const first = adopt(pass)
-      expect(first.status, first.stderr).toBe(0)
-      expect(prs()).toHaveLength(1)
-      expect(prs()[0].title).toBe(`chore(deps): adopt ${brand} ${latestBrand}`)
-      const [firstPlan, firstResult] = marker()
-      expect(firstResult).toBe('pass')
-      const firstHead = branchHead()
-      expect(gates()).toBe(1)
-
-      const same = adopt(pass)
-      expect(same.status, same.stderr).toBe(0)
-      expect(same.stdout).toContain(`already proposes plan ${firstPlan}`)
-      expect([gates(), branchHead()]).toEqual([1, firstHead])
-
-      // One version changes on the default branch, so the plan and the head
-      // change; this run's gate fails.
-      pinBrand('1.26.0')
-      seedCommit(seed, 'pin brand 1.26.0')
-      git(seed, 'push', '-q', 'origin', 'main')
-      const failed = adopt(fail)
-      expect(failed.status).toBe(1)
-      expect(gates()).toBe(2)
-      expect(branchHead()).not.toBe(firstHead)
-      const [changedPlan, failedResult] = marker()
-      expect([changedPlan === firstPlan, failedResult]).toEqual([false, 'gate-fail'])
-      expect(prs()).toHaveLength(1)
-
-      // The recorded gate failure is retried on the same plan.
-      const retried = adopt(pass)
-      expect(retried.status, retried.stderr).toBe(0)
-      expect(marker()).toEqual([changedPlan, 'pass'])
-      expect(gates()).toBe(3)
-      const retriedHead = branchHead()
-
-      // A failing post-pin command fails the run with its output before the
-      // gate, the branch switch or any commit; the proposal stays as it was.
-      const mainHead = git(root, 'ls-remote', remote, 'refs/heads/main').split(/\s/)[0]
-      const refused = adopt(pass, '--post-pin', 'echo peer floors stale >&2; exit 3')
-      expect(refused.status).toBe(1)
-      expect(refused.stderr).toMatch(/post-pin `echo peer floors stale >&2; exit 3` exited 3; nothing was committed:\npeer floors stale/)
-      expect([gates(), branchHead(), marker()]).toEqual([3, retriedHead, [changedPlan, 'pass']])
-      expect([git(refused.work, 'branch', '--show-current'), git(refused.work, 'rev-parse', 'HEAD')]).toEqual(['main', mainHead])
-
-      // A post-pin command is part of the plan, so it re-gates; the files it
-      // creates or edits join the adoption commit and the pull request body.
-      // The first merge is refused while the review is required; the bot
-      // approves, and the identical merge succeeds.
-      const sync = `node -e "const fs = require('node:fs'), pins = JSON.stringify(require('./package.json').devDependencies); fs.writeFileSync('template.json', pins); fs.writeFileSync('floors.json', pins)"`
-      const merged = adopt(pass, '--merge', '--post-pin', sync)
-      expect(merged.status, merged.stderr).toBe(0)
-      expect(gates()).toBe(4)
-      expect(merged.stdout).toContain('awaits a required approval')
-      expect(merged.stdout).toContain(`merged #1 at ${branchHead().slice(0, 12)}`)
-      expect(prs()[0]).toMatchObject({ state: 'merged', mergedHead: branchHead(), reviewDecision: 'APPROVED', merges: 2, views: 1 })
-      expect(prs()[0].body).toContain(`Post-pin: \`${sync}\` changed \`floors.json\`, \`template.json\`.`)
-      const adopted = JSON.parse(git(remote, 'show', `${branchHead()}:package.json`))
-      expect(adopted.devDependencies[brand]).toBe(latestBrand)
-      for (const file of ['template.json', 'floors.json']) expect(JSON.parse(git(remote, 'show', `${branchHead()}:${file}`))[brand]).toBe(latestBrand)
-      expect(git(remote, 'log', '-1', '--format=%an', branchHead())).toBe('github-actions[bot]')
-
-      // Any other refusal ends merge-refused on the first attempt, with no
-      // review decision read and so no wait.
-      const conflict = 'X Pull request example/caller#2 is not mergeable: the merge commit cannot be cleanly created.'
-      setGh({ refusal: conflict, bot: false })
-      const other = adopt(pass, '--merge')
-      expect(other.status).toBe(1)
-      expect(other.stderr).toContain('merging #2 failed: the merge was refused')
-      expect(marker()).toEqual([expect.any(String), 'merge-refused'])
-      expect(prs()[1]).toMatchObject({ state: 'open', merges: 1, views: 0 })
-      expect(prs()[1].comments.at(-1)).toContain(`but the merge was refused:\n\n\`\`\`\n${conflict}\n`)
-
-      // A required approval that never lands ends merge-refused once the wait
-      // runs out, and the comment says so.
-      setGh({ refusal: null })
-      env.ADOPT_STACK_WAIT_MS = '0'
-      const unapproved = adopt(pass, '--merge')
-      expect(unapproved.status).toBe(1)
-      expect(unapproved.stderr).toContain('merging #2 failed: the required approval had not landed after 0 min')
-      expect(marker()).toEqual([expect.any(String), 'merge-refused'])
-      expect(prs()).toHaveLength(2)
-      expect(prs()[1]).toMatchObject({ state: 'open', reviewDecision: 'REVIEW_REQUIRED', merges: 2, views: 1 })
-      expect(prs()[1].comments.at(-1)).toContain('but the required approval had not landed after 0 min:')
-      expect(prs()[1].comments.at(-1)).toContain('the base branch policy prohibits the merge')
+      const pkg = { name: 'adopt-effective-integration', private: true, dependencies: { [brand]: current }, pnpm: { minimumReleaseAgeExclude: [`${brand}@${old}`] } }
+      if (overrideFile === 'package.json') pkg.pnpm.overrides = { [brand]: old, [`fixture-parent>${brand}`]: `$${brand}` }
+      save('package.json', pkg)
+      save('pnpm-workspace.yaml', `packages:\n  - 'apps/*'\nautoInstallPeers: false\nminimumReleaseAgeExclude:\n  - '${brand}@${old}'\n${overrideFile === 'pnpm-workspace.yaml' ? `overrides:\n  '${brand}': '${old}'\n  'fixture-parent>${brand}': '$${brand}'\n` : ''}`)
+      save('apps/web/package.json', { name: 'adopt-web', private: true, dependencies: { [brand]: old } })
+      save('apps/server/package.json', { name: 'adopt-server', private: true, dependencies: { [brand]: old } })
+      pnpm('install', '--ignore-scripts')
+      // Tax's false-green calibration: root says latest, actual install is old.
+      expect(installedVersion(root, 'package.json', brand)).toBe(old)
+      expect(() => resolvedVersions(root, new Map([[brand, current]]))).toThrow(/effective resolution differs/)
+      const result = await plan(root, [brand])
+      for (const file of ['apps/web/package.json', 'apps/server/package.json']) expect(result.edits.some((edit) => edit.file === file && edit.name === brand && edit.to === current)).toBe(true)
+      writePlan(root, result)
+      pnpm('install', '--no-frozen-lockfile', '--ignore-scripts')
+      pnpm('install', '--frozen-lockfile', '--ignore-scripts')
+      const rows = resolvedVersions(root, new Map(result.expected))
+      expect(rows).toHaveLength(3)
+      for (const row of rows) expect({ locked: row.locked, installed: row.installed, verified: row.verified }).toEqual({ locked: current, installed: current, verified: true })
+      expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).pnpm.minimumReleaseAgeExclude).toEqual([`${brand}@${current}`])
+      expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(`'${brand}@${current}'`)
+      expect((await plan(root, [brand])).edits).toEqual([])
+      if (overrideFile === 'package.json') {
+        // An old proposal + independently advanced default retain both histories.
+        save('.gitignore', 'node_modules/\n')
+        const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+        const remote = mkdtempSync(join(tmpdir(), 'adopt-effective-remote-'))
+        const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
+        try {
+          git(root, 'init', '-q', '-b', 'main')
+          git(remote, 'init', '-q', '--bare', '-b', 'main')
+          git(root, 'add', '.')
+          git(root, 'commit', '-qm', 'Seed installed workspace')
+          git(root, 'remote', 'add', 'origin', remote)
+          git(root, 'push', '-q', 'origin', 'main')
+          git(root, 'switch', '-c', 'chore/adopt-stack')
+          save('proposal.txt', 'retained proposal\n')
+          git(root, 'add', 'proposal.txt')
+          git(root, 'commit', '-qm', 'Retain owned proposal')
+          const previous = git(root, 'rev-parse', 'HEAD')
+          git(root, 'push', '-q', 'origin', 'chore/adopt-stack')
+          git(root, 'switch', 'main')
+          save('default.txt', 'advanced default\n')
+          git(root, 'add', 'default.txt')
+          git(root, 'commit', '-qm', 'Advance default independently')
+          const base = git(root, 'rev-parse', 'HEAD')
+          git(root, 'push', '-q', 'origin', 'main')
+          git(root, 'clone', '-q', remote, caller)
+          const prepared = prepareBranch(caller, 'main')
+          expect(prepared).toEqual({ base, proposal: true })
+          git(caller, 'merge-base', '--is-ancestor', previous, 'HEAD')
+          git(caller, 'merge-base', '--is-ancestor', base, 'HEAD')
+          const recovered = await plan(caller, [brand])
+          expect(recovered.edits).toEqual([])
+          expect(recovered.installRequired).toBe(false)
+          // Ordinary push accepts this retained ancestry; no forced update.
+          git(caller, 'push', '-q', 'origin', 'HEAD:refs/heads/chore/adopt-stack')
+          const pushed = git(root, 'ls-remote', 'origin', 'refs/heads/chore/adopt-stack').split(/\s/)[0]
+          expect(pushed).toBe(git(caller, 'rev-parse', 'HEAD'))
+          save('default.txt', 'default moved after gate\n')
+          git(root, 'add', 'default.txt')
+          git(root, 'commit', '-qm', 'Move default after captured gate base')
+          git(root, 'push', '-q', 'origin', 'main')
+          const moved = git(root, 'rev-parse', 'HEAD')
+          // This returns before any GitHub command: the actual remote is the gate.
+          expect(await mergeWhenApproved(caller, 1, pushed, prepared.base, 'main')).toEqual({ moved })
+        } finally {
+          rmSync(remote, { recursive: true, force: true })
+          rmSync(caller, { recursive: true, force: true })
+        }
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 300_000)
+  }, 180_000)
 })
