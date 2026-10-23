@@ -302,3 +302,30 @@ separation or equivalence. Their numeric point estimates remain `0` for compatib
 this is a placeholder, not a measured zero. Retain the trial count with Wilson
 results, and use the returned `n` for paired results, before displaying an estimate.
 Nonempty-sample estimators retain their existing semantics and limitations.
+
+### As-assigned and as-formed arm populations
+
+Supply `assignments` to the existing `comparePairedArms(rows, options)` reader when the
+expected seed population is known. Each roster entry names `arm`, `pairKey`, optional
+`repKey` and optional treatment array. Build this roster independently of completed run
+records; a roster inferred from successful runs cannot reveal missing assignments.
+
+Observation rows retain `pass` and `metrics` independently of their optional
+`formation: { formed, reason? }` verdict. The execution owner defines formation; this
+reader consumes its boolean or explicit null. Null or absent outcomes/metrics are unknown,
+while false and zero are measurements. A team-not-formed record can still have an observed
+acceptance result and cost, and those stay in the as-assigned summary.
+
+With a roster, `armPopulations` reports each arm's assignments, missing observations,
+formed/not-formed/unknown counts and both `asAssigned` and `asFormed` summaries. Only an
+explicit true formation verdict enters as-formed. Each summary reports all its units,
+passes, failures, missing outcomes and metric-specific observed/missing denominators.
+`passRate` is null when any outcome is missing; metric sums/means are null when no reading
+exists. This prevents an absent result from becoming a measured failure or zero cost.
+
+The same left join supplies matched-pair statistics: missing seeds carry identity-only
+placeholder rows, so pair coverage includes declared seed identities while correctness
+and metric statistics still require actual observations on both sides. Duplicate
+assignments, results outside the roster and corrupt metrics fail loudly. Without a roster,
+the existing observed-pair behavior remains and `armPopulations` is absent: the assignment
+population is unknown, never inferred from completed rows.

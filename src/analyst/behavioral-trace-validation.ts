@@ -9,7 +9,7 @@ import {
   type BehavioralTraceWindow,
 } from './behavioral-trace-questions'
 import { snapshotExactExecutionComponentIdentity } from './exact-types'
-import { findingCalibrationSchema, findingEvidenceRefSchema } from './finding-scope'
+import { findingCalibrationSchema, findingEvidenceRefSchema } from './finding-primitives'
 
 const identity = z.string().refine(validDecisionIdentity)
 const timestamp = z.string().refine((s) => Number.isFinite(Date.parse(s)))

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { findingCalibrationSchema, findingEvidenceRefSchema } from './analyst/finding-scope'
+import { findingCalibrationSchema, findingEvidenceRefSchema } from './analyst/finding-primitives'
 import type { FindingsLedger, FindingsLedgerOutcome } from './analyst/findings-ledger'
 import type { AnalystFinding } from './analyst/types'
 import { calibrationFromPairs } from './meta-eval/calibration'

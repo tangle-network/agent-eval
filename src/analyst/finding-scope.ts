@@ -21,6 +21,8 @@
  */
 
 import { z } from 'zod'
+import { findingConditionsSchema, findingTreatmentSchema } from './finding-composition'
+import { findingCalibrationSchema, findingEvidenceRefSchema } from './finding-primitives'
 import {
   ANALYST_SEVERITIES,
   type AnalystFinding,
@@ -128,26 +130,6 @@ const scopeSchema = z
   })
   .strict()
 
-/** Shared validation for every independently scored finding method. */
-export const findingCalibrationSchema = z
-  .object({
-    gold_n: z.number().int().positive(),
-    agreement: unitRate,
-    kappa: finite.refine((value) => value >= -1 && value <= 1, {
-      message: 'must be in [-1,1]',
-    }),
-  })
-  .strict()
-
-/** Evidence references have one shape on definitions and stored findings. */
-export const findingEvidenceRefSchema = z
-  .object({
-    kind: z.enum(['span', 'event', 'artifact', 'finding', 'metric']),
-    uri: nonEmpty,
-    excerpt: z.string().optional(),
-  })
-  .strict()
-
 const methodSchema = z
   .object({
     kind: z.enum(['computed', 'measured', 'judged']),
@@ -202,6 +184,8 @@ const findingObject = z
     valid_for: nonEmpty.optional(),
     claim_id: nonEmpty.optional(),
     evidence_units: z.array(evidenceUnitSchema).min(1).optional(),
+    treatment: z.array(findingTreatmentSchema).optional(),
+    conditions: z.array(findingConditionsSchema).optional(),
   })
   .strict()
 
@@ -241,6 +225,11 @@ function checkFinding(finding: FindingShape, context: z.RefinementCtx): void {
   }
   if (finding.method?.kind !== 'judged' && finding.method?.calibration !== undefined) {
     issue(['method', 'calibration'], 'only judged findings carry a calibration')
+  }
+  for (const field of ['treatment', 'conditions'] as const) {
+    const values = finding[field]
+    if (values && new Set(values.map((value) => value.id)).size !== values.length)
+      issue([field], 'composition ids must be unique')
   }
   if (!units) return
   const ids = units.map((unit) => unit.id)
