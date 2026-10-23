@@ -180,7 +180,7 @@ function failureModeGoldFromAgentRx(
   return { gold, unmapped }
 }
 
-/** Validate a caller's gold file: a JSON array of `{ id, label }` with unique ids and known labels. */
+/** Validate caller gold with unique, whitespace-unambiguous ids and known labels. */
 function parseFailureModeGold(raw: unknown): FailureModesOutcome<FailureModeLabelItem[]> {
   if (!Array.isArray(raw)) {
     return { succeeded: false, error: { kind: 'invalid', message: 'gold must be a JSON array' } }
@@ -196,6 +196,15 @@ function parseFailureModeGold(raw: unknown): FailureModesOutcome<FailureModeLabe
         error: {
           kind: 'invalid',
           message: `gold row ${index} needs a string id and a known label`,
+        },
+      }
+    }
+    if (id !== id.trim()) {
+      return {
+        succeeded: false,
+        error: {
+          kind: 'invalid',
+          message: `gold row ${index} id must not have surrounding whitespace`,
         },
       }
     }
