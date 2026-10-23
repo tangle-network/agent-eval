@@ -1,0 +1,45 @@
+{
+  "revision": "f228165bfec60a801fd5fedd9d8ffe0f9de0c69d",
+  "licence": "MIT",
+  "files": [
+    {
+      "path": "data/ground_truth/tau_ground_truth.json",
+      "sha256": "58067689b2ec42f9cbfec2a84ec08d39cea4d8270617b55d0185862753642d16",
+      "url": "https://github.com/microsoft/AgentRx/blob/f228165bfec60a801fd5fedd9d8ffe0f9de0c69d/data/ground_truth/tau_ground_truth.json"
+    },
+    {
+      "path": "data/tau_retail/tau_dataset_failed.json",
+      "sha256": "17f8b3356d1124274cc7ed0215b5ff696970073dbed57394c60e775d5f85d717",
+      "url": "https://github.com/microsoft/AgentRx/blob/f228165bfec60a801fd5fedd9d8ffe0f9de0c69d/data/tau_retail/tau_dataset_failed.json"
+    },
+    {
+      "path": "LICENSE.txt",
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "url": "https://github.com/microsoft/AgentRx/blob/f228165bfec60a801fd5fedd9d8ffe0f9de0c69d/LICENSE.txt"
+    }
+  ],
+  "selection": {
+    "labels": [
+      2,
+      12,
+      71
+    ],
+    "observations": {
+      "2": [
+        6,
+        7
+      ],
+      "71": [
+        23,
+        24
+      ]
+    },
+    "legacyReceipt": "Exact original20 item rows and calibration; never passed through the new eligibility selection."
+  },
+  "fixtureHashes": {
+    "LICENSE.txt": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "labels.json": "392a988916ec290ea2d67ce21cb981a263884994b5b332bdb769daf2ca2fd865",
+    "observations.json": "418d06ed527553b1029f11f74fbfb340a88a16f2636248c048452a5901ffc265",
+    "legacy-calibration.json": "c38e770c12ac379e79264ce9ebf064d76194ddcb9687c4a79d09b3a62664735f"
+  }
+}

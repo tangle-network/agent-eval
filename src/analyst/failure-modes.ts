@@ -21,6 +21,7 @@ import { type SystemOneEvaluatorOptions, systemOneAnalyst } from '../systemone'
 import type { SystemOneQuestions, SystemOneState } from '../systemone-protocol'
 import { normalizeAgentRxCategory } from './benchmark-dataset-agentrx'
 import type { AgentRxRow } from './benchmark-dataset-types'
+import { externalId, positiveStep } from './benchmark-dataset-utils'
 import { loadPublicBenchmarkRows } from './benchmark-public-data'
 import type { FindingCalibration, FindingScope } from './finding-scope'
 import { type Analyst, type AnalystContext, type AnalystFinding, makeFinding } from './types'
@@ -69,12 +70,16 @@ const AGENT_RX_FAILURE_MODE_MAP: Readonly<Record<string, FailureModeLabel | null
   'invalid-invocation': 'invalid-tool-invocation',
   'misinterpretation-of-tool-output-handoff-failure': 'misread-tool-output',
   'intent-plan-misalignment': 'task-derailment',
-  'underspecified-user-intent': 'fail-to-ask-for-clarification',
+  // An underspecified user request is not evidence that an agent failed to clarify it.
+  'underspecified-user-intent': null,
   'intent-not-supported': null,
   'guardrails-triggered': null,
   'system-failure': 'system-failure',
   inconclusive: null,
 }
+
+/** Agent roles in the pinned public AgentRx datasets; unfamiliar actors stay unknown. */
+const AGENT_RX_AGENT_ACTORS = new Set(['assistant', 'orchestrator', 'websurfer', 'filesurfer'])
 
 export const FAILURE_MODES_QUESTIONS = {
   failure_mode: {
@@ -124,18 +129,27 @@ function isLabel(value: unknown): value is FailureModeLabel {
 }
 
 /** Gold labels from AgentRx rows: each trajectory's root-cause category, mapped onto this set. */
-function failureModeGoldFromAgentRx(rows: readonly AgentRxRow[]): {
-  gold: FailureModeLabelItem[]
-  unmapped: Array<{ id: string; category: string }>
-} {
+function failureModeGoldFromAgentRx(
+  rows: readonly AgentRxRow[],
+): Pick<FailureModeGold, 'gold' | 'unmapped'> {
   const gold: FailureModeLabelItem[] = []
-  const unmapped: Array<{ id: string; category: string }> = []
+  const unmapped: FailureModeGold['unmapped'] = []
+  const ids = new Set<string>()
   for (const row of rows) {
-    const id = `agentrx:${String(row.trajectory_id)}`
-    const rootId = row.root_cause_failure_id ?? row.root_cause?.failure_id
+    const id = `agentrx:${externalId(row.trajectory_id, 'AgentRx trajectory id')}`
+    if (ids.has(id)) throw new TypeError(`AgentRx trajectory '${row.trajectory_id}' repeats`)
+    ids.add(id)
+    const rootId = externalId(
+      row.root_cause_failure_id ?? row.root_cause?.failure_id,
+      `AgentRx trajectory '${row.trajectory_id}' root-cause failure id`,
+    )
     const root = row.failures.find((failure) => String(failure.failure_id) === String(rootId))
     if (!root)
       throw new TypeError(`AgentRx trajectory '${row.trajectory_id}' has no root-cause failure`)
+    const step = positiveStep(
+      root.step_number,
+      `AgentRx trajectory '${row.trajectory_id}' root step`,
+    )
     const category = normalizeAgentRxCategory(root.failure_category)
     if (!Object.hasOwn(AGENT_RX_FAILURE_MODE_MAP, category)) {
       throw new RangeError(
@@ -143,8 +157,25 @@ function failureModeGoldFromAgentRx(rows: readonly AgentRxRow[]): {
       )
     }
     const label = AGENT_RX_FAILURE_MODE_MAP[category]
-    if (label === null || label === undefined) unmapped.push({ id, category })
-    else gold.push({ id, label })
+    const actor = typeof root.failed_agent === 'string' ? root.failed_agent.trim() || null : null
+    const reason =
+      actor === null
+        ? 'unknown-root-actor'
+        : !AGENT_RX_AGENT_ACTORS.has(actor.toLowerCase())
+          ? 'unsupported-root-actor'
+          : label === null || label === undefined
+            ? 'category-without-counterpart'
+            : null
+    if (reason !== null) {
+      unmapped.push({
+        id,
+        category,
+        reason,
+        root: { failureId: rootId, step, actor },
+      })
+    } else if (label !== null && label !== undefined) {
+      gold.push({ id, label })
+    }
   }
   return { gold, unmapped }
 }
@@ -186,16 +217,26 @@ export interface FailureModeGoldSources {
 
 export interface FailureModeGold {
   gold: FailureModeLabelItem[]
+  /** Parsed sources with no eligible labels are unknown, never a successful calibration. */
+  eligibility: 'eligible' | 'unknown'
   /** AgentRx rows read from `agentRxLabelsPath`; every one is either in `gold` or in `unmapped`. */
   agentRxRows: number
-  unmapped: Array<{ id: string; category: string }>
+  /** Record this rule beside a new calibration; null when no AgentRx source was supplied. */
+  agentRxMapping: { version: string; target: 'agent-or-team-root-cause' } | null
+  unmapped: Array<{
+    id: string
+    category: string
+    reason: 'unknown-root-actor' | 'unsupported-root-actor' | 'category-without-counterpart'
+    root: { failureId: string; step: number; actor: string | null }
+  }>
 }
 
 /**
  * Load the calibration gold set from the public AgentRx labels and the
  * caller's gold file, through the analyst module's public-dataset loader.
- * Ids must be unique across both sources. No source, or no gold item, is a
- * failure: an empty gold set would calibrate to an undefined κ.
+ * Caller gold ids must be disjoint from all AgentRx ids, including exclusions.
+ * No source or an empty source is invalid. A parsed AgentRx source whose rows are all excluded returns
+ * unknown eligibility with its reasons; it supplies no labels to calibrate.
  */
 export async function loadFailureModeGold(
   sources: FailureModeGoldSources,
@@ -204,12 +245,14 @@ export async function loadFailureModeGold(
     ({ succeeded: false, error: { kind: 'invalid', message } }) as const
   const gold: FailureModeLabelItem[] = []
   let agentRxRows = 0
+  let agentRxMapping: FailureModeGold['agentRxMapping'] = null
   let unmapped: FailureModeGold['unmapped'] = []
   try {
     if (sources.agentRxLabelsPath !== undefined) {
       const rows = await loadPublicBenchmarkRows(sources.agentRxLabelsPath)
       agentRxRows = rows.length
       const mapped = failureModeGoldFromAgentRx(rows as unknown as AgentRxRow[])
+      agentRxMapping = { version: '2', target: 'agent-or-team-root-cause' }
       gold.push(...mapped.gold)
       unmapped = mapped.unmapped
     }
@@ -221,13 +264,23 @@ export async function loadFailureModeGold(
   } catch (error) {
     return invalid(error instanceof Error ? error.message : String(error))
   }
-  if (gold.length === 0) return invalid('failure-modes calibration needs at least one gold item')
-  const ids = new Set<string>()
+  if (gold.length === 0 && unmapped.length === 0)
+    return invalid('failure-modes calibration needs at least one gold item')
+  const ids = new Set(unmapped.map((item) => item.id))
   for (const item of gold) {
     if (ids.has(item.id)) return invalid(`gold id '${item.id}' repeats across sources`)
     ids.add(item.id)
   }
-  return { succeeded: true, value: { gold, agentRxRows, unmapped } }
+  return {
+    succeeded: true,
+    value: {
+      gold,
+      eligibility: gold.length > 0 ? 'eligible' : 'unknown',
+      agentRxRows,
+      agentRxMapping,
+      unmapped,
+    },
+  }
 }
 
 /**

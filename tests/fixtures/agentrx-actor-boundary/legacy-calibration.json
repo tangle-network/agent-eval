@@ -1,0 +1,113 @@
+{
+  "sourceReceiptSha256": "e4d14ff901b6e5f63f42cc2f6262167433159f1cc66e3d4703f8d26913282377",
+  "at": "2026-10-23T04:43:16.676Z",
+  "model": "typesafe/jev-1.13.0",
+  "calibration": {
+    "gold_n": 20,
+    "agreement": 0.15,
+    "kappa": 0.0909090909090909,
+    "missingPredictions": 0
+  },
+  "items": [
+    {
+      "id": "agentrx:tau:2",
+      "gold": "misread-tool-output",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:3",
+      "gold": "misread-tool-output",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:4",
+      "gold": "misread-tool-output",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:12",
+      "gold": "disobey-task-specification",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:20",
+      "gold": "misread-tool-output",
+      "judged": "misread-tool-output"
+    },
+    {
+      "id": "agentrx:tau:21",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:28",
+      "gold": "task-derailment",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:31",
+      "gold": "task-derailment",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:32",
+      "gold": "misread-tool-output",
+      "judged": "invented-information"
+    },
+    {
+      "id": "agentrx:tau:34",
+      "gold": "invalid-tool-invocation",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:38",
+      "gold": "misread-tool-output",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:39",
+      "gold": "task-derailment",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:41",
+      "gold": "task-derailment",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:55",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:59",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:63",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "none"
+    },
+    {
+      "id": "agentrx:tau:71",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:72",
+      "gold": "task-derailment",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:74",
+      "gold": "disobey-task-specification",
+      "judged": "disobey-task-specification"
+    },
+    {
+      "id": "agentrx:tau:79",
+      "gold": "fail-to-ask-for-clarification",
+      "judged": "none"
+    }
+  ]
+}
