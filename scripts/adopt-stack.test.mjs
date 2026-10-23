@@ -224,6 +224,8 @@ describe('adopt-stack effective workspace delivery', () => {
         const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
         try {
           git(root, 'init', '-q', '-b', 'main')
+          git(root, 'config', '--local', 'user.name', 'Adoption integration')
+          git(root, 'config', '--local', 'user.email', 'adoption-integration@example.invalid')
           git(remote, 'init', '-q', '--bare', '-b', 'main')
           git(root, 'add', '.')
           git(root, 'commit', '-qm', 'Seed installed workspace')
