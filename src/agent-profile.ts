@@ -75,11 +75,11 @@ export function expandProfileAxes(spec: ProfileAxisSpec): AgentProfile[] {
   const out: AgentProfile[] = []
   const seen = new Set<string>()
   for (const harness of harnesses) {
-    // A universal (router-backed) harness — opencode/pi/claudish — runs every swept
-    // model. A vendor-locked harness — codex/claude-code/kimi-code — runs only the
-    // swept models in its own family; when it supports NONE of them it snaps to its
-    // native default (the `HARNESS_NATIVE_MODEL` sentinel it resolves at runtime)
-    // rather than being dropped, so every requested harness still appears in the
+    // A universal (router-backed) harness — opencode/pi/claudish, and claude-code/codex
+    // since agent-interface 5.6.0 — runs every swept model. A vendor-locked harness
+    // (kimi-code) runs only the swept models in its own family; when it supports NONE
+    // of them it snaps to its native default (the `HARNESS_NATIVE_MODEL` sentinel it
+    // resolves at runtime) rather than being dropped, so every requested harness still appears in the
     // sweep on a model it can actually run — e.g. sweeping `deepseek/x` puts opencode
     // on deepseek and kimi-code on its own Kimi model, a real head-to-head.
     // `keepIncompatible` forces every (harness, model) pair verbatim (failure-mode runs).
