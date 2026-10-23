@@ -778,7 +778,7 @@ async function main() {
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
   if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch))
   const result = await plan(opts.dir, opts.packages)
-  if (opts.dryRun && opts.postPin && result.edits.length) {
+  if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
   }
   const { files: _files, ...printable } = result
