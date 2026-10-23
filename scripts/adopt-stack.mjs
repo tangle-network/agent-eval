@@ -6,12 +6,11 @@
 //
 // Rules carried over from gtm-agent scripts/agent-app-bump.mjs and
 // discovery-lab .github/workflows/runtime-bump.yml:
-// - One open adoption branch (`chore/adopt-stack`). The pull request body
-//   records a hash of the plan's edits and the last result. A run skips only
-//   when the open pull request records the same hash and a passed gate (and
-//   `--merge` is off); any other plan, a failed gate or a refused merge is
-//   re-gated and replaces the head. A missing or edited marker counts as a
-//   different plan, so the failure mode is one extra gate run.
+// - One open adoption branch (`chore/adopt-stack`). Each delivery normally
+//   merges the captured default into the fetched owned proposal, plans against
+//   that tree, verifies real installed/locked resolutions and gates before an
+//   ordinary fast-forward push. Conflicts retain their state and fail safely.
+//   Existing proposals are re-gated even when the new plan has no pin edits.
 // - Commits use the Actions bot identity, because self-hosted runners have no
 //   git identity and the first discovery-lab bumps died at their first commit.
 // - The planned releases' peer ranges decide the sibling pins: a sibling the
@@ -73,7 +72,8 @@
 // sparse checkout in each caller with no installed dependencies.
 //
 // usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b] [--gate CMD]
-//          [--post-pin CMD] [--default-branch main] [--merge] [--dry-run] [--json]
+//          [--post-pin CMD] [--deploy-workflow NAME] [--default-branch main]
+//          [--merge] [--dry-run] [--json]
 // Without --dry-run it needs git, gh (GH_TOKEN with contents and pull-requests:
 // write) and the caller's package manager.
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -82,6 +82,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync,
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions } from './adopt-stack-workspace.mjs'
 
 const SCOPE = '@tangle-network/'
 const BRANCH = 'chore/adopt-stack'
@@ -89,7 +90,6 @@ const COHORT = 'release/cohort.json'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com']
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
 const EXACT = /^\d+\.\d+\.\d+$/
-const MARKER = /<!-- adopt-stack:plan=([0-9a-f]+) result=(pass|gate-fail|merge-refused) -->/
 // gh's refusal when a required review (or check) is missing; reviewDecision tells which.
 const POLICY = /base branch policy prohibits the merge/
 const POLL_MS = Number(process.env.ADOPT_STACK_POLL_MS || 20_000)
@@ -208,38 +208,7 @@ export function raiseFloor(range, version) {
  * catalogs). Read line by line, since the script has no YAML parser.
  */
 export function lockedVersions(dir) {
-  const importer = new Map()
-  const catalog = new Map()
-  const record = (map, name, value) => {
-    const version = String(value).replace(/^['"]|['"]$/g, '').replace(/\(.*$/, '')
-    if (!release(version)) return
-    if (!map.has(name) || compare(release(version), release(map.get(name))) < 0) map.set(name, version)
-  }
-  const pnpmLock = join(dir, 'pnpm-lock.yaml')
-  const npmLock = join(dir, 'package-lock.json')
-  if (existsSync(pnpmLock)) {
-    const path = []
-    for (const line of readFileSync(pnpmLock, 'utf8').replace(/\r/g, '').split('\n')) {
-      const m = /^( *)(['"]?)([^'":\s][^'":]*)\2:(?:\s+(\S.*))?$/.exec(line)
-      if (!m) continue
-      const depth = m[1].length / 2
-      path.length = depth
-      path[depth] = m[3]
-      if (m[3] !== 'version' || !m[4]) continue
-      // catalogs.<catalog>.<name>.version and importers['.'].<section>.<name>.version
-      if (path[0] === 'catalogs' && depth === 3) record(catalog, path[2], m[4])
-      else if (path[0] === 'importers' && path[1] === '.' && depth === 4 && SECTIONS.includes(path[2])) record(importer, path[3], m[4])
-    }
-  } else if (existsSync(npmLock)) {
-    for (const [key, entry] of Object.entries(JSON.parse(readFileSync(npmLock, 'utf8')).packages ?? {})) {
-      const name = /^node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(key)?.[1]
-      if (name && entry?.version) record(importer, name, entry.version)
-    }
-  }
-  const other = ['yarn.lock', 'bun.lock', 'bun.lockb'].find((file) => existsSync(join(dir, file)))
-  const unread = existsSync(pnpmLock) || existsSync(npmLock) ? (!importer.size && !catalog.size ? 'the lockfile records no root dependency version this script can read' : null)
-    : other ? `${other} is a lockfile this script cannot read` : null
-  return { importer, catalog, unread }
+  return readLocks(dir)
 }
 
 // ---- registry ----
@@ -259,8 +228,6 @@ const newestIn = (doc, ranges) => Object.keys(doc.versions)
   .sort((a, b) => compare(release(a), release(b))).at(-1)
 
 // ---- plan ----
-
-const SECTIONS = ['dependencies', 'devDependencies']
 
 const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
 
@@ -307,11 +274,13 @@ function catalogLines(text, edit) {
 }
 
 export async function plan(dir, requested = []) {
-  const manifestText = readFileSync(join(dir, 'package.json'), 'utf8')
-  const pkg = JSON.parse(manifestText)
-  const found = new Set([...SECTIONS, 'peerDependencies'].flatMap((section) => Object.keys(pkg[section] ?? {}))
-    .filter((name) => name.startsWith(SCOPE) && name !== pkg.name))
-  const names = requested.length ? requested : [...found].sort()
+  const members = manifests(dir)
+  const root = members.find((member) => member.file === 'package.json')
+  const { text: manifestText, pkg } = root
+  const pins = dependencies(members)
+  const found = new Set([...pins.map(({ name }) => name), ...members.flatMap(({ pkg }) => Object.keys(pkg.peerDependencies ?? {}).filter((name) => name.startsWith(SCOPE) && name !== pkg.name))])
+  const callerOwned = new Set(pins.filter(({ spec }) => PROTOCOL.test(spec) && !spec.startsWith('catalog:')).map(({ name }) => name).filter((name) => !pins.some((pin) => pin.name === name && (!PROTOCOL.test(pin.spec) || pin.spec.startsWith('catalog:')))))
+  const names = (requested.length ? requested : [...found].sort()).filter((name) => !callerOwned.has(name))
   for (const name of names) if (!name.startsWith(SCOPE)) throw new Error(`${name} is not a ${SCOPE}* package`)
 
   const docs = new Map()
@@ -324,24 +293,27 @@ export async function plan(dir, requested = []) {
   for (const name of names) targets.set(name, { latest: (await doc(name)).latest, target: (await doc(name)).latest, why: 'npm latest' })
 
   const pinned = new Map()
-  for (const section of SECTIONS) for (const [name, spec] of Object.entries(pkg[section] ?? {})) {
-    if (name.startsWith(SCOPE) && name !== pkg.name) pinned.set(name, spec)
+  for (const { name, spec } of [...pins].sort((a, b) => (a.file === 'package.json' ? -1 : b.file === 'package.json' ? 1 : a.file.localeCompare(b.file)))) {
+    if (!pinned.has(name)) pinned.set(name, spec)
   }
   const workspacePath = join(dir, 'pnpm-workspace.yaml')
   const workspaceText = existsSync(workspacePath) ? readFileSync(workspacePath, 'utf8') : null
   const catalogSpecs = new Map()
   if (workspaceText !== null) catalogLines(workspaceText, (name, spec) => void (catalogSpecs.has(name) || catalogSpecs.set(name, spec)))
   const locks = lockedVersions(dir)
+  for (const versions of locks.importers.values()) for (const [name, version] of versions) if (!locks.importer.has(name)) locks.importer.set(name, version)
   // Every hold, raise and cohort edit reads the lock; guessing it would publish edits no install backs.
   if (locks.unread && pinned.size) throw new Error(`${locks.unread}, so the versions it holds are unknown and no plan is made`)
   const warnings = []
   const warn = (text) => warnings.includes(text) || warnings.push(text)
+  for (const name of callerOwned) warn(`${name}: caller-owned protocol is retained without a registry target; its effective version is unverified`)
+  for (const { file, name, spec } of pins) if (targets.has(name) && PROTOCOL.test(spec) && !spec.startsWith('catalog:')) warn(`${file} ${name}: caller-owned ${spec} is retained; npm latest is not a verified effective version for this pin`)
 
   // The version the root lockfile holds before the plan (an exact pin, else the
   // locked version) and after it (what respec says the edit leaves locked).
   // Peer checks read these, never npm latest.
   const specOf = (name) => (/^catalog:/.test(pinned.get(name) ?? '') ? catalogSpecs.get(name) : pinned.get(name))
-  const before = (name) => (EXACT.test(specOf(name) ?? '') ? specOf(name) : locks.importer.get(name) ?? null)
+  const before = (name) => locks.importer.get(name) ?? (EXACT.test(specOf(name) ?? '') ? specOf(name) : null)
   const planned = (name) => {
     const entry = targets.get(name)
     if (!entry) return before(name)
@@ -442,17 +414,21 @@ export async function plan(dir, requested = []) {
   }
 
   const edits = []
-  for (const section of SECTIONS) for (const [name, spec] of Object.entries(pkg[section] ?? {})) {
+  for (const { file, section, name, spec } of pins) {
     const entry = targets.get(name)
-    const to = entry && respec(spec, entry.target, locks.importer.get(name), entry.force).to
-    if (to) edits.push({ file: 'package.json', section, name, from: spec, to, version: entry.target, why: entry.why })
+    if (!entry) continue
+    const importer = file === 'package.json' ? '.' : file.slice(0, -'/package.json'.length)
+    const locked = locks.importers.get(importer)?.get(name) ?? locks.importer.get(name)
+    const next = respec(spec, entry.target, locked, entry.force || planned(name) === entry.target)
+    if (next.to) edits.push({ file, section, name, from: spec, to: next.to, version: entry.target, why: entry.why })
+    if (!PROTOCOL.test(spec) && next.holds !== planned(name)) throw new Error(`${file} ${name}: conflicting effective versions ${next.holds} and ${planned(name)}; reconcile the caller's ranges before adoption`)
   }
-  for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+  for (const { file, pkg: member } of members) for (const [name, range] of Object.entries(member.peerDependencies ?? {})) {
     const entry = targets.get(name)
     if (!entry || !names.includes(name)) continue
     const to = widenRange(range, entry.target)
     const pinnedAt = entry.target === entry.latest ? `npm latest ${entry.target}` : `${entry.target}, the version pinned`
-    if (to !== range) edits.push({ file: 'package.json', section: 'peerDependencies', name, from: range, to, version: entry.target, why: `upper bound widened to include ${pinnedAt}` })
+    if (to !== range) edits.push({ file, section: 'peerDependencies', name, from: range, to, version: entry.target, why: `upper bound widened to include ${pinnedAt}` })
   }
   const workspace = { edits: [] }
   if (workspaceText !== null) {
@@ -466,16 +442,26 @@ export async function plan(dir, requested = []) {
     })
   }
   edits.push(...workspace.edits)
+  const expected = new Map([...targets.keys()].map((name) => [name, planned(name)]).filter(([, version]) => version))
+  const policy = constraints(members, workspace.text ?? workspaceText, expected, (name, spec) => respec(spec, expected.get(name), locks.importer.get(name), true).to)
+  edits.push(...policy.edits)
+  const installRequired = pins.some(({ file, section, name, spec }) => {
+    if (!expected.has(name) || PROTOCOL.test(spec) && !spec.startsWith('catalog:')) return false
+    return lockedVersion(locks, file, section, name) !== expected.get(name)
+  })
   const cohort = await cohortEdits(dir, (name) => (targets.has(name) ? planned(name) : null))
   edits.push(...cohort.edits)
 
   return {
-    packages: names.map((name) => ({ name, ...targets.get(name) })),
+    packages: names.map((name) => ({ name, ...targets.get(name), effective: expected.get(name) ?? null })),
+    expected: [...expected],
+    unmanaged: [...callerOwned].map((name) => ({ name, verified: false, reason: 'caller-owned protocol retained; no registry target' })),
+    installRequired,
     held: [...targets].filter(([name, entry]) => !names.includes(name) || entry.target !== entry.latest)
       .map(([name, entry]) => ({ name, ...entry })),
     edits,
     warnings,
-    files: { manifestText, pkg, workspaceText: workspace.text, cohortText: cohort.text },
+    files: { manifestText, pkg, members, workspaceText: policy.text, cohortText: cohort.text },
   }
 }
 
@@ -526,6 +512,7 @@ async function sourceRef(name, version, repository) {
  * for one package; several share one pull request. planHash is its identity.
  */
 export function titleOf(edits) {
+  if (!edits.length) return 'chore(deps): verify the existing adoption'
   const names = [...new Set(edits.map((edit) => edit.name))]
   if (names.length > 1) return `chore(deps): adopt ${names.length} ${SCOPE}* packages`
   const pin = edits.find((edit) => edit.section !== 'peerDependencies') ?? edits[0]
@@ -548,11 +535,19 @@ const out = (cmd, argv, cwd) => execFileSync(cmd, argv, { cwd, encoding: 'utf8' 
 const run = (cmd, argv, cwd, env = {}) => spawnSync(cmd, argv, { cwd, stdio: 'inherit', env: { ...process.env, ...env } }).status === 0
 const log = (line) => console.log(`adopt-stack: ${line}`)
 
-function write(dir, result) {
-  const { manifestText, pkg, workspaceText, cohortText } = result.files
-  for (const edit of result.edits) if (edit.file === 'package.json') pkg[edit.section][edit.name] = edit.to
-  const indent = /^([ \t]+)"/m.exec(manifestText)?.[1] ?? '  '
-  writeFileSync(join(dir, 'package.json'), `${JSON.stringify(pkg, null, indent)}\n`)
+export function writePlan(dir, result) {
+  const { members, workspaceText, cohortText } = result.files
+  for (const member of members) {
+    const edits = result.edits.filter((edit) => edit.file === member.file)
+    if (!edits.length) continue
+    for (const edit of edits) {
+      const path = edit.path ?? [edit.section, edit.name]
+      const parent = path.slice(0, -1).reduce((obj, key) => obj[key], member.pkg)
+      parent[path.at(-1)] = edit.to
+    }
+    const indent = /^([ \t]+)"/m.exec(member.text)?.[1] ?? '  '
+    writeFileSync(join(dir, member.file), `${JSON.stringify(member.pkg, null, indent)}\n`)
+  }
   if (result.edits.some((edit) => edit.file === 'pnpm-workspace.yaml')) writeFileSync(join(dir, 'pnpm-workspace.yaml'), workspaceText)
   if (result.edits.some((edit) => edit.file === COHORT)) writeFileSync(join(dir, COHORT), cohortText)
 }
@@ -581,6 +576,12 @@ function digest(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+/** Fingerprint tracked working bytes around normal commit hooks, without logging content. */
+function trackedDigest(dir) {
+  const files = out('git', ['ls-files', '-z'], dir).split('\0').filter(Boolean).sort()
+  return createHash('sha256').update(JSON.stringify(files.map((file) => [file, digest(join(dir, file))]))).digest('hex')
+}
+
 /**
  * Run the caller's post-pin command in `dir` and return the files it changed,
  * so files already dirty before it (the pins, the lockfile) count only when it
@@ -605,7 +606,7 @@ function previewPostPin(dir, result, command) {
     cpSync(dir, copy, { recursive: true, filter: (source) => !/(^|[\\/])(\.git|node_modules)$/.test(source) })
     // The copy's index records the tree before the pins, like the caller's checkout.
     if (!run('git', ['init', '-q'], copy) || !run('git', ['add', '-A'], copy)) throw new Error('could not prepare the post-pin preview copy')
-    write(copy, result)
+    writePlan(copy, result)
     return postPin(copy, command)
   } finally {
     rmSync(copy, { recursive: true, force: true })
@@ -618,6 +619,7 @@ function body(result, gate, hash, outcome, head, synced) {
     `Adopts the newest ${SCOPE}* releases (agent-eval scripts/adopt-stack.mjs, run by .github/workflows/adopt-stack.yml).`,
     '',
     '| package | where | from | to | why |', '|---|---|---|---|---|', ...rows, '',
+    ...(result.resolved?.length ? ['| package | importer | expected | lock | installed |', '|---|---|---|---|---|', ...result.resolved.map((row) => `| ${row.name} | ${row.file} | ${row.expected ?? row.source} | ${row.locked ?? 'unverified'} | ${row.installed ?? row.reason} |`), ''] : []),
     ...(synced.command ? [`Post-pin: \`${synced.command}\` ${synced.files.length ? `changed ${synced.files.map((file) => `\`${file}\``).join(', ')}` : 'changed no files'}.`, ''] : []),
     `Gate: \`${gate}\` on ${head.slice(0, 12)}: ${outcome === 'gate-fail' ? 'failed' : 'passed'}.`,
     '',
@@ -625,27 +627,46 @@ function body(result, gate, hash, outcome, head, synced) {
   ].join('\n')
 }
 
-async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge }) {
+/** Preserve the owned proposal's history; capture the default independently. */
+export function prepareBranch(dir, defaultBranch) {
+  if (out('git', ['status', '--porcelain'], dir)) throw new Error('caller checkout is dirty; nothing was reset or discarded')
+  if (out('git', ['rev-parse', '--is-shallow-repository'], dir) === 'true' && !run('git', ['fetch', '--unshallow', 'origin'], dir)) throw new Error('could not obtain complete proposal/default history; no merge was attempted')
+  const base = out('git', ['rev-parse', 'HEAD'], dir)
+  const current = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
+  if (current !== base) throw new Error(`${defaultBranch} moved before planning; start from its fresh head`)
+  const existing = out('git', ['ls-remote', 'origin', `refs/heads/${BRANCH}`], dir)
+  if (existing) {
+    if (!run('git', ['fetch', '-q', 'origin', `refs/heads/${BRANCH}`], dir)
+      || !run('git', ['switch', '--detach', 'FETCH_HEAD'], dir)
+      || !run('git', [...BOT, 'merge', '--no-edit', base], dir)) {
+      throw new Error(`could not normally merge ${defaultBranch} into ${BRANCH}; resolve its retained conflicts before retrying, no history was rewritten`)
+    }
+  } else if (!run('git', ['switch', '-c', BRANCH], dir)) throw new Error(`could not create ${BRANCH}; no existing branch was reset`)
+  return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)) }
+}
+
+async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow }) {
   const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body']))[0]
-  const recorded = MARKER.exec(open?.body ?? '')
-  if (recorded?.[1] === hash && recorded[2] === 'pass' && !merge) return log(`#${open.number} already proposes plan ${hash} and passed its gate`)
 
-  write(dir, result)
+  writePlan(dir, result)
   install(dir)
   const synced = { command, files: command ? postPin(dir, command) : [] }
-  const base = out('git', ['rev-parse', 'HEAD'], dir)
+  result.resolved = resolvedVersions(dir, new Map(result.expected))
+  for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
   log(`gate: ${gate}`)
   const green = run('bash', ['-c', gate], dir)
+  if (green) result.resolved = resolvedVersions(dir, new Map(result.expected))
 
-  const files = ['package.json', 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
+  const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
   // -A stages a file the post-pin command deleted.
-  if (!run('git', ['switch', '-q', '-C', BRANCH], dir) || !run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
-  if (!run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
-  // The adoption branch belongs to this workflow; a newer plan replaces its head.
-  if (!run('git', ['push', '-q', '--force', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
+  if (!run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
+  const gatedTree = trackedDigest(dir)
+  if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
+  if (out('git', ['status', '--porcelain'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
+  if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
   writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced))
@@ -675,7 +696,13 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     comment(`Gate passed on ${head.slice(0, 12)}, but ${merged.why}:\n\n\`\`\`\n${merged.refusal}\n\`\`\`\n\nNo admin merge or protection bypass was attempted.`)
     throw new Error(`merging #${number} failed: ${merged.why}`)
   }
-  log(`merged #${number} at ${head.slice(0, 12)}`)
+  const state = JSON.parse(gh(['pr', 'view', String(number), '--json', 'mergedAt,mergeCommit']))
+  if (!state.mergedAt || !/^[0-9a-f]{40}$/.test(state.mergeCommit?.oid ?? '')) throw new Error(`merge command returned success but #${number} has no confirmed merge commit`)
+  log(`merged #${number} as ${state.mergeCommit.oid}`)
+  if (deployWorkflow) {
+    if (!run('gh', ['workflow', 'run', deployWorkflow, '--ref', defaultBranch], dir)) throw new Error(`#${number} merged as ${state.mergeCommit.oid}, but deploy dispatch ${deployWorkflow} failed; source merge succeeded, deployment is unconfirmed`)
+    log(`dispatched existing deploy workflow ${deployWorkflow} on ${defaultBranch} after merge ${state.mergeCommit.oid}; served revision remains the deploy workflow's proof`)
+  }
 }
 
 /**
@@ -689,7 +716,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
  * that moves during the wait closes the pull request for a re-gate.
  * Returns {} when merged, { moved } when the base moved, or { refusal, why }.
  */
-async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
+export async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
   const deadline = Date.now() + WAIT_MS
   for (;;) {
     const remote = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
@@ -721,6 +748,7 @@ function options(argv) {
     packages: value('--packages', '').split(/[\s,]+/).filter(Boolean),
     gate: value('--gate', '').trim(),
     postPin: value('--post-pin', '').trim(),
+    deployWorkflow: value('--deploy-workflow', '').trim(),
     defaultBranch: value('--default-branch', 'main'),
     merge: argv.includes('--merge'),
     dryRun: argv.includes('--dry-run'),
@@ -730,6 +758,8 @@ function options(argv) {
 
 async function main() {
   const opts = options(process.argv.slice(2))
+  if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
+  if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch))
   const result = await plan(opts.dir, opts.packages)
   if (opts.dryRun && opts.postPin && result.edits.length) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
@@ -739,15 +769,14 @@ async function main() {
     console.log(JSON.stringify(printable, null, 2))
     if (opts.dryRun) return
   } else {
-    for (const p of result.packages) log(`${p.name}: npm latest ${p.latest}${p.target !== p.latest ? `, held at ${p.target} (${p.why})` : ''}`)
+    for (const p of result.packages) log(`${p.name}: npm latest ${p.latest}${p.target !== p.latest ? `, held at ${p.target} (${p.why})` : ''}${p.effective !== p.target ? `, effective ${p.effective ?? 'unknown'} (caller-owned range/protocol retained)` : ''}`)
     for (const h of result.held) if (!result.packages.some((p) => p.name === h.name)) log(`${h.name}: sibling moves to ${h.target} (${h.why})`)
     for (const e of result.edits) log(`${e.file} ${e.section} ${e.name}: ${e.from} -> ${e.to} (${e.why})`)
     if (result.postPin) log(`post-pin would change ${result.postPin.changed.join(', ') || 'no files'} (given the pinned manifest, without an install)`)
   }
   for (const warning of result.warnings) console.error(`adopt-stack: warning: ${warning}`)
-  if (!result.edits.length) return log('nothing to adopt')
+  if (!result.edits.length && !result.installRequired && !opts.proposal) return log('nothing to adopt; effective lock versions match the plan')
   if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits, opts.postPin)})${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
-  if (!opts.gate) throw new Error('--gate is required without --dry-run')
   await deliver(opts.dir, result, opts)
 }
 

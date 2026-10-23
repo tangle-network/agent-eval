@@ -2,7 +2,7 @@
 # @tangle-network ranges already cover npm latest, so its plan is usually empty
 # and this caller proves only the workflow wiring and the pushed script against
 # the registry. scripts/adopt-stack.test.mjs proves the plans (two recorded
-# caller manifests) and the delivery path (local git remote, stand-in gh).
+# caller manifests) and workspace installs / ordinary Git branch delivery (no GitHub stand-in).
 name: Adopt stack (dry run)
 
 on:

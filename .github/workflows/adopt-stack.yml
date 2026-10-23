@@ -29,14 +29,16 @@
 #
 # A merge made with the default workflow token starts no push workflow in the
 # caller. Pass a `token` secret (a PAT or app token) when the merge must trigger
-# deploys; otherwise the job's own token is used.
+# push deploys, or set deploy-workflow to an existing workflow_dispatch workflow
+# and grant the caller actions: write. Dispatch follows confirmed merge only;
+# that workflow still owns its preflight and served revision proof.
 name: Adopt stack
 
 on:
   workflow_call:
     inputs:
       packages:
-        description: '@tangle-network/* names to adopt, comma or space separated (default: all in package.json)'
+        description: '@tangle-network/* names to adopt, comma or space separated (default: all declared workspace manifests)'
         type: string
         default: ''
       gate:
@@ -45,6 +47,10 @@ on:
         default: ''
       post-pin:
         description: "The caller's own sync step, run from its checkout after the pins and install and before the gate; the files it changes join the adoption commit"
+        type: string
+        default: ''
+      deploy-workflow:
+        description: 'Existing caller workflow to dispatch on the default branch after confirmed merge; caller must grant actions: write'
         type: string
         default: ''
       runs-on:
@@ -83,6 +89,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.default-branch }}
+          fetch-depth: 0
           path: caller
           token: ${{ secrets.token || github.token }}
 
@@ -91,11 +98,12 @@ jobs:
           repository: tangle-network/agent-eval
           ref: ${{ inputs.stack-ref }}
           path: adopt-stack
-          sparse-checkout: scripts/adopt-stack.mjs
+          sparse-checkout: |
+            scripts/adopt-stack.mjs
+            scripts/adopt-stack-workspace.mjs
           sparse-checkout-cone-mode: false
 
       - uses: pnpm/action-setup@v6
-        if: ${{ !inputs.dry-run }}
         with:
           package_json_file: caller/package.json
 
@@ -112,7 +120,12 @@ jobs:
           PACKAGES: ${{ inputs.packages }}
           GATE: ${{ inputs.gate }}
           POST_PIN: ${{ inputs.post-pin }}
+          DEPLOY_WORKFLOW: ${{ inputs.deploy-workflow }}
           DEFAULT_BRANCH: ${{ inputs.default-branch }}
           MERGE: ${{ inputs.merge && '--merge' || '' }}
           DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
-        run: node ../adopt-stack/scripts/adopt-stack.mjs --packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --default-branch "$DEFAULT_BRANCH" $MERGE $DRY_RUN
+        run: |
+          args=(--packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --deploy-workflow "$DEPLOY_WORKFLOW" --default-branch "$DEFAULT_BRANCH")
+          if [[ -n "$MERGE" ]]; then args+=("$MERGE"); fi
+          if [[ -n "$DRY_RUN" ]]; then args+=("$DRY_RUN"); fi
+          node ../adopt-stack/scripts/adopt-stack.mjs "${args[@]}"
