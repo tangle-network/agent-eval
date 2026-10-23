@@ -128,21 +128,32 @@ const scopeSchema = z
   })
   .strict()
 
+/** Shared validation for every independently scored finding method. */
+export const findingCalibrationSchema = z
+  .object({
+    gold_n: z.number().int().positive(),
+    agreement: unitRate,
+    kappa: finite.refine((value) => value >= -1 && value <= 1, {
+      message: 'must be in [-1,1]',
+    }),
+  })
+  .strict()
+
+/** Evidence references have one shape on definitions and stored findings. */
+export const findingEvidenceRefSchema = z
+  .object({
+    kind: z.enum(['span', 'event', 'artifact', 'finding', 'metric']),
+    uri: nonEmpty,
+    excerpt: z.string().optional(),
+  })
+  .strict()
+
 const methodSchema = z
   .object({
     kind: z.enum(['computed', 'measured', 'judged']),
     name: nonEmpty,
     version: nonEmpty,
-    calibration: z
-      .object({
-        gold_n: z.number().int().positive(),
-        agreement: unitRate,
-        kappa: finite.refine((value) => value >= -1 && value <= 1, {
-          message: 'must be in [-1,1]',
-        }),
-      })
-      .strict()
-      .optional(),
+    calibration: findingCalibrationSchema.optional(),
   })
   .strict()
 
@@ -176,15 +187,7 @@ const findingObject = z
     area: nonEmpty,
     claim: nonEmpty,
     rationale: z.string().optional(),
-    evidence_refs: z.array(
-      z
-        .object({
-          kind: z.enum(['span', 'event', 'artifact', 'finding', 'metric']),
-          uri: nonEmpty,
-          excerpt: z.string().optional(),
-        })
-        .strict(),
-    ),
+    evidence_refs: z.array(findingEvidenceRefSchema),
     recommended_action: z.string().optional(),
     validation_plan: z.string().optional(),
     confidence: unitRate,

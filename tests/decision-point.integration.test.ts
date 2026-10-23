@@ -26,7 +26,7 @@ const server = createServer(async (req, res) => {
   const p = request.state.tie ? .5 : request.state.nearTie ? .49996 : .9
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify({
-    model: request.state.mismatch ? 'other-model' : request.model,
+    model: request.state.whitespaceModel ? ' ' + request.model + ' ' : request.state.mismatch ? 'other-model' : request.model,
     answers: Object.fromEntries(Object.keys(request.questions).map(name => [name, {
       type: 'choice', choice: 'inspect', confidence: p,
       probabilities: { inspect: p, record: 1 - p },
@@ -226,6 +226,89 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
         })
       ).succeeded,
     ).toBe(false)
+  })
+
+  it('refuses malformed calibration data before a paid provider call', async () => {
+    const before = Number(await (await fetch(`${baseUrl}/calls`)).text())
+    const valid = calibrated.calibration!
+    for (const calibration of [
+      null,
+      { ...valid, evidenceRefs: { length: 1 } },
+      { ...valid, evidenceRefs: [null] },
+      { ...valid, evidenceRefs: [] },
+      { ...valid, evidenceRefs: undefined },
+      { ...valid, evidenceRefs: [{ kind: 'other', uri: 'artifact://label' }] },
+      { ...valid, evidenceRefs: [{ kind: 'artifact', uri: '' }] },
+      { ...valid, evidenceRefs: [{ kind: 'artifact', uri: 'artifact://label', extra: true }] },
+      { ...valid, gold_n: 0 },
+      { ...valid, kappa: Number.POSITIVE_INFINITY },
+      { ...valid, agreement: Number.NaN },
+      { ...valid, servedModel: ' model ' },
+      { ...valid, questionDigest: '' },
+    ]) {
+      expect(() =>
+        point(join(directory, 'invalid-calibration.jsonl'), {
+          ...calibrated,
+          calibration: calibration as NonNullable<DecisionQuestionPolicy['calibration']>,
+        }),
+      ).toThrow()
+    }
+    expect(Number(await (await fetch(`${baseUrl}/calls`)).text())).toBe(before)
+  })
+
+  it('returns typed invalid outcomes for uncloneable and noncanonical observations', async () => {
+    const run = point(join(directory, 'observation-boundary.jsonl'))
+    ok(await run.decide(invocation('observation-boundary')))
+    const input = {
+      runId: 'run',
+      invocationId: 'observation-boundary',
+      labels: { route: 'inspect' },
+      at: '2026-10-23T01:00:00Z',
+      evidenceRefs: [{ kind: 'artifact' as const, uri: 'artifact://human/label' }],
+    }
+    const before = ok(await run.reliability()).ledgerRoot
+    const cycle: Record<string, unknown> = {}
+    cycle.self = cycle
+    for (const observation of [
+      { ...input, labels: { route: () => 'inspect' } },
+      { ...input, evidenceRefs: [{ kind: 'artifact', uri: () => 'artifact://label' }] },
+      { ...input, labels: { route: 1n } },
+      { ...input, labels: { route: Number.NaN } },
+      { ...input, labels: cycle },
+      { ...input, labels: null },
+      { ...input, evidenceRefs: [null] },
+    ]) {
+      await expect(run.observe(observation as typeof input)).resolves.toMatchObject({
+        succeeded: false,
+        error: { kind: 'invalid' },
+      })
+    }
+    expect(ok(await run.reliability()).ledgerRoot).toBe(before)
+    expect(ok(await run.observe(input))).toEqual({ appended: 1, replayed: 0 })
+  })
+
+  it('persists a replayable failed decision for a noncanonical served-model identity', async () => {
+    const path = join(directory, 'served-model-boundary.jsonl')
+    const run = point(path)
+    const input = invocation('served-model-boundary', { whitespaceModel: true })
+    const before = Number(await (await fetch(`${baseUrl}/calls`)).text())
+    const first = ok(await run.decide(input))
+    expect(first.record).toMatchObject({
+      servedModel: null,
+      error: 'evaluation-failed',
+      action: 'escalate',
+      answers: {},
+    })
+    const replay = ok(await point(path).decide(input))
+    expect(replay.replayed).toBe(true)
+    expect(replay.record).toEqual(first.record)
+    expect(ok(await point(path).reliability())).toMatchObject({
+      attempts: 1,
+      decisions: 1,
+      failed: 1,
+      unresolved: 0,
+    })
+    expect(Number(await (await fetch(`${baseUrl}/calls`)).text()) - before).toBe(1)
   })
 
   it('withholds inference/action when the ledger cannot persist an intent', async () => {
