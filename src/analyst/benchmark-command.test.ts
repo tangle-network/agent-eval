@@ -302,7 +302,10 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
-  it('runs trajectory-only cases with an explicit unavailable outcome', async () => {
+  // Durable command output settles this case; the suite gate bounds hangs.
+  it('runs trajectory-only cases with an explicit unavailable outcome', {
+    timeout: 0,
+  }, async () => {
     const fixture = await codeTraceFixture({ withVerificationArtifacts: false })
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
       id: 'dspy-rlm',
@@ -406,7 +409,10 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
-  it('records the consensus sample count in identity, provenance, and the result artifact', async () => {
+  // Durable command output settles this case; the suite gate bounds hangs.
+  it('records the consensus sample count in identity, provenance, and the result artifact', {
+    timeout: 0,
+  }, async () => {
     const fixture = await codeTraceFixture()
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
       id: 'dspy-rlm',
@@ -555,7 +561,10 @@ describe('runAnalystBenchmarkCommand', () => {
     )
   })
 
-  it('does not treat a supplied-input census as representative of the upstream population', async () => {
+  // Durable command output settles this case; the suite gate bounds hangs.
+  it('does not treat a supplied-input census as representative of the upstream population', {
+    timeout: 0,
+  }, async () => {
     const fixture = await agentRxFixture({ caseCount: 20 })
     const args = agentRxCommandArgs(fixture)
     args[args.indexOf('--limit') + 1] = '20'

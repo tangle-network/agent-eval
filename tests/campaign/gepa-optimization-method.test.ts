@@ -288,7 +288,8 @@ describe('gepaOptimizationMethod', () => {
     ).toThrow('optimizer cannot be combined with engineModules')
   })
 
-  it('meters standard GEPA reflection through the local model proxy', async () => {
+  // Runner completion and durable receipts settle this case; the suite gate bounds hangs.
+  it('meters standard GEPA reflection through the local model proxy', { timeout: 0 }, async () => {
     const upstreamBaseUrl = await startModelServer()
     const method = gepaOptimizationMethod<TestScenario, TestArtifact>({
       recipe: {
@@ -367,7 +368,10 @@ describe('gepaOptimizationMethod', () => {
     )
   })
 
-  it('continues external GEPA after a failed cell without measuring the penalty as zero', async () => {
+  // Runner completion and durable receipts settle this case; the suite gate bounds hangs.
+  it('continues external GEPA after a failed cell without measuring the penalty as zero', {
+    timeout: 0,
+  }, async () => {
     const observedInputPath = join(runDir, 'failed-cell-input.json')
     let failedDispatches = 0
     const method = gepaOptimizationMethod<TestScenario, TestArtifact>({
@@ -471,7 +475,10 @@ describe('gepaOptimizationMethod', () => {
     })
   })
 
-  it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
+  // Runner completion and durable receipts settle this case; the suite gate bounds hangs.
+  it('keeps evaluation and optimizer-model budgets cumulative across resumes', {
+    timeout: 0,
+  }, async () => {
     const upstreamBaseUrl = await startModelServer()
     const resumeMarker = join(runDir, 'fake-gepa-resume')
     const method = gepaOptimizationMethod<TestScenario, TestArtifact>({

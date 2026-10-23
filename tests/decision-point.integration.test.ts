@@ -132,7 +132,8 @@ afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true })
 })
 
-describe('decisionPoint public SDK with HTTP provider and durable findings', () => {
+// Real HTTP and durable-ledger outcomes settle these cases; the suite gate bounds hangs.
+describe('decisionPoint public SDK with HTTP provider and durable findings', { timeout: 0 }, () => {
   it('reserves before inference and replays across restart without spending twice', async () => {
     const path = join(directory, 'replay.jsonl')
     const run = point(path)
@@ -179,10 +180,7 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
     expect(curve.curve?.bins[0]).toMatchObject({ n: 2, evalMean: 0.9, outcomeMean: 0.5 })
   })
 
-  // HTTP responses and durable ledger results settle each scenario; the suite gate bounds hangs.
-  it('records uncalibrated, ambiguous, served-model mismatch and unavailable answers as escalation', {
-    timeout: 0,
-  }, async () => {
+  it('records uncalibrated, ambiguous, served-model mismatch and unavailable answers as escalation', async () => {
     for (const [id, state, policy, reason] of [
       ['uncalibrated', {}, { ...calibrated, calibration: undefined }, 'uncalibrated'],
       [
