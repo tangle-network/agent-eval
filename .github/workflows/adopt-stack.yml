@@ -124,4 +124,8 @@ jobs:
           DEFAULT_BRANCH: ${{ inputs.default-branch }}
           MERGE: ${{ inputs.merge && '--merge' || '' }}
           DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
-        run: node ../adopt-stack/scripts/adopt-stack.mjs --packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --deploy-workflow "$DEPLOY_WORKFLOW" --default-branch "$DEFAULT_BRANCH" $MERGE $DRY_RUN
+        run: |
+          args=(--packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --deploy-workflow "$DEPLOY_WORKFLOW" --default-branch "$DEFAULT_BRANCH")
+          if [[ -n "$MERGE" ]]; then args+=("$MERGE"); fi
+          if [[ -n "$DRY_RUN" ]]; then args+=("$DRY_RUN"); fi
+          node ../adopt-stack/scripts/adopt-stack.mjs "${args[@]}"
