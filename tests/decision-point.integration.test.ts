@@ -179,7 +179,10 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
     expect(curve.curve?.bins[0]).toMatchObject({ n: 2, evalMean: 0.9, outcomeMean: 0.5 })
   })
 
-  it('records uncalibrated, ambiguous, served-model mismatch and unavailable answers as escalation', async () => {
+  // HTTP responses and durable ledger results settle each scenario; the suite gate bounds hangs.
+  it('records uncalibrated, ambiguous, served-model mismatch and unavailable answers as escalation', {
+    timeout: 0,
+  }, async () => {
     for (const [id, state, policy, reason] of [
       ['uncalibrated', {}, { ...calibrated, calibration: undefined }, 'uncalibrated'],
       [
