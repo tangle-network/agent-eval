@@ -685,7 +685,15 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   }
   const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
   if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
-  if (green && proposal.isDraft && !previous?.isDraft) manualDraft = true
+  if (previous && proposal.isDraft && !previous.isDraft) {
+    manualDraft = true
+    // A hold observed after recording a failed gate belongs to its maintainer.
+    // Do not leave our marker behind for the next green run to claim it.
+    if (!green) {
+      writeFileSync(bodyFile, body(result, gate, hash, 'gate-fail', head, synced))
+      gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
+    }
+  }
   if (!manualDraft && proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
   const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
   if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
