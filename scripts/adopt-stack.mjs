@@ -673,7 +673,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const previous = open ? JSON.parse(gh(['pr', 'view', String(open.number), '--json', 'headRefOid,isDraft,body'])) : null
   if (previous && previous.headRefOid !== head) throw new Error(`#${open.number} moved after the gate; draft state and merge left unchanged`)
   // Only drafts created by this updater are promoted. Preserve manual holds, including ones added while the gate ran.
-  const manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
+  let manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
   writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
     + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
   let number = open?.number
@@ -684,7 +684,11 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   }
   const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
   if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
+  if (green && proposal.isDraft && !previous?.isDraft) manualDraft = true
   if (!manualDraft && proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
+  const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
+  if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
+  if (green && current.isDraft) manualDraft = true
   log(`${open ? 'updated' : 'opened'} #${number}: ${title}`)
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
