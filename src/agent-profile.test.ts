@@ -256,15 +256,9 @@ describe('expandProfileAxes', () => {
     ).toHaveLength(2)
   })
 
-  it('keepIncompatible retains an otherwise-dropped pair', () => {
-    expect(
-      expandProfileAxes({
-        base: axisBase,
-        harnesses: ['claude-code'],
-        models: ['openai/gpt-x'],
-        keepIncompatible: true,
-      }),
-    ).toHaveLength(1)
+  it('fails loud on no harnesses / no models', () => {
+    expect(() => expandProfileAxes({ base: axisBase, harnesses: [] })).toThrow(/no harnesses/)
+    expect(() => expandProfileAxes({ base: { name: 'x' } })).toThrow(/no models/)
   })
 
   it('carries harness + model in metadata and round-trips via harnessAxisOf', () => {
