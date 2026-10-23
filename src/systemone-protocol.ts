@@ -185,7 +185,7 @@ export function systemOneUsage(raw: unknown): SystemOneResult['usage'] {
 }
 
 /** The strict parser's allowance for floating-point error; provider rounding is normalized first. */
-const TOLERANCE = 0.0001
+export const SYSTEM_ONE_PROBABILITY_TOLERANCE = 0.0001
 
 function levelsOf(question: SystemOneRecordedQuestion): string[] {
   return question.type === 'score'
@@ -241,7 +241,7 @@ export function parseSystemOneResult<Q extends SystemOneRecordedQuestions>(
     const probabilities = object(answer.probabilities)
     exactKeys(probabilities, levels)
     const sum = levels.reduce((total, level) => total + probability(probabilities[level]), 0)
-    if (Math.abs(sum - 1) > TOLERANCE) {
+    if (Math.abs(sum - 1) > SYSTEM_ONE_PROBABILITY_TOLERANCE) {
       throw new SystemOneResponseError('Invalid probability distribution')
     }
     if (question.type === 'score') {
@@ -255,7 +255,8 @@ export function parseSystemOneResult<Q extends SystemOneRecordedQuestions>(
       if (
         typeof answer.score !== 'number' ||
         !Number.isFinite(answer.score) ||
-        Math.abs(answer.score - expectation(levels, probabilities)) > TOLERANCE
+        Math.abs(answer.score - expectation(levels, probabilities)) >
+          SYSTEM_ONE_PROBABILITY_TOLERANCE
       ) {
         throw new SystemOneResponseError('Score differs from its distribution')
       }
@@ -264,7 +265,8 @@ export function parseSystemOneResult<Q extends SystemOneRecordedQuestions>(
       !Object.hasOwn(probabilities, answer.choice) ||
       levels.some(
         (level) =>
-          Number(probabilities[level]) > Number(probabilities[String(answer.choice)]) + TOLERANCE,
+          Number(probabilities[level]) >
+          Number(probabilities[String(answer.choice)]) + SYSTEM_ONE_PROBABILITY_TOLERANCE,
       )
     ) {
       throw new SystemOneResponseError('Choice is not a highest-probability option')
@@ -368,8 +370,9 @@ function normalizeAnswer(
   if (scored && (typeof score !== 'number' || !Number.isFinite(score))) return answer
   let next = answer
   const consistent =
-    Math.abs(sum - 1) <= TOLERANCE &&
-    (!scored || Math.abs((score as number) - expectation(levels, q)) <= TOLERANCE)
+    Math.abs(sum - 1) <= SYSTEM_ONE_PROBABILITY_TOLERANCE &&
+    (!scored ||
+      Math.abs((score as number) - expectation(levels, q)) <= SYSTEM_ONE_PROBABILITY_TOLERANCE)
   if (!consistent && profile.decimals !== undefined) {
     // Rounding to `decimals` moves each reported probability by at most one unit in the last
     // place, and the reported score by half a unit; anything larger is a provider defect.
@@ -385,7 +388,7 @@ function normalizeAnswer(
       throw new SystemOneResponseError('Score error exceeds declared rounding')
     }
     const p =
-      Math.abs(sum - 1) <= TOLERANCE
+      Math.abs(sum - 1) <= SYSTEM_ONE_PROBABILITY_TOLERANCE
         ? q
         : Object.fromEntries(keys.map((key) => [key, q[key]! / sum]))
     next = { ...answer, probabilities: p, ...(scored ? { score: expectation(levels, p) } : {}) }
