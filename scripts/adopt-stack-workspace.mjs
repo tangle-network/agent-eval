@@ -110,7 +110,7 @@ export function constraints(members, workspaceText, targets, edit) {
     // pnpm's $ references follow an existing direct spec, including parent>child selectors.
     if (typeof value === 'string' && value.startsWith('$')) {
       const reference = value.slice(1)
-      if (!dependencies(members.filter(({ file }) => file === 'package.json')).some(({ name }) => name === reference)) throw new Error(`${file} ${section}: override ${key} references missing root direct dependency ${reference}`)
+      if (!SECTIONS.some((section) => Object.hasOwn(members.find(({ file }) => file === 'package.json').pkg[section] ?? {}, reference))) throw new Error(`${file} ${section}: override ${key} references missing root direct dependency ${reference}`)
       return null
     }
     const name = packageOf(key)

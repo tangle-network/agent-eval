@@ -169,6 +169,7 @@ describe('adopt-stack effective workspace delivery', () => {
     const brand = '@tangle-network/brand'
     const current = await latest(brand)
     const old = '1.25.0'
+    const local = '@tangle-network/adopt-unpublished-integration'
     expect(current).not.toBe(old)
     const root = mkdtempSync(join(tmpdir(), 'adopt-effective-'))
     const save = (file, value) => {
@@ -177,17 +178,21 @@ describe('adopt-stack effective workspace delivery', () => {
     }
     const pnpm = (...args) => execFileSync('pnpm', args, { cwd: root, stdio: 'pipe' })
     try {
-      const pkg = { name: 'adopt-effective-integration', private: true, dependencies: { [brand]: current }, pnpm: { minimumReleaseAgeExclude: [`${brand}@${old}`] } }
-      if (overrideFile === 'package.json') pkg.pnpm.overrides = { [brand]: old, [`fixture-parent>${brand}`]: `$${brand}` }
+      const pkg = { name: 'adopt-effective-integration', private: true, dependencies: { [brand]: current, [local]: 'workspace:*', react: '19.3.0' }, pnpm: { minimumReleaseAgeExclude: [`${brand}@${old}`] } }
+      if (overrideFile === 'package.json') pkg.pnpm.overrides = { react: '$react', [brand]: old, [`fixture-parent>${brand}`]: `$${brand}` }
       save('package.json', pkg)
-      save('pnpm-workspace.yaml', `packages:\n  - 'apps/*'\nautoInstallPeers: false\nminimumReleaseAgeExclude:\n  - '${brand}@${old}'\n${overrideFile === 'pnpm-workspace.yaml' ? `overrides:\n  '${brand}': '${old}'\n  'fixture-parent>${brand}': '$${brand}'\n` : ''}`)
+      save('pnpm-workspace.yaml', `packages:\n  - 'apps/*'\nautoInstallPeers: false\nminimumReleaseAgeExclude:\n  - '${brand}@${old}'\n${overrideFile === 'pnpm-workspace.yaml' ? `overrides:\n  react: '$react'\n  '${brand}': '${old}'\n  'fixture-parent>${brand}': '$${brand}'\n` : ''}`)
+      save('apps/toolkit/package.json', { name: local, version: '1.0.0', private: true })
       save('apps/web/package.json', { name: 'adopt-web', private: true, dependencies: { [brand]: old } })
       save('apps/server/package.json', { name: 'adopt-server', private: true, dependencies: { [brand]: old } })
       pnpm('install', '--ignore-scripts')
       // Tax's false-green calibration: root says latest, actual install is old.
+      const staleLock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8')
       expect(installedVersion(root, 'package.json', brand)).toBe(old)
       expect(() => resolvedVersions(root, new Map([[brand, current]]))).toThrow(/effective resolution differs/)
-      const result = await plan(root, [brand])
+      const result = await plan(root)
+      expect(result.packages.some(({ name }) => name === local)).toBe(false)
+      expect(result.unmanaged).toContainEqual({ name: local, verified: false, reason: 'caller-owned protocol retained; no registry target' })
       for (const file of ['apps/web/package.json', 'apps/server/package.json']) expect(result.edits.some((edit) => edit.file === file && edit.name === brand && edit.to === current)).toBe(true)
       writePlan(root, result)
       pnpm('install', '--no-frozen-lockfile', '--ignore-scripts')
@@ -198,6 +203,15 @@ describe('adopt-stack effective workspace delivery', () => {
       expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).pnpm.minimumReleaseAgeExclude).toEqual([`${brand}@${current}`])
       expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(`'${brand}@${current}'`)
       expect((await plan(root, [brand])).edits).toEqual([])
+      const coherentLock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8')
+      save('pnpm-lock.yaml', staleLock)
+      const stale = await plan(root, [brand])
+      expect(stale.edits).toEqual([])
+      expect(stale.installRequired).toBe(true)
+      const preview = spawnSync(process.execPath, [script, '--dir', root, '--packages', brand, '--dry-run'], { encoding: 'utf8' })
+      expect(preview.status, preview.stderr).toBe(0)
+      expect(preview.stdout).toContain('verify the existing adoption')
+      save('pnpm-lock.yaml', coherentLock)
       if (overrideFile === 'package.json') {
         // An old proposal + independently advanced default retain both histories.
         save('.gitignore', 'node_modules/\n')
@@ -223,9 +237,11 @@ describe('adopt-stack effective workspace delivery', () => {
           git(root, 'commit', '-qm', 'Advance default independently')
           const base = git(root, 'rev-parse', 'HEAD')
           git(root, 'push', '-q', 'origin', 'main')
-          git(root, 'clone', '-q', remote, caller)
+          git(root, 'clone', '-q', '--depth', '1', `file://${remote}`, caller)
+          expect(git(caller, 'rev-parse', '--is-shallow-repository')).toBe('true')
           const prepared = prepareBranch(caller, 'main')
           expect(prepared).toEqual({ base, proposal: true })
+          expect(git(caller, 'rev-parse', '--is-shallow-repository')).toBe('false')
           git(caller, 'merge-base', '--is-ancestor', previous, 'HEAD')
           git(caller, 'merge-base', '--is-ancestor', base, 'HEAD')
           const recovered = await plan(caller, [brand])

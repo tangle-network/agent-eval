@@ -279,7 +279,8 @@ export async function plan(dir, requested = []) {
   const { text: manifestText, pkg } = root
   const pins = dependencies(members)
   const found = new Set([...pins.map(({ name }) => name), ...members.flatMap(({ pkg }) => Object.keys(pkg.peerDependencies ?? {}).filter((name) => name.startsWith(SCOPE) && name !== pkg.name))])
-  const names = requested.length ? requested : [...found].sort()
+  const callerOwned = new Set(pins.filter(({ spec }) => PROTOCOL.test(spec) && !spec.startsWith('catalog:')).map(({ name }) => name).filter((name) => !pins.some((pin) => pin.name === name && (!PROTOCOL.test(pin.spec) || pin.spec.startsWith('catalog:')))))
+  const names = (requested.length ? requested : [...found].sort()).filter((name) => !callerOwned.has(name))
   for (const name of names) if (!name.startsWith(SCOPE)) throw new Error(`${name} is not a ${SCOPE}* package`)
 
   const docs = new Map()
@@ -305,6 +306,7 @@ export async function plan(dir, requested = []) {
   if (locks.unread && pinned.size) throw new Error(`${locks.unread}, so the versions it holds are unknown and no plan is made`)
   const warnings = []
   const warn = (text) => warnings.includes(text) || warnings.push(text)
+  for (const name of callerOwned) warn(`${name}: caller-owned protocol is retained without a registry target; its effective version is unverified`)
   for (const { file, name, spec } of pins) if (targets.has(name) && PROTOCOL.test(spec) && !spec.startsWith('catalog:')) warn(`${file} ${name}: caller-owned ${spec} is retained; npm latest is not a verified effective version for this pin`)
 
   // The version the root lockfile holds before the plan (an exact pin, else the
@@ -453,6 +455,7 @@ export async function plan(dir, requested = []) {
   return {
     packages: names.map((name) => ({ name, ...targets.get(name), effective: expected.get(name) ?? null })),
     expected: [...expected],
+    unmanaged: [...callerOwned].map((name) => ({ name, verified: false, reason: 'caller-owned protocol retained; no registry target' })),
     installRequired,
     held: [...targets].filter(([name, entry]) => !names.includes(name) || entry.target !== entry.latest)
       .map(([name, entry]) => ({ name, ...entry })),
@@ -509,6 +512,7 @@ async function sourceRef(name, version, repository) {
  * for one package; several share one pull request. planHash is its identity.
  */
 export function titleOf(edits) {
+  if (!edits.length) return 'chore(deps): verify the existing adoption'
   const names = [...new Set(edits.map((edit) => edit.name))]
   if (names.length > 1) return `chore(deps): adopt ${names.length} ${SCOPE}* packages`
   const pin = edits.find((edit) => edit.section !== 'peerDependencies') ?? edits[0]
@@ -572,6 +576,12 @@ function digest(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+/** Fingerprint tracked working bytes around normal commit hooks, without logging content. */
+function trackedDigest(dir) {
+  const files = out('git', ['ls-files', '-z'], dir).split('\0').filter(Boolean).sort()
+  return createHash('sha256').update(JSON.stringify(files.map((file) => [file, digest(join(dir, file))]))).digest('hex')
+}
+
 /**
  * Run the caller's post-pin command in `dir` and return the files it changed,
  * so files already dirty before it (the pins, the lockfile) count only when it
@@ -620,6 +630,7 @@ function body(result, gate, hash, outcome, head, synced) {
 /** Preserve the owned proposal's history; capture the default independently. */
 export function prepareBranch(dir, defaultBranch) {
   if (out('git', ['status', '--porcelain'], dir)) throw new Error('caller checkout is dirty; nothing was reset or discarded')
+  if (out('git', ['rev-parse', '--is-shallow-repository'], dir) === 'true' && !run('git', ['fetch', '--unshallow', 'origin'], dir)) throw new Error('could not obtain complete proposal/default history; no merge was attempted')
   const base = out('git', ['rev-parse', 'HEAD'], dir)
   const current = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
   if (current !== base) throw new Error(`${defaultBranch} moved before planning; start from its fresh head`)
@@ -635,7 +646,7 @@ export function prepareBranch(dir, defaultBranch) {
 }
 
 async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow }) {
-  const title = result.edits.length ? titleOf(result.edits) : `chore(deps): verify the existing adoption`
+  const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body']))[0]
@@ -652,7 +663,9 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
   // -A stages a file the post-pin command deleted.
   if (!run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
+  const gatedTree = trackedDigest(dir)
   if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
+  if (out('git', ['status', '--porcelain'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
   if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
