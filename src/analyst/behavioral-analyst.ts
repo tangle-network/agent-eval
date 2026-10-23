@@ -1,7 +1,7 @@
 /**
- * Deterministic behavioral analysis over arithmetic in trace spans.
- * This pass is cheap and repeatable; semantic analysis remains the job of
- * model-backed analysts. Relative quality requires a labeled comparison.
+ * Behavioral analysis over trace spans, with an optional sampled question battery.
+ * The default arithmetic pass stays call-free. Semantic observations require explicit
+ * model, ledger and window selection; only independently calibrated positives may alarm.
  */
 
 import {
@@ -10,6 +10,8 @@ import {
   type SuboptimalCode,
 } from '../trace-analyst/behavioral-metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
+import type { BehavioralTraceQuestionsOptions } from './behavioral-trace-questions'
+import { prepareBehavioralTraceRuntime } from './behavioral-trace-runtime'
 import type { ExactCapableAnalyst } from './exact-types'
 import { type AnalystFinding, makeFinding } from './types'
 
@@ -34,6 +36,8 @@ export interface BehavioralAnalystOptions {
   maxTraces?: number
   /** Evidence locations retained per finding. Counts still cover every analyzed trace. Default 20. */
   maxEvidenceRefsPerFinding?: number
+  /** Optional bounded semantic observations through the same analyst and findings ledger. */
+  traceQuestions?: BehavioralTraceQuestionsOptions
 }
 
 const AGGREGATE_CLAIM: Record<SuboptimalCode, (observed: number, analyzed: number) => string> = {
@@ -132,7 +136,7 @@ function deriveEfficiencyFindings(
   )
 }
 
-/** The deterministic behavioral/efficiency analyst (no LLM, any-model). */
+/** Behavioral efficiency plus an explicitly selected, optional trace-question pass. */
 export function behavioralAnalyst(
   options: BehavioralAnalystOptions = {},
 ): ExactCapableAnalyst<TraceAnalysisStore> {
@@ -141,17 +145,22 @@ export function behavioralAnalyst(
     options.maxEvidenceRefsPerFinding ?? DEFAULT_MAX_EVIDENCE_REFS,
     'maxEvidenceRefsPerFinding',
   )
+  const traceQuestions =
+    options.traceQuestions && prepareBehavioralTraceRuntime(options.traceQuestions)
   return {
     id: ANALYST_ID,
     description:
-      'Deterministic behavioral/efficiency findings over OTLP spans — token-growth, output-decay, tool-monoculture, missing self-verification. Zero LLM; model-agnostic by construction.',
+      'Behavioral/efficiency findings over OTLP spans, with optional bounded event, turn and agent question observations.',
     inputKind: 'trace-store',
-    cost: { kind: 'deterministic' },
-    version: '2.0.0',
+    cost: traceQuestions
+      ? { kind: 'llm', models: [options.traceQuestions!.model] }
+      : { kind: 'deterministic' },
+    version: traceQuestions ? '3.0.0' : '2.0.0',
     executionConfig: {
       kind: 'behavioral-efficiency',
       max_traces: maxTraces,
       max_evidence_refs_per_finding: maxEvidenceRefsPerFinding,
+      ...(traceQuestions ? { trace_questions: traceQuestions.executionConfig } : {}),
     },
     async analyze(store, context) {
       const analyzedTraceIds = await listTraceIds(store, maxTraces, context.signal)
@@ -201,7 +210,7 @@ export function behavioralAnalyst(
           }
         }
       }
-      return [...findingsById.values()].map(
+      const findings: AnalystFinding[] = [...findingsById.values()].map(
         ({ finding, observedTraceCount, evidenceTraceIds, evidence }) => ({
           ...finding,
           claim: AGGREGATE_CLAIM[finding.subject as SuboptimalCode](
@@ -219,6 +228,9 @@ export function behavioralAnalyst(
           },
         }),
       )
+      if (traceQuestions)
+        findings.push(...(await traceQuestions.analyze(analyzedTraceIds, context)))
+      return findings
     },
   }
 }
