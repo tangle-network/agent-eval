@@ -93,3 +93,30 @@ The maintained [`FAILURE_MODES_QUESTIONS`](../src/analyst/failure-modes.ts) obje
 Before the next calibration, the consuming owner must use this full shared question object on the same declared target and evidence representation as runtime, and report independent gold, paired counts and reliability **per output**. Unknown or missing required observations stay outside the judge's measured population with an explicit reason. `none`, `no-delegation` and `no-steer` are observed classifications, not substitutes for unavailable evidence. Merely requesting all questions does not create independent labels for them.
 
 This is the required consumer migration, not a claim that it has shipped: Lab's existing calibration asks only `failure_mode` over public trajectories, while its runtime reads coordination/spawn logs and asks all outputs. Lab owns reconciling those inputs and recording the target, mapping version, selection/exclusions, questions, model/served identity and source hashes in its next receipt. An applicable task/policy may be supplied as observation context; expected benchmark actions/outputs, root annotations, category rationales and other gold must remain outside the judged state. No old receipt is promoted by this source correction.
+
+## Treatment and recorded conditions
+
+Optional `treatment` and `conditions` arrays on a 1.1.0 finding preserve run composition.
+A treatment is a named bundle with an immutable definition digest, source references and
+all applicable `TREATMENT_LAYERS` tags. These input tags are separate from `FindingLayer`,
+which says how far a claim holds. Arms and findings may carry several bundles.
+
+Each conditions snapshot names its measured population, observation time and evidence.
+Runtime/Lab/model/provider versions, seat, host load, start time and operator steers are
+explicit nullable readings. Null means unavailable; an empty observed steer list means
+none were observed. A snapshot ID identifies an immutable record; rollup and promotion reject conflicting content for the same ID anywhere in their input, before grouping. Capture conditions from
+execution evidence; do not ask a judge to invent them or infer formation from an assignment.
+The public types are on `@tangle-network/agent-eval/analyst`.
+
+The finding identity includes the treatment definitions and fixed environment conditions
+when composition is supplied. The finding factory normalizes unordered composition arrays, so reordering bundles, layer tags or condition snapshots preserves both identity and ledger replay payload.
+Absent legacy composition and explicitly empty arrays remain distinguishable. Existing
+findings without composition retain their old identity and remain readable.
+
+`rollupFindings` and `promote` use the same composition identity for grouping and output
+IDs, including the underlying-run re-pooling after promotion. Different bundles, fixed
+versions, seats or unplanned/unknown steering states do not silently pool. Varying load,
+observation time and source references retain their population-linked provenance without
+splitting an otherwise matching group. Matching recorded conditions do not establish
+that every possible confounder was observed; experiment owners still enforce declared
+factors and interleaving before execution.

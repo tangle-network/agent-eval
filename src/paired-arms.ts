@@ -25,6 +25,12 @@
  * caller-supplied parameters; the module ships no domain literal.
  */
 
+import type { FindingTreatment } from './analyst/finding-composition'
+import {
+  type ArmAssignment,
+  type ArmPopulationReading,
+  prepareArmPopulations,
+} from './arm-populations'
 import { ValidationError } from './errors'
 import type { RunRecord } from './run-record'
 import type { McNemarResult, PairedBootstrapOptions, PairedBootstrapResult } from './statistics'
@@ -49,10 +55,14 @@ export interface PairedArmRow {
   repKey?: string
   /** Arm label this row was produced under. */
   arm: string
-  /** Binary outcome; omit when the comparison has no pass/fail notion. */
-  pass?: boolean
-  /** Named numeric measurements (score, cost, latency, …). */
-  metrics?: Record<string, number>
+  /** Binary outcome; omit or null when no pass/fail outcome was observed. */
+  pass?: boolean | null
+  /** Actual formation verdict from the execution owner; absence/null stays unknown. */
+  formation?: { formed: boolean | null; reason?: string }
+  /** Recorded treatment provenance; assigned bundles live on the independent roster. */
+  treatment?: FindingTreatment[]
+  /** Named finite measurements; null/absent readings are unknown, not zero. */
+  metrics?: Record<string, number | null>
 }
 
 export interface PairArmsOptions {
@@ -242,6 +252,8 @@ export interface PairedMetricDelta {
 }
 
 export interface ComparePairedArmsOptions extends PairArmsOptions {
+  /** Supply all expected seeds to report as-assigned and as-formed populations. */
+  assignments?: readonly ArmAssignment[]
   /** Metrics to compare. Default: every metric name observed on any matched
    *  pair, sorted. A name that appears on no pair is still reported (with
    *  `n = 0`) so a misspelled metric is visible instead of vanishing. */
@@ -251,6 +263,8 @@ export interface ComparePairedArmsOptions extends PairArmsOptions {
 }
 
 export interface PairedArmsComparison {
+  /** Absent when the assignment population is unknown (no roster supplied). */
+  armPopulations?: ArmPopulationReading[]
   nPairs: number
   nUnpairedBaseline: number
   nUnpairedTreatment: number
@@ -267,7 +281,10 @@ export interface PairedArmsComparison {
  * Correctness uses only the pairs where both sides carry `pass` (`mcnemar.n`
  * is that subset's size); each metric uses only the pairs where both sides
  * carry a finite value for it, with the remainder counted in `nMissing`.
- * Deltas are treatment − baseline throughout.
+ * Deltas are treatment − baseline throughout. With an assignment roster, pairing
+ * covers declared seed identities; missing observations remain identity-only rows
+ * and never contribute fabricated outcomes or metrics. Per-arm summaries report
+ * every assignment and the explicitly formed subset separately.
  *
  * Fail-loud: inherits {@link pairArms}'s unknown-arm throw, and throws on a
  * non-finite metric value — silently treating corrupt telemetry as "metric
@@ -277,13 +294,15 @@ export function comparePairedArms(
   rows: readonly PairedArmRow[],
   opts: ComparePairedArmsOptions,
 ): PairedArmsComparison {
-  const { pairs, unpairedBaseline, unpairedTreatment } = pairArms(rows, opts)
+  const populations =
+    opts.assignments === undefined ? undefined : prepareArmPopulations(rows, opts.assignments, opts)
+  const { pairs, unpairedBaseline, unpairedTreatment } = pairArms(populations?.rows ?? rows, opts)
 
   let correctness: PairedCorrectness | null = null
   const baselinePass: number[] = []
   const treatmentPass: number[] = []
   for (const pair of pairs) {
-    if (pair.baseline.pass === undefined || pair.treatment.pass === undefined) continue
+    if (pair.baseline.pass == null || pair.treatment.pass == null) continue
     baselinePass.push(pair.baseline.pass ? 1 : 0)
     treatmentPass.push(pair.treatment.pass ? 1 : 0)
   }
@@ -335,6 +354,7 @@ export function comparePairedArms(
   })
 
   return {
+    ...(populations ? { armPopulations: populations.readings } : {}),
     nPairs: pairs.length,
     nUnpairedBaseline: unpairedBaseline.length,
     nUnpairedTreatment: unpairedTreatment.length,
@@ -435,7 +455,7 @@ function validateRunRecordArmRows(rows: readonly RunRecordArmRow[], arm: string)
 
 function metricValue(row: PairedArmRow, name: string): number | undefined {
   const v = row.metrics?.[name]
-  if (v === undefined) return undefined
+  if (v == null) return undefined
   if (!Number.isFinite(v)) {
     throw new ValidationError(
       `comparePairedArms: non-finite value for metric '${name}' on pairKey '${row.pairKey}' (arm '${row.arm}'): ${v}`,

@@ -19,6 +19,8 @@ const provider = `
 import { createServer } from 'node:http'
 let calls = []
 const server = createServer(async (req, res) => {
+  // Journal fsyncs may outlive an idle socket; every fixture exchange owns its connection.
+  res.setHeader('connection', 'close')
   if (req.url === '/calls') return res.end(JSON.stringify(calls))
   let body = ''; for await (const chunk of req) body += chunk
   const request = JSON.parse(body); calls.push(request)

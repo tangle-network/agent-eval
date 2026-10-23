@@ -1,3 +1,8 @@
+import {
+  assertConsistentFindingConditions,
+  findingCompositionKey,
+  mergeFindingComposition,
+} from './finding-composition'
 /**
  * Promotion — the only way a claim moves above the layer it was measured at.
  *
@@ -90,6 +95,7 @@ export function promote(
   taxonomy: DomainTaxonomy,
   options: PromoteOptions = {},
 ): PromotionResult {
+  assertConsistentFindingConditions(findings)
   const k = options.k ?? 2
   if (!Number.isInteger(k) || k < 2) {
     throw new RangeError(`promote: k must be an integer of at least 2, got ${k}`)
@@ -129,7 +135,11 @@ export function promote(
     for (const placement of buckets.get(depth) ?? []) {
       const parent = taxonomyParentOf(taxonomy, placement.node)
       if (parent === null || parent === undefined) continue
-      const key = JSON.stringify([placement.claimId, parent])
+      const key = JSON.stringify([
+        placement.claimId,
+        parent,
+        findingCompositionKey(placement.finding),
+      ])
       const group = groups.get(key) ?? { parent, members: [] }
       group.members.push(placement)
       groups.set(key, group)
@@ -287,6 +297,7 @@ function liftedFinding(
     claim: first.claim,
     claim_id: first.claim_id!,
     id_basis: `${first.claim_id}@${parent}`,
+    ...mergeFindingComposition(findings),
     subject: parent,
     severity: mostSevere(findings),
     confidence: Math.min(...findings.map((finding) => finding.confidence)),
