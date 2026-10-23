@@ -6,7 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.221.0] — 2026-10-23
 
+- Capture supporting trace events in the original native decision
+- test: inherit the integration default for behavioral questions
+- test: set the integration default from the observed loaded tail
+- test: own the measured integration deadline in Vitest config
+- test: await observed integration completion across tool paths
 - feat: preserve finding composition and assigned arm populations
+- test: await decision-point HTTP and ledger completion
+- test: await durable readiness in filesystem integration cases
 - test(process): wait for argv child readiness before abort
 - feat(analyst): add bounded calibrated trace question observations
 - fix(analyst): reject surrounding whitespace in caller gold ids

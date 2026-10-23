@@ -19,6 +19,7 @@ import { type SystemOneEvaluatorOptions, systemOneEvaluator } from './systemone'
 import { systemOneChoiceMargin } from './systemone-domain-match'
 import {
   parseSystemOneQuestions,
+  type SystemOneAnswer,
   type SystemOneQuestion,
   type SystemOneResult,
   type SystemOneState,
@@ -26,6 +27,8 @@ import {
 
 export type DecisionQuestions = Record<string, Extract<SystemOneQuestion, { type: 'choice' }>>
 export interface DecisionQuestionPolicy {
+  /** Capture an ancillary choice without routing authority or a calibration certificate. */
+  recordOnly?: boolean
   minimumProbability: number
   minimumMargin: number
   options: Record<string, DecisionRoute>
@@ -129,6 +132,14 @@ function validateDecisionDefinition<Q extends DecisionQuestions>(
       !decisionCalibrationSchema.safeParse(policy.calibration).success
     )
       throw new TypeError('Invalid decision calibration')
+    if (policy.recordOnly !== undefined && typeof policy.recordOnly !== 'boolean')
+      throw new TypeError('Invalid record-only policy')
+    if (
+      policy.recordOnly &&
+      (policy.calibration !== undefined ||
+        Object.values(policy.options).some((route) => route.action !== 'record'))
+    )
+      throw new TypeError('Record-only questions cannot route or carry calibration')
     const choices = Object.keys(question.criteria)
     if (choices.length < 2) throw new TypeError('A decision needs at least two options')
     if (
@@ -140,6 +151,50 @@ function validateDecisionDefinition<Q extends DecisionQuestions>(
       if (!decisionRouteSchema.safeParse(route).success)
         throw new TypeError('Invalid decision route')
     }
+  }
+}
+
+function recommendDecisionAnswer(
+  config: Omit<DecisionPointOptions<DecisionQuestions>, 'ledger' | 'evaluator'>,
+  name: string,
+  servedModel: string,
+  answer: Extract<SystemOneAnswer, { type: 'choice' }>,
+): DecisionRecord['answers'][string] {
+  const policy = config.policy[name]!
+  const p = answer.probabilities[answer.choice]!
+  const margin = systemOneChoiceMargin(answer.probabilities, answer.choice)
+  const calibration = policy.calibration
+  const calibrated =
+    calibration &&
+    calibration.kappa >= DECISION_POINT_MIN_KAPPA &&
+    calibration.questionDigest ===
+      decisionQuestionDigest({
+        id: config.id,
+        version: config.version,
+        model: config.model,
+        servedModel: calibration.servedModel,
+        name,
+        question: config.questions[name]!,
+      })
+  const reason = policy.recordOnly
+    ? 'record-only'
+    : !calibrated
+      ? 'uncalibrated'
+      : servedModel !== calibration.servedModel
+        ? 'model-mismatch'
+        : margin <= 0 || p < policy.minimumProbability || margin < policy.minimumMargin
+          ? 'uncertain'
+          : 'threshold'
+  return {
+    probabilities: { ...answer.probabilities },
+    choice: answer.choice,
+    recommendation:
+      reason === 'record-only'
+        ? { action: 'record' }
+        : reason === 'threshold'
+          ? policy.options[answer.choice]!
+          : { action: 'escalate' },
+    reason,
   }
 }
 
@@ -290,36 +345,7 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
         receipt = result.receipt
         for (const [name, answer] of Object.entries((result.value as SystemOneResult).answers)) {
           if (answer.type !== 'choice') throw new TypeError('Expected choice answer')
-          const policy = config.policy[name]!
-          const p = answer.probabilities[answer.choice]!
-          const margin = systemOneChoiceMargin(answer.probabilities, answer.choice)
-          const calibration = policy.calibration
-          const calibrated =
-            calibration &&
-            calibration.kappa >= DECISION_POINT_MIN_KAPPA &&
-            calibration.questionDigest ===
-              decisionQuestionDigest({
-                id: config.id,
-                version: config.version,
-                model: config.model,
-                servedModel: calibration.servedModel,
-                name,
-                question: config.questions[name]!,
-              })
-          const reason = !calibrated
-            ? 'uncalibrated'
-            : servedModel !== calibration.servedModel
-              ? 'model-mismatch'
-              : margin <= 0 || p < policy.minimumProbability || margin < policy.minimumMargin
-                ? 'uncertain'
-                : 'threshold'
-          answers[name] = {
-            probabilities: { ...answer.probabilities },
-            choice: answer.choice,
-            recommendation:
-              reason === 'threshold' ? policy.options[answer.choice]! : { action: 'escalate' },
-            reason,
-          }
+          answers[name] = recommendDecisionAnswer(config, name, servedModel, answer)
         }
         context.signal?.throwIfAborted()
       } catch {
@@ -424,6 +450,11 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
       return ledger.append(snapshot.runId, findings)
     },
     reliability: () =>
-      decisionPointReliability(ledger, definitionDigest, Object.keys(config.questions)),
+      decisionPointReliability(
+        ledger,
+        definitionDigest,
+        Object.keys(config.questions).filter((name) => !config.policy[name]!.recordOnly),
+        Object.keys(config.questions).filter((name) => config.policy[name]!.recordOnly),
+      ),
   }
 }
