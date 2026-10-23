@@ -95,29 +95,29 @@ describe('recorded AgentRx gold admission', () => {
     expect(loaded).toMatchObject({ succeeded: false, error: { kind: 'invalid' } })
   })
 
-  it('reserves all AgentRx source ids while preserving disjoint and caller-only gold', async () => {
-    const goldPath = join(dir, 'caller-gold.json')
-    const callerGold: Array<{ id: string; label: FailureModeLabel }> = [
-      { id: 'agentrx:71', label: 'fail-to-ask-for-clarification' },
-    ]
-    writeFileSync(goldPath, JSON.stringify(callerGold))
+  it.each(['agentrx:71', 'agentrx:2'])('reserves source id %s against caller gold', async (id) => {
+    const goldPath = join(dir, `collision-${id.split(':')[1]}.json`)
+    writeFileSync(goldPath, JSON.stringify([{ id, label: 'fail-to-ask-for-clarification' }]))
     expect(await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })).toMatchObject({
       succeeded: false,
-      error: { kind: 'invalid', message: "gold id 'agentrx:71' repeats across sources" },
+      error: { kind: 'invalid', message: `gold id '${id}' repeats across sources` },
     })
-    // An admitted Assistant root owns its source id too.
-    writeFileSync(goldPath, JSON.stringify([{ ...callerGold[0], id: 'agentrx:2' }]))
-    expect(await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })).toMatchObject({
-      succeeded: false,
-      error: { kind: 'invalid', message: "gold id 'agentrx:2' repeats across sources" },
-    })
+  })
+
+  it('preserves caller-only gold without an AgentRx mapping', async () => {
+    const goldPath = join(dir, 'caller-only.json')
+    const callerGold = [{ id: 'agentrx:71', label: 'fail-to-ask-for-clarification' }]
     writeFileSync(goldPath, JSON.stringify(callerGold))
     const callerOnly = await loadFailureModeGold({ goldPath })
     expect(callerOnly).toMatchObject({
       succeeded: true,
       value: { gold: callerGold, eligibility: 'eligible', agentRxRows: 0, agentRxMapping: null },
     })
-    const disjoint = [{ ...callerGold[0], id: 'caller:clarification' }]
+  })
+
+  it('combines disjoint caller gold with eligible AgentRx labels and exclusions', async () => {
+    const goldPath = join(dir, 'disjoint.json')
+    const disjoint = [{ id: 'caller:clarification', label: 'fail-to-ask-for-clarification' }]
     writeFileSync(goldPath, JSON.stringify(disjoint))
     const combined = await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })
     if (!combined.succeeded) throw new Error(combined.error.message)
