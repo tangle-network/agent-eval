@@ -5,9 +5,12 @@ import { type AnalystFinding, type EvidenceRef, makeFinding } from './analyst/ty
 import {
   type DecisionRecord,
   type DecisionRoute,
+  decisionCalibrationSchema,
+  decisionObservationSchema,
   decisionPointReliability,
   decisionRouteSchema,
   readDecisionRecord,
+  validDecisionIdentity,
 } from './decision-point-records'
 import type { EvaluationContext } from './evaluation'
 import { hashCanonical, jsonDocument } from './ledger-core/canonical'
@@ -102,7 +105,7 @@ function validateDecisionDefinition<Q extends DecisionQuestions>(
     ...Object.keys(config.questions),
     ...Object.values(config.questions).flatMap((q) => Object.keys(q.criteria)),
   ]
-  if (names.some((name) => !name.trim() || name.trim() !== name))
+  if (names.some((name) => !validDecisionIdentity(name)))
     throw new TypeError('Decision identities must be nonempty without surrounding space')
   if (!config.layers.length || new Set(config.layers).size !== config.layers.length)
     throw new TypeError('Decision layers must be a nonempty set')
@@ -121,6 +124,11 @@ function validateDecisionDefinition<Q extends DecisionQuestions>(
       policy.minimumMargin > 1
     )
       throw new TypeError('Invalid decision threshold')
+    if (
+      policy.calibration !== undefined &&
+      !decisionCalibrationSchema.safeParse(policy.calibration).success
+    )
+      throw new TypeError('Invalid decision calibration')
     const choices = Object.keys(question.criteria)
     if (choices.length < 2) throw new TypeError('A decision needs at least two options')
     if (
@@ -276,6 +284,8 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
             },
           },
         )
+        if (!validDecisionIdentity(result.value.model))
+          throw new TypeError('Invalid served model identity')
         servedModel = result.value.model
         receipt = result.receipt
         for (const [name, answer] of Object.entries((result.value as SystemOneResult).answers)) {
@@ -286,14 +296,7 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
           const calibration = policy.calibration
           const calibrated =
             calibration &&
-            Number.isInteger(calibration.gold_n) &&
-            calibration.gold_n > 0 &&
-            Number.isFinite(calibration.kappa) &&
             calibration.kappa >= DECISION_POINT_MIN_KAPPA &&
-            calibration.kappa <= 1 &&
-            calibration.agreement >= 0 &&
-            calibration.agreement <= 1 &&
-            calibration.evidenceRefs.length > 0 &&
             calibration.questionDigest ===
               decisionQuestionDigest({
                 id: config.id,
@@ -366,14 +369,21 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
       at: string
       evidenceRefs: EvidenceRef[]
     }): Promise<FindingsLedgerOutcome<{ appended: number; replayed: number }>> {
-      const snapshot = structuredClone(input)
+      let snapshot: typeof input
+      try {
+        const cloned = structuredClone(input)
+        hashCanonical(cloned)
+        snapshot = decisionObservationSchema.parse(cloned)
+      } catch {
+        return invalid(
+          'Outcome requires canonical JSON labels and valid identity and evidence fields',
+        )
+      }
       const found = await find(snapshot.runId, decisionId(snapshot.runId, snapshot.invocationId))
       if (!found.succeeded) return found
       const decision = found.value && readDecisionRecord(found.value)
       if (!decision || decision.definitionDigest !== definitionDigest || decision.error)
         return invalid('Outcome requires a successful decision from this definition')
-      if (!Object.keys(snapshot.labels).length || !snapshot.evidenceRefs.length)
-        return invalid('Outcome requires labels and independent evidence')
       for (const [question, label] of Object.entries(snapshot.labels)) {
         if (
           !decision.answers[question] ||

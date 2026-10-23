@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { findingCalibrationSchema, findingEvidenceRefSchema } from './analyst/finding-scope'
 import type { FindingsLedger, FindingsLedgerOutcome } from './analyst/findings-ledger'
 import type { AnalystFinding } from './analyst/types'
 import { calibrationFromPairs } from './meta-eval/calibration'
@@ -8,6 +9,28 @@ const identity = z
   .string()
   .min(1)
   .refine((value) => value.trim() === value)
+export function validDecisionIdentity(value: unknown): value is string {
+  return identity.safeParse(value).success
+}
+
+export const decisionCalibrationSchema = findingCalibrationSchema
+  .extend({
+    questionDigest: identity,
+    servedModel: identity,
+    evidenceRefs: z.array(findingEvidenceRefSchema).min(1),
+  })
+  .strict()
+
+export const decisionObservationSchema = z
+  .object({
+    runId: identity,
+    invocationId: identity,
+    labels: z.record(identity, identity).refine((labels) => Object.keys(labels).length > 0),
+    at: z.string().refine((value) => Number.isFinite(Date.parse(value))),
+    evidenceRefs: z.array(findingEvidenceRefSchema).min(1),
+  })
+  .strict()
+
 const probability = z.number().finite().min(0).max(1)
 export const decisionRouteSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('act'), route: identity }).strict(),
