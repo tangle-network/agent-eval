@@ -856,7 +856,10 @@ describe('CostLedger', () => {
     ])
   })
 
-  it('allows only one file-backed ledger instance to reserve a shared revision', async () => {
+  // Durable writes finish on their record acknowledgements; the suite gate bounds a stuck run.
+  it('allows only one file-backed ledger instance to reserve a shared revision', {
+    timeout: 0,
+  }, async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-ledger-'))
     const first = createRunCostLedger({
       storage: fsCampaignStorage(),
@@ -888,7 +891,16 @@ describe('CostLedger', () => {
     })
 
     try {
-      await dispatched
+      await Promise.race([
+        dispatched,
+        inFlight.then((result) => {
+          if (!result.succeeded) throw result.error
+          throw new Error('First paid call settled before the reservation became active')
+        }),
+      ])
+      expect(first.listPending()).toEqual([
+        expect.objectContaining({ callId: 'first-process', state: 'active' }),
+      ])
       let secondCalls = 0
       const conflict = await second.runPaidCall({
         callId: 'second-process',
