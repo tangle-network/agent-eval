@@ -236,3 +236,67 @@ rubric lives in `examples/`, not the generic implementation, and is not a defaul
 Protocol: https://docs.typesafe.ai/api
 Clef: https://developers.cloudflare.com/workers-ai/models/clef/
 SDK (optional builders): https://github.com/typesafe-ai/typesafe-sdk-js
+
+## Decision points
+
+`decisionPoint` from `/systemone` adds durable routing to the evaluator. A point
+serves many `layers`; each invocation names its current layer and consumer.
+The same layer can use many points. Questions use typed choices; policies map
+every option to `act` (with a route), `escalate`, or `record`, with probability
+and margin thresholds per question. These are recommendations; the consumer
+performs and records the actual action. An escalation in any question takes
+precedence over `act`, which takes precedence over `record`.
+
+Use this for judgment over unstructured state only when a wrong recommendation
+is cheap and reversible and uncertainty can reach an agent or a human. It never
+grants authority to delete, deploy, merge, retire, lift a stand-down, or override
+an acceptance check. Code continues to read objective facts directly. Sample or
+trigger these calls instead of evaluating every event. Existing DomainMatch
+continues to supply its domain-specific request and assessment; this primitive
+uses the same native evaluator and answer validation, not another model adapter.
+
+A policy may drive a route only with independent labeled evidence: positive
+`gold_n`, finite Cohen κ meeting `DECISION_POINT_MIN_KAPPA` (owned in
+[`decision-point.ts`](../src/decision-point.ts)) and `evidenceRefs`.
+`decisionQuestionDigest({ id, version, model, servedModel, name, question })` binds that
+evidence to the authored question, option order and model. Changed served model
+identity, absent/stale calibration, ties and below-threshold answers escalate.
+κ measures label agreement; the joined outcome curve measures probability
+reliability. Do not describe one as proof of the other.
+
+Supply `ledger: openFindingsLedger({ path })` from `/analyst` and the existing
+`SystemOneEvaluatorOptions` as `evaluator`. `decide` accepts `runId`,
+`invocationId`, `layer`, `consumer`, `state`, `scope`, `at`, and `evidenceRefs`,
+plus the existing evaluation context for cancellation, spending and receipts.
+Inspect the typed `succeeded` result before reading its `value`.
+
+The findings ledger is the sole persistence owner. Every invocation first
+appends a 1.1.0 intent with a unique owner token. Competing callers cannot both
+infer. Completed calls record state/input/definition digests, the policy and
+calibration identity, requested/served model, probabilities, recommendation and
+receipt. Failed or cancelled evaluations record escalation with accounting when
+available. A persistence failure returns a typed error and withholds action.
+Exact `(point id, runId, invocationId)` replay reuses the original result, across
+restart; changed inputs or definitions conflict. The input includes its original
+`at`, so callers retain it. An intent without a result remains explicit and
+escalates; deliberate recovery uses a new invocation id instead of silently
+repeating a possibly paid call. The journal's normal lock/dead-owner rules apply.
+
+Call `observe({ runId, invocationId, labels, at, evidenceRefs })` later to join
+independently observed option labels to a decision. This is the answer's truth,
+not whether a downstream workflow happened to succeed. Retain the original
+observation timestamp for exact replay. Conflicting labels refuse append.
+`reliability()` reads the same ledger and returns total decisions, labeled and
+missing outcomes, and per-question sample counts, empirical curves and threshold
+accuracy. A curve needs two labels; otherwise it is `null`. Threshold tables are
+development evidence for an explicit policy revision and fresh confirmation,
+not automatic tuning or activation. Failed calls remain in the denominator.
+
+Decision findings retain their measured layer and scope. The existing `/analyst`
+`promote` is the only owner for generalizing claims; it does not authorize
+routing and does not lift event/turn findings directly into run-level claims.
+
+The data model permits many-to-many associations. The only intentional
+one-to-one rules are one primary measure per hypothesis (to prevent choosing
+a winner after seeing outcomes), with any number of secondary measures, and
+one implementation per code concept (to prevent divergent owners).
