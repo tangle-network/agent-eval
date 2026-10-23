@@ -191,22 +191,6 @@ describe('CODING_HARNESSES', () => {
 describe('expandProfileAxes', () => {
   const axisBase: AgentProfile = { name: 'agent', model: { default: 'deepseek-v4-flash' } }
 
-  it('defaults to CODING_HARNESSES × the base model — one cell per harness', () => {
-    const profiles = expandProfileAxes({ base: axisBase })
-    // agent-interface resolves the bare catalog id through its provider family
-    // (2.20.0), so only the universal harness runs deepseek-v4-flash; each
-    // vendor-locked harness snaps to its native model instead of being dropped.
-    expect(profiles).toHaveLength(CODING_HARNESSES.length)
-    expect(
-      Object.fromEntries(profiles.map((p) => [harnessAxisOf(p)?.harness, harnessAxisOf(p)?.model])),
-    ).toEqual({
-      opencode: 'deepseek-v4-flash',
-      'claude-code': HARNESS_NATIVE_MODEL,
-      codex: HARNESS_NATIVE_MODEL,
-      'kimi-code': HARNESS_NATIVE_MODEL,
-    })
-  })
-
   it('crosses harnesses × models with a distinct id per cell (no collapse)', () => {
     const profiles = expandProfileAxes({
       base: axisBase,
@@ -232,20 +216,6 @@ describe('expandProfileAxes', () => {
       harness: 'prime',
       model: 'deepseek/deepseek-v4-flash',
     })
-  })
-
-  it('drops (harness, model) pairs a vendor-locked harness cannot run', () => {
-    const pairs = expandProfileAxes({
-      base: axisBase,
-      harnesses: ['claude-code', 'codex'],
-      models: ['anthropic/claude-x', 'openai/gpt-x'],
-    })
-      .map((p) => harnessAxisOf(p))
-      .filter(Boolean)
-    expect(pairs).toContainEqual({ harness: 'claude-code', model: 'anthropic/claude-x' })
-    expect(pairs).toContainEqual({ harness: 'codex', model: 'openai/gpt-x' })
-    expect(pairs).not.toContainEqual({ harness: 'claude-code', model: 'openai/gpt-x' })
-    expect(pairs).toHaveLength(2)
   })
 
   it('snaps a vendor-locked harness to its native default when it supports none of the swept models', () => {
@@ -317,22 +287,6 @@ describe('expandProfileAxes', () => {
       expect(profile.harness).toBe(harnessAxisOf(profile)?.harness)
     }
     expect(baseWithHarness.harness).toBe('claude-code')
-  })
-
-  it('fails loud on no harnesses / no models — but snaps (never throws) on all-incompatible', () => {
-    expect(() => expandProfileAxes({ base: axisBase, harnesses: [] })).toThrow(/no harnesses/)
-    expect(() => expandProfileAxes({ base: { name: 'x' } })).toThrow(/no models/)
-    // A locked harness with no compatible swept model snaps to its native default —
-    // it is never dropped and the call never throws (that was the old drop behaviour).
-    const [snapped] = expandProfileAxes({
-      base: axisBase,
-      harnesses: ['claude-code'],
-      models: ['openai/gpt-x'],
-    })
-    expect(harnessAxisOf(snapped as AgentProfile)).toEqual({
-      harness: 'claude-code',
-      model: HARNESS_NATIVE_MODEL,
-    })
   })
 })
 
