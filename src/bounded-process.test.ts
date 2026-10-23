@@ -397,17 +397,31 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
       // The abort path shares `killAndDrain` with the shell form, but the flags and
       // the forced non-zero exit had no coverage for an argv caller.
       const controller = new AbortController()
-      setTimeout(() => controller.abort(), 1000)
-      const res = await runBoundedProcess({
+      const ready = join(argvScratch, 'ready')
+      const running = runBoundedProcess({
         command: 'bash',
-        args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
+        args: ['-c', 'echo $$; sleep 60 & echo $!; : > "$BOUNDED_PROCESS_READY"; wait'],
+        env: { BOUNDED_PROCESS_READY: ready },
         timeoutMs: 30_000,
         signal: controller.signal,
       })
-      expect(res.killedBySignal).toBe(true)
-      expect(res.killedByTimeout).toBe(false)
-      expect(res.exitCode).not.toBe(0)
-      await expectTreeGone(res.stdout)
+      const settled = Promise.allSettled([running])
+      try {
+        const readyDeadline = Date.now() + 5_000
+        while (!existsSync(ready) && Date.now() < readyDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+        expect(existsSync(ready)).toBe(true)
+        controller.abort()
+        const res = await running
+        expect(res.killedBySignal).toBe(true)
+        expect(res.killedByTimeout).toBe(false)
+        expect(res.exitCode).not.toBe(0)
+        await expectTreeGone(res.stdout)
+      } finally {
+        controller.abort()
+        await settled
+      }
     },
     40_000,
   )
