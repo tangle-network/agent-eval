@@ -104,6 +104,15 @@ describe('recorded AgentRx gold admission', () => {
     })
   })
 
+  it.each(['agentrx:71 ', ' agentrx:2'])('refuses ambiguous caller source id %j', async (id) => {
+    const goldPath = join(dir, 'ambiguous-id.json')
+    writeFileSync(goldPath, JSON.stringify([{ id, label: 'fail-to-ask-for-clarification' }]))
+    expect(await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })).toMatchObject({
+      succeeded: false,
+      error: { kind: 'invalid' },
+    })
+  })
+
   it('preserves caller-only gold without an AgentRx mapping', async () => {
     const goldPath = join(dir, 'caller-only.json')
     const callerGold = [{ id: 'agentrx:71', label: 'fail-to-ask-for-clarification' }]
