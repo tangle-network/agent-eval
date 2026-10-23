@@ -41,18 +41,19 @@ export const decisionRouteSchema = z.discriminatedUnion('action', [
 /** A routing recommendation; the consumer retains execution authority. */
 export type DecisionRoute = z.infer<typeof decisionRouteSchema>
 
-const answerSchema = z
+export const decisionAnswerSchema = z
   .object({
     probabilities: z.record(identity, probability),
     choice: identity,
     recommendation: decisionRouteSchema,
-    reason: z.enum(['threshold', 'uncalibrated', 'uncertain', 'model-mismatch']),
+    reason: z.enum(['threshold', 'uncalibrated', 'uncertain', 'model-mismatch', 'record-only']),
   })
   .strict()
   .refine(
     (answer) => {
       const entries = Object.entries(answer.probabilities)
       return (
+        (answer.reason !== 'record-only' || answer.recommendation.action === 'record') &&
         entries.length >= 2 &&
         Object.hasOwn(answer.probabilities, answer.choice) &&
         Math.abs(entries.reduce((sum, [, value]) => sum + value, 0) - 1) <=
@@ -79,7 +80,7 @@ const decisionRecordSchema = z
     requestedModel: identity,
     servedModel: identity.nullable(),
     action: z.enum(['act', 'escalate', 'record']),
-    answers: z.record(identity, answerSchema),
+    answers: z.record(identity, decisionAnswerSchema),
     error: z.enum(['evaluation-failed', 'cancelled']).nullable(),
     receipt: z.unknown().optional(),
   })
@@ -103,14 +104,17 @@ export function readDecisionRecord(finding: AnalystFinding): DecisionRecord | nu
   return parsed.success ? parsed.data : null
 }
 
-/** Joins labeled answers, never workflow success, to the stored distributions. */
+/** Exact-definition reliability, never workflow success. Record-only choices have no label duty.
+ * Capture-specific definitions do not form a cross-map probability calibration curve. */
 export async function decisionPointReliability(
   ledger: FindingsLedger,
   definitionDigest: string,
   questionNames: readonly string[],
+  recordOnlyQuestionNames: readonly string[] = [],
 ): Promise<
   FindingsLedgerOutcome<{
     ledgerRoot: string
+    recordOnlyQuestions: string[]
     attempts: number
     unresolved: number
     decisions: number
@@ -174,10 +178,12 @@ export async function decisionPointReliability(
     questionNames.map((name) => [name, [] as Array<{ evalScore: number; outcome: number }>]),
   )
   const predictions = new Map(questionNames.map((name) => [name, 0]))
+  const recordOnly = new Set(recordOnlyQuestionNames)
   let labeled = 0
   for (const { finding, record } of decisions) {
-    let complete = Object.keys(record.answers).length > 0
+    let complete = Object.keys(record.answers).some((name) => !recordOnly.has(name))
     for (const [question, answer] of Object.entries(record.answers)) {
+      if (recordOnly.has(question)) continue
       predictions.set(question, (predictions.get(question) ?? 0) + 1)
       const label = outcomes.get(JSON.stringify([finding.run_id, finding.finding_id, question]))
       if (label === undefined) {
@@ -209,6 +215,7 @@ export async function decisionPointReliability(
     succeeded: true,
     value: {
       ledgerRoot: read.value.merkleRoot,
+      recordOnlyQuestions: [...recordOnly],
       attempts,
       unresolved: attempts - decisions.length,
       failed: decisions.filter(({ record }) => record.error !== null).length,

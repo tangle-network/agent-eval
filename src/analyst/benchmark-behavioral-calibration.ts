@@ -8,9 +8,11 @@ import {
   type BehavioralTraceAnswer,
   type BehavioralTraceLayer,
   type BehavioralTraceQuestionId,
+  type BehavioralTraceSupport,
   type BehavioralWindowPolicy,
   behavioralTraceQuestionDigest,
 } from './behavioral-trace-questions'
+import { behavioralTraceSupportSchema } from './behavioral-trace-support'
 import { validBehavioralCalibration } from './behavioral-trace-validation'
 import type { ExactExecutionComponentIdentity } from './exact-types'
 import type { AnalystFinding, EvidenceRef } from './types'
@@ -35,6 +37,14 @@ export interface BehavioralTraceCalibrationRow {
   agreement: number | null
   kappa: number | null
   confusion: Record<'yes' | 'no', Record<'yes' | 'no' | 'unsure' | 'missing', number>>
+  /** Wrong/unsure/missing semantic answers retain the selected event and complete scoped map.
+   * Cross-map nominal agreement is separate from exact-definition decision reliability. */
+  disagreements: Array<{
+    windowId: string
+    expected: 'yes' | 'no'
+    predicted: BehavioralTraceAnswer | null
+    support: BehavioralTraceSupport | null
+  }>
   eligible: boolean
   /** Finite measured evidence, even if it misses the activation bar. */
   calibration: BehavioralQuestionCalibration | null
@@ -63,6 +73,7 @@ const predictionSchema = z
     questionDigest: z.string().nullable(),
     requestedModel: identity.nullable(),
     servedModel: identity.nullable(),
+    support: behavioralTraceSupportSchema.optional(),
   })
   .passthrough()
 
@@ -88,6 +99,12 @@ export function calibrateBehavioralTraceQuestions(input: {
   for (const finding of input.findings) {
     if (finding.area !== 'behavioral-trace-question' || finding.layer !== input.layer) continue
     const row = predictionSchema.parse(finding.metadata?.behavioral_trace_question)
+    if (
+      row.support &&
+      (row.support.map.windowId !== row.windowId ||
+        row.support.method !== (row.questionId === 'identical-tool-repeat' ? 'computed' : 'judged'))
+    )
+      throw new TypeError('Behavioral support does not match its prediction')
     const key = JSON.stringify([row.questionId, row.windowId])
     if (predictions.has(key)) throw new TypeError('Duplicate behavioral prediction')
     predictions.set(key, row)
@@ -115,6 +132,7 @@ export function calibrateBehavioralTraceQuestions(input: {
         yes: { yes: 0, no: 0, unsure: 0, missing: 0 },
         no: { yes: 0, no: 0, unsure: 0, missing: 0 },
       },
+      disagreements: [],
       eligible: false,
       calibration: null,
     }
@@ -138,6 +156,17 @@ export function calibrateBehavioralTraceQuestions(input: {
       if (value === null) row.missingPredictions++
       if (value === 'unsure') row.abstentions++
       row.confusion[item.label][value ?? 'missing']++
+      if (value !== item.label) {
+        const support = matches ? (prediction.support ?? null) : null
+        if (support && support.map.windowId !== item.windowId)
+          throw new TypeError('Behavioral support map is outside the prediction window')
+        row.disagreements.push({
+          windowId: item.windowId,
+          expected: item.label,
+          predicted: value,
+          support: support ? structuredClone(support) : null,
+        })
+      }
       // Missing predictions remain disagreements in the denominator.
       pairs.push([item.label, value ?? '(missing prediction)'])
     }

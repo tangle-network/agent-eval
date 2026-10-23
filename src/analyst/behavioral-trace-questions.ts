@@ -10,7 +10,7 @@ import type { FindingCalibration } from './finding-scope'
 import type { FindingsLedger } from './findings-ledger'
 import type { EvidenceRef } from './types'
 
-export const BEHAVIORAL_TRACE_QUESTIONS_VERSION = '1'
+export const BEHAVIORAL_TRACE_QUESTIONS_VERSION = '2'
 
 /** Questions are independent observations; none is an acceptance ruler. */
 export const BEHAVIORAL_TRACE_QUESTIONS = {
@@ -116,6 +116,28 @@ export interface BehavioralWindowPolicy {
   config?: Record<string, unknown>
 }
 
+/** Caller-retained immutable sanitized source, scoped by its containing window. */
+export interface BehavioralTraceEvent {
+  id: string
+  content: SystemOneState
+  evidenceRefs: EvidenceRef[]
+}
+export interface BehavioralTraceEventMap {
+  windowId: string
+  traceId: string
+  events: Array<{ id: string; contentDigest: string; evidenceRefs: EvidenceRef[] }>
+}
+/** A finite source classification, not a rationale or independently verified grounding. */
+export interface BehavioralTraceSupport {
+  method: 'judged' | 'computed'
+  selectedEventIds: string[]
+  unresolved: boolean
+  unavailable: boolean
+  mapDigest: string
+  map: BehavioralTraceEventMap
+  probabilities: Record<string, number> | null
+}
+
 export interface BehavioralTraceWindow {
   id: string
   traceId: string
@@ -125,13 +147,15 @@ export interface BehavioralTraceWindow {
   to: string
   /** Sanitized source content only. Labels, rewards and expected answers stay outside this state. */
   state: SystemOneState
+  /** Exact bounded source events; labels and expected answers are forbidden here too. */
+  events: BehavioralTraceEvent[]
   /** Explicit source limitations; never silently interpret a partial capture as complete. */
   capture: { complete: boolean; limitations: string[] }
   evidenceRefs: EvidenceRef[]
   /** Structured physical tool attempts, extracted by the capture owner, never guessed from prose. */
   toolCalls?: {
     complete: boolean
-    attempts: Array<{ id: string; name: string; args: unknown }>
+    attempts: Array<{ id: string; eventId: string; name: string; args: unknown }>
   }
 }
 
@@ -161,6 +185,8 @@ export interface BehavioralTraceQuestionsOptions {
   >
   maxWindows?: number
   maxWindowBytes?: number
+  /** Canonical native request bytes, including every question and the retained map. */
+  maxRequestBytes?: number
   minimumProbability?: number
   minimumMargin?: number
 }

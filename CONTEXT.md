@@ -11,3 +11,10 @@
 **As assigned:** every seed in an independently supplied assignment roster, including absent observations and teams that did not form. Missing outcomes remain unknown.
 
 **As formed:** only assigned seeds whose execution owner explicitly observed a formed team. The package consumes that verdict; the execution owner defines formation.
+
+
+**Supporting event:** a finite classification selecting a supplied source event relevant to a behavioral question, or explicit unresolved. It is not a model-authored rationale or a causal claim.
+
+**Source event map:** the ordered, window-scoped association of event IDs with sanitized-content digests and retained source references, stored with the decision definition and returned on replay. _Avoid:_ state-only mapping.
+
+**Record-only question:** an ancillary choice with no routing authority, calibration certificate or independent truth-label duty in decision reliability.
