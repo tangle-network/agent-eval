@@ -4,6 +4,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.221.0] — 2026-10-23
+
+- feat: preserve finding composition and assigned arm populations
+- test(process): wait for argv child readiness before abort
+- feat(analyst): add bounded calibrated trace question observations
+- fix(analyst): reject surrounding whitespace in caller gold ids
+- test(analyst): reproduce whitespace source-id bypass
+- test(optimizer): retire fake CLI metering harness
+- test(analyst): isolate recorded gold admission scenarios
+- fix(systemone): validate decision boundaries before routing
+- ci: pin the eval publication dispatcher body
+- fix(analyst): reserve excluded source ids across caller gold
+- fix(analyst): validate root provenance before gold admission
+- fix(analyst): preserve actor boundaries in AgentRx calibration gold
+- Preserve manual drafts observed while recording failed adoption (#1076)
+- Recover updater-owned failure drafts while preserving manual holds (#1075)
+- feat(systemone): persist calibrated decision points and outcomes
+- ci: move eval verification and Python publishing to owned runners
+- chore(deps): bump opentelemetry-api in /clients/python (#1068)
+- fix(adopt): quote optional workflow flags
+- fix(adopt): preserve shallow history and caller-owned dependency references
+- fix(adopt): reconcile effective workspace pins and preserve proposal history
+
 ## [0.220.2] — 2026-10-22
 
 - fix(analyst): refresh live dependency identity after security updates
