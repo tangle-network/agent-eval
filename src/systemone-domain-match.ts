@@ -234,7 +234,11 @@ export function prepareSystemOneDomainMatch(
   })
 }
 
-function margin(probabilities: Record<string, number>, selected: string): number {
+/** Shared selected-option margin for domain matching and calibrated routing. */
+export function systemOneChoiceMargin(
+  probabilities: Record<string, number>,
+  selected: string,
+): number {
   const other = Math.max(
     0,
     ...Object.entries(probabilities)
@@ -250,7 +254,10 @@ function qualified(
   threshold: number,
   minimumMargin: number,
 ): boolean {
-  return probabilities[selected]! >= threshold && margin(probabilities, selected) >= minimumMargin
+  return (
+    probabilities[selected]! >= threshold &&
+    systemOneChoiceMargin(probabilities, selected) >= minimumMargin
+  )
 }
 
 /** Interpret a retained native answer without another inference or any authorization effect. */
