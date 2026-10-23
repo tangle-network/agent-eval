@@ -673,9 +673,12 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   let number = open?.number
   if (number) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
   else {
-    gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile])
+    gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile, ...(!green ? ['--draft'] : [])])
     number = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number']))[0].number
   }
+  const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
+  if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
+  if (proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
   log(`${open ? 'updated' : 'opened'} #${number}: ${title}`)
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
