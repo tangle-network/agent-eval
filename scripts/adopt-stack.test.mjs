@@ -178,7 +178,8 @@ describe('adopt-stack effective workspace delivery', () => {
     }
     const pnpm = (...args) => execFileSync('pnpm', args, { cwd: root, stdio: 'pipe' })
     try {
-      const pkg = { name: 'adopt-effective-integration', private: true, dependencies: { [brand]: current, [local]: 'workspace:*', react: '19.3.0' }, pnpm: { minimumReleaseAgeExclude: [`${brand}@${old}`] } }
+      const packageManager = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).packageManager
+      const pkg = { name: 'adopt-effective-integration', private: true, packageManager, dependencies: { [brand]: old, [local]: 'workspace:*', react: '19.3.0' }, pnpm: { minimumReleaseAgeExclude: [`${brand}@${old}`] } }
       if (overrideFile === 'package.json') pkg.pnpm.overrides = { react: '$react', [brand]: old, [`fixture-parent>${brand}`]: `$${brand}` }
       save('package.json', pkg)
       save('pnpm-workspace.yaml', `packages:\n  - 'apps/*'\nautoInstallPeers: false\nminimumReleaseAgeExclude:\n  - '${brand}@${old}'\n${overrideFile === 'pnpm-workspace.yaml' ? `overrides:\n  react: '$react'\n  '${brand}': '${old}'\n  'fixture-parent>${brand}': '$${brand}'\n` : ''}`)
@@ -186,6 +187,9 @@ describe('adopt-stack effective workspace delivery', () => {
       save('apps/web/package.json', { name: 'adopt-web', private: true, dependencies: { [brand]: old } })
       save('apps/server/package.json', { name: 'adopt-server', private: true, dependencies: { [brand]: old } })
       pnpm('install', '--ignore-scripts')
+      // Seed real installed drift without relying on legacy settings current pnpm ignores.
+      pkg.dependencies[brand] = current
+      save('package.json', pkg)
       // Tax's false-green calibration: root says latest, actual install is old.
       const staleLock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8')
       expect(installedVersion(root, 'package.json', brand)).toBe(old)
