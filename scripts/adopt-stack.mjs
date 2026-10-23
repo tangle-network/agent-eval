@@ -676,9 +676,10 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   let manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
   writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
     + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
+  const promoteDraft = green && previous?.isDraft && !manualDraft
   let number = open?.number
-  if (number) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
-  else {
+  if (number && !promoteDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
+  else if (!number) {
     gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile, ...(!green ? ['--draft'] : [])])
     number = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number']))[0].number
   }
@@ -689,6 +690,8 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
   if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
   if (green && current.isDraft) manualDraft = true
+  // Retain the failed-draft marker if readiness fails, so a later run can recover.
+  if (promoteDraft && !manualDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
   log(`${open ? 'updated' : 'opened'} #${number}: ${title}`)
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
