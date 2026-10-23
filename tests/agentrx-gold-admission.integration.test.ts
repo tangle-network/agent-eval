@@ -95,6 +95,40 @@ describe('recorded AgentRx gold admission', () => {
     expect(loaded).toMatchObject({ succeeded: false, error: { kind: 'invalid' } })
   })
 
+  it('reserves all AgentRx source ids while preserving disjoint and caller-only gold', async () => {
+    const goldPath = join(dir, 'caller-gold.json')
+    const callerGold: Array<{ id: string; label: FailureModeLabel }> = [
+      { id: 'agentrx:71', label: 'fail-to-ask-for-clarification' },
+    ]
+    writeFileSync(goldPath, JSON.stringify(callerGold))
+    expect(await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })).toMatchObject({
+      succeeded: false,
+      error: { kind: 'invalid', message: "gold id 'agentrx:71' repeats across sources" },
+    })
+    // An admitted Assistant root owns its source id too.
+    writeFileSync(goldPath, JSON.stringify([{ ...callerGold[0], id: 'agentrx:2' }]))
+    expect(await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })).toMatchObject({
+      succeeded: false,
+      error: { kind: 'invalid', message: "gold id 'agentrx:2' repeats across sources" },
+    })
+    writeFileSync(goldPath, JSON.stringify(callerGold))
+    const callerOnly = await loadFailureModeGold({ goldPath })
+    expect(callerOnly).toMatchObject({
+      succeeded: true,
+      value: { gold: callerGold, eligibility: 'eligible', agentRxRows: 0, agentRxMapping: null },
+    })
+    const disjoint = [{ ...callerGold[0], id: 'caller:clarification' }]
+    writeFileSync(goldPath, JSON.stringify(disjoint))
+    const combined = await loadFailureModeGold({ agentRxLabelsPath: labelsPath, goldPath })
+    if (!combined.succeeded) throw new Error(combined.error.message)
+    expect(combined.value.gold).toEqual([
+      { id: 'agentrx:2', label: 'misread-tool-output' },
+      { id: 'agentrx:12', label: 'disobey-task-specification' },
+      ...disjoint,
+    ])
+    expect(combined.value.unmapped.map((item) => item.id)).toEqual(['agentrx:71'])
+  })
+
   it('preserves the old recorded labels and failed calibration across new source admission', async () => {
     const path = join(fixtures, 'legacy-calibration.json')
     const before = readFileSync(path)

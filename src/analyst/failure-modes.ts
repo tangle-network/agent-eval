@@ -234,8 +234,8 @@ export interface FailureModeGold {
 /**
  * Load the calibration gold set from the public AgentRx labels and the
  * caller's gold file, through the analyst module's public-dataset loader.
- * Gold ids must be unique across both sources. No source or an empty source
- * is invalid. A parsed AgentRx source whose rows are all excluded returns
+ * Caller gold ids must be disjoint from all AgentRx ids, including exclusions.
+ * No source or an empty source is invalid. A parsed AgentRx source whose rows are all excluded returns
  * unknown eligibility with its reasons; it supplies no labels to calibrate.
  */
 export async function loadFailureModeGold(
@@ -266,7 +266,7 @@ export async function loadFailureModeGold(
   }
   if (gold.length === 0 && unmapped.length === 0)
     return invalid('failure-modes calibration needs at least one gold item')
-  const ids = new Set<string>()
+  const ids = new Set(unmapped.map((item) => item.id))
   for (const item of gold) {
     if (ids.has(item.id)) return invalid(`gold id '${item.id}' repeats across sources`)
     ids.add(item.id)
