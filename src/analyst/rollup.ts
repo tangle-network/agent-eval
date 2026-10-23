@@ -1,3 +1,8 @@
+import {
+  assertConsistentFindingConditions,
+  findingCompositionKey,
+  mergeFindingComposition,
+} from './finding-composition'
 /**
  * rollup — run findings aggregated up the ladder, with bootstrap intervals and
  * denominators, lifted only where `promote` allows.
@@ -64,6 +69,7 @@ export function rollupFindings(
   taxonomy: DomainTaxonomy,
   options: RollupOptions = {},
 ): RollupResult {
+  assertConsistentFindingConditions(findings)
   const confidence = options.confidence ?? 0.95
   const skipped: PromotionHold[] = []
   const skip = (finding: AnalystFinding, reason: string): void => {
@@ -109,7 +115,11 @@ export function rollupFindings(
   const groups = new Map<string, { play: string; members: Observation[] }>()
   for (const observation of observations) {
     const play = taxonomyParentOf(taxonomy, observation.run)!
-    const key = JSON.stringify([observation.claimId, play])
+    const key = JSON.stringify([
+      observation.claimId,
+      play,
+      findingCompositionKey(observation.finding),
+    ])
     const group = groups.get(key) ?? { play, members: [] }
     group.members.push(observation)
     groups.set(key, group)
@@ -142,6 +152,7 @@ export function rollupFindings(
         claim: first.claim,
         claim_id: first.claim_id!,
         id_basis: `${first.claim_id}@${play}`,
+        ...mergeFindingComposition(findingsInGroup),
         subject: play,
         severity: mostSevere(findingsInGroup),
         confidence: Math.min(...findingsInGroup.map((finding) => finding.confidence)),
@@ -172,7 +183,10 @@ export function rollupFindings(
   const promoted = promotion.promoted.map((finding) => {
     const covered = new Set(finding.scope!.population)
     const members = observations.filter(
-      (observation) => observation.claimId === finding.claim_id && covered.has(observation.run),
+      (observation) =>
+        observation.claimId === finding.claim_id &&
+        covered.has(observation.run) &&
+        findingCompositionKey(observation.finding) === findingCompositionKey(finding),
     )
     const pooled = pool(members, options, confidence)
     return {
@@ -220,5 +234,3 @@ export interface RollupInput {
   taxonomy: DomainTaxonomy
   options?: RollupOptions
 }
-
-

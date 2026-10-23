@@ -21,6 +21,12 @@ import type { RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
 import type { ChatClient } from './chat-client'
+import {
+  type FindingConditions,
+  type FindingTreatment,
+  findingCompositionKey,
+  mergeFindingComposition,
+} from './finding-composition'
 import type {
   FindingEvidenceUnit,
   FindingLayer,
@@ -35,7 +41,7 @@ import type {
  *
  * 1.1.0 adds what a finding is about and what it was measured on: `layer`,
  * `scope`, `method`, `measure`, `confounders`, `valid_for`, `claim_id` and
- * `evidence_units`. They are all optional, and a 1.0.0 finding carries none of
+ * `evidence_units`, with optional `treatment` and `conditions` composition. They are all optional, and a 1.0.0 finding carries none of
  * them; `readFindingScope` reads such a finding as layer and n unknown.
  * `parseAnalystFinding` (finding-scope.ts) is the one validator for both.
  */
@@ -99,6 +105,10 @@ export interface AnalystFinding {
    * `scope.population` must match them and no unit may sit above `layer`.
    */
   evidence_units?: FindingEvidenceUnit[]
+  /** Deliberately assigned bundles; every bundle may touch several treatment layers. */
+  treatment?: FindingTreatment[]
+  /** Observed condition snapshots with population and observation-time provenance. */
+  conditions?: FindingConditions[]
 }
 
 /** Every finding schema this package reads. Writers emit 1.1.0 only when a 1.1.0 field is set. */
@@ -327,7 +337,9 @@ export interface AnalystUsageReceipt {
 
 /**
  * Compute the stable finding_id from the identity-defining fields.
- * Default implementation hashes {analyst_id, area, subject, normalized claim}.
+ * Legacy identity hashes {analyst_id, area, subject, normalized claim}. Supplied
+ * composition adds normalized treatment/fixed-condition identity; covariate provenance
+ * remains on the record without making every observation time a different claim.
  * Analysts that emit findings whose claim text varies per run (timestamps,
  * counts) SHOULD either: (a) pass an explicit `id_basis` to fix the hash,
  * or (b) move the variable part into `rationale`/`metadata` and keep the
@@ -340,12 +352,16 @@ export function computeFindingId(input: {
   claim: string
   /** Override the claim for hashing — use when the displayed claim has run-specific bits. */
   id_basis?: string
+  treatment?: FindingTreatment[]
+  conditions?: FindingConditions[]
 }): string {
+  const composition = findingCompositionKey(input)
   const basis = JSON.stringify({
     a: input.analyst_id,
     r: input.area,
     s: input.subject ?? '',
     c: normalizeClaim(input.id_basis ?? input.claim),
+    ...(composition ? { composition } : {}),
   })
   return `f_${createHash('sha256').update(basis).digest('hex').slice(0, 20)}`
 }
@@ -370,6 +386,8 @@ export const FINDING_SCOPE_FIELDS = [
   'valid_for',
   'claim_id',
   'evidence_units',
+  'treatment',
+  'conditions',
 ] as const satisfies ReadonlyArray<keyof AnalystFinding>
 
 /**
@@ -382,7 +400,8 @@ export function makeFinding(
     produced_at?: string
   },
 ): AnalystFinding {
-  const { id_basis, produced_at, ...rest } = init
+  const { id_basis, produced_at, ...fields } = init
+  const rest = { ...fields, ...mergeFindingComposition([fields]) }
   return {
     schema_version: FINDING_SCOPE_FIELDS.some((field) => rest[field] !== undefined)
       ? '1.1.0'
@@ -393,6 +412,8 @@ export function makeFinding(
       subject: rest.subject,
       claim: rest.claim,
       id_basis,
+      treatment: rest.treatment,
+      conditions: rest.conditions,
     }),
     produced_at: produced_at ?? new Date().toISOString(),
     ...rest,

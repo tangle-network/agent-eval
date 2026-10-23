@@ -48,6 +48,7 @@ export type {
   EvidenceRef,
   ProposalFinding,
 } from '../analyst/types'
+export type { ArmAssignment, ArmPopulationReading, ArmPopulationSummary } from '../arm-populations'
 export type { WelchTestResult, WelchTestStatus } from '../baseline'
 export type { BenchmarkEvaluation } from '../benchmarks/types'
 export type {

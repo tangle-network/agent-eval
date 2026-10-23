@@ -274,6 +274,8 @@ export {
   FAILURE_MODES_VERSION,
   loadFailureModeGold,
 } from './failure-modes'
+export type { FindingConditions, FindingTreatment, TreatmentLayer } from './finding-composition'
+export { TREATMENT_LAYERS } from './finding-composition'
 export type {
   FindingCalibration,
   FindingEvidenceUnit,
