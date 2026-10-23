@@ -197,7 +197,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
     expect(replayUsage).toEqual([
       { calls: 0, tokens: { input: 0, output: 0 }, cost: { kind: 'observed', usd: 0 } },
     ])
-  }, 30_000)
+  })
 
   it('lets only a terminal owner finalize observations during concurrent registry analyses', async () => {
     const config = options('concurrent', [window('concurrent', 'event', 'provider-wait')])
@@ -213,7 +213,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
       9,
     )
     expect((await calls()).length).toBe(before + 1)
-  }, 30_000)
+  })
 
   it('calibrates each question independently and limits positives to matching coordinator alarms', async () => {
     const yes = window('yes')
@@ -298,7 +298,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
       true,
     )
     expect(calibrated.every((f) => !('pass' in row(f)) && !('acceptance' in row(f)))).toBe(true)
-  }, 30_000)
+  })
 
   it('keeps missing labels, unsure and absent predictions distinct in public calibration', async () => {
     const config = options('missing', [window('observed')])
@@ -356,7 +356,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
       evidenceRefs: [],
     })
     expect(empty.every((r) => r.kappa === null && r.agreement === null && !r.eligible)).toBe(true)
-  }, 30_000)
+  })
 
   it('deduplicates physical attempts and refuses conflicting or unbounded source data before spending', async () => {
     const replay = window('replayed')
@@ -393,7 +393,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
       analyze('computed', { ...config, windows: [{ ...replay, traceId: 'outside' }] }),
     ).rejects.toThrow(/outside/)
     expect((await calls()).length).toBe(before)
-  }, 30_000)
+  })
 
   it('captures ledger and evaluator references and binds their declared identity', async () => {
     const config = options('captured', [window('captured')])
@@ -431,7 +431,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
         servedModel: config.model,
       }),
     )
-  }, 30_000)
+  })
 
   it('records failed judgments as unavailable and preserves unknown usage', async () => {
     const failed = options('failed', [window('failed', 'event', 'provider-error')])
@@ -457,7 +457,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
       tokens: null,
       cost: { kind: 'uncaptured', usd: null },
     })
-  }, 30_000)
+  })
 
   it('honors cancellation, deadlines and a zero budget before provider dispatch', async () => {
     const before = (await calls()).length
@@ -473,5 +473,5 @@ describe('behavioralAnalyst public SDK question battery', () => {
         .every((f) => row(f).answer === null && !row(f).eligibleAlarm),
     ).toBe(true)
     expect((await calls()).length).toBe(before)
-  }, 30_000)
+  })
 })
