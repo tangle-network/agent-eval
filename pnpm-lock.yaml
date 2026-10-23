@@ -168,16 +168,16 @@ importers:
     dependencies:
       '@asteasolutions/zod-to-openapi':
         specifier: ^9.1.0
-        version: 9.1.0(zod@4.6.5)
+        version: 9.1.0(zod@4.6.6)
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.9)
       '@tangle-network/agent-core':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@tangle-network/agent-interface':
-        specifier: ^5.0.0
-        version: 5.0.0
+        specifier: ^5.7.1
+        version: 5.7.1
       '@tangle-network/agent-trace-contract':
         specifier: ^2.0.0
         version: 2.0.0
@@ -197,8 +197,8 @@ importers:
         specifier: 1.9.0
         version: 1.9.0
       zod:
-        specifier: 4.6.5
-        version: 4.6.5
+        specifier: 4.6.6
+        version: 4.6.6
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.5
@@ -750,16 +750,16 @@ packages:
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
     engines: {node: '>=10'}
 
-  '@tangle-network/agent-core@0.13.1':
-    resolution: {integrity: sha512-NxwPPHxYeQy/rb/Oz3gjowNjeyc+4BRreND2JzmX3qmdcNYBrlHUYlWqU1UqtAGbesyZY3h/KuFlFSYANrO06w==}
+  '@tangle-network/agent-core@0.13.2':
+    resolution: {integrity: sha512-rbLHHGGChJm4CZfCb6lTLXSgJW59wuUAWwal4dRr0C+/o1fLibH5GuY2GMm0THq0Gj6xl8Yd9tBZjxMfYesP0g==}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.30.0
     peerDependenciesMeta:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@tangle-network/agent-interface@5.0.0':
-    resolution: {integrity: sha512-5PKDGHtn58EOzv1mcTZ1ytPt9yjZAjGPf204BkgKViY5+eITzhObx8bPNYTpAzqVlL3kYV5C/75smdmBT8j0NA==}
+  '@tangle-network/agent-interface@5.7.1':
+    resolution: {integrity: sha512-8wsmxlddEX9N3PGHvJ/pgtOBGFy6nm1FZfU2BnT4PrATpHLJV8rnI69QcwM0CqJbU9j3yD9l26fTJbMFusGPtg==}
 
   '@tangle-network/agent-trace-contract@2.0.0':
     resolution: {integrity: sha512-lq2hp3gg8FsNVA3yZAyuj3NvL57pJTsI6sUF8cYwVsUXA8QZlrO78SqRPRslWxf/sMFHxXhusOuDQ3YxVv12bw==}
@@ -1753,8 +1753,8 @@ packages:
   yuku-parser@0.10.2:
     resolution: {integrity: sha512-CgaU0/PPjCAIEZ3WQroosOxTY3eeKldAN3h+vk8pMNz4+jl1CZzBR4pW+K/rRPF112VooCL5FdjJoiMNjDrL2A==}
 
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
 snapshots:
 
@@ -1781,10 +1781,10 @@ snapshots:
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
 
-  '@asteasolutions/zod-to-openapi@9.1.0(zod@4.6.5)':
+  '@asteasolutions/zod-to-openapi@9.1.0(zod@4.6.6)':
     dependencies:
       openapi3-ts: 4.6.1
-      zod: 4.6.5
+      zod: 4.6.6
 
   '@biomejs/biome@2.5.14':
     optionalDependencies:
@@ -2042,17 +2042,17 @@ snapshots:
 
   '@sindresorhus/is@4.6.0': {}
 
-  '@tangle-network/agent-core@0.13.1':
+  '@tangle-network/agent-core@0.13.2':
     dependencies:
-      '@tangle-network/agent-interface': 5.0.0
+      '@tangle-network/agent-interface': 5.7.1
       '@tangle-network/agent-trace-contract': 2.0.0
-      zod: 4.6.5
+      zod: 4.6.6
 
-  '@tangle-network/agent-interface@5.0.0':
+  '@tangle-network/agent-interface@5.7.1':
     dependencies:
       '@noble/hashes': 2.4.0
       spdx-expression-parse: 5.0.0
-      zod: 4.6.5
+      zod: 4.6.6
 
   '@tangle-network/agent-trace-contract@2.0.0': {}
 
@@ -2869,4 +2869,4 @@ snapshots:
       '@yuku-parser/binding-win32-arm64': 0.10.2
       '@yuku-parser/binding-win32-x64': 0.10.2
 
-  zod@4.6.5: {}
+  zod@4.6.6: {}
