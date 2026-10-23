@@ -11,6 +11,20 @@ export type { SemanticConceptJudgeAdapterOpts } from './adapters'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst } from './behavioral-analyst'
 export type {
+  BehavioralQuestionCalibration,
+  BehavioralTraceAnswer,
+  BehavioralTraceLayer,
+  BehavioralTraceQuestionId,
+  BehavioralTraceQuestionsOptions,
+  BehavioralTraceWindow,
+  BehavioralWindowPolicy,
+} from './behavioral-trace-questions'
+export {
+  BEHAVIORAL_TRACE_QUESTIONS,
+  BEHAVIORAL_TRACE_QUESTIONS_VERSION,
+  behavioralTraceQuestionDigest,
+} from './behavioral-trace-questions'
+export type {
   AnalystBenchmarkCase,
   AnalystBenchmarkDatasetRef,
   AnalystBenchmarkDescriptor,
@@ -36,6 +50,11 @@ export type {
   AgentRxCalibrationRunnerSummary,
   AgentRxCalibrationSummary,
 } from './benchmark-agentrx-calibration'
+export type {
+  BehavioralTraceCalibrationRow,
+  BehavioralTraceGold,
+} from './benchmark-behavioral-calibration'
+export { calibrateBehavioralTraceQuestions } from './benchmark-behavioral-calibration'
 
 export type {
   AnalystBenchmarkArtifact,
@@ -80,8 +99,17 @@ export type {
   StepLabelAdapterOptions,
   UpstreamPredictionAdapterOptions,
 } from './benchmark-datasets'
-export { agentRxBenchmarkCase, agentRxPredictionsToFindings, codeTraceBenchCase, codeTracerPredictionsToFindings } from './benchmark-datasets'
-export { ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256, ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256, ANALYST_BENCHMARK_IMPLEMENTATION_FILES } from './benchmark-implementation'
+export {
+  agentRxBenchmarkCase,
+  agentRxPredictionsToFindings,
+  codeTraceBenchCase,
+  codeTracerPredictionsToFindings,
+} from './benchmark-datasets'
+export {
+  ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
+  ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256,
+  ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
+} from './benchmark-implementation'
 
 export type {
   CodeTraceCalibrationRunnerSummary,
@@ -105,7 +133,23 @@ export type {
   PublicBenchmarkSelectionReport,
   PublicBenchmarkValueDistribution,
 } from './benchmark-real-model'
-export { CODE_TRACE_BENCH_ANALYST_PROMPT, type CodeTraceBlockDiagnostics, type CodeTraceFailureBlock, createPrimeBenchmarkRunner, createPublicBenchmarkDirectRunner, createPublicBenchmarkRlmRunner, expandCodeTraceFailureBlocks, loadPublicBenchmarkRows, nodeHttpPrimeBridgeTransport, type PrimeBenchmarkRunnerOptions, type PrimeBridgeTransport, type PrimeBridgeTransportRequest, type PrimeBridgeTransportResult, primeAnalystProtocolSha256, publicBenchmarkProtocolSha256 } from './benchmark-real-model'
+export {
+  CODE_TRACE_BENCH_ANALYST_PROMPT,
+  type CodeTraceBlockDiagnostics,
+  type CodeTraceFailureBlock,
+  createPrimeBenchmarkRunner,
+  createPublicBenchmarkDirectRunner,
+  createPublicBenchmarkRlmRunner,
+  expandCodeTraceFailureBlocks,
+  loadPublicBenchmarkRows,
+  nodeHttpPrimeBridgeTransport,
+  type PrimeBenchmarkRunnerOptions,
+  type PrimeBridgeTransport,
+  type PrimeBridgeTransportRequest,
+  type PrimeBridgeTransportResult,
+  primeAnalystProtocolSha256,
+  publicBenchmarkProtocolSha256,
+} from './benchmark-real-model'
 
 export {
   type PrimeCodeTraceDefinitionArgs,
@@ -179,7 +223,16 @@ export type {
   TaxonomyNodeLayer,
   TaxonomyOutcome,
 } from './domain-taxonomy'
-export { attachToTaxonomy, defineDomainTaxonomy, domainPathOf, LAB_NODE_ID, lowestCommonAncestor, resolveDomainPath, taxonomyAncestry, taxonomyLayerOf } from './domain-taxonomy'
+export {
+  attachToTaxonomy,
+  defineDomainTaxonomy,
+  domainPathOf,
+  LAB_NODE_ID,
+  lowestCommonAncestor,
+  resolveDomainPath,
+  taxonomyAncestry,
+  taxonomyLayerOf,
+} from './domain-taxonomy'
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
@@ -211,7 +264,16 @@ export type {
   FailureModesCalibration,
   FailureModesOutcome,
 } from './failure-modes'
-export { calibrateFailureModes, createFailureModesAnalyst, FAILURE_MODE_LABELS, FAILURE_MODES_ANALYST_ID, FAILURE_MODES_MIN_KAPPA, FAILURE_MODES_QUESTIONS, FAILURE_MODES_VERSION, loadFailureModeGold } from './failure-modes'
+export {
+  calibrateFailureModes,
+  createFailureModesAnalyst,
+  FAILURE_MODE_LABELS,
+  FAILURE_MODES_ANALYST_ID,
+  FAILURE_MODES_MIN_KAPPA,
+  FAILURE_MODES_QUESTIONS,
+  FAILURE_MODES_VERSION,
+  loadFailureModeGold,
+} from './failure-modes'
 export type {
   FindingCalibration,
   FindingEvidenceUnit,
@@ -223,7 +285,14 @@ export type {
   FindingScope,
   FindingScopeReading,
 } from './finding-scope'
-export { FINDING_LAYERS, independentUnitCount, lineageRoots, ProposalFindingSchema, parseAnalystFinding, readFindingScope } from './finding-scope'
+export {
+  FINDING_LAYERS,
+  independentUnitCount,
+  lineageRoots,
+  ProposalFindingSchema,
+  parseAnalystFinding,
+  readFindingScope,
+} from './finding-scope'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -278,7 +347,31 @@ export type {
 } from './kinds/skill-usage'
 export { buildSkillUsageReport } from './kinds/skill-usage'
 export { stripCodeFences } from './parse-tolerant'
-export { analystUsageReceiptFromPrimeUsage, buildPrimePrompt, buildPrimeRepairPrompt, mergePrimeRawUsage, normalizePrimeUsage, type PrimeExchangeOptions, type PrimeExchangeOutcome, type PrimeFailure, type PrimeProjectionDelivery, type PrimeProjectionOutcome, type PrimeProjectionSource, type PrimePromptSpec, type PrimeProtocolIdentity, type PrimeRawUsage, type PrimeRejectedRow, type PrimeRepairPromptSpec, type PrimeRepairState, type PrimeReplyContract, type PrimeRowDecoded, type PrimeTurnRecord, primeProtocolSha256, projectPrimeTrajectory, runPrimeExchange } from './prime-protocol'
+export {
+  analystUsageReceiptFromPrimeUsage,
+  buildPrimePrompt,
+  buildPrimeRepairPrompt,
+  mergePrimeRawUsage,
+  normalizePrimeUsage,
+  type PrimeExchangeOptions,
+  type PrimeExchangeOutcome,
+  type PrimeFailure,
+  type PrimeProjectionDelivery,
+  type PrimeProjectionOutcome,
+  type PrimeProjectionSource,
+  type PrimePromptSpec,
+  type PrimeProtocolIdentity,
+  type PrimeRawUsage,
+  type PrimeRejectedRow,
+  type PrimeRepairPromptSpec,
+  type PrimeRepairState,
+  type PrimeReplyContract,
+  type PrimeRowDecoded,
+  type PrimeTurnRecord,
+  primeProtocolSha256,
+  projectPrimeTrajectory,
+  runPrimeExchange,
+} from './prime-protocol'
 export type { PromoteOptions, PromotionHold, PromotionResult } from './promote'
 export { promote } from './promote'
 export { assertProposalFindings } from './proposal-findings'
@@ -316,7 +409,15 @@ export type {
   TeamShapeObserved,
   TeamShapeOutcome,
 } from './team-shape'
-export { classifyTeamShape, NOT_OBSERVABLE, TEAM_SHAPE_ANALYST_ID, TEAM_SHAPE_CLASSES, TEAM_SHAPE_VERSION, teamShapeAnalyst, teamShapeInputFromSources } from './team-shape'
+export {
+  classifyTeamShape,
+  NOT_OBSERVABLE,
+  TEAM_SHAPE_ANALYST_ID,
+  TEAM_SHAPE_CLASSES,
+  TEAM_SHAPE_VERSION,
+  teamShapeAnalyst,
+  teamShapeInputFromSources,
+} from './team-shape'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {
