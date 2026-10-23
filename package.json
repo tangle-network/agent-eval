@@ -237,7 +237,7 @@
     "linear-sum-assignment": "1.0.9",
     "re2js": "2.8.6",
     "smol-toml": "1.9.0",
-    "zod": "4.6.5"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
