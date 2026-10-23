@@ -76,7 +76,7 @@ A successful load reports `eligibility`, `agentRxMapping`, eligible `gold`, and 
 
 An all-excluded, otherwise valid AgentRx file returns `eligibility: 'unknown'`, no gold labels, and the exclusion evidence. That is a parsed source without calibration evidence, not a successful empty calibration or a measured absence of failures. Invalid input still returns a failed outcome. Caller-supplied gold remains the caller's assertion and is not certified as independent by this loader.
 
-Caller gold ids must be disjoint from **all** AgentRx source ids, including excluded rows. A caller cannot reintroduce an excluded source id as eligible gold; overlapping ids are invalid. Caller-only gold and disjoint caller ids remain supported.
+Caller gold ids must be disjoint from **all** AgentRx source ids, including excluded rows. A caller cannot reintroduce an excluded source id as eligible gold; overlapping ids are invalid. Caller ids with surrounding whitespace are invalid, so whitespace cannot disguise an overlapping source id. Valid caller ids are preserved exactly. Caller-only gold and disjoint caller ids remain supported.
 
 Existing receipt rows, source hashes, labels and verdicts are historical evidence. Loading a new mapping never regrades, relabels or filters a stored receipt. A new mapping, selection policy, question or input representation requires a new calibration configuration with its rule fixed before judging.
 
