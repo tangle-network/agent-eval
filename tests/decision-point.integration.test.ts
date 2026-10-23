@@ -132,8 +132,7 @@ afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true })
 })
 
-// Real HTTP and durable-ledger outcomes settle these cases; the suite gate bounds hangs.
-describe('decisionPoint public SDK with HTTP provider and durable findings', { timeout: 0 }, () => {
+describe('decisionPoint public SDK with HTTP provider and durable findings', () => {
   it('reserves before inference and replays across restart without spending twice', async () => {
     const path = join(directory, 'replay.jsonl')
     const run = point(path)

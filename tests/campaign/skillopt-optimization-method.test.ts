@@ -284,10 +284,7 @@ describe('skillOptOptimizationMethod', () => {
     )
   })
 
-  // Runner completion and durable receipts settle this case; the suite gate bounds hangs.
-  it('keeps evaluation and optimizer-model budgets cumulative across resumes', {
-    timeout: 0,
-  }, async () => {
+  it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
     const upstreamBaseUrl = await startModelServer()
     const resumeMarker = join(runDir, 'fake-skillopt-resume')
     const method = skillOptOptimizationMethod<TestScenario, TestArtifact>({

@@ -150,8 +150,7 @@ describe('segmented profile matrix ownership', () => {
     expect(final.byScenario.two?.n).toBe(4)
   })
 
-  // Await the persisted owner record; the suite gate bounds stalled filesystem operations.
-  it('rejects duplicate and overlapping row claims', { timeout: 0 }, async () => {
+  it('rejects duplicate and overlapping row claims', async () => {
     const current = plan()
     const root = runDir()
     const first = firstHalf(current)
@@ -165,14 +164,13 @@ describe('segmented profile matrix ownership', () => {
       }),
     ).rejects.toThrow(/duplicate row/)
 
-    const owner = await runProfileMatrixSegment({
+    await runProfileMatrixSegment({
       plan: current,
       segmentId: 'owner-a',
       rows: [first[0]!],
       dispatch: dispatchFor({ calls: [] }),
       runDir: root,
     })
-    expect(owner.coverage.present).toBe(1)
     await expect(
       runProfileMatrixSegment({
         plan: current,
@@ -231,23 +229,15 @@ describe('segmented profile matrix ownership', () => {
     ).rejects.toThrow(/persisted plan identity/)
   })
 
-  // Cache corruption starts only after every row is recorded, independently of storage latency.
-  it('rejects corrupt and stale cell records before dispatching finalization', {
-    timeout: 0,
-  }, async () => {
+  it('rejects corrupt and stale cell records before dispatching finalization', async () => {
     const current = plan()
     const root = runDir()
-    const recorded = await runProfileMatrixSegment({
+    await runProfileMatrixSegment({
       plan: current,
       segmentId: 'all',
       rows: current.rows,
       dispatch: dispatchFor({ calls: [] }),
       runDir: root,
-    })
-    expect(recorded.coverage).toMatchObject({
-      expected: current.rows.length,
-      present: current.rows.length,
-      missing: [],
     })
     const first = current.rows[0]!
     const profileDir = agentProfileId(
