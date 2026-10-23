@@ -56,7 +56,7 @@ on:
       runs-on:
         description: 'A runner label, or a JSON array of labels'
         type: string
-        default: ubuntu-latest
+        default: ''
       default-branch:
         description: 'The branch adoption PRs target'
         type: string
@@ -79,7 +79,7 @@ on:
 
 jobs:
   adopt:
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ inputs.runs-on != '' && (startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on) || (github.event.repository.private && fromJSON('["self-hosted","beelink"]') || fromJSON('["self-hosted","ci-public"]')) }}
     timeout-minutes: 75
     # One adoption at a time per repository, so two runs never race one branch.
     concurrency:

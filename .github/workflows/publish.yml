@@ -10,7 +10,9 @@ jobs:
   # Verify both packages build and pass tests, in lockstep.
   # If either fails, neither publishes.
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
+    outputs:
+      publish: ${{ steps.publication.outputs.needed }}
     steps:
       - uses: actions/checkout@v7
 
@@ -128,7 +130,7 @@ jobs:
           name: openapi
           path: dist/openapi.json
           # `pnpm build` makes this spec again from the tagged commit.
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload Python build context
         uses: actions/upload-artifact@v7
@@ -136,9 +138,20 @@ jobs:
           name: python-source
           path: clients/python
           # No job downloads this. It only shows why a publish failed, and the
-          # tagged commit makes the same tree again. One week is sufficient to
+          # tagged commit makes the same tree again. One day is sufficient to
           # examine a failed release.
-          retention-days: 7
+          retention-days: 1
+
+      - name: Check whether npm publication is needed
+        id: publication
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const { name, version } = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+          if (!response.ok && response.status !== 404) throw new Error(`Registry returned ${response.status}`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `needed=${response.status === 404}\n`);
+          NODE
 
   publish-npm:
     needs: verify
@@ -147,7 +160,7 @@ jobs:
     # Actions: org tangle-network, repo agent-eval, workflow publish.yml, no
     # environment) mints a short-lived credential from the id-token — no
     # NPM_TOKEN, nothing to rotate, plus a provenance attestation.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: needs.verify.outputs.publish == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -234,8 +247,11 @@ jobs:
     # idempotent and succeeds when the version is already on the registry, so
     # reruns can still repair a missing PyPI artifact without creating skew.
     needs: [verify, publish-npm]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    if: >-
+      always() && needs.verify.result == 'success' &&
+      (needs.publish-npm.result == 'success' || needs.verify.outputs.publish == 'false') &&
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, ci-public]
     permissions:
       contents: read
       id-token: write
