@@ -6,8 +6,12 @@ import {
   BEHAVIORAL_TRACE_QUESTIONS,
   type BehavioralQuestionCalibration,
   type BehavioralTraceQuestionsOptions,
-  type BehavioralTraceWindow,
 } from './behavioral-trace-questions'
+import {
+  BEHAVIORAL_MAX_EVENTS_PER_WINDOW,
+  behavioralComputedRepeat,
+  behavioralEventIdSchema,
+} from './behavioral-trace-support'
 import { snapshotExactExecutionComponentIdentity } from './exact-types'
 import { findingCalibrationSchema, findingEvidenceRefSchema } from './finding-primitives'
 
@@ -31,12 +35,35 @@ const windowSchema = z
     state: z
       .unknown()
       .refine((x) => typeof x === 'string' || (x !== null && typeof x === 'object')),
+    events: z
+      .array(
+        z
+          .object({
+            id: behavioralEventIdSchema,
+            content: z
+              .unknown()
+              .refine((x) => typeof x === 'string' || (x !== null && typeof x === 'object')),
+            evidenceRefs: z.array(findingEvidenceRefSchema).min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(BEHAVIORAL_MAX_EVENTS_PER_WINDOW),
     capture: z.object({ complete: z.boolean(), limitations: z.array(identity) }).strict(),
     evidenceRefs: z.array(findingEvidenceRefSchema).min(1),
     toolCalls: z
       .object({
         complete: z.boolean(),
-        attempts: z.array(z.object({ id: identity, name: identity, args: z.unknown() }).strict()),
+        attempts: z.array(
+          z
+            .object({
+              id: identity,
+              eventId: behavioralEventIdSchema,
+              name: identity,
+              args: z.unknown(),
+            })
+            .strict(),
+        ),
       })
       .strict()
       .optional(),
@@ -52,10 +79,11 @@ export function prepareBehavioralTraceQuestions(options: BehavioralTraceQuestion
   const limits = {
     maxWindows: options.maxWindows ?? 12,
     maxWindowBytes: options.maxWindowBytes ?? 64_000,
+    maxRequestBytes: options.maxRequestBytes ?? 128_000,
     minimumProbability: options.minimumProbability ?? 0.9,
     minimumMargin: options.minimumMargin ?? 0.2,
   }
-  for (const limit of [limits.maxWindows, limits.maxWindowBytes]) {
+  for (const limit of [limits.maxWindows, limits.maxWindowBytes, limits.maxRequestBytes]) {
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new RangeError('Invalid trace question limit')
   }
@@ -96,7 +124,7 @@ export function prepareBehavioralTraceQuestions(options: BehavioralTraceQuestion
       throw new TypeError('An incomplete trace window must name its limitations')
     if (Buffer.byteLength(canonicalString(window)) > limits.maxWindowBytes)
       throw new RangeError(`Trace window '${window.id}' exceeds maxWindowBytes`)
-    repeatedToolAnswer(window) // Also refuses conflicting physical attempt identities up front.
+    behavioralComputedRepeat(window) // Also refuses conflicting physical attempt identities up front.
   }
   for (const [layer, calibrations] of Object.entries(data.calibrations)) {
     if (!['event', 'turn', 'agent'].includes(layer))
@@ -112,24 +140,4 @@ export function prepareBehavioralTraceQuestions(options: BehavioralTraceQuestion
     }
   }
   return deepFreezeCanonicalJson(data)
-}
-
-/** Replayed capture rows are not new physical attempts. Incomplete absence remains unsure. */
-export function repeatedToolAnswer(window: BehavioralTraceWindow): 'yes' | 'no' | 'unsure' {
-  if (!window.toolCalls) return 'unsure'
-  const attempts = new Map<string, string>()
-  const payloads = new Set<string>()
-  let repeated = false
-  for (const attempt of window.toolCalls.attempts) {
-    const payload = canonicalString({ name: attempt.name, args: attempt.args })
-    const previous = attempts.get(attempt.id)
-    if (previous !== undefined) {
-      if (previous !== payload) throw new TypeError('Conflicting physical tool attempt identity')
-      continue
-    }
-    attempts.set(attempt.id, payload)
-    if (payloads.has(payload)) repeated = true
-    payloads.add(payload)
-  }
-  return repeated ? 'yes' : window.toolCalls.complete ? 'no' : 'unsure'
 }

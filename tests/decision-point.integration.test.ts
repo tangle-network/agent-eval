@@ -84,12 +84,15 @@ function invocation(id: string, state: Record<string, boolean> = {}): DecisionIn
   }
 }
 
-function point(path: string, policy = calibrated) {
+function point(path: string, policy = calibrated, ancillary?: DecisionQuestionPolicy) {
   return decisionPoint({
     ...identity,
     layers: ['event', 'turn'],
-    questions,
-    policy: { route: policy },
+    questions: (ancillary ? { ...questions, evidence: questions.route } : questions) as Record<
+      string,
+      typeof questions.route
+    >,
+    policy: ancillary ? { route: policy, evidence: ancillary } : { route: policy },
     ledger: openFindingsLedger({ path }),
     evaluator: {
       evaluate: async (request, context) => {
@@ -154,6 +157,73 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
     expect((await run.decide(invocation('one', { changed: true }))).succeeded).toBe(false)
   })
 
+  it('captures record-only choices without changing routing or requiring auxiliary truth labels', async () => {
+    const capture: DecisionQuestionPolicy = {
+      recordOnly: true,
+      minimumProbability: 1,
+      minimumMargin: 1,
+      options: { inspect: { action: 'record' }, record: { action: 'record' } },
+    }
+    const before = Number(await (await fetch(`${baseUrl}/calls`)).text())
+    for (const forbidden of [
+      { ...capture, calibration: calibrated.calibration },
+      {
+        ...capture,
+        options: {
+          inspect: { action: 'act' as const, route: 'inspect' },
+          record: { action: 'record' as const },
+        },
+      },
+      {
+        ...capture,
+        options: {
+          inspect: { action: 'escalate' as const },
+          record: { action: 'record' as const },
+        },
+      },
+    ])
+      expect(() => point(join(directory, 'invalid-capture.jsonl'), calibrated, forbidden)).toThrow(
+        /Record-only/,
+      )
+    expect(Number(await (await fetch(`${baseUrl}/calls`)).text())).toBe(before)
+    const run = point(join(directory, 'capture.jsonl'), calibrated, capture)
+    const result = ok(await run.decide(invocation('one')))
+    expect(result.action).toBe('act')
+    expect(result.record!.answers.evidence).toMatchObject({
+      reason: 'record-only',
+      recommendation: { action: 'record' },
+    })
+    ok(
+      await run.observe({
+        runId: 'run',
+        invocationId: 'one',
+        labels: { route: 'inspect' },
+        at: '2026-10-23T01:00:00Z',
+        evidenceRefs: [{ kind: 'artifact', uri: 'artifact://integration-only/labels' }],
+      }),
+    )
+    const report = ok(await run.reliability())
+    expect(report).toMatchObject({
+      decisions: 1,
+      labeled: 1,
+      missingOutcomes: 0,
+      recordOnlyQuestions: ['evidence'],
+    })
+    expect(Object.keys(report.questions)).toEqual(['route'])
+    expect(ok(await run.decide(invocation('failed', { fail: true }))).record).toMatchObject({
+      action: 'escalate',
+      error: 'evaluation-failed',
+    })
+    const captureOnly = point(join(directory, 'capture-only.jsonl'), capture)
+    expect(ok(await captureOnly.decide(invocation('only'))).action).toBe('record')
+    expect(ok(await captureOnly.reliability())).toMatchObject({
+      labeled: 0,
+      missingOutcomes: 1,
+      questions: {},
+      recordOnlyQuestions: ['route'],
+    })
+  })
+
   it('joins observed outcomes once and reports reliability with missing labels', async () => {
     const run = point(join(directory, 'outcomes.jsonl'))
     ok(await run.decide(invocation('one')))
@@ -195,6 +265,7 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
       const result = ok(
         await point(join(directory, `${id}.jsonl`), policy).decide(invocation(id, state)),
       )
+      expect(result.record?.error, JSON.stringify({ id, record: result.record })).toBe(null)
       expect(result.action).toBe('escalate')
       expect(result.record?.answers.route?.reason).toBe(reason)
       const replay = ok(
@@ -227,7 +298,9 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
       ).succeeded,
     ).toBe(false)
   })
+})
 
+describe('decisionPoint validation and durable evidence boundaries', () => {
   it('refuses malformed calibration data before a paid provider call', async () => {
     const before = Number(await (await fetch(`${baseUrl}/calls`)).text())
     const valid = calibrated.calibration!

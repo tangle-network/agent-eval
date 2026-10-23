@@ -96,6 +96,26 @@ probabilities are not calibrated domain confidence, and a result never authorize
 sending, deletion, or another effect. Re-assessing the same prepared input and retained answer is
 an offline replay, not new inference.
 
+## Rationale and evidence limits
+
+The native request and answer types in [`systemone-protocol.ts`](../src/systemone-protocol.ts)
+declare no free-form rationale, generated evidence URI, or extracted text-span field.
+Instructions asking for an explanation do not establish a supported output contract.
+Do not issue a second explanation call to fill this gap.
+
+The same request can include another named `choice` question whose criteria keys are
+caller-supplied evidence IDs, including an explicit unresolved option. DomainMatch already
+uses this pattern for source selection. The answer selects from that finite set; it does
+not establish that the selected source caused or justifies another answer. Persist the
+immutable ID-to-source mapping with the decision (as behavioral trace definitions do), or in
+retained evidence referenced by the invocation's `evidenceRefs`.
+The journal stores state/input digests, so a mapping held only in `state` cannot support
+later inspection. Grounding and calibration require independent checks.
+
+Native response extensions may survive parsing into the evaluator's returned raw value.
+That does not promise the provider generates them or that downstream records retain them.
+The declared protocol and each consumer's persistence schema determine what survives.
+
 ## Providers, rounding and confidence
 
 The wire format is the same for every provider; how each reports its numbers is not. A
@@ -281,6 +301,25 @@ restart; changed inputs or definitions conflict. The input includes its original
 `at`, so callers retain it. An intent without a result remains explicit and
 escalates; deliberate recovery uses a new invocation id instead of silently
 repeating a possibly paid call. The journal's normal lock/dead-owner rules apply.
+
+Decision records persist each named choice and its probabilities, so an explicit
+evidence-ID question uses the same ledger and replay path. They do not automatically
+retain arbitrary native response extensions or convert a selected ID into an `EvidenceRef`.
+The record's `reason` (for example, `uncalibrated`) is a computed policy reason, not a
+model-authored rationale; the receipt records accounting. Each additional routing question
+needs its own policy and calibration, and an uncalibrated routing question escalates the invocation.
+An explicitly `recordOnly: true` policy captures an ancillary choice without routing authority:
+all its options must use `action: 'record'`, and it cannot carry a calibration certificate.
+Its answer has `reason: 'record-only'`; provider failures still escalate. This policy does
+not bypass the calibration or thresholds of another question. Reliability lists these questions
+in `recordOnlyQuestions` and excludes them from outcome completeness and calibration curves;
+a fully labeled decision needs at least one answered routing question.
+
+`reliability()` groups the exact `definitionDigest`, including option sets and any retained
+source map. Distinct window maps therefore do not form a cross-window probability curve.
+For behavioral trace questions, use `calibrateBehavioralTraceQuestions` for semantic nominal
+agreement across maps; it binds the stable semantic question digest and reports each disagreement's
+selected event and map. A one-map result does not justify probability threshold tuning.
 
 Call `observe({ runId, invocationId, labels, at, evidenceRefs })` later to join
 independently observed option labels to a decision. This is the answer's truth,

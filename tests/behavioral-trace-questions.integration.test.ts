@@ -1,8 +1,9 @@
-import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type {
   AnalystFinding,
@@ -33,7 +34,14 @@ const server = createServer(async (req, res) => {
   res.setHeader('content-type','application/json')
   res.end(JSON.stringify({
     model: request.state.source === 'provider-other-model' ? 'other-model' : request.model,
-    answers: Object.fromEntries(Object.keys(request.questions).map(name => [name, {type:'choice', choice, confidence: probabilities[choice], probabilities}])),
+    answers: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => {
+      if (!name.startsWith('evidence.')) return [name, {type:'choice', choice, confidence: probabilities[choice], probabilities}]
+      const ids = Object.keys(question.criteria)
+      const selected = request.state.source === 'provider-bad-event' ? 'foreign-event'
+        : request.state.source === 'provider-unresolved' ? 'unresolved' : ids.find(id => id !== 'unresolved')
+      const distribution = Object.fromEntries(ids.map(id => [id, id === selected ? 1 : 0]))
+      return [name, {type:'choice', choice: selected, confidence:1, probabilities:distribution}]
+    })),
     ...(request.state.source === 'provider-unknown-usage' ? {} : {usage:{input_tokens:30,output_tokens:8}}),
   }))
 })
@@ -63,13 +71,18 @@ function window(
     from: '2026-04-24T18:12:13Z',
     to: '2026-04-24T18:12:30Z',
     state,
+    events: ['a', 'b'].map((id) => ({
+      id: `${id}-${id === 'a' ? 'first' : 'second'}`,
+      content: { source: state, tool: 'inspect', args: { path: 'output' }, attempt: id },
+      evidenceRefs: [{ kind: 'event' as const, uri: `trace://t000000000001/event/${id}` }],
+    })),
     capture: { complete: true, limitations: [] },
     evidenceRefs: [{ kind: 'span', uri: 'trace://t000000000001/span/s001' }],
     toolCalls: {
       complete: true,
       attempts: [
-        { id: 'a', name: 'inspect', args: { path: 'output' } },
-        { id: 'b', name: 'inspect', args: { path: 'output' } },
+        { id: 'a', eventId: 'a-first', name: 'inspect', args: { path: 'output' } },
+        { id: 'b', eventId: 'b-second', name: 'inspect', args: { path: 'output' } },
       ],
     },
   }
@@ -175,7 +188,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
     expect(
       requests.every(
         (r) =>
-          Object.keys(r.questions).length === 8 &&
+          Object.keys(r.questions).length === 16 &&
           !Object.hasOwn(r.questions, 'identical-tool-repeat'),
       ),
     ).toBe(true)
@@ -183,6 +196,29 @@ describe('behavioralAnalyst public SDK question battery', () => {
     expect(JSON.stringify(requests)).not.toContain('calibrations')
     const ledger = read(await config.ledger.read())
     expect(ledger.findings).toHaveLength(33)
+    const event = findings.find((f) => f.layer === 'event' && f.method!.kind === 'judged')!
+    expect(row(event).support).toMatchObject({
+      method: 'judged',
+      selectedEventIds: ['a-first'],
+      unresolved: false,
+      unavailable: false,
+      map: { windowId: 'event', traceId: 't000000000001' },
+    })
+    expect(
+      row(findings.find((f) => f.layer === 'event' && f.method!.kind === 'computed')!).support
+        .selectedEventIds,
+    ).toEqual(['a-first', 'b-second'])
+    const decision = ledger.findings.find((f) => f.area === 'decision-point')!
+    const record = decision.metadata!.decision_point as any
+    expect(
+      record.definition.questions['evidence.unverified-completion'].instructions.sourceMap,
+    ).toEqual(row(event).support.map)
+    expect(
+      Object.values(record.answers).filter((a: any) => a.reason === 'record-only'),
+    ).toHaveLength(8)
+    expect(
+      Object.values(record.definition.questions).filter((q: any) => q.instructions?.sourceMap),
+    ).toHaveLength(1)
     expect(findings.every((f) => api.parseAnalystFinding(f).succeeded)).toBe(true)
     const replayUsage: AnalystUsageReceipt[] = []
     expect(
@@ -249,6 +285,15 @@ describe('behavioralAnalyst public SDK question battery', () => {
       evidenceRefs: [{ kind: 'artifact', uri: 'artifact://integration-only-independent-labels' }],
     })
     expect(report).toHaveLength(9)
+    const semantic = observations.filter(
+      (f) => row(f).questionId === 'unverified-completion' && f.layer === 'event',
+    )
+    expect(new Set(semantic.map((f) => row(f).questionDigest)).size).toBe(1)
+    expect(new Set(semantic.map((f) => row(f).support.mapDigest)).size).toBe(2)
+    const definitions = read(await config.ledger.read())
+      .findings.filter((f) => f.area === 'decision-point' && f.layer === 'event')
+      .map((f) => (f.metadata!.decision_point as any).definitionDigest)
+    expect(new Set(definitions).size).toBe(2)
     expect(report.filter((r) => r.eligible)).toHaveLength(2)
     expect(report.filter((r) => r.eligible).every((r) => r.gold_n === 2 && r.kappa === 1)).toBe(
       true,
@@ -299,7 +344,9 @@ describe('behavioralAnalyst public SDK question battery', () => {
     )
     expect(calibrated.every((f) => !('pass' in row(f)) && !('acceptance' in row(f)))).toBe(true)
   })
+})
 
+describe('behavioral trace capture boundaries', () => {
   it('keeps missing labels, unsure and absent predictions distinct in public calibration', async () => {
     const config = options('missing', [window('observed')])
     const findings = await analyze('missing', config)
@@ -361,6 +408,7 @@ describe('behavioralAnalyst public SDK question battery', () => {
   it('deduplicates physical attempts and refuses conflicting or unbounded source data before spending', async () => {
     const replay = window('replayed')
     replay.toolCalls!.attempts[1]!.id = 'a'
+    replay.toolCalls!.attempts[1]!.eventId = 'a-first'
     const partial = window('partial')
     delete partial.toolCalls
     partial.capture = { complete: false, limitations: ['missing native tools'] }
@@ -378,6 +426,9 @@ describe('behavioralAnalyst public SDK question battery', () => {
     expect(() => api.behavioralAnalyst({ traceQuestions: { ...config, maxWindows: 1 } })).toThrow(
       /Too many/,
     )
+    expect(() =>
+      api.behavioralAnalyst({ traceQuestions: { ...config, maxRequestBytes: 1 } }),
+    ).toThrow(/maxRequestBytes/)
     expect(() =>
       api.behavioralAnalyst({ traceQuestions: { ...config, maxWindowBytes: 1 } }),
     ).toThrow(/maxWindowBytes/)
@@ -457,6 +508,167 @@ describe('behavioralAnalyst public SDK question battery', () => {
       tokens: null,
       cost: { kind: 'uncaptured', usd: null },
     })
+  })
+})
+
+describe('behavioral trace supporting events', () => {
+  it('retains exact source maps through process restart and refuses map mutations before dispatch', async () => {
+    const config = options('support-restart', [window('support-restart')])
+    const findings = await analyze('support-restart', config)
+    const before = (await calls()).length
+    const input = join(directory, 'restart-input.json')
+    await writeFile(
+      input,
+      JSON.stringify({
+        ...config,
+        ledger: undefined,
+        evaluator: undefined,
+        ledgerPath: config.ledger.path,
+        trace: await readFile(
+          new URL('./fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url),
+          'utf8',
+        ),
+      }),
+    )
+    const restarted = await promisify(execFile)(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '-e',
+        `
+      import {readFile} from 'node:fs/promises'
+      import * as api from './src/analyst/index.ts'
+      import {otlpTextToTraceAnalysisStore} from './src/traces.ts'
+      const {ledgerPath,trace,...config}=JSON.parse(await readFile(process.argv[1],'utf8'))
+      const usage=[]
+      config.ledger=api.openFindingsLedger({path:ledgerPath})
+      config.evaluator={evaluate:()=>{throw Error('Restart may not dispatch')}}
+      const findings=await api.behavioralAnalyst({traceQuestions:config}).analyze(otlpTextToTraceAnalysisStore(trace),{
+        runId:'support-restart',correlationId:'new-process',recordUsage:r=>usage.push(r)})
+      console.log(JSON.stringify({findings:findings.filter(f=>f.area==='behavioral-trace-question'),usage}))
+      `,
+        input,
+      ],
+      { cwd: process.cwd(), timeout: 30_000 },
+    )
+    const replay = JSON.parse(restarted.stdout)
+    expect(replay.findings).toEqual(findings)
+    expect(replay.usage).toEqual([
+      { calls: 0, tokens: { input: 0, output: 0 }, cost: { kind: 'observed', usd: 0 } },
+    ])
+    const mutations = [
+      (w: BehavioralTraceWindow) => {
+        w.events[0]!.content = 'changed source'
+      },
+      (w: BehavioralTraceWindow) => {
+        w.events[0]!.evidenceRefs[0]!.uri = 'artifact://changed'
+      },
+      (w: BehavioralTraceWindow) => {
+        w.events.reverse()
+      },
+      (w: BehavioralTraceWindow) => {
+        w.events[0]!.id = 'changed'
+        w.toolCalls!.attempts[0]!.eventId = 'changed'
+      },
+    ]
+    for (const mutate of mutations) {
+      const changed = structuredClone(config.windows[0]!)
+      mutate(changed)
+      await expect(analyze('support-restart', { ...config, windows: [changed] })).rejects.toThrow(
+        /conflicts/,
+      )
+    }
+    expect((await calls()).length).toBe(before)
+  })
+
+  it('shows wrong-answer selected events across maps and keeps unresolved distinct from semantic labels', async () => {
+    const config = options('support-errors', [
+      window('wrong'),
+      window('unresolved', 'event', 'provider-unresolved'),
+    ])
+    const findings = await analyze('support-errors', config)
+    const report = api.calibrateBehavioralTraceQuestions({
+      layer: 'event',
+      windowPolicy,
+      evaluatorIdentity,
+      model: config.model,
+      servedModel: config.model,
+      findings,
+      evidenceRefs: [{ kind: 'artifact', uri: 'artifact://integration-only-labels' }],
+      gold: ['wrong', 'unresolved'].map((windowId) => ({
+        questionId: 'unverified-completion' as const,
+        windowId,
+        label: 'no' as const,
+        source: 'human' as const,
+      })),
+    })
+    const result = report.find((r) => r.questionId === 'unverified-completion')!
+    expect(result).toMatchObject({ gold_n: 2, confusion: { no: { yes: 2 } }, eligible: false })
+    expect(result.disagreements).toHaveLength(2)
+    expect(result.disagreements[0]!.support!.selectedEventIds).toEqual(['a-first'])
+    expect(
+      result.disagreements[0]!.support!.map.events.find((event) => event.id === 'a-first')!
+        .evidenceRefs,
+    ).toEqual(config.windows[0]!.events[0]!.evidenceRefs)
+    expect(result.disagreements[1]).toMatchObject({
+      predicted: 'yes',
+      support: { unresolved: true, selectedEventIds: [] },
+    })
+    expect(result.disagreements[0]!.support!.mapDigest).not.toBe(
+      result.disagreements[1]!.support!.mapDigest,
+    )
+    for (const invalid of [
+      { selectedEventIds: [], unresolved: false, unavailable: false, probabilities: null },
+      { selectedEventIds: ['a-first', 'b-second'], unresolved: false, unavailable: false },
+    ]) {
+      const malformed = structuredClone(findings)
+      Object.assign(
+        row(malformed.find((f) => row(f).questionId === 'unverified-completion')!).support,
+        invalid,
+      )
+      expect(() =>
+        api.calibrateBehavioralTraceQuestions({
+          layer: 'event',
+          windowPolicy,
+          evaluatorIdentity,
+          model: config.model,
+          servedModel: config.model,
+          findings: malformed,
+          evidenceRefs: [],
+          gold: [],
+        }),
+      ).toThrow()
+    }
+    const bad = await analyze(
+      'bad-source-selection',
+      options('bad-source-selection', [window('bad', 'event', 'provider-bad-event')]),
+    )
+    expect(
+      bad
+        .filter((f) => f.method!.kind === 'judged')
+        .every(
+          (f) => row(f).answer === null && row(f).support.unavailable && !row(f).eligibleAlarm,
+        ),
+    ).toBe(true)
+  })
+
+  it('refuses duplicate, malformed, reserved and foreign source IDs before dispatch', async () => {
+    const before = (await calls()).length
+    for (const badId of ['unresolved', 'white space', '', 'a-first']) {
+      const source = window('invalid-source')
+      source.events[1]!.id = badId
+      expect(() =>
+        api.behavioralAnalyst({ traceQuestions: options('invalid-source', [source]) }),
+      ).toThrow()
+    }
+    const source = window('foreign-attempt')
+    source.toolCalls!.attempts[0]!.eventId = 'foreign'
+    expect(() =>
+      api.behavioralAnalyst({ traceQuestions: options('foreign-attempt', [source]) }),
+    ).toThrow(/outside/)
+    expect((await calls()).length).toBe(before)
   })
 
   it('honors cancellation, deadlines and a zero budget before provider dispatch', async () => {

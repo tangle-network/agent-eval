@@ -3,7 +3,7 @@ import {
   type DecisionQuestionPolicy,
   decisionPoint,
 } from '../decision-point'
-import { hashCanonical } from '../ledger-core/canonical'
+import { canonicalString, hashCanonical } from '../ledger-core/canonical'
 import type { SystemOneState } from '../systemone-protocol'
 import {
   BEHAVIORAL_TRACE_QUESTIONS,
@@ -15,7 +15,12 @@ import {
   behavioralTracePointId,
   behavioralTraceQuestionDigest,
 } from './behavioral-trace-questions'
-import { prepareBehavioralTraceQuestions, repeatedToolAnswer } from './behavioral-trace-validation'
+import {
+  behavioralComputedRepeat,
+  behavioralJudgedSupport,
+  behavioralSupportQuestions,
+} from './behavioral-trace-support'
+import { prepareBehavioralTraceQuestions } from './behavioral-trace-validation'
 import { analystEvaluationContext } from './evaluation-context'
 import { snapshotExactExecutionComponentIdentity } from './exact-types'
 import { type AnalystContext, type AnalystFinding, makeFinding } from './types'
@@ -25,14 +30,23 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
   const data = prepareBehavioralTraceQuestions(options)
   const ledger = options.ledger
   const evaluator = { ...options.evaluator }
-  const questions = Object.fromEntries(
+  const semanticQuestions = Object.fromEntries(
     Object.entries(BEHAVIORAL_TRACE_QUESTIONS).filter(([id]) => id !== 'identical-tool-repeat'),
   )
-  const layers = [...new Set(data.windows.map((w) => w.layer))]
+  const states = new Map(data.windows.map((window) => [window.id, behavioralWindowState(window)]))
   const points = new Map(
-    layers.map((layer) => {
+    data.windows.map((window) => {
+      const layer = window.layer
+      const supportQuestions = behavioralSupportQuestions(window)
+      const questions = { ...semanticQuestions, ...supportQuestions }
+      if (
+        Buffer.byteLength(
+          canonicalString({ model: data.model, state: states.get(window.id), questions }),
+        ) > data.maxRequestBytes
+      )
+        throw new RangeError(`Trace window '${window.id}' exceeds maxRequestBytes`)
       const policy = Object.fromEntries(
-        Object.keys(questions).map((name) => {
+        Object.keys(semanticQuestions).map((name) => {
           const calibration = data.calibrations[layer]?.[name as BehavioralTraceQuestionId]
           const entry: DecisionQuestionPolicy = {
             minimumProbability: data.minimumProbability,
@@ -48,8 +62,18 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
           return [name, entry]
         }),
       )
+      for (const [name, question] of Object.entries(supportQuestions)) {
+        policy[name] = {
+          recordOnly: true,
+          minimumProbability: data.minimumProbability,
+          minimumMargin: data.minimumMargin,
+          options: Object.fromEntries(
+            Object.keys(question.criteria).map((id) => [id, { action: 'record' }]),
+          ),
+        }
+      }
       return [
-        layer,
+        window.id,
         decisionPoint({
           id: behavioralTracePointId(layer, data.windowPolicy, data.evaluatorIdentity),
           version: BEHAVIORAL_TRACE_QUESTIONS_VERSION,
@@ -77,6 +101,7 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
     calibrations: data.calibrations,
     max_windows: data.maxWindows,
     max_window_bytes: data.maxWindowBytes,
+    max_request_bytes: data.maxRequestBytes,
     minimum_probability: data.minimumProbability,
     minimum_margin: data.minimumMargin,
   }
@@ -101,21 +126,13 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
       }
       for (const window of data.windows) {
         analystContext.signal.throwIfAborted()
-        const result = await points.get(window.layer)!.decide(
+        const result = await points.get(window.id)!.decide(
           {
             runId: context.runId,
             invocationId: `behavioral:${hashCanonical([data.analysisId, window.id])}`,
             layer: window.layer,
             consumer: 'behavioralAnalyst',
-            state: {
-              source: window.state,
-              capture: window.capture,
-              windowId: window.id,
-              traceId: window.traceId,
-              subject: window.subject,
-              from: window.from,
-              to: window.to,
-            } as SystemOneState,
+            state: states.get(window.id)!,
             scope: { population: [window.id], n: 1, window: { from: window.from, to: window.to } },
             at: window.to,
             evidenceRefs: window.evidenceRefs,
@@ -129,6 +146,12 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
           throw new Error(
             'Trace question analysis unresolved: an existing intent has no terminal result',
           )
+        const retainedMap = behavioralJudgedSupport(
+          result.value.record,
+          'unverified-completion',
+          window,
+        ).map
+        const repeat = behavioralComputedRepeat(window, retainedMap)
         for (const questionId of Object.keys(
           BEHAVIORAL_TRACE_QUESTIONS,
         ) as BehavioralTraceQuestionId[]) {
@@ -136,7 +159,7 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
           const record = result.value.record
           const answer = record?.answers[questionId]
           const value: BehavioralTraceAnswer | null = computed
-            ? repeatedToolAnswer(window)
+            ? repeat.answer
             : record?.error
               ? null
               : ((answer?.choice as BehavioralTraceAnswer | undefined) ?? null)
@@ -169,6 +192,9 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
               {
                 answer: value,
                 method: computed ? 'computed' : 'judged',
+                support: computed
+                  ? repeat.support
+                  : behavioralJudgedSupport(record, questionId, window),
                 questionDigest: digest,
                 requestedModel: computed ? null : data.model,
                 servedModel,
@@ -202,6 +228,19 @@ export function prepareBehavioralTraceRuntime(options: BehavioralTraceQuestionsO
         })
       return findings
     },
+  }
+}
+
+function behavioralWindowState(window: BehavioralTraceWindow): SystemOneState {
+  return {
+    source: window.state,
+    events: window.events.map(({ id, content }) => ({ id, content })),
+    capture: window.capture,
+    windowId: window.id,
+    traceId: window.traceId,
+    subject: window.subject,
+    from: window.from,
+    to: window.to,
   }
 }
 

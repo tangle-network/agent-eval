@@ -13,9 +13,12 @@ export { behavioralAnalyst } from './behavioral-analyst'
 export type {
   BehavioralQuestionCalibration,
   BehavioralTraceAnswer,
+  BehavioralTraceEvent,
+  BehavioralTraceEventMap,
   BehavioralTraceLayer,
   BehavioralTraceQuestionId,
   BehavioralTraceQuestionsOptions,
+  BehavioralTraceSupport,
   BehavioralTraceWindow,
   BehavioralWindowPolicy,
 } from './behavioral-trace-questions'
