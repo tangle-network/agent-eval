@@ -685,7 +685,8 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   }
   const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
   if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
-  if (previous && proposal.isDraft && !previous.isDraft) {
+  const newlyHeldDraft = proposal.isDraft && (previous ? !previous.isDraft : green)
+  if (newlyHeldDraft) {
     manualDraft = true
     // A hold observed after recording a failed gate belongs to its maintainer.
     // Do not leave our marker behind for the next green run to claim it.
