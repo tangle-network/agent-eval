@@ -16,7 +16,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    if: github.repository == 'tangle-network/agent-eval' && github.ref == 'refs/heads/main'
+    runs-on:
+      group: public-app-production
+      labels: [self-hosted, ci-deploy]
     steps:
       - uses: actions/checkout@v7
         with:

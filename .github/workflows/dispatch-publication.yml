@@ -1,0 +1,26 @@
+name: Dispatch the trusted publication workflow
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'tangle-network/agent-eval' &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on:
+      group: public-app-production
+      labels: [self-hosted, ci-deploy]
+    steps:
+      - name: Run the main publication body for this exact tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref refs/heads/main
+          -f "release_sha=$RELEASE_SHA" -f "release_tag=$RELEASE_TAG"
