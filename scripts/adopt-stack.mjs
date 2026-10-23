@@ -649,7 +649,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
-  const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body']))[0]
+  const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body,isDraft']))[0]
 
   writePlan(dir, result)
   install(dir)
@@ -669,13 +669,38 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
-  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced))
+  const draftMarker = '<!-- adopt-stack:draft=gate-fail -->'
+  const previous = open ? JSON.parse(gh(['pr', 'view', String(open.number), '--json', 'headRefOid,isDraft,body'])) : null
+  if (previous && previous.headRefOid !== head) throw new Error(`#${open.number} moved after the gate; draft state and merge left unchanged`)
+  // Only drafts created by this updater are promoted. Preserve manual holds, including ones added while the gate ran.
+  let manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
+  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
+    + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
+  const promoteDraft = green && previous?.isDraft && !manualDraft
   let number = open?.number
-  if (number) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
-  else {
-    gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile])
+  if (number && !promoteDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
+  else if (!number) {
+    gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile, ...(!green ? ['--draft'] : [])])
     number = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number']))[0].number
   }
+  const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
+  if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
+  const newlyHeldDraft = proposal.isDraft && (previous ? !previous.isDraft : green)
+  if (newlyHeldDraft) {
+    manualDraft = true
+    // A hold observed after recording a failed gate belongs to its maintainer.
+    // Do not leave our marker behind for the next green run to claim it.
+    if (!green) {
+      writeFileSync(bodyFile, body(result, gate, hash, 'gate-fail', head, synced))
+      gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
+    }
+  }
+  if (!manualDraft && proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
+  const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
+  if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
+  if (green && current.isDraft) manualDraft = true
+  // Retain the failed-draft marker if readiness fails, so a later run can recover.
+  if (promoteDraft && !manualDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
   log(`${open ? 'updated' : 'opened'} #${number}: ${title}`)
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
@@ -683,6 +708,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     comment(`Gate \`${gate}\` failed on ${head.slice(0, 12)}. Left open; the next run re-gates it.`)
     throw new Error(`#${number} failed its gate`)
   }
+  if (manualDraft) return log(`#${number} remains a manually held draft; no merge attempted`)
   if (!merge) return log('merge is off; left open')
   const merged = await mergeWhenApproved(dir, number, head, base, defaultBranch)
   if (merged.moved) {
@@ -761,7 +787,7 @@ async function main() {
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
   if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch))
   const result = await plan(opts.dir, opts.packages)
-  if (opts.dryRun && opts.postPin && result.edits.length) {
+  if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
   }
   const { files: _files, ...printable } = result

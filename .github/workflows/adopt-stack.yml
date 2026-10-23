@@ -54,7 +54,7 @@ on:
         type: string
         default: ''
       runs-on:
-        description: 'A runner label, or a JSON array of labels'
+        description: 'A runner label or JSON array; internal public adoption always uses the trusted production group'
         type: string
         default: ''
       default-branch:
@@ -79,7 +79,11 @@ on:
 
 jobs:
   adopt:
-    runs-on: ${{ inputs.runs-on != '' && (startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on) || (github.event.repository.private && fromJSON('["self-hosted","beelink"]') || fromJSON('["self-hosted","ci-public"]')) }}
+    # A reviewed default-branch caller owns its gate/post-pin commands and target.
+    # Public PR runners retain workspace state and must never receive write tokens.
+    # External callers keep their hosted default and explicit runner selection.
+    if: ${{ github.repository_owner != 'tangle-network' || github.event.repository.private || (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !startsWith(github.event_name, 'pull_request')) }}
+    runs-on: ${{ (github.repository_owner == 'tangle-network' && !github.event.repository.private && fromJSON('{"group":"public-app-production","labels":["self-hosted","ci-deploy"]}')) || (inputs.runs-on != '' && (startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on)) || (github.repository_owner != 'tangle-network' && 'ubuntu-latest') || fromJSON('["self-hosted","beelink"]') }}
     timeout-minutes: 75
     # One adoption at a time per repository, so two runs never race one branch.
     concurrency:
@@ -104,6 +108,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - uses: pnpm/action-setup@v6
+        if: ${{ hashFiles('caller/pnpm-lock.yaml', 'caller/pnpm-workspace.yaml') != '' }}
         with:
           package_json_file: caller/package.json
 
