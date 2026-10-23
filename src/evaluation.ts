@@ -1,3 +1,4 @@
+import { analystEvaluationContext } from './analyst/evaluation-context'
 import type { Analyst, AnalystContext, AnalystFinding } from './analyst/types'
 import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
 import type {
@@ -146,46 +147,9 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
     inputKind: config.inputKind,
     cost: config.cost,
     async analyze(input, context) {
-      const signals = context.signal ? [context.signal] : []
-      if (context.deadlineMs !== undefined) {
-        const remaining = context.deadlineMs - Date.now()
-        if (!Number.isFinite(remaining)) throw new TypeError('Analyst deadline must be finite')
-        if (remaining <= 0) throw new DOMException('Analyst deadline exceeded', 'TimeoutError')
-        signals.push(AbortSignal.timeout(Math.ceil(remaining)))
-      }
-      const signal = AbortSignal.any(signals)
-      signal.throwIfAborted()
-      const analystContext = { ...context, signal }
-      const result = await config.evaluate(
-        input,
-        {
-          signal,
-          // No implicit account may override the evaluator's configured spending authority.
-          costLedger:
-            context.costLedger ??
-            (context.budgetUsd === undefined
-              ? undefined
-              : new CostLedger({ costCeilingUsd: context.budgetUsd })),
-          actor: config.id,
-          channel: 'analyst',
-          costPhase: context.costPhase,
-          costTags: { ...context.tags, runId: context.runId, correlationId: context.correlationId },
-          onReceipt: (receipt) =>
-            context.recordUsage?.({
-              calls: 1,
-              tokens: receipt.usageUnknown
-                ? null
-                : { input: receipt.inputTokens, output: receipt.outputTokens },
-              cost: receipt.costUnknown
-                ? { kind: 'uncaptured', usd: null }
-                : {
-                    kind: receipt.actualCostUsd === undefined ? 'estimated' : 'observed',
-                    usd: receipt.costUsd,
-                  },
-            }),
-        },
-        analystContext,
-      )
+      const { evaluation, analystContext } = analystEvaluationContext(context, config.id)
+      const signal = analystContext.signal
+      const result = await config.evaluate(input, evaluation, analystContext)
       await config.record?.(result, input, analystContext)
       signal.throwIfAborted()
       const findings = await config.map(result.value, input, analystContext)

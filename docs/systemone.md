@@ -302,3 +302,5 @@ a winner after seeing outcomes), with any number of secondary measures, and
 one implementation per code concept (to prevent divergent owners).
 
 Decision-point construction validates the complete calibration object, including nonempty structured evidence references, before any inference. Malformed configuration throws; well-formed evidence below the calibration bar still escalates. `observe()` returns a typed `invalid` result for uncloneable, noncanonical or malformed observation data without appending an outcome. A provider identity with surrounding whitespace is rejected as a failed evaluation; its durable escalation replays and remains readable by reliability reporting.
+
+The existing behavioral analyst optionally applies bounded [trace questions](behavioral-trace-questions.md) through decision points; exact repeated tool calls stay computed.
