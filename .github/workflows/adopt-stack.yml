@@ -104,6 +104,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - uses: pnpm/action-setup@v6
+        if: ${{ hashFiles('caller/pnpm-lock.yaml', 'caller/pnpm-workspace.yaml') != '' }}
         with:
           package_json_file: caller/package.json
 
