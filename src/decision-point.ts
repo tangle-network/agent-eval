@@ -217,10 +217,11 @@ export function decisionPoint<const Q extends DecisionQuestions>(options: Decisi
   const find = async (runId: string, id: string) => {
     const read = await ledger.read()
     if (!read.succeeded) return read
-    return {
-      succeeded: true as const,
-      value: read.value.findings.find((row) => row.run_id === runId && row.finding_id === id),
-    }
+    const row = read.value.findings.find((row) => row.run_id === runId && row.finding_id === id)
+    if (!row) return { succeeded: true as const, value: undefined }
+    // Ledger custody fields belong to read(), not public decision findings.
+    const { run_id: _runId, sequence: _sequence, entryHash: _entryHash, ...finding } = row
+    return { succeeded: true as const, value: finding }
   }
   const readReplay = async (
     input: DecisionInvocation,
