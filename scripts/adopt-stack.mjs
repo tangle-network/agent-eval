@@ -76,6 +76,7 @@
 //          [--merge] [--dry-run] [--json]
 // Without --dry-run it needs git, gh (GH_TOKEN with contents and pull-requests:
 // write) and the caller's package manager.
+import { ADOPTION_BRANCH as BRANCH, isManuallyHeldDraft, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack-proposal.mjs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
@@ -85,7 +86,6 @@ import { pathToFileURL } from 'node:url'
 import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions } from './adopt-stack-workspace.mjs'
 
 const SCOPE = '@tangle-network/'
-const BRANCH = 'chore/adopt-stack'
 const COHORT = 'release/cohort.json'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com']
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
@@ -669,11 +669,10 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
-  const draftMarker = '<!-- adopt-stack:draft=gate-fail -->'
-  const previous = open ? JSON.parse(gh(['pr', 'view', String(open.number), '--json', 'headRefOid,isDraft,body'])) : null
-  if (previous && previous.headRefOid !== head) throw new Error(`#${open.number} moved after the gate; draft state and merge left unchanged`)
+  const draftMarker = UPDATER_DRAFT_MARKER
+  const previous = open ? await readPushedProposal(dir, open.number, head, defaultBranch) : null
   // Only drafts created by this updater are promoted. Preserve manual holds, including ones added while the gate ran.
-  let manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
+  let manualDraft = isManuallyHeldDraft(open, previous)
   writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
     + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
   const promoteDraft = green && previous?.isDraft && !manualDraft
@@ -683,8 +682,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile, ...(!green ? ['--draft'] : [])])
     number = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number']))[0].number
   }
-  const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
-  if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
+  const proposal = await readPushedProposal(dir, number, head, defaultBranch)
   const newlyHeldDraft = proposal.isDraft && (previous ? !previous.isDraft : green)
   if (newlyHeldDraft) {
     manualDraft = true
@@ -696,8 +694,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     }
   }
   if (!manualDraft && proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
-  const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
-  if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
+  const current = await readPushedProposal(dir, number, head, defaultBranch)
   if (green && current.isDraft) manualDraft = true
   // Retain the failed-draft marker if readiness fails, so a later run can recover.
   if (promoteDraft && !manualDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
