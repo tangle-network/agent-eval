@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, test } from 'vitest'
-import { mergeWhenApproved } from './adopt-stack.mjs'
-import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack-proposal.mjs'
+import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, mergeWhenApproved, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack.mjs'
 
 const active = []
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
