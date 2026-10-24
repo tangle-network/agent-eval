@@ -82,7 +82,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync,
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions } from './adopt-stack-workspace.mjs'
+import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions, preparePlaywrightBrowsers } from './adopt-stack-workspace.mjs'
 
 const SCOPE = '@tangle-network/'
 export const ADOPTION_BRANCH = 'chore/adopt-stack'
@@ -716,6 +716,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const synced = { command, files: command ? postPin(dir, command) : [] }
   result.resolved = resolvedVersions(dir, new Map(result.expected))
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
+  preparePlaywrightBrowsers(dir)
   log(`gate: ${gate}`)
   const green = run('bash', ['-c', gate], dir)
   if (green) result.resolved = resolvedVersions(dir, new Map(result.expected))

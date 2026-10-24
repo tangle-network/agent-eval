@@ -1,7 +1,7 @@
 // The caller's existing workspace manifests, install constraints and resolutions.
 // No dependency is installed to plan: pnpm itself enumerates its workspaces.
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
 const SCOPE = '@tangle-network/'
@@ -166,20 +166,62 @@ export function constraints(members, workspaceText, targets, edit) {
   return { edits, text: workspaceText === null ? null : yaml }
 }
 
-export function installedVersion(dir, file, name) {
+function installedPackage(dir, file, name) {
   let path = dirname(resolve(dir, file))
   for (;;) {
     const manifest = join(path, 'node_modules', ...name.split('/'), 'package.json')
     if (existsSync(manifest)) {
       const pkg = JSON.parse(readFileSync(manifest, 'utf8'))
       if (pkg.name !== name) throw new Error(`${file}: ${name} resolves to ${pkg.name}`)
-      return pkg.version
+      return { pkg, manifest: realpathSync(manifest) }
     }
     if (path === resolve(dir)) return null
     const parent = dirname(path)
     if (parent === path) return null
     path = parent
   }
+}
+
+export function installedVersion(dir, file, name) {
+  return installedPackage(dir, file, name)?.pkg.version ?? null
+}
+
+/** Prepare only the browsers declared by the installed caller, in its current
+ * cache/HOME. The package lock and each importer, not the host CLI, own the
+ * Playwright revision. No dependency or browser is installed when absent. */
+export function preparePlaywrightBrowsers(dir) {
+  const names = ['playwright', '@playwright/test', 'playwright-core']
+  const declared = manifests(dir).flatMap(({ file, pkg }) => SECTIONS.flatMap(section =>
+    names.filter(name => pkg[section]?.[name]).map(name => ({ file, section, name }))))
+  if (!declared.length) return []
+  const manager = existsSync(join(dir, 'pnpm-lock.yaml')) ? 'pnpm' : 'npm'
+  if (manager === 'npm' && !existsSync(join(dir, 'package-lock.json'))) throw new Error('Playwright preparation requires the callers existing lockfile')
+  execFileSync(manager, manager === 'pnpm' ? ['install', '--frozen-lockfile'] : ['ci'], { cwd: dir, stdio: 'inherit' })
+  const locks = readLocks(dir)
+  const seen = new Set()
+  const prepared = []
+  for (const { file, section, name } of declared) {
+    const installed = installedPackage(dir, file, name)
+    if (!installed && section === 'optionalDependencies') continue
+    const locked = lockedVersion(locks, file, section, name)
+    if (!installed || installed.pkg.version !== locked) throw new Error(`${file} ${name}: Playwright lock ${locked ?? 'missing'} differs from installed ${installed?.pkg.version ?? 'missing'}`)
+    const { pkg, manifest } = installed
+    const bin = typeof pkg.bin === 'string' ? { [pkg.name]: pkg.bin } : pkg.bin
+    const command = bin?.playwright ? 'playwright' : bin?.['playwright-core'] ? 'playwright-core' : null
+    if (!command) throw new Error(`${file} ${name}: installed Playwright has no supported CLI`)
+    const cli = realpathSync(resolve(dirname(manifest), bin[command]))
+    const cwd = dirname(resolve(dir, file))
+    const args = manager === 'pnpm' ? ['exec', command] : ['exec', '--offline', '--', command]
+    const version = execFileSync(manager, [...args, '--version'], { cwd, encoding: 'utf8' }).trim()
+    if (version !== `Version ${pkg.version}`) throw new Error(`${file} ${name}: expected Playwright ${pkg.version}, CLI reported ${version}`)
+    const key = `${cli}@${pkg.version}`
+    if (seen.has(key)) continue
+    console.error(`adopt-stack: preparing ${file} ${name}@${pkg.version} Chromium headless shell`)
+    execFileSync(manager, [...args, 'install', '--only-shell', 'chromium'], { cwd, stdio: 'inherit' })
+    seen.add(key)
+    prepared.push({ file, name, version: pkg.version, cli })
+  }
+  return prepared
 }
 
 /** Compare the actual post-install/post-sync boundary to the plan, not its labels. */
