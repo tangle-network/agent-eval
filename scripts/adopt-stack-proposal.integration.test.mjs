@@ -8,7 +8,8 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, mergeWhenApproved, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack.mjs'
 
 const active = []
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+// Fixture commits carry their own identity: a CI runner has no global git user.
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'adopt-proposal-http-'))
