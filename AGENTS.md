@@ -55,7 +55,9 @@ Use the package scripts for build, tests, type checks, and benchmark-identity up
 
 Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>` using the writer-authenticated CLI. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting completion. No additional merge wrapper or host installation is required.
 
-Ordinary internal source PRs do not wait for CI, local signoff, version bumps or publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use administrator bypasses or fabricate test results. A skipped job is not a test pass.
+Before merge, run the local Beelink gate; repositories carry no PR or push CI. Versioning and publication remain separate operations. Release PRs and external contributions retain their qualification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use administrator bypasses or fabricate test results. A skipped job is not a test pass.
+
+Local Beelink gate (set `TOUCHED_INTEGRATION_TEST` to the affected integration file; the gate installs from the frozen pnpm lockfile): `beelink-gate auto https://github.com/tangle-network/agent-eval.git "$(git rev-parse HEAD)" -- sh -c 'pnpm typecheck && pnpm exec vitest run "$1"' _ "${TOUCHED_INTEGRATION_TEST:?set touched integration test path}"`.
 
 Package preparation and npm/Python publication are separate authorized operations with their existing qualification and credential controls. Evaluation verdicts and experiment promotion below are product behavior, not Git merge gates; their validation remains mandatory.
 
