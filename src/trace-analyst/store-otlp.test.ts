@@ -32,6 +32,18 @@ describe('OtlpFileTraceStore', () => {
     expect(() => otlpTextToTraceAnalysisStore('')).toThrow(/must not be empty/)
   })
 
+  it('reads UTF-8 bytes exactly as text — bug class: a week of sessions exceeded V8 max string length', async () => {
+    const bytes = await readFile(TINY_FIXTURE)
+    const fromText = otlpTextToTraceAnalysisStore(bytes.toString('utf8'))
+    // A view into a larger allocation, as Buffer.concat and pooled reads produce.
+    const pooled = new Uint8Array(bytes.byteLength + 16)
+    pooled.set(bytes, 8)
+    const fromBytes = otlpTextToTraceAnalysisStore(pooled.subarray(8, 8 + bytes.byteLength))
+
+    expect(await fromBytes.getOverview()).toEqual(await fromText.getOverview())
+    expect(() => otlpTextToTraceAnalysisStore(new Uint8Array([0x20, 0x0a]))).toThrow(/must not be empty/)
+  })
+
   it('throws TraceFileMissingError synchronously for a missing path so callers fail fast', async () => {
     const store = new OtlpFileTraceStore({ path: '/nonexistent/path/does-not-exist.jsonl' })
     await expect(store.ensureIndexed()).rejects.toBeInstanceOf(TraceFileMissingError)
