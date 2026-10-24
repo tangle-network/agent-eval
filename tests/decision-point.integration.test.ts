@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,16 +13,25 @@ import {
   decisionQuestionDigest,
 } from '../src/systemone'
 
+const PROVIDER_HOLD_TIMEOUT_MS = 30_000
+
 // The only fake is the provider process. Real HTTP, metering, schema and file ledger execute.
 const provider = `
 import { createServer } from 'node:http'
 let calls = 0
+let releaseHeld
 const server = createServer(async (req, res) => {
   if (req.url === '/calls') return res.end(String(calls))
+  if (req.url === '/release-held') { releaseHeld?.(); return res.end('released') }
   calls++
   let body = ''
   for await (const chunk of req) body += chunk
   const request = JSON.parse(body)
+  if (request.state.hold) await new Promise(resolve => {
+    const fallback = setTimeout(resolve, ${PROVIDER_HOLD_TIMEOUT_MS})
+    releaseHeld = () => { clearTimeout(fallback); resolve() }
+    console.log('held')
+  })
   if (request.state.fail) { res.statusCode = 503; return res.end('unavailable') }
   const p = request.state.tie ? .5 : request.state.nearTie ? .49996 : .9
   res.setHeader('content-type', 'application/json')
@@ -151,10 +161,59 @@ describe('decisionPoint public SDK with HTTP provider and durable findings', () 
     const replay = ok(await point(path).decide(invocation('one')))
     expect(replay.replayed).toBe(true)
     expect(replay.record).toEqual(first.record)
+    expect(parseAnalystFinding(replay.finding).succeeded).toBe(true)
+    expect(replay.finding).toEqual(first.finding)
     const stopped = new AbortController()
     stopped.abort()
     expect((await run.decide(invocation('one'), { signal: stopped.signal })).succeeded).toBe(false)
     expect((await run.decide(invocation('one', { changed: true }))).succeeded).toBe(false)
+
+    const heldInput = invocation('held', { hold: true })
+    const beforeHeld = Number(await (await fetch(`${baseUrl}/calls`)).text())
+    const control = createInterface({ input: child.stdout! })
+    const observed = once(control, 'line', {
+      signal: AbortSignal.timeout(PROVIDER_HOLD_TIMEOUT_MS),
+    })
+    const completing = run.decide(heldInput)
+    try {
+      const [line] = await observed
+      expect(line).toBe('held')
+      const pending = (
+        await Promise.all([point(path).decide(heldInput), point(path).decide(heldInput)])
+      ).map(ok)
+      expect(
+        pending.every(
+          (value) => value.record === null && value.action === 'escalate' && value.replayed,
+        ),
+      ).toBe(true)
+      expect(pending.every((value) => parseAnalystFinding(value.finding).succeeded)).toBe(true)
+      expect(pending[0]!.finding).toEqual(pending[1]!.finding)
+      const ledger = ok(await openFindingsLedger({ path }).read())
+      expect(
+        ledger.findings.find((finding) => finding.finding_id === pending[0]!.finding.finding_id),
+      ).toMatchObject({
+        run_id: 'run',
+        sequence: expect.any(Number),
+        entryHash: expect.any(String),
+      })
+      expect(Number(await (await fetch(`${baseUrl}/calls`)).text()) - beforeHeld).toBe(1)
+    } finally {
+      try {
+        await fetch(`${baseUrl}/release-held`, {
+          signal: AbortSignal.timeout(PROVIDER_HOLD_TIMEOUT_MS),
+        })
+      } finally {
+        control.close()
+      }
+    }
+    const completed = ok(await completing)
+    const heldReplay = ok(await point(path).decide(heldInput))
+    expect(parseAnalystFinding(completed.finding).succeeded).toBe(true)
+    expect(parseAnalystFinding(heldReplay.finding).succeeded).toBe(true)
+    expect(heldReplay.replayed).toBe(true)
+    expect(heldReplay.record).toEqual(completed.record)
+    expect(heldReplay.finding).toEqual(completed.finding)
+    expect(Number(await (await fetch(`${baseUrl}/calls`)).text()) - beforeHeld).toBe(1)
   })
 
   it('captures record-only choices without changing routing or requiring auxiliary truth labels', async () => {

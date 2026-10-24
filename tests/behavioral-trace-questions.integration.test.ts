@@ -221,13 +221,13 @@ describe('behavioralAnalyst public SDK question battery', () => {
     ).toHaveLength(1)
     expect(findings.every((f) => api.parseAnalystFinding(f).succeeded)).toBe(true)
     const replayUsage: AnalystUsageReceipt[] = []
-    expect(
-      await analyze(
-        'scopes',
-        { ...config, ledger: api.openFindingsLedger({ path: config.ledger.path }) },
-        { correlationId: 'fresh-registry-correlation', recordUsage: (r) => replayUsage.push(r) },
-      ),
-    ).toEqual(findings)
+    const replayed = await analyze(
+      'scopes',
+      { ...config, ledger: api.openFindingsLedger({ path: config.ledger.path }) },
+      { correlationId: 'fresh-registry-correlation', recordUsage: (r) => replayUsage.push(r) },
+    )
+    expect(replayed.every((finding) => api.parseAnalystFinding(finding).succeeded)).toBe(true)
+    expect(replayed).toEqual(findings)
     expect((await calls()).length).toBe(before + 3)
     expect(read(await config.ledger.read()).findings).toHaveLength(33)
     expect(replayUsage).toEqual([
@@ -554,6 +554,11 @@ describe('behavioral trace supporting events', () => {
       { cwd: process.cwd(), timeout: 30_000 },
     )
     const replay = JSON.parse(restarted.stdout)
+    expect(
+      replay.findings.every(
+        (finding: AnalystFinding) => api.parseAnalystFinding(finding).succeeded,
+      ),
+    ).toBe(true)
     expect(replay.findings).toEqual(findings)
     expect(replay.usage).toEqual([
       { calls: 0, tokens: { input: 0, output: 0 }, cost: { kind: 'observed', usd: 0 } },
