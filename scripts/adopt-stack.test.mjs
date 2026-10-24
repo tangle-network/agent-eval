@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
+import { fixtureGit as git } from './adopt-stack-fixture.mjs'
 import { lockedVersions, mergeWhenApproved, plan, prepareBranch, satisfies, writePlan } from './adopt-stack.mjs'
 import { installedVersion, resolvedVersions } from './adopt-stack-workspace.mjs'
 
@@ -219,7 +220,6 @@ describe('adopt-stack effective workspace delivery', () => {
       if (overrideFile === 'package.json') {
         // An old proposal + independently advanced default retain both histories.
         save('.gitignore', 'node_modules/\n')
-        const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
         const remote = mkdtempSync(join(tmpdir(), 'adopt-effective-remote-'))
         const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
         try {

@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, test } from 'vitest'
+import { fixtureGit as git } from './adopt-stack-fixture.mjs'
 import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, mergeWhenApproved, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack.mjs'
 
 const active = []
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'adopt-proposal-http-'))
@@ -18,7 +18,6 @@ async function fixture() {
   mkdirSync(author)
   git(root, 'init', '-q', '--bare', '-b', 'main', remote)
   git(author, 'init', '-q', '-b', 'main')
-  // Disposable commits retain the admitted host identity and normal hooks.
   writeFileSync(join(author, 'source.txt'), 'captured default\n')
   git(author, 'add', '.')
   git(author, 'commit', '-qm', 'test: seed captured default')
@@ -76,7 +75,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     // Optional incident calibration executes the retained pre-fix guard, not a rewritten imitation.
     // The same real Git ref and HTTP sample then exercise the fixed maintained seam.
     if (process.env.ADOPT_STACK_BASELINE_REF) {
-      const source = git(process.cwd(), 'show', `${process.env.ADOPT_STACK_BASELINE_REF}:scripts/adopt-stack.mjs`)
+      const source = execFileSync('git', ['show', `${process.env.ADOPT_STACK_BASELINE_REF}:scripts/adopt-stack.mjs`], { cwd: process.cwd(), encoding: 'utf8' })
       const guard = source.split('\n').find((line) => line.includes('if (previous && previous.headRefOid !== head) throw'))
       expect(guard).toBeTruthy()
       const raw = await f.read()
