@@ -85,7 +85,8 @@ import { pathToFileURL } from 'node:url'
 import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions } from './adopt-stack-workspace.mjs'
 
 const SCOPE = '@tangle-network/'
-const BRANCH = 'chore/adopt-stack'
+export const ADOPTION_BRANCH = 'chore/adopt-stack'
+const BRANCH = ADOPTION_BRANCH
 const COHORT = 'release/cohort.json'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com']
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
@@ -627,6 +628,65 @@ function body(result, gate, hash, outcome, head, synced) {
   ].join('\n')
 }
 
+export const UPDATER_DRAFT_MARKER = '<!-- adopt-stack:draft=gate-fail -->'
+const SETTLE_MS = 30_000
+const MAX_READS = 6
+const SETTLE_POLL_MS = 1_000
+
+/** A failed legacy draft without explicit updater ownership remains held. */
+export function isManuallyHeldDraft(open, previous) {
+  return Boolean(previous?.isDraft && !(open?.isDraft && open.body.includes(UPDATER_DRAFT_MARKER) && previous.body.includes(UPDATER_DRAFT_MARKER)))
+}
+
+/**
+ * Git's owned branch is authoritative after push; the PR view may settle later.
+ * No metadata changes are allowed until both agree. Every attempt brackets the
+ * PR read with fresh remote refs; unknown or competing refs fail immediately.
+ * The final merge still requires its native expected-head and captured-base guards.
+ * `readProposal` is the external HTTP read seam; production uses authenticated gh.
+ */
+export async function readPushedProposal(dir, number, expectedHead, defaultBranch, readProposal) {
+  const deadline = Date.now() + SETTLE_MS
+  const command = (cmd, argv) => {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(`#${number} PR head settlement exceeded ${SETTLE_MS} ms; no metadata or merge attempted`)
+    return execFileSync(cmd, argv, { cwd: dir, encoding: 'utf8', timeout: Math.min(10_000, remaining), stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  }
+  const remoteHead = () => {
+    const actual = command('git', ['ls-remote', 'origin', `refs/heads/${ADOPTION_BRANCH}`]).split(/\s/)[0]
+    if (!/^[0-9a-f]{40}$/.test(actual)) throw new Error(`#${number} authoritative proposal ref is unknown (expected ${expectedHead}, observed ${actual || 'empty'}); no metadata or merge attempted`)
+    if (actual !== expectedHead) throw new Error(`#${number} moved after the gate: authoritative branch expected ${expectedHead}, observed ${actual}; no metadata or merge attempted`)
+  }
+  const read = readProposal ?? (() => JSON.parse(command('gh', ['api', `repos/{owner}/{repo}/pulls/${number}`])))
+  let observed = 'unknown'
+  for (let attempt = 1; attempt <= MAX_READS; attempt += 1) {
+    remoteHead()
+    const controller = new AbortController()
+    const remaining = deadline - Date.now()
+    let timer
+    let raw
+    try {
+      raw = await Promise.race([
+        read({ signal: controller.signal }),
+        new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error(`#${number} PR read deadline exceeded; no metadata or merge attempted`)) }, Math.max(1, remaining)) }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      controller.abort()
+    }
+    remoteHead()
+    const proposal = raw && { headRefOid: raw.head?.sha, headRefName: raw.head?.ref, baseRefName: raw.base?.ref, state: raw.state, isDraft: raw.draft, body: raw.body ?? '' }
+    if (!proposal || !/^[0-9a-f]{40}$/.test(proposal.headRefOid ?? '') || typeof proposal.isDraft !== 'boolean' || typeof proposal.body !== 'string') throw new Error(`#${number} PR head/state response is unknown; no metadata or merge attempted`)
+    if (proposal.state !== 'open' || proposal.headRefName !== ADOPTION_BRANCH || proposal.baseRefName !== defaultBranch) throw new Error(`#${number} proposal scope changed (state ${proposal.state}, head ${proposal.headRefName}, base ${proposal.baseRefName}); no metadata or merge attempted`)
+    if (proposal.headRefOid === expectedHead) return proposal
+    observed = proposal.headRefOid
+    console.log(`adopt-stack: #${number} PR head ${observed} differs from stable pushed branch ${expectedHead}; settlement read ${attempt}/${MAX_READS}`)
+    if (attempt < MAX_READS && Date.now() + SETTLE_POLL_MS < deadline) await new Promise((done) => setTimeout(done, SETTLE_POLL_MS))
+    else break
+  }
+  throw new Error(`#${number} PR head did not settle (expected ${expectedHead}, last PR ${observed}, branch remained expected); no metadata or merge attempted`)
+}
+
 /** Preserve the owned proposal's history; capture the default independently. */
 export function prepareBranch(dir, defaultBranch) {
   if (out('git', ['status', '--porcelain'], dir)) throw new Error('caller checkout is dirty; nothing was reset or discarded')
@@ -669,11 +729,10 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
-  const draftMarker = '<!-- adopt-stack:draft=gate-fail -->'
-  const previous = open ? JSON.parse(gh(['pr', 'view', String(open.number), '--json', 'headRefOid,isDraft,body'])) : null
-  if (previous && previous.headRefOid !== head) throw new Error(`#${open.number} moved after the gate; draft state and merge left unchanged`)
+  const draftMarker = UPDATER_DRAFT_MARKER
+  const previous = open ? await readPushedProposal(dir, open.number, head, defaultBranch) : null
   // Only drafts created by this updater are promoted. Preserve manual holds, including ones added while the gate ran.
-  let manualDraft = previous?.isDraft && !(open.isDraft && open.body.includes(draftMarker) && previous.body.includes(draftMarker))
+  let manualDraft = isManuallyHeldDraft(open, previous)
   writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
     + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
   const promoteDraft = green && previous?.isDraft && !manualDraft
@@ -683,8 +742,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     gh(['pr', 'create', '--head', BRANCH, '--base', defaultBranch, '--title', title, '--body-file', bodyFile, ...(!green ? ['--draft'] : [])])
     number = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number']))[0].number
   }
-  const proposal = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
-  if (proposal.headRefOid !== head) throw new Error(`#${number} moved after the gate; draft state and merge left unchanged`)
+  const proposal = await readPushedProposal(dir, number, head, defaultBranch)
   const newlyHeldDraft = proposal.isDraft && (previous ? !previous.isDraft : green)
   if (newlyHeldDraft) {
     manualDraft = true
@@ -696,8 +754,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     }
   }
   if (!manualDraft && proposal.isDraft !== !green) gh(['pr', 'ready', String(number), ...(!green ? ['--undo'] : [])])
-  const current = JSON.parse(gh(['pr', 'view', String(number), '--json', 'headRefOid,isDraft']))
-  if (current.headRefOid !== head) throw new Error(`#${number} moved during the draft transition; no merge attempted`)
+  const current = await readPushedProposal(dir, number, head, defaultBranch)
   if (green && current.isDraft) manualDraft = true
   // Retain the failed-draft marker if readiness fails, so a later run can recover.
   if (promoteDraft && !manualDraft) gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
