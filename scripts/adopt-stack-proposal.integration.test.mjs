@@ -18,9 +18,7 @@ async function fixture() {
   mkdirSync(author)
   git(root, 'init', '-q', '--bare', '-b', 'main', remote)
   git(author, 'init', '-q', '-b', 'main')
-  // Identities belong only to disposable integration repositories, never the source checkout.
-  git(author, 'config', 'user.name', 'Adoption integration')
-  git(author, 'config', 'user.email', 'adoption-integration@example.invalid')
+  // Disposable commits retain the admitted host identity and normal hooks.
   writeFileSync(join(author, 'source.txt'), 'captured default\n')
   git(author, 'add', '.')
   git(author, 'commit', '-qm', 'test: seed captured default')
