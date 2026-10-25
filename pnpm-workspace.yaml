@@ -2,7 +2,40 @@
 # First-party releases install as soon as they publish.
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
+  - '@biomejs/cli-android-arm64@2.6.3'
+  - '@biomejs/cli-android-x64@2.6.3'
+  - '@biomejs/cli-darwin-arm64@2.6.3'
+  - '@biomejs/cli-darwin-x64@2.6.3'
+  - '@biomejs/cli-linux-arm64-musl@2.6.3'
+  - '@biomejs/cli-linux-arm64@2.6.3'
+  - '@biomejs/cli-linux-x64-musl@2.6.3'
+  - '@biomejs/cli-linux-x64@2.6.3'
+  - '@biomejs/cli-win32-arm64@2.6.3'
+  - '@biomejs/cli-win32-x64@2.6.3'
   - "@tangle-network/*"
+  - '@arethetypeswrong/cli@0.18.5'
+  - '@asteasolutions/zod-to-openapi@9.1.0'
+  - '@biomejs/biome@2.6.3'
+  - '@hono/node-server@2.1.5'
+  - '@types/node@26.6.5'
+  - 'ajv@8.20.0'
+  - 'esbuild@0.28.2'
+  - 'fast-check@4.10.2'
+  - 'hono@4.13.14'
+  - 'husky@9.1.7'
+  - 'lib-r-math.js@3.0.2'
+  - 'linear-sum-assignment@1.0.9'
+  - 'lint-staged@17.6.0'
+  - 'openapi3-ts@4.6.2'
+  - 'oxc-parser@0.155.0'
+  - 'publint@0.3.25'
+  - 're2js@2.9.0'
+  - 'smol-toml@1.9.1'
+  - 'tsdown@0.23.2'
+  - 'tsx@4.23.15'
+  - 'typescript@7.0.2'
+  - 'vitest@5.0.5'
+  - 'zod@4.6.7'
 allowBuilds:
   # The esbuild postinstall checks its platform binary.
   esbuild: true
