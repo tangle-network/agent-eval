@@ -148,6 +148,13 @@ export function summarizeExecutionMeasurements(
     aggregateSourceIds,
     LLM_CACHE_WRITE_TOKEN_ATTR_KEYS,
   )
+  // A parent total can supply a subtotal without proving that an explicitly
+  // unmeasured call reported its usage.
+  const tokensUnknown =
+    calls.length > 0 &&
+    (!input.complete ||
+      !output.complete ||
+      calls.some((call) => call.attributes['tangle.supervise.tokens_known'] === false))
   const aggregate = summarizeAggregateMeasurements(
     spans,
     byId,
@@ -168,6 +175,7 @@ export function summarizeExecutionMeasurements(
     tokenUsage: {
       input: input.value ?? aggregate?.tokenUsage.input ?? 0,
       output: Math.max(output.value ?? aggregate?.tokenUsage.output ?? 0, reasoningValue ?? 0),
+      ...(tokensUnknown ? { tokensKnown: false } : {}),
       ...(reasoningValue !== undefined ? { reasoning: reasoningValue } : {}),
       ...(cachedValue !== undefined ? { cached: cachedValue } : {}),
       ...(cacheWriteValue !== undefined ? { cacheWrite: cacheWriteValue } : {}),
@@ -260,12 +268,16 @@ function reconcileMeasurement(
   const selected = new Map<string, number>()
   const callIds = new Set(calls.map((call) => call.id))
   let reportingCalls = 0
+  let complete = calls.length > 0
 
   for (const call of calls) {
     const primary = nearestMeasurement(call, byId, callIds, aggregateSourceIds, keys)
     const fallback = fallbackKeys
       ? nearestMeasurement(call, byId, callIds, aggregateSourceIds, fallbackKeys)
       : undefined
+    // A fallback retains a known lower bound, such as reasoning tokens when
+    // total output is absent; it cannot establish complete coverage.
+    if (!primary) complete = false
     const source =
       primary && fallback && primary.span.id === fallback.span.id
         ? { span: primary.span, value: Math.max(primary.value, fallback.value) }
@@ -292,7 +304,7 @@ function reconcileMeasurement(
       ? { value: [...selected.values()].reduce((total, value) => total + value, 0) }
       : {}),
     reportingCalls,
-    complete: calls.length > 0 && reportingCalls === calls.length,
+    complete: complete && reportingCalls === calls.length,
   }
 }
 
