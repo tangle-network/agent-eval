@@ -1,20 +1,24 @@
 /**
- * Who may train on a rollout line, read from who produced it.
+ * The terms a rollout line's outputs carry, read from who produced it.
  *
  * `policy.model` and `policy.provider` already name the producer model and the
  * serving provider; `policy.license_class` states the terms those outputs carry:
  *
  *   - `open-weight-api` — an open-weight model (GLM, DeepSeek, Kimi, Qwen…),
  *                         whichever API served it.
- *   - `restricted`      — Claude, Codex and Jev outputs. Their terms bar training
- *                         a competing model, so no training export emits them.
- *   - `evaluation-only` — data licensed for measurement, never for training.
+ *   - `restricted`      — Claude, Codex and Jev outputs, whose provider terms
+ *                         restrict training a competing model.
+ *   - `evaluation-only` — data licensed for measurement.
  *   - `human`           — written by a person.
  *
  * Importers state the class. A line that does not is classified from its model
  * and harness names, restricted patterns first, so `claude-*` on any harness and
  * the `codex` harness on any model stay restricted. A line nothing classifies is
- * `null` and is not refused by this rule: only the two named classes are.
+ * `null`.
+ *
+ * The class is provenance, not a default filter: every class trains unless a run
+ * names the classes it accepts (Drew, 2026-10-25: train on everything), so a
+ * dataset can be re-cut by class later without re-importing.
  */
 
 import type { RolloutLine } from './schema'
@@ -26,9 +30,6 @@ export const LICENSE_CLASSES: readonly LicenseClass[] = [
   'evaluation-only',
   'human',
 ]
-
-/** The classes a training export emits unless the caller names others. */
-export const TRAINABLE_LICENSE_CLASSES: readonly LicenseClass[] = ['open-weight-api', 'human']
 
 const RESTRICTED = /claude|anthropic|\b(?:opus|sonnet|haiku|fable)\b|codex|\bjev\b/i
 const OPEN_WEIGHT =
@@ -51,11 +52,12 @@ export function licenseClassOf(line: Pick<RolloutLine, 'policy'>): LicenseClass 
   return licenseClassOfName(model) ?? byHarness
 }
 
-/** `null` (unclassified) passes; a named class must be in `allowed`. */
+/** Every line passes without `allowed`; with it, the line's class must be listed. */
 export function isLicenseEligible(
   line: Pick<RolloutLine, 'policy'>,
-  allowed: readonly LicenseClass[] = TRAINABLE_LICENSE_CLASSES,
+  allowed?: readonly LicenseClass[],
 ): boolean {
+  if (allowed === undefined) return true
   const license = licenseClassOf(line)
-  return license === null || allowed.includes(license)
+  return license !== null && allowed.includes(license)
 }

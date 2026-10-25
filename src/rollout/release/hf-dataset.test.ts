@@ -84,7 +84,7 @@ describe('buildHfDataset', () => {
     expect(summary.read).toBe(5)
     // holdout + proposer dropped: worker, supervisor, gap remain.
     expect(summary.kept).toBe(3)
-    expect(summary.scrub.excluded).toEqual({ proposers: 1, nonTrain: 1, license: 0, privacy: 0 })
+    expect(summary.scrub.excluded).toEqual({ proposers: 1, nonTrain: 1, privacy: 0 })
     expect(summary.formatCounts).toEqual({ sft: 2, verifiers: 2, rft: 2, raw: 3 })
 
     const raw = (await readJsonl(join(out, 'raw/train.jsonl'))) as RolloutLine[]

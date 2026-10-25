@@ -84,10 +84,7 @@ export interface TrainingExportOptions {
    * (e.g. `['holdout']` for a holdout-only evaluation bundle).
    */
   splitFilter?: RolloutSplit[]
-  /**
-   * License classes that may train. Default `open-weight-api` and `human`:
-   * `restricted` (Claude, Codex, Jev) and `evaluation-only` lines never export.
-   */
+  /** Re-cut by license class: only these classes export. Default: every class. */
   allowLicenseClasses?: readonly LicenseClass[]
 }
 
@@ -417,7 +414,7 @@ export function isSplitEligible(
 
 /**
  * The whole fail-closed training policy for one line: scored, positive above
- * the floor, completed, not gated, licensed to train, on an eligible split. Shared with
+ * the floor, completed, not gated, in the requested license classes, on an eligible split. Shared with
  * `rl/exporters` so its text-lookup adapter cannot drift from this rule.
  */
 export function isTrainingLineEligible(

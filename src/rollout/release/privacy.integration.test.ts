@@ -49,7 +49,7 @@ function lineSaying(id: string, text: string) {
 }
 
 describe('rollout-release privacy and license screen', () => {
-  it('drops every line carrying a secret or private detail and every restricted producer', async () => {
+  it('drops every line carrying a secret or private detail and keeps every producer', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'privacy-release-'))
     tempDirs.push(dir)
     const base = fixtureRolloutLine()
@@ -84,7 +84,7 @@ describe('rollout-release privacy and license screen', () => {
     expect(code).toBe(0)
 
     const report = JSON.parse(await readFile(join(out, 'scrub-report.json'), 'utf8'))
-    expect(report.excluded).toEqual({ proposers: 0, nonTrain: 0, license: 2, privacy: 14 })
+    expect(report.excluded).toEqual({ proposers: 0, nonTrain: 0, privacy: 14 })
     const expected: Record<string, number> = {}
     for (const { rule } of Object.values(SECRETS)) expected[rule] = (expected[rule] ?? 0) + 1
     expect(Object.fromEntries(Object.entries(report.dropped).filter(([, n]) => n !== 0))).toEqual(
@@ -92,9 +92,13 @@ describe('rollout-release privacy and license screen', () => {
     )
 
     const raw = (await readFile(join(out, 'raw/train.jsonl'), 'utf8')).trim().split('\n')
-    expect(raw.map((row) => JSON.parse(row).rollout_id)).toEqual(['clean-1'])
+    expect(raw.map((row) => JSON.parse(row).rollout_id)).toEqual([
+      'clean-1',
+      'claude-1',
+      'eval-only-1',
+    ])
     const sft = (await readFile(join(out, 'sft/train.jsonl'), 'utf8')).trim().split('\n')
-    expect(sft).toHaveLength(1)
+    expect(sft).toHaveLength(3)
 
     // Zero emitted bytes, in any file the build wrote or printed, hold a secret.
     const shipped = [
@@ -111,13 +115,16 @@ describe('rollout-release privacy and license screen', () => {
     }
   })
 
-  it('refuses restricted and evaluation-only lines from training exports by default', () => {
+  it('trains on every license class unless a run re-cuts by class', () => {
     const base = fixtureRolloutLine()
     const codex = fixtureRolloutLine({
       policy: { ...base.policy, harness: 'codex', model: 'gpt-5.5' },
     })
     const human = fixtureRolloutLine({ policy: { ...base.policy, license_class: 'human' } })
-    expect(toSftRows([base, codex, human])).toHaveLength(2)
+    expect(toSftRows([base, codex, human])).toHaveLength(3)
+    expect(
+      toSftRows([base, codex, human], { allowLicenseClasses: ['open-weight-api'] }),
+    ).toHaveLength(1)
     expect(toSftRows([codex], { allowLicenseClasses: ['restricted'] })).toHaveLength(1)
   })
 })

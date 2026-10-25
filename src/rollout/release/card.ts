@@ -39,7 +39,7 @@ export interface DatasetCardInputs {
   /** Source ledger basenames, for provenance. */
   sourceFiles: string[]
   scrubTotals: ScrubCounts
-  excluded: { proposers: number; nonTrain: number; license: number; privacy: number }
+  excluded: { proposers: number; nonTrain: number; privacy: number }
   formatCounts: Partial<Record<ReleaseFormat, number>>
   /**
    * Per-format anti-Goodhart accounting MEASURED on the rows the build wrote.
@@ -234,7 +234,7 @@ export function buildDatasetCard(inputs: DatasetCardInputs): string {
 
 One line per agent invocation (supervisor episode, worker session, proposer shot, judge call, analyst pass) captured by the \`${ROLLOUT_SCHEMA}\` rollout ledger, labeled with improvement-loop coordinates and the official-judge reward, with the full message transcript inline.
 
-This release contains the **trainable split only** (\`search\`). Holdout, dev, and canary splits are structurally excluded at build time, and the build additionally drops any non-trainable line as a fail-closed filter (${excluded.nonTrain} dropped here). Lines from \`restricted\` or \`evaluation-only\` producers (${excluded.license}) and lines with any secret or private detail (${excluded.privacy}) are dropped whole, never redacted into the release.
+This release contains the **trainable split only** (\`search\`). Holdout, dev, and canary splits are structurally excluded at build time, and the build additionally drops any non-trainable line as a fail-closed filter (${excluded.nonTrain} dropped here). Lines with any secret or private detail (${excluded.privacy}) are dropped whole, never redacted into the release.
 
 ## Formats
 

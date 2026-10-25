@@ -6,9 +6,8 @@
  *
  * Pipeline per input ledger: read + validate → fail-closed filters
  * (trainable split only; proposer sessions dropped unless
- * --include-proposers, they contain improvement-loop harness source;
- * `restricted` and `evaluation-only` license classes; any line with a secret
- * or private detail, or a `--denylist` term, dropped whole) →
+ * --include-proposers, they contain improvement-loop harness source; any line
+ * with a secret or private detail, or a `--denylist` term, dropped whole) →
  * deterministic scrub → export the requested formats + scrub-report.json +
  * auto-generated README.md card. Deterministic: same inputs and flags →
  * byte-identical output dir.
@@ -23,7 +22,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { toJsonl, toRftItems, toSftRows, toVerifiersRolloutOutputs } from '../exporters'
 import { readRolloutLedger, writeRolloutLedger } from '../ledger'
-import { isLicenseEligible } from '../license'
 import { isTrainableSplit, type MintedRolloutLine } from '../schema'
 import { buildDatasetCard, FORMAT_FILES, RELEASE_FORMATS, type ReleaseFormat } from './card'
 import {
@@ -55,7 +53,7 @@ export interface ScrubReport {
   /** Input ledger path → rule → rewrite count (only shipped lines are scrubbed). */
   files: Record<string, ScrubCounts>
   totals: ScrubCounts
-  excluded: { proposers: number; nonTrain: number; license: number; privacy: number }
+  excluded: { proposers: number; nonTrain: number; privacy: number }
   /** Privacy rule → lines dropped whole on its first hit. */
   dropped: Record<string, number>
 }
@@ -81,7 +79,7 @@ export async function buildHfDataset(
   const report: ScrubReport = {
     files: {},
     totals: emptyScrubCounts(),
-    excluded: { proposers: 0, nonTrain: 0, license: 0, privacy: 0 },
+    excluded: { proposers: 0, nonTrain: 0, privacy: 0 },
     dropped: Object.fromEntries(PRIVACY_RULE_NAMES.map((name) => [name, 0])),
   }
   const kept: MintedRolloutLine[] = []
@@ -97,10 +95,6 @@ export async function buildHfDataset(
       }
       if (!options.includeProposers && line.role === 'proposer') {
         report.excluded.proposers += 1
-        return false
-      }
-      if (!isLicenseEligible(line)) {
-        report.excluded.license += 1
         return false
       }
       const hit = privacyHit(line, options.denylist)

@@ -70,7 +70,6 @@ export {
   type LicenseClass,
   licenseClassOf,
   licenseClassOfName,
-  TRAINABLE_LICENSE_CLASSES,
 } from './license'
 export {
   type MintRolloutOptions,
