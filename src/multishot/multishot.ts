@@ -10,21 +10,14 @@
 // the caller supplies, so no provider credential enters this package.
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { withCellSpend } from '../matrix'
-import { estimateMultishotCost } from './cost'
-import { defaultDelegationTools } from './default-tools'
-import { defaultShapeFromProfile } from './shape-defaults'
-import {
-  type MultishotArtifact,
-  MultishotDriverEmptyError,
-  MultishotFatalToolError,
-  type MultishotMessage,
-  type MultishotPersona,
-  type MultishotResult,
-  type MultishotShape,
-  type MultishotToolDefinition,
-  type MultishotToolExecutor,
-  type MultishotTransport,
+import { runMultishotConversation } from './conversation'
+import type {
+  MultishotPersona,
+  MultishotResult,
+  MultishotShape,
+  MultishotToolDefinition,
+  MultishotToolExecutor,
+  MultishotTransport,
 } from './types'
 
 export interface RunMultishotOptions<TPersona extends MultishotPersona> {
@@ -80,15 +73,6 @@ export type MultishotShot<TPersona extends MultishotPersona> = (
   opts: RunMultishotOptions<TPersona>,
 ) => Promise<MultishotResult>
 
-/** Running spend of one shot, readable after the shot throws. */
-interface ShotMeter {
-  costUsd: number
-  startedAt: number
-  /** True once a call contributed a fabricated `0` — no provider cost and no
-   *  usage to price. `costUsd` is a subtotal from that point on. */
-  uncaptured: boolean
-}
-
 /** The package's reference conversation engine, and the referent of three
  *  things that stop working without it.
  *
@@ -108,233 +92,10 @@ interface ShotMeter {
 export async function runMultishot<TPersona extends MultishotPersona>(
   opts: RunMultishotOptions<TPersona>,
 ): Promise<MultishotResult> {
-  const meter: ShotMeter = { costUsd: 0, startedAt: Date.now(), uncaptured: false }
-  try {
-    return await runShotTurns(opts, meter)
-  } catch (err) {
-    // The turns already paid for. Declare that spend so the matrix bills the
-    // failed cell for it and the cost ceiling sees the real cumulative total.
-    throw withCellSpend(err, {
-      costUsd: meter.costUsd,
-      durationMs: Date.now() - meter.startedAt,
-      kind: meter.uncaptured ? 'uncaptured' : 'estimated',
-    })
-  }
-}
-
-async function runShotTurns<TPersona extends MultishotPersona>(
-  opts: RunMultishotOptions<TPersona>,
-  meter: ShotMeter,
-): Promise<MultishotResult> {
-  const maxTurns = opts.maxTurns ?? 10
-  const maxToolDispatches = opts.maxToolDispatches ?? 4
-  const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
-  const driverModel = opts.driverModel ?? 'openai/gpt-4o-mini'
-  const driverModels = [driverModel, ...(opts.driverFallbackModels ?? [])]
-  const agentMaxTokens = opts.agentMaxTokens ?? 2500
-  const toolFollowupMaxTokens = opts.toolFollowupMaxTokens ?? 2000
-  const driverMaxTokens = opts.driverMaxTokens ?? 600
-
-  const bundle =
-    opts.tools && opts.toolExecutors
-      ? {
-          tools: opts.tools,
-          executors: opts.toolExecutors,
-          artifactTypeFor: opts.artifactTypeFor ?? (() => undefined),
-        }
-      : defaultDelegationTools()
-  const tools = opts.tools ?? bundle.tools
-  const executors = opts.toolExecutors ?? bundle.executors
-  const artifactTypeFor = opts.artifactTypeFor ?? bundle.artifactTypeFor
-
-  const agentTransport = opts.agentTransport
-  const driverTransport = opts.driverTransport
-  const toolTransport = opts.toolTransport ?? agentTransport
-
-  const shape = defaultShapeFromProfile(opts.profile, opts.shape)
-
-  const transcript: MultishotMessage[] = []
-  const artifacts: MultishotArtifact[] = []
-  let toolCalls = 0
-
-  const opener = shape.buildOpener(opts.persona)
-  transcript.push({ role: 'user', content: opener })
-
-  const systemPrompt = [opts.profile.prompt?.systemPrompt, opts.profile.prompt?.appendSystemPrompt]
-    .filter((value): value is string => Boolean(value))
-    .join('\n\n')
-  const agentMessages: Array<Record<string, unknown>> = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: opener },
-  ]
-
-  for (let turn = 0; turn < maxTurns; turn++) {
-    if (opts.signal?.aborted) throw new Error('multishot aborted')
-
-    let dispatchesThisTurn = 0
-    while (true) {
-      const {
-        message: agentMsg,
-        usage: agentUsage,
-        costUsd: agentCostUsd,
-      } = await agentTransport({
-        model: agentModel,
-        messages: agentMessages,
-        tools,
-        temperature: 0.7,
-        maxTokens: dispatchesThisTurn === 0 ? agentMaxTokens : toolFollowupMaxTokens,
-        signal: opts.signal,
-      })
-      meter.costUsd += agentCostUsd ?? estimateMultishotCost(agentModel, agentUsage)
-      if (agentCostUsd === undefined && agentUsage === undefined) meter.uncaptured = true
-
-      const agentText = (agentMsg.content ?? '').trim()
-      const agentToolCalls = (agentMsg.tool_calls ?? []).map((tc) => ({
-        id: tc.id,
-        name: tc.function.name,
-        args: (() => {
-          try {
-            return JSON.parse(tc.function.arguments) as Record<string, unknown>
-          } catch {
-            return {} as Record<string, unknown>
-          }
-        })(),
-      }))
-
-      agentMessages.push({
-        role: 'assistant',
-        content: agentText || null,
-        ...(agentMsg.tool_calls?.length ? { tool_calls: agentMsg.tool_calls } : {}),
-      })
-      transcript.push({
-        role: 'assistant',
-        content: agentText,
-        toolCalls: agentToolCalls.length > 0 ? agentToolCalls : undefined,
-      })
-
-      if (agentToolCalls.length === 0) break
-      dispatchesThisTurn += agentToolCalls.length
-      if (dispatchesThisTurn > maxToolDispatches) {
-        throw new Error(
-          `multishot: tool dispatch cap exceeded (${dispatchesThisTurn}/${maxToolDispatches}) on turn ${turn}`,
-        )
-      }
-
-      for (const tc of agentToolCalls) {
-        toolCalls++
-        let toolResult = ''
-        try {
-          const executor = executors[tc.name]
-          if (!executor) {
-            toolResult = JSON.stringify({ error: `unknown tool ${tc.name}` })
-          } else {
-            const r = await executor(tc.args, { transport: toolTransport, signal: opts.signal })
-            toolResult = r.content
-            meter.costUsd += r.costUsd
-            const artifactType = artifactTypeFor(tc.name)
-            if (artifactType) {
-              artifacts.push({
-                type: artifactType,
-                turn,
-                invocation: { name: tc.name, args: tc.args },
-                content: toolResult,
-              })
-            }
-          }
-        } catch (err) {
-          if (err instanceof MultishotFatalToolError) throw err
-          toolResult = JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
-        }
-        agentMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult || 'done' })
-        transcript.push({ role: 'tool', content: toolResult || 'done', toolCallId: tc.id })
-      }
+  return runMultishotConversation(opts, async (conversation) => {
+    for (let turn = 0; turn < conversation.maxTurns; turn++) {
+      await conversation.agentTurn(turn)
+      if (turn < conversation.maxTurns - 1) await conversation.driverTurn(turn)
     }
-
-    if (turn < maxTurns - 1) {
-      const driver = await driverTurn({
-        transport: driverTransport,
-        persona: opts.persona,
-        shape,
-        transcript,
-        turn,
-        models: driverModels,
-        maxTokens: driverMaxTokens,
-        signal: opts.signal,
-        meter,
-      })
-      agentMessages.push({ role: 'user', content: driver.content })
-      transcript.push({ role: 'user', content: driver.content })
-    }
-  }
-
-  return {
-    transcript,
-    artifacts,
-    toolCalls,
-    durationMs: Date.now() - meter.startedAt,
-    costUsd: meter.costUsd,
-    // A shot that priced every call reports a complete estimate. One that had
-    // a call the router priced at nothing reports a subtotal, so the cell is
-    // recorded as under-counted rather than as a complete estimate.
-    costProvenance: meter.uncaptured
-      ? { kind: 'uncaptured', usd: null }
-      : { kind: 'estimated', usd: meter.costUsd },
-  }
-}
-
-async function driverTurn<TPersona extends MultishotPersona>(opts: {
-  transport: MultishotTransport
-  persona: TPersona
-  shape: Required<MultishotShape<TPersona>>
-  transcript: MultishotMessage[]
-  turn: number
-  models: string[]
-  maxTokens: number
-  signal?: AbortSignal
-  /** Charged for EVERY attempt, including the empty ones that force a retry
-   *  and the ones that precede `MultishotDriverEmptyError`. Those calls billed
-   *  the provider whether or not their content was usable. */
-  meter: ShotMeter
-}): Promise<{ content: string }> {
-  const driverSystem = opts.shape.buildDriverSystemPrompt(opts.persona)
-
-  // Translate transcript to driver POV: agent's `assistant` messages become
-  // `user` (the agent talking TO the driver); the driver's prior `user`
-  // messages become `assistant` (the driver's prior responses).
-  const driverMessages: Array<Record<string, unknown>> = [{ role: 'system', content: driverSystem }]
-  for (const msg of opts.transcript) {
-    if (msg.role === 'tool') continue
-    const content = driverVisibleContent(msg)
-    if (!content) continue
-    if (msg.role === 'assistant') driverMessages.push({ role: 'user', content })
-    else if (msg.role === 'user') driverMessages.push({ role: 'assistant', content })
-  }
-
-  // Driver must never go silent. Retry once on empty content; then fail loud.
-  for (const model of opts.models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const { message, usage, costUsd } = await opts.transport({
-        model,
-        messages: driverMessages,
-        temperature: 0.9,
-        maxTokens: opts.maxTokens,
-        signal: opts.signal,
-      })
-      opts.meter.costUsd += costUsd ?? estimateMultishotCost(model, usage)
-      if (costUsd === undefined && usage === undefined) opts.meter.uncaptured = true
-      const content = (message.content ?? '').trim()
-      if (content.length > 0) return { content }
-    }
-  }
-  throw new MultishotDriverEmptyError(opts.turn)
-}
-
-function driverVisibleContent(msg: MultishotMessage): string | null {
-  const text = msg.content.trim()
-  if (text.length > 0) return text
-  if (msg.role !== 'assistant' || !msg.toolCalls?.length) return null
-
-  const toolNames = msg.toolCalls.map((call) => call.name.trim()).filter(Boolean)
-  if (toolNames.length === 0) return 'Agent called tools.'
-  return `Agent called ${toolNames.length === 1 ? 'tool' : 'tools'}: ${toolNames.join(', ')}.`
+  })
 }
