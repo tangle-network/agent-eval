@@ -148,3 +148,110 @@ export function scrubLines(lines: MintedRolloutLine[]): {
 export function defaultRolloutScrubber(text: string): string {
   return scrubText(text, emptyScrubCounts())
 }
+
+// ---------------------------------------------------------------------------
+// Row screen: a secret or private detail drops the WHOLE line.
+// ---------------------------------------------------------------------------
+
+/**
+ * Redaction leaves the row; this refuses it. A rewrite can only redact the
+ * shapes it knows, and a live seat token split across a tool result, or a
+ * phone number in a pasted message, sits beside the rest of the context that
+ * made it sensitive. So the release build drops any line with one hit and
+ * counts the drop by rule, and importers apply the same screen before a line
+ * reaches a ledger.
+ */
+interface PrivacyRule {
+  name: string
+  hit: (text: string) => boolean
+}
+
+const scrubPattern = (name: string): RegExp => {
+  const rule = SCRUB_RULES.find((r) => r.name === name)
+  if (!rule) throw new Error(`no scrub rule "${name}"`)
+  return rule.pattern
+}
+
+/** Bits per character over the token's own symbols. */
+function entropy(token: string): number {
+  const counts = new Map<string, number>()
+  for (const char of token) counts.set(char, (counts.get(char) ?? 0) + 1)
+  let bits = 0
+  for (const count of counts.values()) {
+    const p = count / token.length
+    bits -= p * Math.log2(p)
+  }
+  return bits
+}
+
+// 32+ chars mixing upper, lower and digits at over 4.3 bits/char: random keys,
+// not hex digests (at most 4 bits/char), identifiers or paths.
+const ENTROPY_TOKEN = /[A-Za-z0-9+/=_-]{32,}/g
+const highEntropy = (text: string): boolean => {
+  for (const [token] of text.matchAll(ENTROPY_TOKEN)) {
+    if (/[A-Z]/.test(token) && /[a-z]/.test(token) && /\d/.test(token) && entropy(token) > 4.3) {
+      return true
+    }
+  }
+  return false
+}
+
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
+// RFC 2606 example domains and `git@host` remotes are not personal addresses.
+const NOT_PERSONAL_EMAIL = /^git@|@(?:[\w-]+\.)*example\.(?:com|org|net)$/i
+const email = (text: string): boolean => {
+  for (const [match] of text.matchAll(EMAIL)) if (!NOT_PERSONAL_EMAIL.test(match)) return true
+  return false
+}
+
+const PRIVACY_RULES: readonly PrivacyRule[] = [
+  ...['api-key', 'env-secret', 'bearer-token'].map((name) => {
+    const pattern = scrubPattern(name)
+    // `search` ignores the global flag's lastIndex, so the shared regex stays stateless.
+    return { name, hit: (text: string) => text.search(pattern) >= 0 }
+  }),
+  { name: 'private-key', hit: (text) => /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(text) },
+  { name: 'high-entropy', hit: highEntropy },
+  { name: 'email', hit: email },
+  {
+    name: 'phone',
+    hit: (text) => /(?<![\d.])(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\d.])/.test(text),
+  },
+  {
+    name: 'postal-address',
+    hit: (text) =>
+      /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl|Way|Terrace|Parkway|Pkwy)\b/.test(
+        text,
+      ),
+  },
+]
+
+export const PRIVACY_RULE_NAMES: readonly string[] = [
+  ...PRIVACY_RULES.map((rule) => rule.name),
+  'denylist',
+]
+
+function* stringsOf(value: unknown): Generator<string> {
+  if (typeof value === 'string') yield value
+  else if (Array.isArray(value)) for (const item of value) yield* stringsOf(item)
+  else if (value !== null && typeof value === 'object') {
+    for (const item of Object.values(value)) yield* stringsOf(item)
+  }
+}
+
+/**
+ * The first privacy rule any string in `value` hits, or `null` when clean.
+ * `denylist` holds literal terms (names, addresses, numbers) matched without
+ * case; it is supplied at run time and never committed.
+ */
+export function privacyHit(value: unknown, denylist: readonly string[] = []): string | null {
+  const terms = denylist.map((term) => term.toLowerCase()).filter(Boolean)
+  for (const text of stringsOf(value)) {
+    for (const rule of PRIVACY_RULES) if (rule.hit(text)) return rule.name
+    if (terms.length > 0) {
+      const lower = text.toLowerCase()
+      if (terms.some((term) => lower.includes(term))) return 'denylist'
+    }
+  }
+  return null
+}

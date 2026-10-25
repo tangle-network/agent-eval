@@ -64,7 +64,14 @@ export {
 } from './interchange/harbor'
 
 export { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
-
+export {
+  isLicenseEligible,
+  LICENSE_CLASSES,
+  type LicenseClass,
+  licenseClassOf,
+  licenseClassOfName,
+  TRAINABLE_LICENSE_CLASSES,
+} from './license'
 export {
   type MintRolloutOptions,
   type MintRolloutResult,
@@ -103,6 +110,8 @@ export {
 } from './release/hf-dataset'
 export {
   defaultRolloutScrubber,
+  PRIVACY_RULE_NAMES,
+  privacyHit,
   type ScrubCounts,
   type ScrubRule,
   scrubLines,

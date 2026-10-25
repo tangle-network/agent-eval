@@ -28,7 +28,7 @@ function pilotLines(): RolloutLine[] {
       run_id: '/home/drew/runs/gen3#1',
       messages: [
         { role: 'system', content: 'cwd /home/drew/code/repo' },
-        { role: 'user', content: 'HF_TOKEN=hf_abcdef123456 leaked here, hit router.tangle.tools' },
+        { role: 'user', content: 'run the suite, then hit router.tangle.tools' },
         { role: 'assistant', content: 'done' },
       ],
     }),
@@ -84,7 +84,7 @@ describe('buildHfDataset', () => {
     expect(summary.read).toBe(5)
     // holdout + proposer dropped: worker, supervisor, gap remain.
     expect(summary.kept).toBe(3)
-    expect(summary.scrub.excluded).toEqual({ proposers: 1, nonTrain: 1 })
+    expect(summary.scrub.excluded).toEqual({ proposers: 1, nonTrain: 1, license: 0, privacy: 0 })
     expect(summary.formatCounts).toEqual({ sft: 2, verifiers: 2, rft: 2, raw: 3 })
 
     const raw = (await readJsonl(join(out, 'raw/train.jsonl'))) as RolloutLine[]
@@ -92,9 +92,7 @@ describe('buildHfDataset', () => {
     expect(raw.map((line) => line.task.split)).toEqual(['search', 'search', 'search'])
     expect(raw.some((line) => line.role === 'proposer')).toBe(false)
     expect(raw[0]!.run_id).toBe('$WORK/runs/gen3#1')
-    expect(raw[0]!.messages[1]!.content).toBe(
-      'HF_TOKEN=[REDACTED:env] leaked here, hit router.internal.example',
-    )
+    expect(raw[0]!.messages[1]!.content).toBe('run the suite, then hit router.internal.example')
 
     const sft = (await readJsonl(join(out, 'sft/train.jsonl'))) as Array<{ messages: unknown[] }>
     expect(sft).toHaveLength(2)
@@ -115,7 +113,6 @@ describe('buildHfDataset', () => {
 
     const report = JSON.parse(await readFile(join(out, 'scrub-report.json'), 'utf8'))
     expect(report.files[ledger]['home-path']).toBe(summary.scrub.totals['home-path'])
-    expect(report.totals['env-secret']).toBe(1)
     expect(report.totals['infra-host']).toBe(1)
 
     const card = await readFile(join(out, 'README.md'), 'utf8')
@@ -315,7 +312,3 @@ describe('buildHfDataset', () => {
     ).rejects.toThrow('no formats')
   })
 })
-
-
-
-

@@ -185,7 +185,7 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 | `role` | ledger | enum extended with `agent` for solo eval runs (mint default) |
 | `task.split` | conflict | **RunRecord semantics win**: `search` is the trainable pool; `dev` and `holdout` follow `RunSplitTag`; `canary` is retained for release checks |
 | `task.seed`, `task.rep` | ledger | seed from `RunRecord.seed`; rep from the search cell for a search run, 0 for other minted runs |
-| `policy.*` | ledger | + `prompt_hash`, `config_hash`, `agent_profile_cell_id` from PR #410's RunRecord provenance |
+| `policy.*` | ledger | + `prompt_hash`, `config_hash`, `agent_profile_cell_id` from PR #410's RunRecord provenance; `license_class` (`open-weight-api`, `restricted`, `evaluation-only`, `human`; absent = inferred from model and harness by `licenseClassOf`) |
 | `messages` | ledger | canonical OpenAI chat-with-tools incl. `reasoning_content`; minted lines inline the final llm span's conversation |
 | `steps` | PR #410 | optional trace-span projections (llm/tool), absent on harness-store-derived lines |
 | `outcome.reward` | conflict | **merged**: `number \| null`; `null` means no verdict exists (a labeled gap, never 0 — interchange imports and unverdicted ledger lines carry it); minting requires an explicit RunRecord task score and rejects execution-only records instead of labeling them 0; realness-gated scores are forced to 0 |
@@ -201,6 +201,7 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 - SFT, reward rows, Verifiers, and RFT default to completed, non-truncated, error-free, ungated `search` runs with reward greater than `0`.
 - `minimumQualityExclusive` can raise the quality floor.
 - Held-out rows require `allowHeldOutTrainingData: true`.
+- `restricted` and `evaluation-only` license classes never train; `allowLicenseClasses` names others explicitly.
 - SFT also requires a non-empty transcript.
 - Reward rows require a non-empty user prompt.
 - Verifiers requires both prompt and completion turns.
@@ -209,7 +210,7 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
   Reward rows carry the same flag at `metadata.realness_gated`, and SFT rows carry it too even though it is always `false` there.
   Every one of those four shapes also carries `realness_screened` beside it (`RealnessLabels`): the verdict alone cannot say whether a screen ever ran, and a row stating one claim without the other is what let never-screened rewards read as clean.
 - Harbor ATIF export: no filter, because the format carries no reward at all — it is an interchange/audit sink, never a training-data door. A realness-gated line is exported with the gate stated in `notes` and in `extra.tangle.outcome.realness_gated`.
-- Release (`rollout-release`): trainable split only; proposer lines dropped unless `--include-proposers`; every string value scrubbed by the 9 deterministic rules (idempotent, so a second pass counts zero); `--push` requires `huggingface-cli` + `HF_TOKEN` and never prints the token.
+- Release (`rollout-release`): trainable split only; proposer lines dropped unless `--include-proposers`; `restricted` (Claude, Codex, Jev) and `evaluation-only` lines dropped; any line with a secret or private detail (`privacyHit`: provider keys including `sk-tan` and `sk-ant-oat01`, env secrets, bearer tokens, private keys, high-entropy strings, emails, phones, postal addresses, `--denylist` terms) dropped whole and counted by rule in `scrub-report.json`; every string value scrubbed by the 9 deterministic rules (idempotent, so a second pass counts zero); `--push` requires `huggingface-cli` + `HF_TOKEN` and never prints the token.
   The per-format gate disposition is stated once as data in `src/rollout/release/gate-report.ts` (`sft: exclude`, everything else `zero-and-flag`), the build measures the rows it is about to write against it, and it writes nothing at all if any config would ship a gated row above reward 0, any positive number that reward was derived from, or a positive reward whose producer declared no screen ran on it.
   Those refusals are not listed in that file: it iterates `GATE_CHECK_IDS` under `GATE_POLICIES.assertGateReport`, so a check added anywhere in the package reaches the last door before a public dataset by default.
 - Property tests (`src/rollout/gate-properties.test.ts`) hold the whole exporter surface by GENERATION rather than by example: containment (no gated run's number reaches any exporter, through the minted door AND the raw object-literal door), order independence (leak 1 stated as a law — reordering the input changes no output), and idempotence (the gating transform and the Harbor round-trip). 1000 cases per property by default, `GATE_PROPERTY_RUNS` to raise it; the exporter registry there is a total map, so a new exporter with no probe does not compile.

@@ -6,7 +6,9 @@
  *
  * Pipeline per input ledger: read + validate → fail-closed filters
  * (trainable split only; proposer sessions dropped unless
- * --include-proposers, they contain improvement-loop harness source) →
+ * --include-proposers, they contain improvement-loop harness source;
+ * `restricted` and `evaluation-only` license classes; any line with a secret
+ * or private detail, or a `--denylist` term, dropped whole) →
  * deterministic scrub → export the requested formats + scrub-report.json +
  * auto-generated README.md card. Deterministic: same inputs and flags →
  * byte-identical output dir.
@@ -17,10 +19,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { toJsonl, toRftItems, toSftRows, toVerifiersRolloutOutputs } from '../exporters'
 import { readRolloutLedger, writeRolloutLedger } from '../ledger'
+import { isLicenseEligible } from '../license'
 import { isTrainableSplit, type MintedRolloutLine } from '../schema'
 import { buildDatasetCard, FORMAT_FILES, RELEASE_FORMATS, type ReleaseFormat } from './card'
 import {
@@ -31,19 +34,30 @@ import {
   measureFormatGate,
   releaseRowRefs,
 } from './gate-report'
-import { addScrubCounts, emptyScrubCounts, type ScrubCounts, scrubLines } from './scrub'
+import {
+  addScrubCounts,
+  emptyScrubCounts,
+  PRIVACY_RULE_NAMES,
+  privacyHit,
+  type ScrubCounts,
+  scrubLines,
+} from './scrub'
 
 export interface BuildOptions {
   out: string
   formats: ReleaseFormat[]
   includeProposers: boolean
+  /** Literal terms whose presence drops a line (case-insensitive). */
+  denylist?: string[]
 }
 
 export interface ScrubReport {
   /** Input ledger path → rule → rewrite count (only shipped lines are scrubbed). */
   files: Record<string, ScrubCounts>
   totals: ScrubCounts
-  excluded: { proposers: number; nonTrain: number }
+  excluded: { proposers: number; nonTrain: number; license: number; privacy: number }
+  /** Privacy rule → lines dropped whole on its first hit. */
+  dropped: Record<string, number>
 }
 
 export interface BuildSummary {
@@ -67,7 +81,8 @@ export async function buildHfDataset(
   const report: ScrubReport = {
     files: {},
     totals: emptyScrubCounts(),
-    excluded: { proposers: 0, nonTrain: 0 },
+    excluded: { proposers: 0, nonTrain: 0, license: 0, privacy: 0 },
+    dropped: Object.fromEntries(PRIVACY_RULE_NAMES.map((name) => [name, 0])),
   }
   const kept: MintedRolloutLine[] = []
   let read = 0
@@ -82,6 +97,16 @@ export async function buildHfDataset(
       }
       if (!options.includeProposers && line.role === 'proposer') {
         report.excluded.proposers += 1
+        return false
+      }
+      if (!isLicenseEligible(line)) {
+        report.excluded.license += 1
+        return false
+      }
+      const hit = privacyHit(line, options.denylist)
+      if (hit !== null) {
+        report.excluded.privacy += 1
+        report.dropped[hit] = (report.dropped[hit] ?? 0) + 1
         return false
       }
       return true
@@ -186,10 +211,11 @@ function pushDataset(repo: string, outDir: string): void {
 export interface RolloutReleaseCliArgs extends BuildOptions {
   inputs: string[]
   push: string | null
+  denylistPath: string | null
 }
 
 const ROLLOUT_RELEASE_USAGE =
-  'usage: agent-eval rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]'
+  'usage: agent-eval rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--denylist <terms.txt>] [--push <org/name>]'
 
 function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
   const args: RolloutReleaseCliArgs = {
@@ -198,6 +224,7 @@ function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
     formats: [...RELEASE_FORMATS],
     includeProposers: false,
     push: null,
+    denylistPath: null,
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
@@ -215,6 +242,8 @@ function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
       args.formats = raw as ReleaseFormat[]
     } else if (arg === '--include-proposers') {
       args.includeProposers = true
+    } else if (arg === '--denylist') {
+      args.denylistPath = argv[++i] ?? null
     } else if (arg === '--push') {
       args.push = argv[++i] ?? null
     } else if (arg.startsWith('--')) {
@@ -240,6 +269,13 @@ export async function runRolloutReleaseCli(argv: string[]): Promise<number> {
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     return 2
+  }
+  if (args.denylistPath !== null) {
+    // One term per line; `#` starts a comment. Terms are never echoed.
+    args.denylist = (await readFile(args.denylistPath, 'utf8'))
+      .split('\n')
+      .map((line) => line.replace(/#.*/, '').trim())
+      .filter(Boolean)
   }
   const summary = await buildHfDataset(args.inputs, args)
   process.stdout.write(
