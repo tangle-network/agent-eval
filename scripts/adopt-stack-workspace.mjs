@@ -211,13 +211,14 @@ export function preparePlaywrightBrowsers(dir) {
     if (!command) throw new Error(`${file} ${name}: installed Playwright has no supported CLI`)
     const cli = realpathSync(resolve(dirname(manifest), bin[command]))
     const cwd = dirname(resolve(dir, file))
-    const args = manager === 'pnpm' ? ['exec', command] : ['exec', '--offline', '--', command]
-    const version = execFileSync(manager, [...args, '--version'], { cwd, encoding: 'utf8' }).trim()
+    // Distinct installed packages may expose the same bin name at different
+    // versions. The resolved package path, not .bin selection, owns this CLI.
+    const version = execFileSync(process.execPath, [cli, '--version'], { cwd, encoding: 'utf8' }).trim()
     if (version !== `Version ${pkg.version}`) throw new Error(`${file} ${name}: expected Playwright ${pkg.version}, CLI reported ${version}`)
     const key = `${cli}@${pkg.version}`
     if (seen.has(key)) continue
     console.error(`adopt-stack: preparing ${file} ${name}@${pkg.version} Chromium headless shell`)
-    execFileSync(manager, [...args, 'install', '--only-shell', 'chromium'], { cwd, stdio: 'inherit' })
+    execFileSync(process.execPath, [cli, 'install', '--only-shell', 'chromium'], { cwd, stdio: 'inherit' })
     seen.add(key)
     prepared.push({ file, name, version: pkg.version, cli })
   }
