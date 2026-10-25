@@ -36,9 +36,12 @@ another process or callback timeout mechanism.
 The caller supplies a digest-pinned image, a Git bundle containing only the exact
 base and its ancestors, task instructions, and three verifier scripts. The image
 must already contain Git and the scripts' prerequisites, without the reference
-answer. Its configured user must be able to clone into `/workspace/repo` and remove
-the copied `/tmp/base.bundle`; the writer does not change that user or install
-dependencies. The generated Dockerfile checks out the pinned base. Only this Dockerfile
+answer. Its configured user must be able to clone into `/workspace/repo`; the
+writer does not change that user or install dependencies. The Linux Dockerfile
+copies the base-only bundle as read-only `0444`, so a nonroot configured user can
+read it without owning it. `/tmp/base.bundle` remains in the image; the build does
+not require removing a root-owned file from a sticky temporary directory.
+The generated Dockerfile checks out the pinned base. Only this Dockerfile
 and base bundle enter the agent's build context. No reference patch, candidate
 checkout, episode transcript, or merge checkout is copied into that context.
 
