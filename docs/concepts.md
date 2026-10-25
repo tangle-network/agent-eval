@@ -63,7 +63,7 @@ Use the profile improvement functions from `/contract` when a host owns immutabl
 `runAgentProfileImprovementExperiment()` asks the host to execute every frozen baseline/candidate cell and requires one complete receipt per execution.
 `measuredComparisonFromAgentProfileImprovementExperiment()` recomputes scores, uncertainty, cost, latency, and the release decision from those receipts.
 `RunTokenUsage.tokensKnown: false` marks incomplete provider usage; its counts are known subtotals, and token-efficiency ratios stay absent.
-The OTLP run-record readers also set this flag when a model call has missing input or output usage or explicitly reports unknown usage. A failed call remains counted and measured zero remains zero. An explicit unknown-call marker remains incomplete when a parent aggregate supplies numbers; reasoning-only output remains a subtotal.
+The OTLP run-record readers also set this flag when reconciled model-call input or output coverage is incomplete or a call explicitly reports unknown usage. Existing parent-aggregate inheritance still applies to unflagged calls. A failed call remains counted and measured zero remains zero. An explicit unknown-call marker remains incomplete when a parent aggregate supplies numbers; reasoning-only output remains a subtotal.
 
 This API never activates a candidate or runs an agent itself.
 The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
