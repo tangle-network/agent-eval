@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -354,15 +354,54 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
   it.skipIf(!posixOnly)(
     'keeps the deadline, the group kill and the flags',
     async () => {
+      const marker = join(argvScratch, 'deadline-startup')
       const started = Date.now()
       const res = await runBoundedProcess({
         command: 'bash',
-        args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
+        args: [
+          '-c',
+          ': > "$BOUNDED_PROCESS_READY"; echo $$; sleep 60 & echo $!; printf "%s\\n%s\\n" "$$" "$!" > "$BOUNDED_PROCESS_READY"; wait',
+        ],
+        env: { BOUNDED_PROCESS_READY: marker },
         timeoutMs: 1000,
       })
+      const returnElapsedMs = Date.now() - started
+      // Diagnostic only: the fixed wall deadline still includes all startup.
+      try {
+        const text = existsSync(marker) ? readFileSync(marker, 'utf8') : undefined
+        const pids = (text ?? '').trim().split('\n').map(Number)
+        const numeric = (pid: number | undefined) => Number.isInteger(pid) && pid! > 1
+        console.info(
+          'BOUNDED_PROCESS_DEADLINE_FACTS=' +
+            JSON.stringify({
+              marker:
+                text === undefined
+                  ? 'not-created'
+                  : pids.length === 2 && pids.every(numeric)
+                    ? 'pids-written'
+                    : 'entered-or-partial',
+              markerPids: pids.length === 2 && pids.every(numeric) ? pids : undefined,
+              stdoutBytes: Buffer.byteLength(res.stdout),
+              stderrBytes: Buffer.byteLength(res.stderr),
+              firstPidValid: numeric(Number.parseInt(res.stdout.split('\n')[0] ?? '', 10)),
+              secondPidValid: numeric(Number.parseInt(res.stdout.split('\n')[1] ?? '', 10)),
+              spawned: res.spawned,
+              stdinDelivered: res.stdinDelivered,
+              exitCode: res.exitCode,
+              returnElapsedMs,
+              wallMs: res.wallMs,
+              killedByTimeout: res.killedByTimeout,
+              killedBySignal: res.killedBySignal,
+              outputTruncated: res.outputTruncated,
+              runnerErrorPresent: res.runnerError !== undefined,
+            }),
+        )
+      } catch {
+        console.info('BOUNDED_PROCESS_DEADLINE_FACTS=unavailable')
+      }
       expect(res.killedByTimeout).toBe(true)
       expect(res.exitCode).not.toBe(0)
-      expect(Date.now() - started).toBeLessThan(10_000)
+      expect(returnElapsedMs).toBeLessThan(10_000)
       await expectTreeGone(res.stdout)
     },
     30_000,
