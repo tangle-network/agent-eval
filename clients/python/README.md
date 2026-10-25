@@ -6,7 +6,11 @@ The Node package owns rubric execution, model calls, and scoring.
 
 ## Install
 
-Python 3.10 or newer and Node.js 20.19 or newer are required.
+Python support and dependency versions are declared in [pyproject.toml](pyproject.toml).
+Node support is declared in [the package engines](../../package.json).
+The patched file-locking dependency raises the Python requirement; update older client
+environments to the declared minimum before upgrading.
+
 Install matching package versions:
 
 ```sh
