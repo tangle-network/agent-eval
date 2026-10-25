@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -213,6 +213,50 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
     expect(dockerfile).toContain(fixture.options.surface.baseCommit)
     expect(dockerfile).not.toContain(fixture.options.surface.candidateCommit)
     expect(dockerfile).not.toContain(fixture.options.mergeCommit)
+    expect(dockerfile).toContain('COPY --chmod=0444 base.bundle /tmp/base.bundle\n')
+    expect(dockerfile).not.toContain('rm /tmp/base.bundle')
+    // Real nonroot filesystem/Git boundary without changing identities or requiring Docker.
+    // This exercises the generated RUN; Docker ownership/sticky-dir semantics remain a
+    // separate native image-build proof, not a claim from this same-UID fixture.
+    expect(process.geteuid?.()).toBeGreaterThan(0)
+    const sourceBundle = join(taskDir, 'environment/base.bundle')
+    expect((await stat(sourceBundle)).mode & 0o777).toBe(0o600)
+    const imageBundle = join(fixture.root, 'image-base.bundle')
+    const imageRepo = join(fixture.root, 'image-workspace-repo')
+    await copyFile(sourceBundle, imageBundle)
+    await chmod(imageBundle, 0o444)
+    const run = /^RUN ([\s\S]*?)\nWORKDIR /m.exec(dockerfile)
+    expect(run).not.toBeNull()
+    await command(fixture.root, 'sh', [
+      '-c',
+      run![1]!.replaceAll('/tmp/base.bundle', '"$1"').replaceAll('/workspace/repo', '"$2"'),
+      'harbor-build-run',
+      imageBundle,
+      imageRepo,
+    ])
+    expect(await command(imageRepo, 'git', ['rev-parse', 'HEAD'])).toBe(
+      fixture.options.surface.baseCommit,
+    )
+    expect(await command(imageRepo, 'git', ['rev-parse', 'HEAD^{tree}'])).toBe(
+      fixture.options.surface.baseTree,
+    )
+    await expect(
+      command(imageRepo, 'git', [
+        'cat-file',
+        '-e',
+        `${fixture.options.surface.candidateCommit}^{commit}`,
+      ]),
+    ).rejects.toThrow()
+    expect((await stat(imageBundle)).mode & 0o777).toBe(0o444)
+    expect(await readFile(imageBundle)).toEqual(await readFile(sourceBundle))
+    await expect(
+      command(fixture.root, process.execPath, [
+        '-e',
+        'require("node:fs").openSync(process.argv[1], "w")',
+        imageBundle,
+      ]),
+    ).rejects.toThrow('EACCES')
+    expect(await readFile(imageBundle)).toEqual(await readFile(sourceBundle))
     const rewards = join(fixture.root, 'reward-output')
     const adapter = createHarborBenchmarkAdapter<string>({
       id: 'local-harbor',

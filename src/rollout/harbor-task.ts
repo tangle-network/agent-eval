@@ -56,7 +56,7 @@ export interface WriteHarborTaskOptions {
   /** Harbor's org/name task name. */
   readonly name: string
   readonly instruction: string
-  /** Caller image with Git/dependencies and permission to clone into /workspace and remove /tmp/base.bundle. */
+  /** Caller image with Git/dependencies and a configured user able to clone into /workspace. */
   readonly image: string
   /** Git bundle containing the base and its ancestors only, never the answer/head/merge. */
   readonly baseBundle: Uint8Array
@@ -184,8 +184,8 @@ export async function writeHarborTask(options: WriteHarborTaskOptions): Promise<
     'instruction.md': instruction,
     'environment/base.bundle': bundle,
     'environment/Dockerfile':
-      `FROM ${image}\nCOPY base.bundle /tmp/base.bundle\n` +
-      `RUN git clone --no-checkout /tmp/base.bundle /workspace/repo \\\n && git -C /workspace/repo checkout --detach ${baseCommit} \\\n && test "$(git -C /workspace/repo rev-parse HEAD)" = "${baseCommit}" \\\n && rm /tmp/base.bundle\nWORKDIR /workspace/repo\n`,
+      `FROM ${image}\nCOPY --chmod=0444 base.bundle /tmp/base.bundle\n` +
+      `RUN git clone --no-checkout /tmp/base.bundle /workspace/repo \\\n && git -C /workspace/repo checkout --detach ${baseCommit} \\\n && test "$(git -C /workspace/repo rev-parse HEAD)" = "${baseCommit}"\nWORKDIR /workspace/repo\n`,
     'tests/acceptance.sh': commands.acceptance,
     'tests/production-delta.sh': commands.productionDelta,
     'tests/dangling-references.sh': commands.danglingReferences,
