@@ -92,7 +92,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(git(f.caller, 'show', 'HEAD:proposal.txt')).toBe('gated bytes')
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
     console.log(`FIXED_GREEN stableRemote=${f.head} settledPr=${proposal.headRefOid} reads=${f.requests.length}`)
-  }, 30_000)
+  })
 
   test('true branch movement before or during an API read refuses without metadata writes', async () => {
     const f = await fixture()
@@ -110,14 +110,14 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests).toHaveLength(1)
     expect(f.requests[0].method).toBe('GET')
     expect(git(f.caller, 'rev-parse', 'HEAD')).toBe(f.head)
-  }, 30_000)
+  })
 
   test('missing remote ref refuses as unknown rather than settling an API value', async () => {
     const f = await fixture()
     git(f.author, 'push', '-q', 'origin', '--delete', owned)
     await expect(readPushedProposal(f.caller, 7, f.head, 'main', f.read)).rejects.toThrow('authoritative proposal ref is unknown')
     expect(f.requests).toHaveLength(0)
-  }, 30_000)
+  })
 
   test('unsettled PR state exhausts the bounded reads and never mutates it', async () => {
     const f = await fixture()
@@ -127,7 +127,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests).toHaveLength(6)
     expect(Date.now() - started).toBeLessThan(30_000)
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
-  }, 35_000)
+  })
 
   test('legacy and newly manual draft holds survive the HTTP settlement; explicit updater ownership remains distinct', async () => {
     const f = await fixture()
@@ -146,7 +146,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
     expect(f.state.draft).toBe(true)
     expect(f.state.body).toContain('Maintainer hold')
-  }, 30_000)
+  })
 
   test('a changed captured default still refuses before any merge API command', async () => {
     const f = await fixture()
@@ -157,5 +157,5 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(git(f.caller, 'show', 'HEAD:source.txt')).toBe('captured default')
     expect(f.requests).toHaveLength(1)
     expect(f.requests[0].method).toBe('GET')
-  }, 30_000)
+  })
 })
