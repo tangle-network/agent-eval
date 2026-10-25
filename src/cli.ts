@@ -78,9 +78,10 @@ Commands:
         Like 'rpc' but JSONL in / JSONL out.
   openapi [--out openapi.json]
         Write the OpenAPI 3.1 spec.
-  rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]
+  rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--denylist <terms.txt>] [--push <org/name>]
         Build a HuggingFace-ready dataset dir from tangle.rollout.v1 ledgers:
-        validate, fail-closed split filter, scrub, export formats + card.
+        validate, fail-closed split and license filters, drop any line with a
+        secret or private detail, scrub, export formats + card.
   analyst-benchmark --dataset <agentrx|codetracebench> --labels <path> --trace-dir <path> [--artifact-dir <path>] --out <dir> ...
         Compare an empty baseline with a real-model trace analyst on public labels.
         Run with --help for all required inputs and controls.

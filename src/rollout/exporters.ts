@@ -17,6 +17,7 @@
  * verbatim into training data.
  */
 
+import { isLicenseEligible, type LicenseClass } from './license'
 import type {
   ChatMessage,
   MintedRolloutLine,
@@ -83,6 +84,11 @@ export interface TrainingExportOptions {
    * (e.g. `['holdout']` for a holdout-only evaluation bundle).
    */
   splitFilter?: RolloutSplit[]
+  /**
+   * License classes that may train. Default `open-weight-api` and `human`:
+   * `restricted` (Claude, Codex, Jev) and `evaluation-only` lines never export.
+   */
+  allowLicenseClasses?: readonly LicenseClass[]
 }
 
 /**
@@ -411,7 +417,7 @@ export function isSplitEligible(
 
 /**
  * The whole fail-closed training policy for one line: scored, positive above
- * the floor, completed, not gated, on an eligible split. Shared with
+ * the floor, completed, not gated, licensed to train, on an eligible split. Shared with
  * `rl/exporters` so its text-lookup adapter cannot drift from this rule.
  */
 export function isTrainingLineEligible(
@@ -434,5 +440,6 @@ export function isTrainingLineEligible(
   }
   if (line.outcome.realness_gated === true) return false
   if (line.provenance.lossy_projection === true) return false
+  if (!isLicenseEligible(line, options.allowLicenseClasses)) return false
   return isSplitEligible(line, options)
 }

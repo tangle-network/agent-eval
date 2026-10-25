@@ -49,6 +49,7 @@
 
 import { isRecord } from '../llm-client/json'
 import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
+import { LICENSE_CLASSES, type LicenseClass } from './license'
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 
 /** `agent` = a solo evaluation run (no multi-agent topology). */
@@ -188,6 +189,8 @@ export interface RolloutPolicy {
   agent_profile_cell_id?: string | null
   /** Sampling params (temperature, top_p, max_tokens…); null = not recorded. */
   sampling: Record<string, unknown> | null
+  /** Terms the producer's outputs carry; absent = inferred (see `./license`). */
+  license_class?: LicenseClass
 }
 
 export interface RolloutOutcome {
@@ -572,6 +575,10 @@ function validateRolloutIdentity(value: Record<string, unknown>, errors: string[
       if (value.policy[key] !== undefined && !isStringOrNull(value.policy[key])) {
         errors.push(`policy.${key}: expected string|null when present`)
       }
+    }
+    const license = value.policy.license_class
+    if (license !== undefined && !LICENSE_CLASSES.includes(license as LicenseClass)) {
+      errors.push(`policy.license_class: expected one of ${LICENSE_CLASSES.join('|')}`)
     }
   }
 }
