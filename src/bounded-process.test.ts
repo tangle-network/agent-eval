@@ -18,6 +18,9 @@ const posixOnly = process.platform !== 'win32'
  */
 const PGID_PID_THEN_BACKGROUND_SLEEP = 'echo $$; sleep 60 & echo $!; wait'
 
+// The process-tree fixture needs PATH, not inherited shell startup hooks.
+const PROCESS_TREE_ENV = { PATH: process.env.PATH ?? '' }
+
 /** Pids in a process group, read through `pgrep`, whose "no match" exit is 1. */
 async function pidsInGroup(pgid: number): Promise<string[]> {
   return await new Promise((resolve, reject) => {
@@ -76,6 +79,8 @@ describe.skipIf(!posixOnly)('runBoundedProcess kills the whole process group', (
     const res = await runBoundedProcess({
       command: PGID_PID_THEN_BACKGROUND_SLEEP,
       shell: 'bash',
+      env: PROCESS_TREE_ENV,
+      envMode: 'replace',
       timeoutMs: 1000,
     })
     const elapsed = Date.now() - started
@@ -94,7 +99,7 @@ describe.skipIf(!posixOnly)('runBoundedProcess kills the whole process group', (
     // The control for the test above: without `detached`, the shell and its
     // descendant share this process's group, so the only reachable kill is the
     // shell itself — and the descendant survives it.
-    const child = spawn(PGID_PID_THEN_BACKGROUND_SLEEP, { shell: 'bash' })
+    const child = spawn(PGID_PID_THEN_BACKGROUND_SLEEP, { shell: 'bash', env: PROCESS_TREE_ENV })
     let stdout = ''
     child.stdout.on('data', (d) => {
       stdout += String(d)
@@ -358,6 +363,8 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
       const res = await runBoundedProcess({
         command: 'bash',
         args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
+        env: PROCESS_TREE_ENV,
+        envMode: 'replace',
         timeoutMs: 1000,
       })
       expect(res.killedByTimeout).toBe(true)
