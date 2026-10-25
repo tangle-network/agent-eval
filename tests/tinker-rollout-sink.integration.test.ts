@@ -35,6 +35,7 @@ function peerLine(id: string, reward: number | null): RolloutLine {
       profile_commit: null,
       sampling: null,
     },
+    tool_defs: [],
     messages: [
       { role: 'user', content: 'Question' },
       { role: 'assistant', content: 'Answer' },
