@@ -6,7 +6,8 @@
 //
 // Rules carried over from gtm-agent scripts/agent-app-bump.mjs and
 // discovery-lab .github/workflows/runtime-bump.yml:
-// - One open adoption branch (`chore/adopt-stack`). Each delivery normally
+// - One open adoption branch (`chore/adopt-stack`), deleted when its squash merge lands, so the
+//   next delivery starts from the default instead of a branch the squash left behind. Each delivery normally
 //   merges the captured default into the fetched owned proposal, plans against
 //   that tree, verifies real installed/locked resolutions and gates before an
 //   ordinary fast-forward push. Conflicts retain their state and fail safely.
@@ -805,7 +806,7 @@ export async function mergeWhenApproved(dir, number, head, base, defaultBranch) 
   for (;;) {
     const remote = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
     if (remote !== base) return { moved: remote }
-    const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
+    const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--delete-branch', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
     if (merged.status === 0) return {}
     const refusal = (merged.stderr || merged.stdout).trim()
     if (!POLICY.test(refusal) || reviewDecision(dir, number) !== 'REVIEW_REQUIRED') return { refusal, why: 'the merge was refused' }

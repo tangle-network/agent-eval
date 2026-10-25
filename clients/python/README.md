@@ -6,9 +6,10 @@ The Node package owns rubric execution, model calls, and scoring.
 
 ## Install
 
-Python 3.11 or newer and Node.js 20.19 or newer are required.
-The Python client now requires Python 3.11 so it can use the patched filelock 4.2.4 release.
-Upgrade Python before updating an existing Python 3.10 client environment.
+Python support and dependency versions are declared in [pyproject.toml](pyproject.toml).
+Node support is declared in [the package engines](../../package.json).
+The patched file-locking dependency raises the Python requirement; update older client
+environments to the declared minimum before upgrading.
 
 Install matching package versions:
 
