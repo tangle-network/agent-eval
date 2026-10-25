@@ -44,6 +44,7 @@ It refuses an `only` id the catalog does not hold, so a stale id after a rename 
 
 An external conversation engine plugs into the matrix through one seam: `RunMultishotMatrixOptions.runShot`.
 The matrix runs that engine for every cell and reads its result through `MultishotCellOutput`, so the same golden checks grade any engine that implements the seam.
+An engine that only changes how turns are ordered (a flow graph, a scheduler) builds on `runMultishotConversation`, which hands it the agent and driver legs `runMultishot` itself runs, so the transcript, tool, and cost mechanics stay this package's one implementation.
 
 The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into.
 Each judge carries a scripted `MultishotTransport`, exactly like the agent and driver legs, so a matrix check owns no process-wide resource and two checks may run at once.

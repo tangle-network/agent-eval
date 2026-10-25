@@ -221,7 +221,8 @@ export function servedModelAcceptable(
   }
 }
 
-function describe(check: ServedModelCheck): string {
+/** One line naming the requested and served ids, families and verdict. */
+export function describeServedModelCheck(check: ServedModelCheck): string {
   if (check.verdict === 'unreported')
     return `${check.requested}: response carried no model id (identity unproven)`
   return (
@@ -244,7 +245,7 @@ export function assertServedModel(
   if (servedModelAcceptable(check, opts)) return check
   const prefix = opts.context ? `${opts.context}: ` : ''
   throw new ModelSubstitutionError(
-    `${prefix}model substitution — ${describe(check)}. The measurement is of the SERVED model, ` +
+    `${prefix}model substitution — ${describeServedModelCheck(check)}. The measurement is of the SERVED model, ` +
       'not the requested one; any per-model or per-family claim from this call is invalid.',
     [check],
   )
@@ -264,7 +265,7 @@ export function assertServedModels(
     const prefix = opts.context ? `${opts.context}: ` : ''
     throw new ModelSubstitutionError(
       `${prefix}${bad.length}/${checks.length} call(s) were answered by a different model than ` +
-        `requested — ${bad.map(describe).join('; ')}. Per-model and per-family claims from this ` +
+        `requested — ${bad.map(describeServedModelCheck).join('; ')}. Per-model and per-family claims from this ` +
         'run are invalid until the ids are re-measured.',
       checks,
     )
@@ -275,6 +276,14 @@ export function assertServedModels(
 export interface AssertCrossFamilyServedOptions extends AssertServedModelOptions {
   /** Minimum distinct SERVED families required. Default 2. */
   minFamilies?: number
+  /**
+   * The panel as requested. When set, the minimum is the number of distinct
+   * families this list claims (instead of `minFamilies`), so a panel whose
+   * failed or dropped judges leave the survivors spanning fewer families than
+   * the request list is refused: their mean would be correlated bias reported
+   * as independent agreement.
+   */
+  requestedPanel?: readonly string[]
   /** Count `unknown`-family served ids toward the total. Default false. */
   allowUnknown?: boolean
 }
@@ -312,7 +321,13 @@ export function assertCrossFamilyServed(
     families.add(family)
   }
   const list = [...families].sort()
-  const minFamilies = opts.minFamilies ?? 2
+  const minFamilies = opts.requestedPanel
+    ? new Set(
+        opts.requestedPanel
+          .map((id) => judgeFamily(id))
+          .filter((family) => family !== 'unknown' || opts.allowUnknown),
+      ).size
+    : (opts.minFamilies ?? 2)
   if (list.length < minFamilies) {
     const prefix = opts.context ? `${opts.context}: ` : ''
     throw new ServedCrossFamilyError(

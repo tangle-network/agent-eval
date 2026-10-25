@@ -37,9 +37,44 @@ export {
   planEvaluatorAudit,
 } from './evaluator-admission'
 export * from './judge-gate'
+export {
+  type CalibrateJudgePanelInput,
+  calibrateJudgePanel,
+  gateJudgeCalibration,
+  type JudgeCalibrationCellVerdict,
+  type JudgeCalibrationGate,
+  type JudgeCalibrationGateCell,
+  type JudgeCalibrationGateConfig,
+  type JudgeCalibrationGoldItem,
+  type JudgeDimensionCalibration,
+  type JudgePanelCalibration,
+  type JudgePanelOutput,
+  type JudgePanelPrompt,
+  type RubricDimensionGuide,
+} from './judge-panel-calibration'
 export type { CorrelationInterval, OutcomeReduction } from './outcome-observations'
 export * from './outcome-store'
 export * from './plants'
 export * from './rubric-predictive-validity'
-export { evalHealthStamp, fileSentinelStore, judgeSentinelReport, snapshotFromAgreement, snapshotFromCalibration, snapshotFromSentinelSet, validateSentinelSnapshot } from './sentinel'
-export type { EvalHealthStamp, JudgeSentinelOptions, SentinelMetricName, SentinelMetrics, SentinelReport, SentinelSetOptions, SentinelSnapshot, SentinelStore, SentinelThresholds, SentinelTrend, SnapshotMeta } from './sentinel'
+export type {
+  EvalHealthStamp,
+  JudgeSentinelOptions,
+  SentinelMetricName,
+  SentinelMetrics,
+  SentinelReport,
+  SentinelSetOptions,
+  SentinelSnapshot,
+  SentinelStore,
+  SentinelThresholds,
+  SentinelTrend,
+  SnapshotMeta,
+} from './sentinel'
+export {
+  evalHealthStamp,
+  fileSentinelStore,
+  judgeSentinelReport,
+  snapshotFromAgreement,
+  snapshotFromCalibration,
+  snapshotFromSentinelSet,
+  validateSentinelSnapshot,
+} from './sentinel'
