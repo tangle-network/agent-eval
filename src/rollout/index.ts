@@ -143,3 +143,10 @@ export {
   type ToolDef,
   validateRolloutLine,
 } from './schema'
+
+export {
+  type TinkerDatum,
+  type TinkerDatumRow,
+  type TinkerExportOptions,
+  toTinkerDatumRows,
+} from './tinker'

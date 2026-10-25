@@ -61,6 +61,7 @@ It also documents endpoint settings, rates, execution owners, and GEPA recipes.
 | Run public benchmark adapters | [`benchmarks`](./benchmarks/) |
 | Compare optimizers on AppWorld tasks | [`AppWorld`](./benchmarks/appworld/) |
 | Export supervised and preference rows | [`publish-rl-dataset`](./publish-rl-dataset/) |
+| Project captured rollout tokens to Tinker and prepare a scripted Harbor dry run | [`tinker-rollouts`](./tinker-rollouts/) |
 | Fine-tune through Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl/) |
 
 The AppWorld comparison requires separate AppWorld and optimizer Python environments, plus an LLM endpoint.
