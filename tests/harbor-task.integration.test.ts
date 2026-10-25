@@ -41,16 +41,7 @@ async function repositoryFixture(): Promise<{
   const repo = join(root, 'repository')
   await mkdir(repo)
   const git = (...args: string[]) => command(repo, 'git', args)
-  const commit = (message: string) =>
-    git(
-      '-c',
-      'user.name=Fixture',
-      '-c',
-      'user.email=fixture@example.invalid',
-      'commit',
-      '-m',
-      message,
-    )
+  const commit = (message: string) => git('commit', '-m', message)
   await git('init', '-b', 'main')
   await writeFile(
     join(repo, 'production.mjs'),
@@ -76,17 +67,7 @@ async function repositoryFixture(): Promise<{
     })
   ).stdout
   await git('checkout', 'main')
-  await git(
-    '-c',
-    'user.name=Fixture',
-    '-c',
-    'user.email=fixture@example.invalid',
-    'merge',
-    '--no-ff',
-    'candidate',
-    '-m',
-    'merge candidate',
-  )
+  await git('merge', '--no-ff', 'candidate', '-m', 'merge candidate')
   const mergeCommit = await git('rev-parse', 'HEAD')
   const surface: CodeSurface = {
     kind: 'code',
