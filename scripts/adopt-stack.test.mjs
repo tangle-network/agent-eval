@@ -219,7 +219,7 @@ describe('adopt-stack effective workspace delivery', () => {
       if (overrideFile === 'package.json') {
         // An old proposal + independently advanced default retain both histories.
         save('.gitignore', 'node_modules/\n')
-        const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
+        const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
         const remote = mkdtempSync(join(tmpdir(), 'adopt-effective-remote-'))
         const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
         try {

@@ -8,8 +8,8 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, mergeWhenApproved, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack.mjs'
 
 const active = []
-// Fixture commits carry their own identity: a CI runner has no global git user.
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
+// Only fixture Git children opt into the supported test identity; normal hooks stay enabled.
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'adopt-proposal-http-'))
@@ -19,7 +19,7 @@ async function fixture() {
   mkdirSync(author)
   git(root, 'init', '-q', '--bare', '-b', 'main', remote)
   git(author, 'init', '-q', '-b', 'main')
-  // Disposable commits retain the admitted host identity and normal hooks.
+  // Disposable commits retain the declared fixture identity and normal hooks.
   writeFileSync(join(author, 'source.txt'), 'captured default\n')
   git(author, 'add', '.')
   git(author, 'commit', '-qm', 'test: seed captured default')
@@ -92,7 +92,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(git(f.caller, 'show', 'HEAD:proposal.txt')).toBe('gated bytes')
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
     console.log(`FIXED_GREEN stableRemote=${f.head} settledPr=${proposal.headRefOid} reads=${f.requests.length}`)
-  }, 30_000)
+  })
 
   test('true branch movement before or during an API read refuses without metadata writes', async () => {
     const f = await fixture()
@@ -110,14 +110,14 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests).toHaveLength(1)
     expect(f.requests[0].method).toBe('GET')
     expect(git(f.caller, 'rev-parse', 'HEAD')).toBe(f.head)
-  }, 30_000)
+  })
 
   test('missing remote ref refuses as unknown rather than settling an API value', async () => {
     const f = await fixture()
     git(f.author, 'push', '-q', 'origin', '--delete', owned)
     await expect(readPushedProposal(f.caller, 7, f.head, 'main', f.read)).rejects.toThrow('authoritative proposal ref is unknown')
     expect(f.requests).toHaveLength(0)
-  }, 30_000)
+  })
 
   test('unsettled PR state exhausts the bounded reads and never mutates it', async () => {
     const f = await fixture()
@@ -127,7 +127,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests).toHaveLength(6)
     expect(Date.now() - started).toBeLessThan(30_000)
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
-  }, 35_000)
+  })
 
   test('legacy and newly manual draft holds survive the HTTP settlement; explicit updater ownership remains distinct', async () => {
     const f = await fixture()
@@ -146,7 +146,7 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(f.requests.every((r) => r.method === 'GET')).toBe(true)
     expect(f.state.draft).toBe(true)
     expect(f.state.body).toContain('Maintainer hold')
-  }, 30_000)
+  })
 
   test('a changed captured default still refuses before any merge API command', async () => {
     const f = await fixture()
@@ -157,5 +157,5 @@ describe('adopt-stack pushed head across real Git and HTTP PR reads', () => {
     expect(git(f.caller, 'show', 'HEAD:source.txt')).toBe('captured default')
     expect(f.requests).toHaveLength(1)
     expect(f.requests[0].method).toBe('GET')
-  }, 30_000)
+  })
 })
