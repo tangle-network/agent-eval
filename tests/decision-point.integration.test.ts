@@ -21,6 +21,8 @@ import { createServer } from 'node:http'
 let calls = 0
 let releaseHeld
 const server = createServer(async (req, res) => {
+  // Close each fixture response so later decisions get a fresh connection.
+  res.setHeader('connection', 'close')
   if (req.url === '/calls') return res.end(String(calls))
   if (req.url === '/release-held') { releaseHeld?.(); return res.end('released') }
   calls++
