@@ -119,6 +119,7 @@ jobs:
           node-version-file: ${{ hashFiles('caller/.nvmrc') != '' && 'caller/.nvmrc' || '' }}
 
       - name: Adopt the newest @tangle-network releases
+        id: adoption
         working-directory: caller
         env:
           GH_TOKEN: ${{ secrets.token || github.token }}
@@ -134,3 +135,29 @@ jobs:
           if [[ -n "$MERGE" ]]; then args+=("$MERGE"); fi
           if [[ -n "$DRY_RUN" ]]; then args+=("$DRY_RUN"); fi
           node ../adopt-stack/scripts/adopt-stack.mjs "${args[@]}"
+
+      # The caller's test command owns these diagnostic files. Keep the exact
+      # generated cohort and every local browser attempt before runner cleanup.
+      # Raw traces may contain local test-session data, so retain them only in
+      # private caller repositories; never upload env files or auth/cache trees.
+      - name: Retain private failed adoption evidence
+        if: ${{ failure() && steps.adoption.outcome == 'failure' && github.event.repository.private }}
+        uses: actions/upload-artifact@v7
+        timeout-minutes: 3
+        with:
+          name: adopt-stack-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            caller/package.json
+            caller/pnpm-lock.yaml
+            caller/package-lock.json
+            caller/pnpm-workspace.yaml
+            caller/.artifacts/gate/worker.log
+            caller/.artifacts/gate/browser-attempts
+            caller/.artifacts/gate/browser-attempt-*.log
+            caller/.artifacts/gate/browser-tests.log
+            caller/.artifacts/browser-*/attempt-*/**/trace.zip
+            caller/.artifacts/browser-*/attempt-*/**/error-context.md
+          include-hidden-files: true
+          if-no-files-found: warn
+          compression-level: 9
+          retention-days: 1
