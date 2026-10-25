@@ -8,8 +8,8 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { ADOPTION_BRANCH as owned, isManuallyHeldDraft, mergeWhenApproved, readPushedProposal, UPDATER_DRAFT_MARKER } from './adopt-stack.mjs'
 
 const active = []
-// Fixture commits carry their own identity: a CI runner has no global git user.
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
+// Only fixture Git children opt into the supported test identity; normal hooks stay enabled.
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'adopt-proposal-http-'))
@@ -19,7 +19,7 @@ async function fixture() {
   mkdirSync(author)
   git(root, 'init', '-q', '--bare', '-b', 'main', remote)
   git(author, 'init', '-q', '-b', 'main')
-  // Disposable commits retain the admitted host identity and normal hooks.
+  // Disposable commits retain the declared fixture identity and normal hooks.
   writeFileSync(join(author, 'source.txt'), 'captured default\n')
   git(author, 'add', '.')
   git(author, 'commit', '-qm', 'test: seed captured default')
