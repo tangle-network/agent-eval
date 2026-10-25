@@ -4,7 +4,6 @@ Run agent evaluations, compare changes on the same cases, and decide whether a c
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
-[![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 Eval runs in your TypeScript process.

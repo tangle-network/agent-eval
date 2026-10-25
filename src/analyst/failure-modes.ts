@@ -27,7 +27,7 @@ import type { FindingCalibration, FindingScope } from './finding-scope'
 import { type Analyst, type AnalystContext, type AnalystFinding, makeFinding } from './types'
 
 export const FAILURE_MODES_ANALYST_ID = 'failure-modes'
-export const FAILURE_MODES_VERSION = '1'
+export const FAILURE_MODES_VERSION = '2'
 
 /** κ below this refuses the rubric. */
 export const FAILURE_MODES_MIN_KAPPA = 0.6
@@ -85,7 +85,7 @@ export const FAILURE_MODES_QUESTIONS = {
   failure_mode: {
     type: 'choice',
     instructions:
-      'Which single failure mode best explains why this agent or team fell short? Choose none when it did not fail.',
+      'Which agent or team root-cause failure best explains the observed shortfall? Identify the causal error rather than a downstream symptom; a corrected earlier mistake need not be the root cause. Use only the provided task, policy, actions, tool results and outcome evidence. Do not invent missing outcomes or infrastructure errors. Choose none when the evidence establishes that no failure occurred.',
     criteria: FAILURE_MODE_LABELS,
   },
   delegation_brief: {

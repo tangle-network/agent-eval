@@ -131,6 +131,8 @@ export function spanRecordsToTraceAnalysisStore(
     throw new CaptureIntegrityError('spanRecordsToTraceAnalysisStore: no span records supplied')
   }
   const seen = new Map<string, Set<string>>()
+  // One Buffer per line, concatenated: a joined string of every span hits
+  // V8's maximum string length (~512 MiB) on a week of coding sessions.
   const lines = records.map((record, index) => {
     try {
       const span = traceSpanSchema.parse(record)
@@ -142,7 +144,7 @@ export function spanRecordsToTraceAnalysisStore(
       }
       traceSpans.add(span.span_id)
       seen.set(span.trace_id, traceSpans)
-      return JSON.stringify(span)
+      return Buffer.from(`${JSON.stringify(span)}\n`, 'utf8')
     } catch (cause) {
       if (cause instanceof CaptureIntegrityError) throw cause
       throw new CaptureIntegrityError(
@@ -151,14 +153,24 @@ export function spanRecordsToTraceAnalysisStore(
       )
     }
   })
-  return new SpanRecordTraceStore(Buffer.from(`${lines.join('\n')}\n`, 'utf8'), options)
+  return new SpanRecordTraceStore(Buffer.concat(lines), options)
 }
 
-/** Build the bounded trace store directly from OpenInference JSONL text. */
+/**
+ * Build the bounded trace store directly from OpenInference JSONL, as text or
+ * as UTF-8 bytes. Pass bytes when the export can exceed V8's maximum string
+ * length (~512 MiB): the store reads a Buffer either way, so bytes skip the copy.
+ */
 export function otlpTextToTraceAnalysisStore(
-  text: string,
+  text: string | Uint8Array,
   opts: ToolSpansToTraceAnalysisStoreOptions = {},
 ): TraceAnalysisStore {
-  if (!text.trim()) throw new CaptureIntegrityError('OTLP trace text must not be empty')
-  return new BufferTraceStore(Buffer.from(text, 'utf8'), opts)
+  const source = typeof text === 'string'
+    ? Buffer.from(text, 'utf8')
+    : Buffer.from(text.buffer, text.byteOffset, text.byteLength)
+  // Any byte other than ASCII whitespace ends the scan, so this stays O(1).
+  if (!source.some((byte) => byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d)) {
+    throw new CaptureIntegrityError('OTLP trace text must not be empty')
+  }
+  return new BufferTraceStore(source, opts)
 }

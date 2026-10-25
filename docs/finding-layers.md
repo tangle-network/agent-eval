@@ -78,11 +78,13 @@ An all-excluded, otherwise valid AgentRx file returns `eligibility: 'unknown'`, 
 
 Caller gold ids must be disjoint from **all** AgentRx source ids, including excluded rows. A caller cannot reintroduce an excluded source id as eligible gold; overlapping ids are invalid. Caller ids with surrounding whitespace are invalid, so whitespace cannot disguise an overlapping source id. Valid caller ids are preserved exactly. Caller-only gold and disjoint caller ids remain supported.
 
+The category crosswalk does not establish semantic equivalence. In particular, AgentRx's `intent-plan-misalignment` includes an incorrect plan or action ordering while pursuing the requested goal, whereas the current `task-derailment` criterion requires drifting toward a different goal. Those categories are not interchangeable. Structural/actor eligibility is not independent validation of this projection. Preserve the source category and mapping identity, and establish independent target-label evidence before using a replacement mapping; do not retrospectively alter a frozen receipt or silently treat the crosswalk as a validated taxonomy.
+
 Existing receipt rows, source hashes, labels and verdicts are historical evidence. Loading a new mapping never regrades, relabels or filters a stored receipt. A new mapping, selection policy, question or input representation requires a new calibration configuration with its rule fixed before judging.
 
 ### Calibration and runtime contract
 
-The maintained [`FAILURE_MODES_QUESTIONS`](../src/analyst/failure-modes.ts) object is the one question/criteria owner. `createFailureModesAnalyst` currently sends all its questions; calibration of `failure_mode` alone does not qualify the other outputs.
+The maintained [`FAILURE_MODES_QUESTIONS`](../src/analyst/failure-modes.ts) object is the one question/criteria owner. Its failure-mode question targets the agent/team root cause, distinguishes downstream symptoms and corrected mistakes, and forbids inventing absent outcome/error evidence. A changed question advances `FAILURE_MODES_VERSION` and requires calibration against the exact new questions and input representation; an older receipt cannot qualify the changed rubric. Keep that receipt visible as the historical measured result while reporting current compatibility and qualification separately. Missing or clipped evidence remains an explicit consumer coverage limitation, never proof of no failure. `createFailureModesAnalyst` currently sends all its questions; calibration of `failure_mode` alone does not qualify the other outputs.
 
 | Output | Target and required evidence |
 | --- | --- |
