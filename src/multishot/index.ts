@@ -3,6 +3,7 @@
 export {
   type MultishotConversation,
   type MultishotConversationDriver,
+  type MultishotLegSpend,
   type MultishotLegTokens,
   runMultishotConversation,
 } from './conversation'
