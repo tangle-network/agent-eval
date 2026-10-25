@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { otlpRowsToRunRecords, otlpToRunRecords } from '../src/traces'
+import { otlpRowsToRunRecords, otlpToRunRecords } from '../traces'
 
 const directories: string[] = []
 const options = { experimentId: 'usage-coverage', candidateId: 'captured-run' }
