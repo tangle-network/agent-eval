@@ -22,7 +22,6 @@ export {
   type VerifiersRolloutOutput,
   type VerifiersTokenUsage,
 } from './exporters'
-
 export {
   GATE_CHECK_IDS,
   GATE_CHECKS,
@@ -36,6 +35,13 @@ export {
   gatedEvidenceOf,
   gateErrors,
 } from './gate-checks'
+export {
+  HARBOR_TASK_CHECKS,
+  type HarborTaskFile,
+  type HarborTaskVerification,
+  type WriteHarborTaskOptions,
+  writeHarborTask,
+} from './harbor-task'
 
 export {
   type FromHarborOptions,
