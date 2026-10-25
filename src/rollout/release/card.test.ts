@@ -34,7 +34,7 @@ function cardInputs(overrides: Partial<DatasetCardInputs> = {}): DatasetCardInpu
     includeProposers: true,
     sourceFiles: ['gen3-rollouts.jsonl'],
     scrubTotals,
-    excluded: { proposers: 0, nonTrain: 2, license: 0, privacy: 0 },
+    excluded: { proposers: 0, nonTrain: 2, privacy: 0 },
     formatCounts: { sft: 2, raw: 4 },
     gate: {
       gatedLines: 0,
@@ -184,7 +184,7 @@ describe('dataset card', () => {
     const withoutProposers = buildDatasetCard(
       cardInputs({
         includeProposers: false,
-        excluded: { proposers: 3, nonTrain: 0, license: 0, privacy: 0 },
+        excluded: { proposers: 3, nonTrain: 0, privacy: 0 },
       }),
     )
     expect(withoutProposers).toContain('excluded by default (3 lines dropped)')
