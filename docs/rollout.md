@@ -24,6 +24,67 @@ Harbor ATIF import  ─┘                          ├─→ DPO / GRPO / PRM  
 A source's job is to produce a `RolloutLine` and nothing else.
 A sink's job is to consume `MintedRolloutLine[]` and nothing else — no sink reads a `RunRecord` or a `TraceStore`, because that would be a second door into training data with no gate on it.
 
+## Verified episodes as Harbor task directories
+
+`writeHarborTask` consumes one `MintedRolloutLine`, its existing `CodeSurface`, and a
+merge identity. It writes a runnable task directory, separate from the ATIF trajectory
+interchange. The writer never runs Git, starts an environment, fetches a repository,
+or executes a verifier. Execution stays with the caller. The caller must bound
+`verify` execution and honor the optional abort signal; the writer does not create
+another process or callback timeout mechanism.
+
+The caller supplies a digest-pinned image, a Git bundle containing only the exact
+base and its ancestors, task instructions, and three verifier scripts. The image
+must already contain Git and the scripts' prerequisites, without the reference
+answer. Its configured user must be able to clone into `/workspace/repo` and remove
+the copied `/tmp/base.bundle`; the writer does not change that user or install
+dependencies. The generated Dockerfile checks out the pinned base. Only this Dockerfile
+and base bundle enter the agent's build context. No reference patch, candidate
+checkout, episode transcript, or merge checkout is copied into that context.
+
+Before `task.toml` becomes visible, a trusted `verify` callback inspects the staged
+files and returns the existing `CompletionVerdict` for the supplied digest-bound
+`taskId`. That identity includes the canonical episode hash, rollout/task identity,
+base/head trees and commits, merged diff anchor, merge commit, and every generated
+file's bytes. Five measured requirements must each be correct, satisfied, and
+supported by receipts:
+
+- `base-bundle`: actual bundle closure is the exact base/ancestors, with no answer
+  objects, additional refs, or embedded reference material.
+- `acceptance`: the provided acceptance command passed on this exact candidate.
+- `production-delta`: the caller's production-line census observed a strict
+  decrease against this base, with the production scope explicitly identified.
+- `dangling-references`: the caller's actual reference checker observed none.
+- `merge-followup`: the exact candidate was merged, this base is merge's first
+  parent, and an explicitly closed followup interval was checked for fix-forward
+  changes. A missing/open interval is unknown; a merge alone does not prove this.
+
+The callback must bind its receipts to the actual file hashes and source identity,
+not titles, inferred keywords, an unrelated pass, or a timestamp heuristic. Eval
+checks the callback's contract and rechecks staged files; it cannot independently
+certify caller claims or training-provider eligibility. Reward must already be 1,
+completed and screened, without truncation or an error. Unknown evidence refuses
+publication. Admission failures retain a diagnostic directory without `task.toml`.
+An existing output path is never overwritten.
+
+Harbor's [task format](https://docs.harborframework.com/tasks/overview) and
+[configuration](https://docs.harborframework.com/tasks/configuration) own the layout.
+The task contains `task.toml`, `instruction.md`, `environment/`, and `tests/`.
+The generated `tests/test.sh` first writes reward 0, runs all three commands, and
+writes reward 1 only after their conjunction passes. Harbor's normal paths are the
+defaults; explicit project/tests/reward directory arguments allow the same script
+to be exercised through an actual local process boundary. Failure or unknown
+measurement must exit nonzero in caller scripts. The live technical reward does
+not assert a new agent attempt has subsequently merged; later-merge/no-fix-forward
+eligibility remains a separate, closed observation before that attempt is admitted
+as another episode. Provider consent and split/release policy remain separate.
+
+Load the emitted directory through `createHarborBenchmarkAdapter` from
+`@tangle-network/agent-eval/benchmarks`, and execute it through the caller's existing
+Harbor runner. A directory written, a loader pass, and a successful environment
+run are distinct evidence levels. This writer does not turn metadata into a
+passing execution or manufacture a set of eligible environments.
+
 `MintedRolloutLine` is `RolloutLine` plus a nominal brand (a phantom `unique symbol`, absent at runtime, so the JSON is unchanged).
 The distinction matters because `RolloutLine` is structural: any object literal of the right shape is one, so declaring `{reward: 0.95, realness_gated: true}` was enough to be accepted by every exporter that "only takes a line".
 Three producers mint the brand, and nothing else can:
