@@ -1,0 +1,65 @@
+{
+  "capturedAt": "2026-10-25T00:35:08.499Z",
+  "source": "Existing local Kimi native parent and two child wire captures; no new harness invocation",
+  "privacy": "All non-structural strings replaced; native IDs consistently SHA-256 pseudonymized. Full native records first pass agent-eval share redaction; minimized records pass agent-eval redactForShare(profile=share) with the local denylist and shareAllowed. Timestamps, event types, counters and parent-tool bindings remain recorded values. Context, prompts, output and metadata sidecars omitted.",
+  "completeness": "Complete wire files only; parent wrapped events retained but never folded into parent own usage. No served-model evidence exists in Kimi wire.",
+  "files": [
+    {
+      "fixture": "parent/wire.jsonl",
+      "sourceSha256": "sha256:7445c855b5b016dfdcaa3a06302d3fdc2bef8036c990faa95f66698a18ebb4fd",
+      "sourceBytes": 717725,
+      "sourceRecords": 445,
+      "retainedRecords": 445,
+      "retainedUsage": {
+        "input": 35022,
+        "output": 3981,
+        "reasoning": null,
+        "cacheRead": 302848,
+        "cacheWrite": 0
+      },
+      "retainedCalls": 9,
+      "retainedTools": 14,
+      "redactionVersion": "2.4.0",
+      "shareSafety": "SAFE_WITH_WARNINGS",
+      "redactionCount": 2
+    },
+    {
+      "fixture": "parent/subagents/id-011afd997439/wire.jsonl",
+      "sourceSha256": "sha256:bef495b5dca1fcf8cbae544af5d8446b0e3420dc8978458c8d10045a28ca23ca",
+      "sourceBytes": 326105,
+      "sourceRecords": 256,
+      "retainedRecords": 256,
+      "retainedUsage": {
+        "input": 78409,
+        "output": 9056,
+        "reasoning": null,
+        "cacheRead": 1800704,
+        "cacheWrite": 0
+      },
+      "retainedCalls": 28,
+      "retainedTools": 65,
+      "redactionVersion": "2.4.0",
+      "shareSafety": "SAFE_WITH_WARNINGS",
+      "redactionCount": 0
+    },
+    {
+      "fixture": "parent/subagents/id-4fb3cf18797e/wire.jsonl",
+      "sourceSha256": "sha256:8d2a53750d972ed4d5138bdc65b75fc3b1ad3b57a164ed3b55b54adfe5a9000f",
+      "sourceBytes": 234441,
+      "sourceRecords": 126,
+      "retainedRecords": 126,
+      "retainedUsage": {
+        "input": 69820,
+        "output": 6474,
+        "reasoning": null,
+        "cacheRead": 551168,
+        "cacheWrite": 0
+      },
+      "retainedCalls": 11,
+      "retainedTools": 33,
+      "redactionVersion": "2.4.0",
+      "shareSafety": "SAFE_WITH_WARNINGS",
+      "redactionCount": 2
+    }
+  ]
+}

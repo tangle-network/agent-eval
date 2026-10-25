@@ -85,6 +85,9 @@ Commands:
   analyst-benchmark --dataset <agentrx|codetracebench> --labels <path> --trace-dir <path> [--artifact-dir <path>] --out <dir> ...
         Compare an empty baseline with a real-model trace analyst on public labels.
         Run with --help for all required inputs and controls.
+  supervisor-run rollouts [<runDir>...] [--sessions [<harness>:]<path>]... [--since <ISO>] [--gate-receipts <file>] [--denylist <file>] --out <ledger.jsonl>
+        Import Discovery run dirs, native harness sessions and beelink-gate receipts
+        into one rollout ledger; rows with any secret or private detail are dropped.
   supervisor-run report <runDir> [--format headline|markdown|json]
         Report one Runtime or loops supervisor run directory. The status comes
         from Runtime's own result.json / failure.json; every missing measurement
