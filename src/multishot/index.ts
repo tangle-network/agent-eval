@@ -1,5 +1,11 @@
 // Multishot substrate — re-exports for `@tangle-network/agent-eval/multishot`.
 
+export {
+  type MultishotConversation,
+  type MultishotConversationDriver,
+  type MultishotLegTokens,
+  runMultishotConversation,
+} from './conversation'
 export { estimateMultishotCost } from './cost'
 
 export {
@@ -13,10 +19,10 @@ export {
 
 export {
   DEFAULT_JUDGE_MODEL,
-  type MultishotJudgeConfig,
   type JudgeDimension,
   type JudgeRunResult,
   type JudgeScore,
+  type MultishotJudgeConfig,
   renderDimensions,
   renderJsonFooter,
   runJudge,
@@ -36,4 +42,19 @@ export {
 export { type MultishotShot, type RunMultishotOptions, runMultishot } from './multishot'
 export { defaultShapeFromProfile } from './shape-defaults'
 
-export { assertMultishotShotResult, type MultishotArtifact, MultishotDriverEmptyError, MultishotFatalToolError, type MultishotMessage, type MultishotPersona, type MultishotResult, type MultishotShape, type MultishotToolDefinition, type MultishotToolExecutor, type MultishotTransport, type MultishotTransportRequest, type MultishotTransportResponse, type MultishotTransportToolCall } from './types'
+export {
+  assertMultishotShotResult,
+  type MultishotArtifact,
+  MultishotDriverEmptyError,
+  MultishotFatalToolError,
+  type MultishotMessage,
+  type MultishotPersona,
+  type MultishotResult,
+  type MultishotShape,
+  type MultishotToolDefinition,
+  type MultishotToolExecutor,
+  type MultishotTransport,
+  type MultishotTransportRequest,
+  type MultishotTransportResponse,
+  type MultishotTransportToolCall,
+} from './types'

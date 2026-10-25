@@ -40,12 +40,46 @@ export { defineAgentEval } from './contract/define-agent-eval'
 export { selfImprove } from './contract/self-improve'
 export * as profile from './profile/index'
 export { certificationEvidenceDigest, equivalenceVerdict } from './verdict'
-export { defineEquivalenceCheck, EquivalenceProtocolError, runEquivalenceCheck, VERIFICATION_STRATEGIES, VERIFICATION_STRATEGY_SOURCES } from './verification-strategy'
+export {
+  defineEquivalenceCheck,
+  EquivalenceProtocolError,
+  runEquivalenceCheck,
+  VERIFICATION_STRATEGIES,
+  VERIFICATION_STRATEGY_SOURCES,
+} from './verification-strategy'
 export { BudgetBreachError, BudgetGuard } from './budget-guard'
-export { CostAccountingIncompleteError, CostCeilingReachedError, CostLedger, costForTokenPricing, costForUsage } from './cost-ledger'
+export {
+  CostAccountingIncompleteError,
+  CostCeilingReachedError,
+  CostLedger,
+  costForTokenPricing,
+  costForUsage,
+} from './cost-ledger'
 
-export { analystRunDigest, analystRunToFeedbackTrajectory, analystRunToReviewRequests, controlRunToFeedbackTrajectory, createFeedbackTrajectory, FileSystemFeedbackTrajectoryStore, feedbackTrajectoriesToDatasetScenarios, feedbackTrajectoriesToOptimizerRows, feedbackTrajectoryToOptimizerRow, InMemoryFeedbackTrajectoryStore, renderPreferenceMemoryMarkdown, summarizePreferenceMemory, withAssignedFeedbackSplit } from './feedback-trajectory'
-export { isRunRecord, modelHasSnapshot, parseRunRecordSafe, RunRecordValidationError, runTaskScore, UNKNOWN_MODEL, validateRunRecord } from './run-record'
+export {
+  analystRunDigest,
+  analystRunToFeedbackTrajectory,
+  analystRunToReviewRequests,
+  controlRunToFeedbackTrajectory,
+  createFeedbackTrajectory,
+  FileSystemFeedbackTrajectoryStore,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+  feedbackTrajectoryToOptimizerRow,
+  InMemoryFeedbackTrajectoryStore,
+  renderPreferenceMemoryMarkdown,
+  summarizePreferenceMemory,
+  withAssignedFeedbackSplit,
+} from './feedback-trajectory'
+export {
+  isRunRecord,
+  modelHasSnapshot,
+  parseRunRecordSafe,
+  RunRecordValidationError,
+  runTaskScore,
+  UNKNOWN_MODEL,
+  validateRunRecord,
+} from './run-record'
 export { aggregateRunScore, clamp01 } from './run-score'
 export {
   diffScorecard,
@@ -119,7 +153,12 @@ export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headr
 export { CostTracker } from './cost-tracker'
 export { errorStreakDetector, observeAll, repeatedActionDetector } from './detectors'
 export { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
-export { classifyFailure, classifyFailureReason, FAILURE_CLASSES, failureBlame } from './failure-taxonomy'
+export {
+  classifyFailure,
+  classifyFailureReason,
+  FAILURE_CLASSES,
+  failureBlame,
+} from './failure-taxonomy'
 export {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
@@ -152,7 +191,45 @@ export {
 } from './product-benchmark/index'
 export { projectRuntimeTrajectoryEvidence } from './runtime-trajectory'
 export { analyzeSeries } from './series-convergence'
-export { BOOTSTRAP_GATE_MIN_N, benjaminiHochberg, bonferroni, cliffsDelta, cohensD, confidenceInterval, corpusInterRaterAgreement, corpusInterRaterAgreementFromJudgeScores, eProcess, holm, interpretCliffs, interRaterReliability, mannWhitneyU, mcnemar, mcnemarPower, mcnemarRequiredN, mulberry32, pairedBootstrap, pairedCohensDz, pairedMde, pairedRiskDifference, pairedRiskDifferenceExact, pairedRiskDifferenceScore, pairedSignTest, pairedTTest, partialCredit, passAtK, pearsonR, ranks, requiredPairedSampleSize, requiredSampleSize, spearmanR, summarizeNumberSeries, weightedComposite, weightedMean, wilcoxonSignedRank, wilson } from './statistics'
+export {
+  BOOTSTRAP_GATE_MIN_N,
+  benjaminiHochberg,
+  bonferroni,
+  cliffsDelta,
+  cohensD,
+  confidenceInterval,
+  corpusInterRaterAgreement,
+  corpusInterRaterAgreementFromJudgeScores,
+  eProcess,
+  holm,
+  interpretCliffs,
+  interRaterReliability,
+  mannWhitneyU,
+  mcnemar,
+  mcnemarPower,
+  mcnemarRequiredN,
+  mulberry32,
+  pairedBootstrap,
+  pairedCohensDz,
+  pairedMde,
+  pairedRiskDifference,
+  pairedRiskDifferenceExact,
+  pairedRiskDifferenceScore,
+  pairedSignTest,
+  pairedTTest,
+  partialCredit,
+  passAtK,
+  pearsonR,
+  ranks,
+  requiredPairedSampleSize,
+  requiredSampleSize,
+  spearmanR,
+  summarizeNumberSeries,
+  weightedComposite,
+  weightedMean,
+  wilcoxonSignedRank,
+  wilson,
+} from './statistics'
 export { gainHistogram, summaryTable } from './summary-report'
 export { computeToolUseMetrics } from './tool-use-metrics'
 export { analyzeTraces } from './trace-analyst/analyst'
@@ -185,7 +262,14 @@ export {
   BackendIntegrityError,
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
-export { assertCrossFamilyServed, assertServedModel, assertServedModels, checkServedModel, ModelSubstitutionError } from './integrity/served-model'
+export {
+  assertCrossFamilyServed,
+  assertServedModel,
+  assertServedModels,
+  checkServedModel,
+  describeServedModelCheck,
+  ModelSubstitutionError,
+} from './integrity/served-model'
 export { assertSingleBackend } from './integrity/single-backend'
 export { runIntentMatchJudge } from './intent-match-judge'
 export {
