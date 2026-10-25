@@ -13,6 +13,29 @@ const save = (root, file, data) => {
   writeFileSync(join(root, file), typeof data === 'string' ? data : JSON.stringify(data, null, 2) + '\n')
 }
 
+// Keep failed child outcomes in the real integration log; status alone is null
+// for both a deadline and an output-buffer refusal.
+const runBrowserChild = (source, cwd, env = {}, args = []) => {
+  const started = process.hrtime.bigint()
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', source, ...args], {
+    cwd, encoding: 'utf8', env: { ...process.env, ...env }, timeout: 120_000, maxBuffer: 4 * 1024 * 1024,
+  })
+  if (result.status !== 0 || result.error) {
+    console.error('BROWSER_CHILD_FAILURE=' + JSON.stringify({
+      pid: result.pid, status: result.status, signal: result.signal,
+      elapsedMs: Number(process.hrtime.bigint() - started) / 1e6,
+      stdoutUtf8Bytes: Buffer.byteLength(result.stdout ?? '', 'utf8'),
+      stderrUtf8Bytes: Buffer.byteLength(result.stderr ?? '', 'utf8'),
+      error: result.error ? {
+        name: result.error.name, code: result.error.code ?? null,
+        errno: result.error.errno ?? null, syscall: result.error.syscall ?? null,
+        message: result.error.message,
+      } : null,
+    }))
+  }
+  return result
+}
+
 test('a caller without Playwright performs no install or browser preparation', () => {
   const root = mkdtempSync(join(tmpdir(), 'adopt-no-browser-'))
   try {
@@ -33,7 +56,7 @@ test('an importer-owned locked CLI repairs an isolated missing cache; a real dow
   const packageManager = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).packageManager
   const prepare = `import { preparePlaywrightBrowsers } from ${JSON.stringify(helper)}; console.log('PREPARED=' + JSON.stringify(preparePlaywrightBrowsers(process.argv[1])))`
   const launch = `import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/package.json'); const { chromium } = createRequire(require.resolve('@playwright/test/package.json'))('playwright'); const browser = await chromium.launch({ headless: true }); try { const page = await browser.newPage(); await page.setContent('<title>actual locked browser</title>'); console.log('BROWSER_GREEN=' + JSON.stringify({ version: browser.version(), title: await page.title() })); } finally { await browser.close() }`
-  const run = (source, env, dir = root, args = []) => spawnSync(process.execPath, ['--input-type=module', '-e', source, ...args], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env }, timeout: 120_000, maxBuffer: 4 * 1024 * 1024 })
+  const run = (source, env, dir = root, args = []) => runBrowserChild(source, dir, env, args)
   try {
     save(root, 'package.json', { name: 'browser-workspace-fixture', private: true, packageManager })
     save(root, 'pnpm-workspace.yaml', "packages:\n  - 'apps/*'\n")
@@ -74,7 +97,7 @@ test('distinct locked packages sharing the playwright bin each prepare their own
   const spec = recorded.devDependencies.playwright
   const floor = /\d+\.\d+\.\d+/.exec(spec)[0]
   const packageManager = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).packageManager
-  const run = source => spawnSync(process.execPath, ['--input-type=module', '-e', source, root], { cwd: root, encoding: 'utf8', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: join(root, 'isolated-dual-cache') }, timeout: 120_000, maxBuffer: 4 * 1024 * 1024 })
+  const run = source => runBrowserChild(source, root, { PLAYWRIGHT_BROWSERS_PATH: join(root, 'isolated-dual-cache') }, [root])
   const prepare = path => `import { preparePlaywrightBrowsers } from ${JSON.stringify(path)}; console.log('PREPARED=' + JSON.stringify(preparePlaywrightBrowsers(process.argv[1])))`
   try {
     save(root, 'package.json', { name: 'dual-browser-fixture', private: true, packageManager, devDependencies: { playwright: spec, '@playwright/test': floor } })
