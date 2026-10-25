@@ -30,6 +30,14 @@ export interface MultishotLegTokens {
   output: number
 }
 
+/** What one leg spent: its tokens and the USD it added to the conversation's
+ *  cost (provider-reported, else estimated from usage; tool executor spend
+ *  included). */
+export interface MultishotLegSpend {
+  tokens: MultishotLegTokens
+  usd: number
+}
+
 /** One conversation's state and legs. Each leg appends to the shared
  *  transcript; the caller decides the order in which legs run. */
 export interface MultishotConversation {
@@ -46,11 +54,11 @@ export interface MultishotConversation {
   /** One agent turn: inference, inline tool execution and follow-up inference,
    *  until the agent answers without tools. Throws on abort, on a fatal tool
    *  error and on the per-turn tool dispatch cap. */
-  agentTurn(turn: number): Promise<{ tokens: MultishotLegTokens }>
+  agentTurn(turn: number): Promise<MultishotLegSpend>
   /** The simulated user's reply to the transcript so far, appended for the
    *  next agent turn. Retries an empty reply once per model, rotates through
    *  the fallback models, then throws `MultishotDriverEmptyError`. */
-  driverTurn(turn: number): Promise<{ content: string; tokens: MultishotLegTokens }>
+  driverTurn(turn: number): Promise<MultishotLegSpend & { content: string }>
 }
 
 /** Orders the legs of one conversation. Resolves when the conversation is done. */
@@ -153,8 +161,9 @@ function openConversation<TPersona extends MultishotPersona>(
   ]
   const driverSystemPrompt = shape.buildDriverSystemPrompt(opts.persona)
 
-  async function agentTurn(turn: number): Promise<{ tokens: MultishotLegTokens }> {
+  async function agentTurn(turn: number): Promise<MultishotLegSpend> {
     if (opts.signal?.aborted) throw new Error('multishot aborted')
+    const usdBefore = meter.costUsd
     const tokens = { input: 0, output: 0 }
     let dispatchesThisTurn = 0
     while (true) {
@@ -236,15 +245,14 @@ function openConversation<TPersona extends MultishotPersona>(
         transcript.push({ role: 'tool', content: toolResult || 'done', toolCallId: tc.id })
       }
     }
-    return { tokens }
+    return { tokens, usd: meter.costUsd - usdBefore }
   }
 
   // Every driver attempt is charged, including the empty ones that force a
   // retry and the ones that precede `MultishotDriverEmptyError`: those calls
   // billed the provider whether or not their content was usable.
-  async function driverTurn(
-    turn: number,
-  ): Promise<{ content: string; tokens: MultishotLegTokens }> {
+  async function driverTurn(turn: number): Promise<MultishotLegSpend & { content: string }> {
+    const usdBefore = meter.costUsd
     // Driver point of view: the agent's `assistant` messages become `user`
     // (the agent talking TO the driver); the driver's prior `user` messages
     // become `assistant` (the driver's prior responses).
@@ -278,7 +286,7 @@ function openConversation<TPersona extends MultishotPersona>(
         if (content.length > 0) {
           agentMessages.push({ role: 'user', content })
           transcript.push({ role: 'user', content })
-          return { content, tokens }
+          return { content, tokens, usd: meter.costUsd - usdBefore }
         }
       }
     }
