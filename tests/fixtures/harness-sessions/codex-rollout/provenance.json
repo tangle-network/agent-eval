@@ -1,0 +1,23 @@
+{
+  "kind": "retained-real-codex-transcript-slice",
+  "sourceRepository": "tangle-network/agent-sdk",
+  "sourceCommit": "e805ba22cf1abef7c58b4751ecddf01d40d70c10",
+  "sourcePath": "packages/harness-sessions/test/fixtures/codex/rollout-2026-10-04T21-50-21-01a108e5-81d9-71b0-9cec-e5d33586604f.jsonl",
+  "sourceSHA256": "fe48e4c12549bf64035dba98acf469ca0d470cbbb63a82f98d64d0b69349646d",
+  "originalLines": 22,
+  "selectedOriginalLines": {
+    "first": 6,
+    "last": 22
+  },
+  "nativeSessionId": "01a108e5-81d9-71b0-9cec-e5d33586604f",
+  "capture": "Codex CLI talking to the offline trace-proof scripted HTTP model, 2026-10-04; no fresh inference",
+  "omitted": "initial metadata/instructions/environment records1-5; this is not a complete session capture",
+  "fixtureSHA256": "87f6c65737d3adf99a3740368714f36957d3057d15db039f043b7bc13251f8b9",
+  "fixtureBytes": 7866,
+  "redactionOwner": "@tangle-network/agent-eval/traces",
+  "installedOwnerVersion": "0.221.3",
+  "profile": "default",
+  "redactionCount": 0,
+  "shareVerdict": "SAFE_WITH_WARNINGS",
+  "limits": "privacy-reviewed deterministic proof text; not training eligibility or permission. Native IDs and tool linkage preserved."
+}

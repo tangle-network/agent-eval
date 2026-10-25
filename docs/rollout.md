@@ -13,7 +13,7 @@ Every invariant is enforced once, at the waist, so no sink can be reached by a p
 SOURCES                      WAIST                         SINKS
 RunRecord × trace   ─┐                          ┌─→ SFT chat JSONL        (toSftRows)
 opencode sqlite     ─┤                          ├─→ reward rows           (toRewardRows)
-Claude Code jsonl   ─┼─→  tangle.rollout.v1 ────┼─→ Prime Intellect       (toVerifiersRolloutOutputs)
+Claude/Codex jsonl   ─┼─→  tangle.rollout.v1 ────┼─→ Prime Intellect       (toVerifiersRolloutOutputs)
 domain backfills    ─┤     (RolloutLine)        ├─→ OpenAI RFT            (toRftItems)
 Harbor ATIF import  ─┘                          ├─→ DPO / GRPO / PRM       (rl exporters)
                                                 ├─→ HF dataset release    (buildHfDataset)
@@ -49,7 +49,7 @@ Where each invariant lives:
 | unmeasured ≠ zero, at the record door | mint | `mintRolloutRows` throws a `ValidationError` naming the run and EVERY field the line is built from that the record does not carry: `costProvenance`, `tokenUsage` (+ `.input` / `.output`), `outcome` (+ `.raw`), `terminalOutcome`, `scenarioId`. The first, third and fifth were OPTIONAL through 0.125, so a ledger written then is full of records the TYPE calls complete. Absent provenance used to mint `cost.usd: 0` — the documented uncaptured sentinel published as a measurement — and an absent `terminalOutcome` or `outcome.raw` still minted a claim about a run nobody observed. The door refuses rather than normalising, because `is_completed` has no null to fall back to and only the producer knows whether `costUsd: 0` meant free or unbilled. `unmintableReasons(record)` reports the same list without throwing |
 | capture gap is a finding | mint and exporters | A missing trace, last-LLM-context projection, capped middle steps, or incomplete provider attempt sets `provenance.gap`. Known lossy projections also set `provenance.lossy_projection: true`, which training sinks exclude. A gap line may still be reconstructed by a separate explicit source lookup. The canonical ledger keeps them for audit. |
 | attempt identity stays intact | mint | `provenance.search` retains the exact search cell attempt. Optional `evidenceOf(runId)` accepts a run-bound receipt and preserves every provider attempt, native session ID, process ID, outcome, and missing reason in `provenance.attempts`. A mismatched run ID or absent requested receipt is refused. |
-| native reader loss is visible | readers | Claude JSONL reports malformed lines in `gaps` and unknown token fields as `null`. OpenCode SQLite rejects malformed message or part JSON and leaves unavailable session usage as `null`. The raw source remains authoritative. |
+| native reader loss is visible | readers | Claude JSONL reports malformed lines in `gaps`; Codex retains source hashes, malformed/torn records and capture gaps in `integrity`. Unknown token fields remain `null`. OpenCode SQLite rejects malformed message or part JSON and leaves unavailable session usage as `null`. The raw source remains authoritative. |
 | scrub | release pipeline | `scrubLines` applies the 9 deterministic rules to every string before publication |
 
 ## Runtime capture receipts
@@ -101,7 +101,7 @@ Validation preserves source order and rejects duplicate pairs or missing ordinal
 | the gate checks themselves | `src/rollout/gate-checks.ts` | `GATE_CHECK_IDS`, `GATE_CHECKS`, `GATE_POLICIES`, `gateErrors(subject, policy)` — the one list every entry point draws from. The subject is the LINE (`{outcome, steps}`), not the outcome alone: a per-step reward is training signal and lives outside `outcome`. `readReward` / `payloadIsPopulated` are the total readers every check narrows through, so a value the gate cannot classify is refused rather than read as clean |
 | ledger file API | `src/rollout/ledger.ts` | `writeRolloutLedger`, `appendRolloutLines`, `readRolloutLedger` |
 | minting from records | `src/rollout/mint.ts` | `mintRolloutRows(records, traceStore)`: RunRecord joined to trace via shared `runId`. `unmintableReasons(record)`: the same door's refusals, reported without throwing |
-| harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project JSONL), `parseClaudeTranscript` (retained JSONL text) |
+| harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project JSONL), `parseClaudeTranscript` (retained JSONL text), `readCodexRollout` / `parseCodexRollout` (resolved Codex native file / retained text) |
 | interchange | `src/rollout/interchange/harbor.ts` | `toHarborTrajectory` / `toHarborTrajectories` / `fromHarborTrajectory` / `relabelImportedSplit` (Harbor ATIF-v1.7); all root-exported as well as on the `/rollout` subpath |
 | exporters | `src/rollout/exporters.ts` | `toSftRows`, `toRewardRows`, `toVerifiersRolloutOutputs` (Prime Intellect), `toRftItems` (OpenAI RFT), `toJsonl` |
 | RL exporters | `src/rl/exporters.ts` | `toDpoRows`, `toGrpoRows`, `toSftRows`, `toPrmRows`; all training inputs are `MintedRolloutLine[]` or line-referenced artifacts with explicit line context |
@@ -217,3 +217,30 @@ It returns the same messages, tool calls/results, usage and source gaps as `read
 Set `includeSidechain: true` when reading a native subagent transcript.
 The caller retains the original bytes and verifies their artifact identity before parsing.
 This parser does not read CAS, store another copy, redact content or establish capture completeness.
+
+### Read retained Codex rollouts
+
+`readCodexRollout(path, options)` and `parseCodexRollout(raw, source, options)` from
+`@tangle-network/agent-eval/rollout` use the existing `harness-sessions` Codex
+reader and chat projection. `source` is that reader's `SessionInputInit`: retain
+the known native session ID and artifact label when reading an in-memory copy.
+Both paths preserve source hashes, parse gaps, truncation, parent identity and
+the SDK's inferred ending in `integrity` / `ending`. An inferred ending is not
+independent proof that a task succeeded or that the capture is complete.
+
+`usage` is the SDK's normalized session usage, whose cumulative counter wins
+over per-response sums. Its `input` excludes `cached_input_tokens`; separately
+reported cache counts and unknown channels pass through unchanged. No dollar
+price is invented. Codex's
+`turn_context` records a configured model, so `requestedModel` retains it while
+`model` stays null unless the source establishes a provider/session response.
+`modelSource` states that distinction.
+
+Resolve recent sessions from their live stores and older artifacts through the
+existing trace-archive session catalog and its `archive.py restore --path …
+--target …` path into owner-approved scratch on `/mnt/traces`. The caller owns
+that resolution and custody; these readers only accept a named file or text,
+never crawl an archive or create another store. Keep original artifact identity
+and review redaction before sharing. Feed the returned messages through the
+existing rollout mint/ledger APIs; the reader supplies no reward, split,
+training eligibility or permission to export Claude/Codex data for training.
