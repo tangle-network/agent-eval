@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Preserve unknown and partial token usage when importing OTLP run records; keep measured subtotals and failed-call counts with `tokensKnown: false`.
+
 ## [0.221.5] — 2026-10-25
 
 - ci: retain private adopter failure evidence (#1106)
