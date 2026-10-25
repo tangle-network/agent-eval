@@ -17,7 +17,8 @@ Claude/Codex jsonl   ─┼─→  tangle.rollout.v1 ────┼─→ Prime
 domain backfills    ─┤     (RolloutLine)        ├─→ OpenAI RFT            (toRftItems)
 Harbor ATIF import  ─┘                          ├─→ DPO / GRPO / PRM       (rl exporters)
                                                 ├─→ HF dataset release    (buildHfDataset)
-                                                └─→ Harbor ATIF export    (toHarborTrajectory)
+                                                ├─→ Harbor ATIF export    (toHarborTrajectory)
+                                                └─→ Tinker Datums         (toTinkerDatumRows)
 ```
 
 A source's job is to produce a `RolloutLine` and nothing else.
@@ -104,6 +105,7 @@ Validation preserves source order and rejects duplicate pairs or missing ordinal
 | harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project JSONL), `parseClaudeTranscript` (retained JSONL text), `readCodexRollout` / `parseCodexRollout` (resolved Codex native file / retained text) |
 | interchange | `src/rollout/interchange/harbor.ts` | `toHarborTrajectory` / `toHarborTrajectories` / `fromHarborTrajectory` / `relabelImportedSplit` (Harbor ATIF-v1.7); all root-exported as well as on the `/rollout` subpath |
 | exporters | `src/rollout/exporters.ts` | `toSftRows`, `toRewardRows`, `toVerifiersRolloutOutputs` (Prime Intellect), `toRftItems` (OpenAI RFT), `toJsonl` |
+| Tinker sink | `src/rollout/tinker.ts` | `toTinkerDatumRows`: captured tokens/logprobs to existing Tinker Datum, no training loop |
 | RL exporters | `src/rl/exporters.ts` | `toDpoRows`, `toGrpoRows`, `toSftRows`, `toPrmRows`; all training inputs are `MintedRolloutLine[]` or line-referenced artifacts with explicit line context |
 | release pipeline | `src/rollout/release/` | `scrubLines` (9 deterministic rules), `buildDatasetCard`, `buildHfDataset`, CLI `agent-eval rollout-release … [--push org/name]` |
 
@@ -244,3 +246,35 @@ never crawl an archive or create another store. Keep original artifact identity
 and review redaction before sharing. Feed the returned messages through the
 existing rollout mint/ledger APIs; the reader supplies no reward, split,
 training eligibility or permission to export Claude/Codex data for training.
+
+## Tinker RL Datums
+
+`toTinkerDatumRows` on `/rollout` consumes canonical minted lines and captured
+`llm` steps. It emits Tinker's existing text-only `Datum` shape with exactly
+`target_tokens`, `logprobs`, and `advantages`, shifted by one token and masked on
+prompt positions. Its attribution envelope keeps rollout/run/task/step identity;
+only `row.datum` belongs in the external SDK request.
+
+Tinker owns sampling, forward/backward and optimizer updates. The caller supplies
+an explicit advantage function and matching offline token decoder. Eval does not
+fetch credentials, install Tinker, start environments, re-tokenize text, invent
+sampling logprobs or train. Unknown reward is excluded; a completed honest zero
+or negative reward is retained. Gated, lossy, errored and incomplete rows are
+excluded. Search is eligible; held-out data requires the existing explicit
+opt-in. Dev/canary do not enter this training sink.
+
+Missing, empty or misaligned token data, multi-call steps, copied context without
+a captured token mask, duplicate rollout IDs and model mismatch refuse the batch.
+The existing scrub/share-safety owners check recorded text and decoded tokens.
+Content requiring changes is refused: redacting text while transmitting its
+original token IDs would leak the removed content and corrupt alignment.
+
+The [scripted Harbor recipe](../examples/tinker-rollouts/) runs only through the
+caller's admitted executor and existing Harbor adapter/verifier. Scripted actions
+have no sampled model logprobs and produce no training Datums. Twenty metadata
+candidates are not20 runnable environments; unavailable actual environments leave
+the requested dry run blocked. The recipe and loopback proof are not a claim of
+paid Tinker qualification or an executed20-environment campaign.
+
+See Tinker's official [loss layout](https://tinker-docs.thinkingmachines.ai/tinker/losses/)
+and [Datum API](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/datum/).
