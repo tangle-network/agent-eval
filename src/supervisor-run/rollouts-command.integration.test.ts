@@ -214,6 +214,7 @@ describe('supervisor-run rollouts', () => {
     expect(code).toBe(0)
     const summary = JSON.parse(stdout.join(''))
     expect(summary.dropped['api-key']).toBe(1)
+    expect(summary.sources[0]).toMatchObject({ kind: 'run-dir', read: 2, written: 2 })
 
     const lines = await readRolloutJournal(out)
     expect(summary.written).toBe(lines.length)
