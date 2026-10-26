@@ -136,6 +136,9 @@ async function discoveryRun(): Promise<string> {
       'user.name=fixture',
       '-c',
       'user.email=fixture@example.com',
+      // A throwaway fixture repo: the host's global commit hooks guard real work, not this.
+      '-c',
+      'core.hooksPath=/dev/null',
       ...args,
     ])
   await mkdir(repo)
