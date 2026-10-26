@@ -185,8 +185,9 @@ function entropy(token: string): number {
 }
 
 // 32+ chars mixing upper, lower and digits at over 4.3 bits/char: random keys,
-// not hex digests (at most 4 bits/char), identifiers or paths.
-const ENTROPY_TOKEN = /[A-Za-z0-9+/=_-]{32,}/g
+// not hex digests (at most 4 bits/char) or identifiers. `/` and `.` end a token, so
+// a path is judged segment by segment: a whole mixed-case temp path read as one key.
+const ENTROPY_TOKEN = /[A-Za-z0-9+=_-]{32,}/g
 const highEntropy = (text: string): boolean => {
   for (const [token] of text.matchAll(ENTROPY_TOKEN)) {
     if (/[A-Z]/.test(token) && /[a-z]/.test(token) && /\d/.test(token) && entropy(token) > 4.3) {
