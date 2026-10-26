@@ -115,7 +115,8 @@ async function discoveryRun(): Promise<string> {
         known: true,
         exitCode: 2,
         commit: 'c'.repeat(40),
-        detail: 'SCORE {"stage":"hidden","reached":3,"of":6}',
+        detail:
+          'SCORE {"stage":"keys","reached":4,"of":6}\nNOT SOLVED: the keys stage refused {"a":1}',
       },
       {
         at: at(5),
@@ -222,7 +223,7 @@ describe('supervisor-run rollouts', () => {
 
     const root = byId.get(ROOT)!
     expect(root.task.suite).toBe('discovery/spec-build')
-    expect(root.outcome.reward).toBe(0.5)
+    expect(root.outcome.reward).toBe(0.5) // failed at stage 4 of 6: 3 passed
     expect(root.outcome.reward_source).toBe('discovery/play-check')
     expect(root.policy).toMatchObject({
       harness: 'opencode',

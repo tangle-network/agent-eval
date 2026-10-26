@@ -10,7 +10,7 @@
  *     between them are not inlined, so the row stays a lossy projection.
  *   - A node respawned under the same id (a reopened run) is one row.
  *   - Reward: the run's newest known play-check verdict on the root row
- *     (`solved` → 1, a staged `SCORE` → stages reached / stages), and each
+ *     (`solved` → 1, a staged `SCORE` → stages passed / stages), and each
  *     agent's own commits on its `workers/<label>` branch of `deliverables.git`.
  *
  * Every read is of files the run already wrote; nothing in the run dir is
@@ -126,7 +126,9 @@ export interface PlayCheckReward {
 
 /**
  * The newest play-check row whose verdict is known. A staged check
- * (`SCORE {"reached": r, "of": n}`) earns r/n short of a solve.
+ * (`SCORE {"reached": r, "of": n}`) that is not solved failed at stage r, so it
+ * passed r − 1 of n: Discovery's own `stagesPassed` (runner/calibration.mjs).
+ * Only the SCORE line itself is parsed; the check prints more lines after it.
  */
 export async function discoveryPlayCheckReward(runDir: string): Promise<PlayCheckReward | null> {
   const rows: Record<string, unknown>[] = []
@@ -151,13 +153,20 @@ export async function discoveryPlayCheckReward(runDir: string): Promise<PlayChec
   if (last === undefined) return null
   const detail = typeof last.detail === 'string' ? last.detail : ''
   let reward = last.solved === true ? 1 : 0
-  const score = /^SCORE (\{.*\})/su.exec(detail)
-  if (reward === 0 && score) {
+  const score = detail.split('\n').find((line) => line.startsWith('SCORE {'))
+  if (reward === 0 && score !== undefined) {
     try {
-      const staged = record(JSON.parse(score[1]!))
+      const staged = record(JSON.parse(score.slice('SCORE '.length)))
       const reached = staged?.reached
       const of = staged?.of
-      if (typeof reached === 'number' && typeof of === 'number' && of > 0) reward = reached / of
+      if (
+        Number.isSafeInteger(reached) &&
+        Number.isSafeInteger(of) &&
+        1 <= (reached as number) &&
+        (reached as number) <= (of as number)
+      ) {
+        reward = ((reached as number) - 1) / (of as number)
+      }
     } catch {}
   }
   return {
