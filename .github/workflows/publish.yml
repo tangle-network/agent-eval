@@ -82,13 +82,13 @@ jobs:
       - name: Typecheck JS
         run: pnpm typecheck
 
-      - name: Test JS
-        run: pnpm test
-
       - name: Build JS and emit OpenAPI spec
         env:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm build
+
+      - name: Test JS
+        run: pnpm test
 
       - name: Verify packed package exports
         run: pnpm run verify:package
