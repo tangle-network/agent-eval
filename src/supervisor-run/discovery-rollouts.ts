@@ -189,8 +189,12 @@ async function deliverableCommits(runDir: string): Promise<Map<string, number> |
     .catch(() => '')
   const counts = new Map<string, number>()
   for (const ref of refs) {
-    const { stdout } = await git(['rev-list', '--count', ref, ...(base ? [`^${base}`] : [])])
-    counts.set(ref.slice('workers/'.length), Number(stdout.trim()))
+    // A damaged archive (an empty object file) leaves the metric unknown; the run's other rows still import.
+    const counted = await git(['rev-list', '--count', ref, ...(base ? [`^${base}`] : [])]).catch(
+      () => null,
+    )
+    if (counted === null) return null
+    counts.set(ref.slice('workers/'.length), Number(counted.stdout.trim()))
   }
   return counts
 }
@@ -200,6 +204,8 @@ export interface DiscoveryRunRollouts {
   pursuit: string
   lines: RolloutLine[]
   gaps: SupervisorRunTreeGap[]
+  /** Discovery facts this read could not recover, one sentence each. */
+  notes: string[]
 }
 
 /** Read one Discovery run directory into rollout rows. */
@@ -276,5 +282,8 @@ export async function discoveryRunRolloutLines(
       },
     })
   }
-  return { runDir, pursuit, lines, gaps: [...tree.gaps] }
+  const notes = commits === null ? ['deliverables.git unreadable: deliverable_commits is null'] : []
+  // The play-check is the root's reward, so the tree's "no judge verdict" gap no longer holds.
+  const gaps = tree.gaps.filter((gap) => check === null || gap.code !== 'root-reward-unavailable')
+  return { runDir, pursuit, lines, gaps, notes }
 }
