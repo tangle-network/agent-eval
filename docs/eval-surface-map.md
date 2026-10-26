@@ -155,6 +155,10 @@ The receipt records the stage (`dispatch` or `judge`), the serialized error, the
 `abortOnCellError: true` stops the campaign on the first failed cell; the default keeps the remaining schedule running and returns the failed cell.
 
 `cellRetry: { attempts, retryable }` opts in to bounded in-run retry.
+An optional `retryResult(artifact)` retries a measured failed result without turning it into a dispatch error.
+Each attempt retains its artifact; only the final attempt enters the result and reusable cache.
+Use `onCellSettled(cell, scenario)` for completion-order progress after each final cell is persisted, including cache hits.
+Campaign cancellation returns the settled prefix after active dispatches drain; dispatch or accounting failures still reject.
 A failed attempt that `retryable` accepts is dispatched again in the same slot (same `cellId`, same seed) until it succeeds or `attempts` is exhausted.
 Use `transientDispatchFailure()` as the predicate to retry only dispatch-stage transport failures (502/503/504, dropped streams, admission rejections) and never judge-stage failures.
 Every attempt charges the shared cost ledger, so the final cell's `costUsd` and `costCallIds` cover all attempts.
