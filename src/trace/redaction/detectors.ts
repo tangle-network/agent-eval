@@ -229,9 +229,25 @@ export function classifyKey(key: string): SafetyCategory | undefined {
 
 // ── Value detectors ──────────────────────────────────────────────────────
 
-interface ValueDetector {
-  id: string
-  pattern: RegExp
+export interface ValueDetector {
+  readonly id: string
+  readonly pattern: RegExp
+  readonly requires?: string
+  readonly accept?: (match: string) => boolean
+}
+
+/** Stateless matches in catalog order. Named `secret` groups preserve JSON and assignment syntax. */
+export function* matchValueDetector(
+  text: string,
+  detector: ValueDetector,
+): Generator<{ start: number; end: number }> {
+  if (detector.requires && !text.includes(detector.requires)) return
+  const flags = [...new Set(`${detector.pattern.flags}gd`)].join('')
+  for (const match of text.matchAll(new RegExp(detector.pattern.source, flags))) {
+    if (detector.accept && !detector.accept(match[0])) continue
+    const [start, end] = match.indices!.groups?.secret ?? match.indices![0]!
+    yield { start, end }
+  }
 }
 
 /**
@@ -249,19 +265,27 @@ interface ValueDetector {
  * meaningful new false positives (`scripts/redaction-corpus.json` covers
  * both).
  */
-const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
-  { id: 'private-key', pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/ },
+export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
+  {
+    id: 'private-key',
+    pattern: /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[^"'`]*?(?:-----END \1-----|(?=["'`]|$))/,
+  },
   { id: 'jwt', pattern: /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/ },
   { id: 'bearer', pattern: /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/i },
   {
     id: 'authorization-header',
     pattern: /^\s*(?:basic|digest|apikey)\s+[A-Za-z0-9._~+/=:-]{8,}\s*$/i,
   },
-  { id: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{16,}/ },
+  { id: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{8,}/ },
+  { id: 'tangle-key', pattern: /sk-tan-[A-Za-z0-9_-]{8,}/ },
+  { id: 'gtm-operator-key', pattern: /gak_[A-Za-z0-9_-]{8,}/ },
+  { id: 'agent-app-key', pattern: /lak_[A-Za-z0-9_-]{8,}/ },
+  { id: 'platform-labs-key', pattern: /plabs_[A-Za-z0-9_-]{8,}/ },
+  { id: 'stripe-webhook-secret', pattern: /whsec_[A-Za-z0-9]{8,}/ },
   { id: 'provider-key', pattern: /sk-(?:proj-|tan-)?[A-Za-z0-9_-]{16,}/ },
-  { id: 'stripe-key', pattern: /(?:sk|rk)_(?:live|test)_[A-Za-z0-9_]{10,}/ },
+  { id: 'stripe-key', pattern: /(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9_]{8,}/ },
   { id: 'google-api-key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
-  { id: 'github-token', pattern: /(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/ },
+  { id: 'github-token', pattern: /(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})/ },
   { id: 'slack-token', pattern: /xox[abeoprs]-[A-Za-z0-9-]{10,}/ },
   { id: 'aws-access-key', pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
   { id: 'tangle-capability', pattern: /(?:hubcap_|hct_)[A-Za-z0-9_=-]{8,}/ },
@@ -272,12 +296,12 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // measured before this fix (scratchpad/rv/before.ts). A real URL's scheme
     // and userinfo are always far under these bounds.
     id: 'url-credentials',
-    pattern: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/:@]{1,512}:[^\s/@]{1,512}@/i,
+    pattern: /\b[a-z][a-z0-9+.-]{0,31}:\/\/(?<secret>[^\s/:@]{1,512}:[^\s/@]{1,512})@/i,
   },
   {
     id: 'url-secret-param',
     pattern:
-      /[?&](?:access_token|api_key|apikey|auth|token|secret|password|sig|signature|x-amz-signature|x-goog-signature)=[^&\s"'#)]{8,}/i,
+      /[?&](?:access_token|api_key|apikey|auth|token|secret|password|sig|signature|x-amz-signature|x-goog-signature)=(?<secret>[^&\s"'#)]{8,})/i,
   },
   {
     // `GH_TOKEN=…`, `--api-key=…`, `"client_secret": "…"`, `password: …` in free
@@ -292,7 +316,7 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // 512 chars.
     id: 'secret-assignment',
     pattern:
-      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])[^\s"'`,;&|]{12,512}/i,
+      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])(?<secret>[^\s"'`,;&|]{12,512})/i,
   },
   {
     // `{"password": "hunter2"}` or `'client_secret': '…'` inside serialized
@@ -303,7 +327,7 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // prose with two or more spaces (a field description) do not match.
     id: 'json-secret',
     pattern:
-      /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )[^"'\r\n]{3,}["']/i,
+      /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )(?<secret>[^"'\r\n]{3,})["']/i,
   },
   {
     // `DB_PASSWORD=CorrectHorseBatteryStaple`, `PGPASSWORD=postgres`: unlike
@@ -314,7 +338,7 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // `TOKEN_EXPIRY=…` (the word isn't the end of the name) do not match.
     id: 'env-secret-assignment',
     pattern:
-      /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)[^\s"'`,;&|]{4,}/,
+      /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)(?<secret>[^\s"'`,;&|]{4,})/,
   },
   // Bare-key shapes not covered above. Each requires a distinctive prefix so
   // it does not fire on ordinary identifiers — same reasoning as the
@@ -332,16 +356,30 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
   {
     // `Cookie: sessionid=…; csrftoken=…` in free text or a captured header.
     id: 'cookie-header',
-    pattern: /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\r\n]{3,})*/i,
+    pattern:
+      /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\s"'\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\s"'\r\n]{3,})*/i,
   },
 ]
 
-/** Personal-data shapes, replaced in place so the surrounding text survives. */
-export const PERSONAL_DATA_DETECTORS: readonly (ValueDetector & {
-  /** A substring the text must contain before the pattern runs. */
-  requires?: string
-  accept?: (match: string) => boolean
-})[] = [
+// UUIDs are consumed whole before numeric gaps, so adjacent phone digits remain visible.
+const NUMERIC_PRIVACY =
+  /(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_-])\+?\d[\d\s().-]{8,}\d(?![A-Za-z0-9_])/gi
+
+function numericPrivacyKind(value: string): 'card-number' | 'phone' | undefined {
+  // Complete UUIDs, decimal costs and bare epoch seconds/milliseconds are not contact details.
+  if (
+    /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ||
+    /\d\.\d{5,}/.test(value) ||
+    /^1\d{9}(?:\d{3})?$/.test(value)
+  )
+    return
+  const digits = value.replace(/\D/g, '')
+  if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) return 'card-number'
+  if (digits.length >= 10 && digits.length <= 15) return 'phone'
+}
+
+/** Ordered personal-data rules; callbacks share the same numeric classification and Luhn owner. */
+export const PERSONAL_DATA_DETECTORS: readonly ValueDetector[] = [
   {
     id: 'email',
     requires: '@',
@@ -349,28 +387,17 @@ export const PERSONAL_DATA_DETECTORS: readonly (ValueDetector & {
     accept: isEmailAddress,
   },
   {
-    // Card numbers: a card-network prefix and a valid Luhn digit, written
-    // unbroken (13-19 digits) or in printed groups (4-4-4-4, 4-4-4-4-3, Amex
-    // 4-6-5). A word character or hyphen on either side rejects the match, so
-    // digits inside UUIDs, dated file names and hyphenated ids never match.
     id: 'card-number',
-    pattern:
-      /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g,
-    accept: (match) => {
-      const digits = match.replace(/[ -]/g, '')
-      return CARD_PREFIX.test(digits) && luhnValid(digits)
-    },
+    pattern: NUMERIC_PRIVACY,
+    accept: (value) => numericPrivacyKind(value) === 'card-number',
   },
   { id: 'ssn', pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
   {
-    // Separators are required: a bare ten-digit run is usually an epoch second or an id.
     id: 'phone',
-    pattern: /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g,
+    pattern: NUMERIC_PRIVACY,
+    accept: (value) => numericPrivacyKind(value) === 'phone',
   },
 ]
-
-/** Visa, Mastercard, Amex, Diners, JCB, Discover and UnionPay issuer prefixes. */
-const CARD_PREFIX = /^(?:4|5[1-5]|2[2-7]|3[04-9]|6(?:011|4[4-9]|5|2))/
 
 /**
  * Top-level domains that are file extensions: `icon@2x.png`, `worker@3.service`
@@ -444,18 +471,9 @@ export function detectCredential(text: string): string | undefined {
 
 /** Personal-data detector ids that match somewhere in `text`. */
 export function detectPersonalData(text: string): string[] {
-  const hits: string[] = []
-  for (const detector of PERSONAL_DATA_DETECTORS) {
-    if (detector.requires && !text.includes(detector.requires)) continue
-    detector.pattern.lastIndex = 0
-    for (const match of text.matchAll(detector.pattern)) {
-      if (!detector.accept || detector.accept(match[0])) {
-        hits.push(detector.id)
-        break
-      }
-    }
-  }
-  return hits
+  return PERSONAL_DATA_DETECTORS.filter(
+    (detector) => !matchValueDetector(text, detector).next().done,
+  ).map((detector) => detector.id)
 }
 
 /**

@@ -1,6 +1,7 @@
 # Redaction and share safety
 
-`@tangle-network/agent-eval/traces` owns the one redaction core for the Tangle agent stack.
+`@tangle-network/agent-eval/redaction` publishes the redaction core and ordered detector catalog.
+Existing `@tangle-network/agent-eval/traces` imports continue to use this same implementation.
 agent-runtime, traces and run-capsule import it instead of keeping their own patterns.
 The source is `src/trace/redact.ts`.
 
@@ -63,3 +64,19 @@ A number under a credential name survives, because it is a limit or a count.
 `pnpm redaction:corpus` runs the core over every case and exits 1 on any miss.
 Add a case whenever a real trace shows a false positive or a leak.
 The corpus includes the agent-inspect safety corpus (MIT, commit 3c3cbeda) with its notice.
+
+## Substring consumers
+
+Import `CREDENTIAL_DETECTORS`, `PERSONAL_DATA_DETECTORS` and `matchValueDetector` from
+`@tangle-network/agent-eval/redaction`. Visit the catalogs in order. For each detector,
+match the current text, replace its ranges from right to left, then continue with the next
+detector. The iterator clones regex state, honors the detector's shared accept callback,
+and returns secret-only ranges for serialized credential fields. It never returns matched
+values. This preserves JSON syntax and citations; `redactText` keeps its conservative
+whole-string credential behavior.
+
+The catalog owns credential thresholds, numeric classification and Luhn validation.
+Numeric scanning consumes UUIDs before scanning their gaps and preserves decimal costs,
+ISO times and bare epoch seconds/milliseconds. It also covers bare and suffixed phones
+and cards. Local denylist loading, fuzzy matching, counters and post-redaction rescan/refusal
+remain the consumer's responsibility. A catalog match alone is not a share-safety verdict.

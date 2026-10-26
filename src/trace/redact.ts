@@ -44,6 +44,13 @@ import {
   PERSONAL_DATA_DETECTORS,
 } from './redaction/detectors'
 
+export {
+  CREDENTIAL_DETECTORS,
+  matchValueDetector,
+  PERSONAL_DATA_DETECTORS,
+  type ValueDetector,
+} from './redaction/detectors'
+
 export type RedactionProfile = 'default' | 'share' | 'strict'
 
 export const REDACTION_PROFILES: readonly RedactionProfile[] = ['default', 'share', 'strict']
@@ -56,7 +63,7 @@ export type SafetyCategory = 'credential' | 'personal-data' | 'identifier' | 'ra
  * redaction behavior (saved optimizer inputs, per-span redaction stamps) keys
  * on it, so bump it whenever a detector, key list, cap or marker changes.
  */
-export const REDACTION_VERSION = '2.4.0'
+export const REDACTION_VERSION = '2.5.0'
 
 export interface RedactionFinding {
   /** JSON Pointer (RFC 6901) to the value or key that was changed. */
