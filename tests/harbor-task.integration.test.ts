@@ -215,10 +215,8 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
     expect(dockerfile).not.toContain(fixture.options.mergeCommit)
     expect(dockerfile).toContain('COPY --chmod=0444 base.bundle /tmp/base.bundle\n')
     expect(dockerfile).not.toContain('rm /tmp/base.bundle')
-    // Real nonroot filesystem/Git boundary without changing identities or requiring Docker.
-    // This exercises the generated RUN; Docker ownership/sticky-dir semantics remain a
-    // separate native image-build proof, not a claim from this same-UID fixture.
-    expect(process.geteuid?.()).toBeGreaterThan(0)
+    // Execute the generated RUN as the configured test user; root is a valid runner.
+    // Actual unprivileged permission checks run after all verifier/admission assertions.
     const sourceBundle = join(taskDir, 'environment/base.bundle')
     expect((await stat(sourceBundle)).mode & 0o777).toBe(0o600)
     const imageBundle = join(fixture.root, 'image-base.bundle')
@@ -248,14 +246,6 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       ]),
     ).rejects.toThrow()
     expect((await stat(imageBundle)).mode & 0o777).toBe(0o444)
-    expect(await readFile(imageBundle)).toEqual(await readFile(sourceBundle))
-    await expect(
-      command(fixture.root, process.execPath, [
-        '-e',
-        'require("node:fs").openSync(process.argv[1], "w")',
-        imageBundle,
-      ]),
-    ).rejects.toThrow('EACCES')
     expect(await readFile(imageBundle)).toEqual(await readFile(sourceBundle))
     const rewards = join(fixture.root, 'reward-output')
     const adapter = createHarborBenchmarkAdapter<string>({
@@ -398,5 +388,40 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       }),
     ).rejects.toThrow('changed during verification')
     await expect(readFile(join(changed, 'task.toml'))).rejects.toThrow()
+
+    // Separate owned /tmp fixture: a private runner TMPDIR may have root-only ancestors.
+    // Only this shell child drops to nobody when the runner itself is root; no Git,
+    // parent identity/configuration, ownership or provider state is changed.
+    const permissionDir = await mkdtemp('/tmp/eval-harbor-permissions-')
+    try {
+      await chmod(permissionDir, 0o755)
+      const permissionBundle = join(permissionDir, 'base.bundle')
+      await copyFile(sourceBundle, permissionBundle)
+      await chmod(permissionBundle, 0o444)
+      const { stdout } = await execute(
+        '/bin/sh',
+        [
+          '-c',
+          [
+            'set -eu',
+            'IFS= read -r header < "$1"',
+            'printf "%s\\n" "$header"',
+            'if (exec 3<> "$1") 2>/dev/null; then exit 99; fi',
+          ].join('\n'),
+          'harbor-bundle-permission',
+          permissionBundle,
+        ],
+        {
+          cwd: permissionDir,
+          timeout: 10_000,
+          maxBuffer: 1024,
+          ...(process.geteuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
+        },
+      )
+      expect(stdout.trim()).toBe((await readFile(sourceBundle, 'utf8')).split('\n')[0])
+      expect(await readFile(permissionBundle)).toEqual(await readFile(sourceBundle))
+    } finally {
+      await rm(permissionDir, { recursive: true, force: true })
+    }
   }, 60_000)
 })
