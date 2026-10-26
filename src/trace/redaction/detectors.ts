@@ -229,22 +229,34 @@ export function classifyKey(key: string): SafetyCategory | undefined {
 
 // ── Value detectors ──────────────────────────────────────────────────────
 
+export interface ValueDetectorOptions {
+  /** Conservative scanning treats untyped bare numbers as private; formatted preserves the core's existing policy. */
+  numericPolicy?: 'formatted' | 'conservative'
+}
+
 export interface ValueDetector {
   readonly id: string
   readonly pattern: RegExp
   readonly requires?: string
-  readonly accept?: (match: string) => boolean
+  readonly substringPattern?: RegExp
+  readonly conservativePattern?: RegExp
+  readonly accept?: (match: string, options?: ValueDetectorOptions) => boolean
 }
 
-/** Stateless matches in catalog order. Named `secret` groups preserve JSON and assignment syntax. */
+/** Stateless UTF-16 ranges for String.slice. Named `secret` groups preserve surrounding syntax. */
 export function* matchValueDetector(
   text: string,
   detector: ValueDetector,
+  options: ValueDetectorOptions = {},
 ): Generator<{ start: number; end: number }> {
   if (detector.requires && !text.includes(detector.requires)) return
-  const flags = [...new Set(`${detector.pattern.flags}gd`)].join('')
-  for (const match of text.matchAll(new RegExp(detector.pattern.source, flags))) {
-    if (detector.accept && !detector.accept(match[0])) continue
+  const pattern =
+    options.numericPolicy === 'conservative'
+      ? (detector.conservativePattern ?? detector.substringPattern ?? detector.pattern)
+      : (detector.substringPattern ?? detector.pattern)
+  const flags = [...new Set(`${pattern.flags}gd`)].join('')
+  for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+    if (detector.accept && !detector.accept(match[0], options)) continue
     const [start, end] = match.indices!.groups?.secret ?? match.indices![0]!
     yield { start, end }
   }
@@ -356,8 +368,9 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
   {
     // `Cookie: sessionid=…; csrftoken=…` in free text or a captured header.
     id: 'cookie-header',
-    pattern:
-      /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\s"'\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\s"'\r\n]{3,})*/i,
+    pattern: /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\r\n]{3,})*/i,
+    substringPattern:
+      /\bcookie\s*:\s*(?<secret>[A-Za-z0-9_-]+=(?:(?<quote>\\?")[^\r\n]*?\k<quote>|[^;\s"'\r\n]{3,})(?:;\s*[A-Za-z0-9_-]+=(?:(?<quote2>\\?")[^\r\n]*?\k<quote2>|[^;\s"'\r\n]{3,}))*)/i,
   },
 ]
 
@@ -365,20 +378,29 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
 const NUMERIC_PRIVACY =
   /(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_-])\+?\d[\d\s().-]{8,}\d(?![A-Za-z0-9_])/gi
 
-function numericPrivacyKind(value: string): 'card-number' | 'phone' | undefined {
-  // Complete UUIDs, decimal costs and bare epoch seconds/milliseconds are not contact details.
+function numericPrivacyKind(
+  value: string,
+  options: ValueDetectorOptions = {},
+): 'card-number' | 'phone' | undefined {
   if (
     /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ||
-    /\d\.\d{5,}/.test(value) ||
-    /^1\d{9}(?:\d{3})?$/.test(value)
+    /^\d*\.\d+$/.test(value) ||
+    /\d\.\d{5,}/.test(value)
   )
     return
   const digits = value.replace(/\D/g, '')
-  if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) return 'card-number'
+  const conservative = options.numericPolicy === 'conservative'
+  if (
+    digits.length >= 13 &&
+    digits.length <= 19 &&
+    (conservative || CARD_PREFIX.test(digits)) &&
+    luhnValid(digits, conservative)
+  )
+    return 'card-number'
   if (digits.length >= 10 && digits.length <= 15) return 'phone'
 }
 
-/** Ordered personal-data rules; callbacks share the same numeric classification and Luhn owner. */
+/** Ordered rules. Conservative numeric scanning is explicit; core patterns keep their existing defaults. */
 export const PERSONAL_DATA_DETECTORS: readonly ValueDetector[] = [
   {
     id: 'email',
@@ -388,16 +410,21 @@ export const PERSONAL_DATA_DETECTORS: readonly ValueDetector[] = [
   },
   {
     id: 'card-number',
-    pattern: NUMERIC_PRIVACY,
-    accept: (value) => numericPrivacyKind(value) === 'card-number',
+    pattern:
+      /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g,
+    conservativePattern: NUMERIC_PRIVACY,
+    accept: (value, options) => numericPrivacyKind(value, options) === 'card-number',
   },
   { id: 'ssn', pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
   {
     id: 'phone',
-    pattern: NUMERIC_PRIVACY,
-    accept: (value) => numericPrivacyKind(value) === 'phone',
+    pattern: /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g,
+    conservativePattern: NUMERIC_PRIVACY,
+    accept: (value, options) => numericPrivacyKind(value, options) === 'phone',
   },
 ]
+
+const CARD_PREFIX = /^(?:4|5[1-5]|2[2-7]|3[04-9]|6(?:011|4[4-9]|5|2))/
 
 /**
  * Top-level domains that are file extensions: `icon@2x.png`, `worker@3.service`
@@ -445,8 +472,8 @@ function isEmailAddress(match: string): boolean {
   return !NON_EMAIL_TLDS.has(tld)
 }
 
-function luhnValid(digits: string): boolean {
-  if (/^(\d)\1+$/.test(digits)) return false
+function luhnValid(digits: string, allowRepeated = false): boolean {
+  if (!allowRepeated && /^(\d)\1+$/.test(digits)) return false
   let sum = 0
   let double = false
   for (let index = digits.length - 1; index >= 0; index -= 1) {

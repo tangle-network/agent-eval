@@ -49,6 +49,7 @@ export {
   matchValueDetector,
   PERSONAL_DATA_DETECTORS,
   type ValueDetector,
+  type ValueDetectorOptions,
 } from './redaction/detectors'
 
 export type RedactionProfile = 'default' | 'share' | 'strict'

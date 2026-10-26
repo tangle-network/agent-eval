@@ -69,14 +69,16 @@ The corpus includes the agent-inspect safety corpus (MIT, commit 3c3cbeda) with 
 
 Import `CREDENTIAL_DETECTORS`, `PERSONAL_DATA_DETECTORS` and `matchValueDetector` from
 `@tangle-network/agent-eval/redaction`. Visit the catalogs in order. For each detector,
-match the current text, replace its ranges from right to left, then continue with the next
+match the current text with `{ numericPolicy: 'conservative' }`, replace its UTF-16 ranges
+from right to left, then continue with the next
 detector. The iterator clones regex state, honors the detector's shared accept callback,
 and returns secret-only ranges for serialized credential fields. It never returns matched
 values. This preserves JSON syntax and citations; `redactText` keeps its conservative
 whole-string credential behavior.
 
 The catalog owns credential thresholds, numeric classification and Luhn validation.
-Numeric scanning consumes UUIDs before scanning their gaps and preserves decimal costs,
-ISO times and bare epoch seconds/milliseconds. It also covers bare and suffixed phones
-and cards. Local denylist loading, fuzzy matching, counters and post-redaction rescan/refusal
+Conservative scanning consumes UUIDs before scanning their gaps and preserves complete
+decimal costs and ISO times. Every untyped bare number in the contact-number range is
+private; a prefix alone is not evidence of an epoch. Core redaction keeps its existing
+formatted-number defaults. Both policies use the same classification and Luhn owner. Local denylist loading, fuzzy matching, counters and post-redaction rescan/refusal
 remain the consumer's responsibility. A catalog match alone is not a share-safety verdict.
