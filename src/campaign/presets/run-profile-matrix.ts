@@ -59,7 +59,7 @@ import {
   UNKNOWN_MODEL,
   validateRunRecord,
 } from '../../run-record'
-import { mean } from '../../statistics/mean'
+import { mean, meanOrNull } from '../../statistics/mean'
 import { computeManifestHash } from '../campaign-manifest'
 import { runCampaign } from '../run-campaign'
 import { campaignCellToRunRecord } from '../run-record'
@@ -672,10 +672,6 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
  *  it is not a training input. */
 function scoreOf(r: RunRecord): number | undefined {
   return runTaskScore(r)
-}
-
-function meanOrNull(values: number[]): number | null {
-  return values.length === 0 ? null : mean(values)
 }
 
 function rollup(
