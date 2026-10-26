@@ -151,6 +151,7 @@ describe('adopt-stack effective workspace delivery', () => {
         const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
         const remote = mkdtempSync(join(tmpdir(), 'adopt-effective-remote-'))
         const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
+        const fresh = mkdtempSync(join(tmpdir(), 'adopt-effective-fresh-'))
         try {
           git(root, 'init', '-q', '-b', 'main')
           git(remote, 'init', '-q', '--bare', '-b', 'main')
@@ -173,7 +174,7 @@ describe('adopt-stack effective workspace delivery', () => {
           git(root, 'clone', '-q', '--depth', '1', `file://${remote}`, caller)
           expect(git(caller, 'rev-parse', '--is-shallow-repository')).toBe('true')
           const prepared = prepareBranch(caller, 'main')
-          expect(prepared).toEqual({ base, proposal: true })
+          expect(prepared).toEqual({ base, proposal: true, replaces: '' })
           expect(git(caller, 'rev-parse', '--is-shallow-repository')).toBe('false')
           git(caller, 'merge-base', '--is-ancestor', previous, 'HEAD')
           git(caller, 'merge-base', '--is-ancestor', base, 'HEAD')
@@ -191,9 +192,14 @@ describe('adopt-stack effective workspace delivery', () => {
           const moved = git(root, 'rev-parse', 'HEAD')
           // This returns before any GitHub command: the actual remote is the gate.
           expect(await mergeWhenApproved(caller, 1, pushed, prepared.base, 'main')).toEqual({ moved })
+          // With no open PR the branch is a leftover of someone else's squash merge: start from the default.
+          git(root, 'clone', '-q', `file://${remote}`, fresh)
+          expect(prepareBranch(fresh, 'main', false)).toEqual({ base: moved, proposal: false, replaces: pushed })
+          expect(git(fresh, 'rev-parse', 'HEAD')).toBe(moved)
         } finally {
           rmSync(remote, { recursive: true, force: true })
           rmSync(caller, { recursive: true, force: true })
+          rmSync(fresh, { recursive: true, force: true })
         }
       }
     } finally {
