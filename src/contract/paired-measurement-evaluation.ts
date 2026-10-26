@@ -9,6 +9,7 @@ import {
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
 import { decidePairedPromotion } from '../paired-promotion-decision'
 import { pairedBootstrap } from '../statistics'
+import { mean as arithmeticMean } from '../statistics/mean'
 import type {
   EvaluatePairedMeasurementsOptions,
   PairedMeasurementEvaluation,
@@ -649,5 +650,5 @@ function observedPairedPrecision(options: {
 
 function mean(values: number[]): number {
   if (values.length === 0) throw new Error('candidate experiment requires measured values')
-  return values.reduce((sum, value) => sum + value, 0) / values.length
+  return arithmeticMean(values)
 }

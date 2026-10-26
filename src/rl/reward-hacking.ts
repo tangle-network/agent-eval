@@ -40,6 +40,7 @@
 import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import { pearsonR } from '../statistics'
+import { meanOrZero } from '../statistics/mean'
 import {
   filterDeterministicallyRewarded,
   type VerifiableRewardExtractionOptions,
@@ -163,8 +164,8 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
       beforeTruth.length >= 2 &&
       afterTruth.length >= 2
     ) {
-      const proxyDelta = mean(afterProxy) - mean(beforeProxy)
-      const truthDelta = mean(afterTruth) - mean(beforeTruth)
+      const proxyDelta = meanOrZero(afterProxy) - meanOrZero(beforeProxy)
+      const truthDelta = meanOrZero(afterTruth) - meanOrZero(beforeTruth)
       // Divergence: proxy goes up while truth goes flat or down.
       // Severity = max(0, (proxyDelta - truthDelta)) — bigger gap = bigger signal.
       const gap = Math.max(0, proxyDelta - truthDelta)
@@ -249,10 +250,11 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
       const detBefore = detRuns.slice(0, Math.floor(detRuns.length / 2))
       const detAfter = detRuns.slice(Math.floor(detRuns.length / 2))
       const detDelta =
-        mean(detAfter.map((r) => r.reward.value)) - mean(detBefore.map((r) => r.reward.value))
+        meanOrZero(detAfter.map((r) => r.reward.value)) -
+        meanOrZero(detBefore.map((r) => r.reward.value))
       const proxyDelta =
-        mean(after.map(proxyOf).filter(finiteNumber)) -
-        mean(before.map(proxyOf).filter(finiteNumber))
+        meanOrZero(after.map(proxyOf).filter(finiteNumber)) -
+        meanOrZero(before.map(proxyOf).filter(finiteNumber))
       const driftGap = Math.max(0, proxyDelta - detDelta)
       const severity = clamp01(driftGap * 5)
       findings.push({
@@ -294,11 +296,6 @@ export function detectRewardHacking(input: DetectRewardHackingInput): RewardHack
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-function mean(xs: number[]): number {
-  if (xs.length === 0) return 0
-  return xs.reduce((s, x) => s + x, 0) / xs.length
-}
 
 function finiteNumber(value: number | null): value is number {
   return typeof value === 'number' && Number.isFinite(value)

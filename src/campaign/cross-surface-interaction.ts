@@ -7,6 +7,7 @@
 import { ValidationError } from '../errors'
 import { comparePairedArms, type PairedArmRow, type PairedArmsComparison } from '../paired-arms'
 import { pairedBootstrap } from '../statistics'
+import { meanOrNull } from '../statistics/mean'
 import {
   type CrossSurfaceAnalysisContext as AnalysisContext,
   canonicalCrossSurfaceComponents as canonicalComponents,
@@ -225,10 +226,6 @@ function distribution(values: number[]): CrossSurfaceDistribution {
     max: sorted[sorted.length - 1]!,
     total,
   }
-}
-
-function meanOrNull(values: number[]): number | null {
-  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 function unique<T>(values: T[]): T[] {

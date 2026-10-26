@@ -29,7 +29,7 @@ import {
   decidePairedPromotion,
   type PairedPromotionDecision,
 } from '../../paired-promotion-decision'
-import { mean as arithmeticMean } from '../../statistics/mean'
+import { meanOrZero } from '../../statistics/mean'
 import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
 import {
@@ -350,7 +350,7 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
       bucket.push(arr[index]!)
       values.set(unitId, bucket)
     })
-    return units.units.map((unit) => mean(values.get(unit.id)!))
+    return units.units.map((unit) => meanOrZero(values.get(unit.id)!))
   }
   const decisionOptions = {
     seed,
@@ -550,8 +550,8 @@ function scoreMethods<TScenario extends Scenario, TArtifact>(
     const decision = decidePairedPromotion(baselineUnits, winnerUnits, decisionOptions)
     const score: OptimizationMethodScore = {
       name: w.name,
-      baselineComposite: mean(baselineUnits),
-      winnerComposite: mean(winnerUnits),
+      baselineComposite: meanOrZero(baselineUnits),
+      winnerComposite: meanOrZero(winnerUnits),
       lift: decision.delta,
       liftCi: { low: decision.low, high: decision.high },
       decision,
@@ -687,10 +687,6 @@ function comparisonResult<TScenario extends Scenario, TArtifact>(
       producers: Object.freeze(optimized.map((result) => result.searchHistoryCoverage)),
     }),
   }
-}
-
-function mean(xs: number[]): number {
-  return xs.length === 0 ? 0 : arithmeticMean(xs)
 }
 
 function assertReportedCostWithinCeiling(

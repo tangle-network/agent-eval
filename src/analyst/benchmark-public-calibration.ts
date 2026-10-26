@@ -1,3 +1,4 @@
+import { meanOrNull } from '../statistics/mean'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 import { codeTraceStepFromEvidence } from './benchmark-evidence-validation'
 
@@ -101,7 +102,7 @@ function summarizeRunner(
     expectedIncorrectSteps: expected,
     predictedIncorrectSteps: predicted,
     matchedIncorrectSteps: matched,
-    officialAllRowF1: mean(officialRows),
+    officialAllRowF1: meanOrNull(officialRows),
     officialAllRowRuns: officialRows.length,
     precision,
     recall,
@@ -168,10 +169,6 @@ function sum(values: readonly number[]): number {
 
 function ratio(numerator: number, denominator: number): number | null {
   return denominator === 0 ? null : numerator / denominator
-}
-
-function mean(values: readonly number[]): number | null {
-  return values.length === 0 ? null : sum(values) / values.length
 }
 
 function harmonicMean(left: number | null, right: number | null): number | null {

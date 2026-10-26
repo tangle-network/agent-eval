@@ -12,13 +12,13 @@ import {
   pairedTTest,
   requiredPairedSampleSize,
 } from '../statistics'
+import { meanOrZero } from '../statistics/mean'
 import type { LiftInsight, MetricDelta, PriorPeriodComparison } from './insight-report'
 import {
   collectPerDimension,
   compositeOf,
   finiteCompositeScores,
   isFiniteNumber,
-  meanOrZero,
 } from './quality-insight'
 
 type MetricDirection = 'higher-is-better' | 'lower-is-better'

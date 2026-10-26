@@ -32,6 +32,7 @@
 
 import { JudgeError, ValidationError } from '../errors'
 import { type ComputedInterval, computeInterval } from '../experiment/ast/interval'
+import { meanOrNull } from '../statistics/mean'
 import {
   judgeSentinelReport,
   type SentinelSnapshot,
@@ -363,8 +364,6 @@ export function measureJudgeAgreement(
   const total = runs.length
   const agreedRuns = confusion.truePass + confusion.trueFail
   const agreedExamples = perExample.filter((example) => example.agreement === 1).length
-  const mean = (values: readonly number[]) =>
-    values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length
   return {
     ...meta,
     owner: registered.owner,
@@ -395,8 +394,10 @@ export function measureJudgeAgreement(
         : confusion.trueFail / (confusion.trueFail + confusion.falsePass),
     confusion,
     variance: {
-      betweenRuns: mean(perExample.map((example) => example.passRate * (1 - example.passRate))),
-      withinRun: mean(withinRun),
+      betweenRuns: meanOrNull(
+        perExample.map((example) => example.passRate * (1 - example.passRate)),
+      ),
+      withinRun: meanOrNull(withinRun),
       unstable: perExample
         .filter((example) => example.passRate > 0 && example.passRate < 1)
         .map((example) => example.id),

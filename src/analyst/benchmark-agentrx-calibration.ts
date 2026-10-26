@@ -1,3 +1,4 @@
+import { meanOrNull } from '../statistics/mean'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 import { roundAgentRxStep } from './benchmark-datasets'
 
@@ -91,30 +92,34 @@ function summarizeRunner(
     failedRuns: observations.filter((observation) => Boolean(observation.error)).length,
     predictedRuns: predicted.length,
     missingPredictionRuns: scored.length - predicted.length,
-    exactStepAccuracy: mean(scored.map((row) => Number(row.roundedDistance === 0))),
-    stepAccuracyWithin1: mean(
+    exactStepAccuracy: meanOrNull(scored.map((row) => Number(row.roundedDistance === 0))),
+    stepAccuracyWithin1: meanOrNull(
       scored.map((row) => Number(row.roundedDistance !== null && row.roundedDistance <= 1)),
     ),
-    stepAccuracyWithin2: mean(
+    stepAccuracyWithin2: meanOrNull(
       scored.map((row) => Number(row.roundedDistance !== null && row.roundedDistance <= 2)),
     ),
-    stepAccuracyWithin3: mean(
+    stepAccuracyWithin3: meanOrNull(
       scored.map((row) => Number(row.roundedDistance !== null && row.roundedDistance <= 3)),
     ),
-    stepAccuracyWithin4: mean(
+    stepAccuracyWithin4: meanOrNull(
       scored.map((row) => Number(row.roundedDistance !== null && row.roundedDistance <= 4)),
     ),
-    stepAccuracyWithin5: mean(
+    stepAccuracyWithin5: meanOrNull(
       scored.map((row) => Number(row.roundedDistance !== null && row.roundedDistance <= 5)),
     ),
-    meanStepDistance: mean(predicted.map((row) => row.distance)),
-    normalizedMeanStepDistance: mean(normalized.map((row) => row.normalizedDistance)),
+    meanStepDistance: meanOrNull(predicted.map((row) => row.distance)),
+    normalizedMeanStepDistance: meanOrNull(normalized.map((row) => row.normalizedDistance)),
     normalizedDistanceRuns: normalized.length,
     normalizedDistanceUnknownRuns: scored.length - normalized.length,
-    rootCauseCategoryAccuracy: mean(scored.map((row) => Number(row.rootCategoryMatch))),
-    anyFailureCategoryAccuracy: mean(scored.map((row) => Number(row.anyCategoryMatch))),
-    earliestFailureCategoryAccuracy: mean(scored.map((row) => Number(row.earliestCategoryMatch))),
-    terminalFailureCategoryAccuracy: mean(scored.map((row) => Number(row.terminalCategoryMatch))),
+    rootCauseCategoryAccuracy: meanOrNull(scored.map((row) => Number(row.rootCategoryMatch))),
+    anyFailureCategoryAccuracy: meanOrNull(scored.map((row) => Number(row.anyCategoryMatch))),
+    earliestFailureCategoryAccuracy: meanOrNull(
+      scored.map((row) => Number(row.earliestCategoryMatch)),
+    ),
+    terminalFailureCategoryAccuracy: meanOrNull(
+      scored.map((row) => Number(row.terminalCategoryMatch)),
+    ),
   }
 }
 
@@ -208,12 +213,6 @@ function requiredStringArray(value: unknown, caseId: string, field: string): str
     throw new TypeError(`${caseId}: ${field} must be a non-empty string array`)
   }
   return value as string[]
-}
-
-function mean(values: readonly number[]): number | null {
-  return values.length === 0
-    ? null
-    : values.reduce((total, value) => total + value, 0) / values.length
 }
 
 function rate(value: number | null): string {

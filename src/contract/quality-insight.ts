@@ -5,7 +5,7 @@ import { interpolatedQuantile as percentile } from '../math/quantile'
 import { observedSplitScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
 import { pearsonR, spearmanR } from '../statistics'
-import { mean as arithmeticMean } from '../statistics/mean'
+import { mean as arithmeticMean, meanOrZero } from '../statistics/mean'
 import type {
   InterRaterInsight,
   JudgeInsight,
@@ -285,8 +285,4 @@ export function finiteCompositeScores(
 
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
-}
-
-export function meanOrZero(arr: number[]): number {
-  return arr.length === 0 ? 0 : arithmeticMean(arr)
 }
