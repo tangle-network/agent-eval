@@ -52,7 +52,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   runAttemptId: string
   /** 1-based attempt number for this slot under `cellRetry`. */
   attempt: number
-  cellRetry?: CampaignCellRetryPolicy
+  cellRetry?: CampaignCellRetryPolicy<TArtifact>
   /** Fires when the cell's failure is final — never for an attempt that
    *  `cellRetry` will dispatch again. */
   onFailure?: (failure: CellFailure) => void
@@ -444,7 +444,9 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   const cachePath = join(cellDir, 'cached-result.json')
   if (args.resumable) {
     const reused = reuseCachedCell(args, cachePath, stableCostTags)
-    if (reused) return reused
+    if (reused && (reused.cell.error || !args.cellRetry?.retryResult?.(reused.cell.artifact))) {
+      return reused
+    }
   }
 
   const startMs = Date.now()
@@ -511,7 +513,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     error: errorMessage,
   }
 
-  const retry = failure
+  let retry = failure
     ? recordCellFailure(args, run, failure, cell, costTags, fatalCellError)
     : false
 
@@ -520,7 +522,15 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   storage.write(resultPath, JSON.stringify(cell))
   artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/result.json`] = resultPath
 
-  if (!errorMessage && args.resumable) {
+  if (!failure) {
+    retry =
+      args.cellRetry !== undefined &&
+      args.attempt < args.cellRetry.attempts &&
+      !args.signal.aborted &&
+      args.cellRetry.retryResult?.(cell.artifact) === true
+  }
+
+  if (!errorMessage && args.resumable && !retry) {
     storage.write(cachePath, JSON.stringify(cell))
   }
 

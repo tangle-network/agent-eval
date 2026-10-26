@@ -9,6 +9,7 @@
  * the core orchestrator minimal — Phase 1 of the Pass A track.
  */
 
+import { mapConcurrent } from '../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary } from '../cost-ledger'
 import { compareCodeUnits } from '../ledger-core/canonical'
 import { computeManifestHash, dispatchRefFor } from './campaign-manifest'
@@ -112,7 +113,9 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    * manifest, and pairing are unchanged. An attempt that failed because the
    * campaign was cancelled is never retried.
    */
-  cellRetry?: CampaignCellRetryPolicy
+  cellRetry?: CampaignCellRetryPolicy<TArtifact>
+  /** Once per final persisted cell, including cache hits, in completion order. */
+  onCellSettled?: (cell: CampaignCellResult<TArtifact>, scenario: TScenario) => void | Promise<void>
   /**
    * Per-cell dispatch deadline in ms. A `dispatch` that neither resolves nor
    * rejects within this window is a hang (a stalled model request, an
@@ -207,7 +210,7 @@ export interface CampaignCellFailureReceipt<TArtifact = unknown> {
  * execution directory, including attempts resumed in a later invocation.
  * The final cell records the retry count as `retryAttempts`.
  */
-export interface CampaignCellRetryPolicy {
+export interface CampaignCellRetryPolicy<TArtifact = unknown> {
   /** Total attempts per cell, including the first. A positive safe integer. */
   attempts: number
   /** Decides whether a failed attempt is dispatched again. Receives the
@@ -215,6 +218,8 @@ export interface CampaignCellRetryPolicy {
    *  ready-made predicate for infrastructure hiccups (502/503/504, dropped
    *  streams, admission rejections). */
   retryable: (failure: CampaignCellFailureReceipt['failure']) => boolean
+  /** Retry a measured artifact without classifying it as a dispatch failure. */
+  retryResult?: (artifact: TArtifact) => boolean
 }
 
 /**
@@ -245,6 +250,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
     }
     if (typeof cellRetry.retryable !== 'function') {
       throw new Error('runCampaign: cellRetry.retryable must be a function')
+    }
+    if (cellRetry.retryResult !== undefined && typeof cellRetry.retryResult !== 'function') {
+      throw new Error('runCampaign: cellRetry.retryResult must be a function')
     }
   }
 
@@ -304,98 +312,82 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   if (opts.signal?.aborted) campaignAbort.abort(opts.signal.reason)
   else opts.signal?.addEventListener('abort', onOwnerAbort, { once: true })
   const campaignSignal = campaignAbort.signal
-  // Concurrency lanes that drain the cell schedule. Named "lanes" — not
-  // "workers" — to avoid clashing with the taxonomy's worker (= the agent
-  // harness in a sandbox, invoked behind `dispatch`). See loop-taxonomy.md.
-  const lanes: Promise<void>[] = []
-  let nextIdx = 0
   const cellsRef = cells
-  let firstLaneError: unknown
+  let firstLaneFailure: { cause: unknown } | undefined
   let firstCellFailure: CellFailure | undefined
-
-  for (let i = 0; i < maxConcurrency; i++) {
-    lanes.push(
-      (async () => {
+  try {
+    await mapConcurrent(
+      schedule,
+      maxConcurrency,
+      async (slot, _index, signal) => {
         try {
+          let attempt = 1
+          let result: ExecuteCellResult<TArtifact>
           while (true) {
-            if (campaignSignal.aborted) return
-            const myIdx = nextIdx++
-            if (myIdx >= schedule.length) return
-            const slot = schedule[myIdx]!
-            // A retried attempt re-runs the same slot until it succeeds, the
-            // policy is exhausted, or the campaign is cancelled. Each attempt
-            // registers its own artifacts (including per-attempt failure
-            // receipts); only the final attempt's cell enters the result.
-            let attempt = 1
-            let result: ExecuteCellResult<TArtifact>
-            while (true) {
-              result = await executeCell({
-                slot,
-                opts,
-                manifestHash,
-                resumable,
-                now,
-                storage,
-                buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
-                signal: campaignSignal,
-                dispatchTimeoutMs: opts.dispatchTimeoutMs,
-                dispatchShutdownTimeoutMs,
-                costLedger,
-                costPhase,
-                runAttemptId,
-                attempt,
-                cellRetry,
-                onFailure: opts.abortOnCellError
-                  ? (failure) => {
-                      if (firstCellFailure === undefined) {
-                        firstCellFailure = failure
-                        campaignAbort.abort(failure.cause)
-                      }
+            result = await executeCell({
+              slot,
+              opts,
+              manifestHash,
+              resumable,
+              now,
+              storage,
+              buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
+              signal,
+              dispatchTimeoutMs: opts.dispatchTimeoutMs,
+              dispatchShutdownTimeoutMs,
+              costLedger,
+              costPhase,
+              runAttemptId,
+              attempt,
+              cellRetry,
+              onFailure: opts.abortOnCellError
+                ? (failure) => {
+                    if (firstCellFailure === undefined) {
+                      firstCellFailure = failure
+                      campaignAbort.abort(failure.cause)
                     }
-                  : undefined,
-              })
-              Object.assign(artifactsByPath, result.artifactsByPath)
-              if (!result.retry) break
-              attempt += 1
-            }
-            cellsRef.push(result.cell)
-            // Capture into LabeledScenarioStore unless explicitly disabled.
-            if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
-              await captureToStore({
-                store: opts.labeledStore,
-                cell: result.cell,
+                  }
+                : undefined,
+            })
+            Object.assign(artifactsByPath, result.artifactsByPath)
+            if (!result.retry) break
+            attempt += 1
+          }
+          cellsRef.push(result.cell)
+          await opts.onCellSettled?.(result.cell, slot.scenario)
+          if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
+            await opts.labeledStore
+              .observe({
                 scenario: slot.scenario,
-                opts,
-                now,
-              }).catch((err) => {
-                // Capture failures are non-fatal — log but don't crash the campaign.
-                // (Trace would normally land here.)
+                artifact: result.cell.artifact,
+                judgeScores: result.cell.judgeScores,
+                source: opts.captureSource ?? 'eval-run',
+                sourceVersionHash: opts.captureSourceVersionHash ?? 'unknown',
+                capturedAt: now().toISOString(),
+                redactionStatus: 'raw',
+              })
+              .catch((error) => {
                 console.warn(
-                  `[runCampaign] capture failed for ${result.cell.cellId}: ${err instanceof Error ? err.message : String(err)}`,
+                  `[runCampaign] capture failed for ${result.cell.cellId}: ${error instanceof Error ? error.message : String(error)}`,
                 )
               })
-            }
-            if (opts.abortOnCellError && result.failure) {
-              return
-            }
           }
         } catch (error) {
-          if (firstLaneError === undefined) {
-            firstLaneError = error
-            campaignAbort.abort(error)
-          }
+          firstLaneFailure ??= { cause: error }
+          campaignAbort.abort(error)
           throw error
         }
-      })(),
+      },
+      campaignSignal,
     )
+  } catch (error) {
+    if (firstCellFailure) throw firstCellFailure.cause
+    if (firstLaneFailure) throw firstLaneFailure.cause
+    // Owner cancellation returns the settled prefix, as the campaign always has.
+    if (!opts.signal?.aborted) throw error
+  } finally {
+    opts.signal?.removeEventListener('abort', onOwnerAbort)
   }
-  const laneResults = await Promise.allSettled(lanes)
-  opts.signal?.removeEventListener('abort', onOwnerAbort)
-  const failedLane = laneResults.find(
-    (result): result is PromiseRejectedResult => result.status === 'rejected',
-  )
-  if (firstCellFailure) throw firstCellFailure.cause
-  if (failedLane) throw firstLaneError ?? failedLane.reason
 
   const endedAt = now()
   cellsRef.sort((a, b) => compareCodeUnits(a.cellId, b.cellId))
@@ -422,26 +414,4 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
     artifactsByPath,
     scenarios: opts.scenarios.map(campaignScenarioIdentity),
   }
-}
-
-interface CaptureArgs<TScenario extends Scenario, TArtifact> {
-  store: LabeledScenarioStore
-  cell: CampaignCellResult<TArtifact>
-  scenario: TScenario
-  opts: RunCampaignOptions<TScenario, TArtifact>
-  now: () => Date
-}
-
-async function captureToStore<TScenario extends Scenario, TArtifact>(
-  args: CaptureArgs<TScenario, TArtifact>,
-): Promise<void> {
-  await args.store.observe({
-    scenario: args.scenario,
-    artifact: args.cell.artifact,
-    judgeScores: args.cell.judgeScores,
-    source: args.opts.captureSource ?? 'eval-run',
-    sourceVersionHash: args.opts.captureSourceVersionHash ?? 'unknown',
-    capturedAt: args.now().toISOString(),
-    redactionStatus: 'raw',
-  })
 }
