@@ -21,13 +21,26 @@ async function latest(name) {
   return (await response.json()).version
 }
 
-function dryRun(fixture, ...extra) {
+// The recorded manifests hold 0.x peer ranges. The tool widens one to the 0.m.x
+// release it pinned; a range that excludes a 1.x release is a breaking-release
+// decision it refuses and leaves to a person. The registry decides which case a
+// run is in, so the test asserts whichever the latest version selects: a package
+// that reaches 1.0 turns its widening case into the refusal.
+async function dryRun(fixture, name, ...extra) {
+  const version = await latest(name)
   const manifest = join(fixtures, fixture, 'package.json')
   const before = readFileSync(manifest, 'utf8')
+  const pkg = JSON.parse(before)
   const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, fixture), '--dry-run', '--json', ...extra], { encoding: 'utf8' })
-  expect(result.status, result.stderr).toBe(0)
   expect(readFileSync(manifest, 'utf8')).toBe(before)
-  return { plan: JSON.parse(result.stdout), pkg: JSON.parse(before) }
+  if (Number(version.split('.')[0]) > 0 && !satisfies(version, pkg.peerDependencies[name])) {
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/excludes \d+\.\d+\.\d+, a new major release; widen it by hand/)
+    expect(result.stdout).not.toMatch(/dry run: would open/)
+    return { version, pkg, refused: true }
+  }
+  expect(result.status, result.stderr).toBe(0)
+  return { version, pkg, plan: JSON.parse(result.stdout) }
 }
 
 function expectAdopted(plan, pkg, name, version) {
@@ -53,26 +66,26 @@ function expectAdopted(plan, pkg, name, version) {
 
 describe('adopt-stack --dry-run against npm', () => {
   test('agent-knowledge adopts agent-eval latest and widens its agent-eval peer', async () => {
-    const version = await latest('@tangle-network/agent-eval')
-    const { plan, pkg } = dryRun('agent-knowledge')
-    expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
+    const { version, plan, pkg, refused } = await dryRun('agent-knowledge', '@tangle-network/agent-eval')
+    if (!refused) expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
   }, 60_000)
 
   test('agent-app adopts agent-runtime latest and widens its agent-runtime peer', async () => {
-    const version = await latest('@tangle-network/agent-runtime')
-    const { plan, pkg } = dryRun('agent-app')
+    const { version, plan, pkg, refused } = await dryRun('agent-app', '@tangle-network/agent-runtime')
+    if (refused) return
     expectAdopted(plan, pkg, '@tangle-network/agent-runtime', version)
     // Alias pins such as agent-eval-0204 (npm:@tangle-network/agent-eval@0.204.0) stay as written.
     expect(plan.edits.some((edit) => !edit.name.startsWith('@tangle-network/'))).toBe(false)
   }, 60_000)
 
   test('a post-pin command sees the pinned manifest and its second file joins the plan', async () => {
-    const version = await latest('@tangle-network/agent-eval')
     // Like agent-app's template pins: a second file derived from the adopted pins.
     const sync = `node -e "const p = require('./package.json'); require('node:fs').mkdirSync('template', { recursive: true }); require('node:fs').writeFileSync('template/_package.json', JSON.stringify(p.devDependencies))"`
-    const { plan, pkg } = dryRun('agent-knowledge', '--post-pin', sync)
-    expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
-    expect(plan.postPin).toEqual({ command: sync, changed: ['template/_package.json'] })
+    const { version, plan, pkg, refused } = await dryRun('agent-knowledge', '@tangle-network/agent-eval', '--post-pin', sync)
+    if (!refused) {
+      expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
+      expect(plan.postPin).toEqual({ command: sync, changed: ['template/_package.json'] })
+    }
     expect(existsSync(join(fixtures, 'agent-knowledge', 'template'))).toBe(false)
   }, 60_000)
 
@@ -83,8 +96,14 @@ describe('adopt-stack --dry-run against npm', () => {
     expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
-  test('the human plan names the pull request and changes nothing', () => {
+  test('the human plan names the pull request and changes nothing', async () => {
+    const version = await latest('@tangle-network/agent-eval')
     const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, 'agent-knowledge'), '--dry-run'], { encoding: 'utf8' })
+    if (Number(version.split('.')[0]) > 0) {
+      expect(result.status).toBe(1)
+      expect(result.stderr).toMatch(/a new major release; widen it by hand/)
+      return
+    }
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toMatch(/peerDependencies @tangle-network\/agent-eval: >=0\.213\.0 <0\.216\.0 -> >=0\.213\.0 </)
     expect(result.stdout).toMatch(/dry run: would open "chore\(deps\): adopt .+" \(plan [0-9a-f]{16}\); nothing was changed/)
