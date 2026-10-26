@@ -688,25 +688,25 @@ export async function readPushedProposal(dir, number, expectedHead, defaultBranc
   throw new Error(`#${number} PR head did not settle (expected ${expectedHead}, last PR ${observed}, branch remained expected); no metadata or merge attempted`)
 }
 
-/** Preserve the owned proposal's history; capture the default independently. */
-export function prepareBranch(dir, defaultBranch) {
+/** Preserve an open proposal's history; with no open PR the branch outlived another's squash merge, so restart it from the default (`replaces` leases the push). */
+export function prepareBranch(dir, defaultBranch, proposalOpen = true) {
   if (out('git', ['status', '--porcelain'], dir)) throw new Error('caller checkout is dirty; nothing was reset or discarded')
   if (out('git', ['rev-parse', '--is-shallow-repository'], dir) === 'true' && !run('git', ['fetch', '--unshallow', 'origin'], dir)) throw new Error('could not obtain complete proposal/default history; no merge was attempted')
   const base = out('git', ['rev-parse', 'HEAD'], dir)
   const current = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
   if (current !== base) throw new Error(`${defaultBranch} moved before planning; start from its fresh head`)
-  const existing = out('git', ['ls-remote', 'origin', `refs/heads/${BRANCH}`], dir)
-  if (existing) {
+  const existing = out('git', ['ls-remote', 'origin', `refs/heads/${BRANCH}`], dir).split(/\s/)[0]
+  if (existing && proposalOpen) {
     if (!run('git', ['fetch', '-q', 'origin', `refs/heads/${BRANCH}`], dir)
       || !run('git', ['switch', '--detach', 'FETCH_HEAD'], dir)
       || !run('git', [...BOT, 'merge', '--no-edit', base], dir)) {
       throw new Error(`could not normally merge ${defaultBranch} into ${BRANCH}; resolve its retained conflicts before retrying, no history was rewritten`)
     }
   } else if (!run('git', ['switch', '-c', BRANCH], dir)) throw new Error(`could not create ${BRANCH}; no existing branch was reset`)
-  return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)) }
+  return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)), replaces: proposalOpen ? '' : existing }
 }
 
-async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow }) {
+async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow, replaces }) {
   const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
@@ -728,7 +728,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const gatedTree = trackedDigest(dir)
   if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
   if (out('git', ['status', '--porcelain'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
-  if (!run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
+  if (!run('git', ['push', '-q', ...(replaces ? [`--force-with-lease=refs/heads/${BRANCH}:${replaces}`] : []), 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
   const draftMarker = UPDATER_DRAFT_MARKER
@@ -844,7 +844,7 @@ function options(argv) {
 async function main() {
   const opts = options(process.argv.slice(2))
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
-  if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch))
+  if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--json', 'number'], opts.dir)).length > 0))
   const result = await plan(opts.dir, opts.packages)
   if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
