@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [1.0.0] — 2026-10-26
 
+**1.0.0 ships the 0.223.0 API unchanged.** From here a breaking change is a major release, and a caret range (`^1.0.0`) takes every later compatible release, so a consumer no longer needs a release of its own for each minor of this package. The dependencies move onto the 1.0 releases of agent-core and harness-sessions. The commits below are everything since the v0.220.2 tag.
+
 - test(adopt-stack): explain a refusal by any peer whose latest is an excluded major; post-pin cases use a manifest with no 0.x peer
 - test(adopt-stack): the live-registry plans hold across a package's first 1.0 release
 - deps: repin the analyst benchmark's dependency-lock digest
