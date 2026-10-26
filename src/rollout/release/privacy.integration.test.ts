@@ -55,7 +55,7 @@ describe('rollout-release privacy and license screen', () => {
     const base = fixtureRolloutLine()
     const clean = lineSaying(
       'clean-1',
-      'push git@github.com:tangle-network/agent-eval.git at 280ccb34b2a1c0d9e8f7a6b5c4d3e2f1a0b9c8d7 for ops@example.com from /tmp/rollouts-command-oyErgR/discovery-runs/spec-build-20261025a',
+      'push git@github.com:tangle-network/agent-eval.git at 280ccb34b2a1c0d9e8f7a6b5c4d3e2f1a0b9c8d7 for ops@example.com from /tmp/rollouts-command-oyErgR/discovery-runs/spec-build-20261025a after tool call toolu_01Sj8oQwErTy7UiOpAsDfGh2JkL9zXcV',
     )
     const claude = fixtureRolloutLine({
       rollout_id: 'claude-1',

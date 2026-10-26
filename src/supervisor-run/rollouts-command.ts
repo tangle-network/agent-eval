@@ -129,7 +129,7 @@ export async function runRolloutsCommand(
     summary.sources.push(source)
     try {
       const run = await discoveryRunRolloutLines(resolve(runDir), { capturedAt })
-      source.errors.push(...run.gaps.map((gap) => `${gap.code}: ${gap.message}`))
+      source.errors.push(...run.gaps.map((gap) => `${gap.code}: ${gap.message}`), ...run.notes)
       await write(source, run.lines)
     } catch (error) {
       source.errors.push(errorMessage(error))

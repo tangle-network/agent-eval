@@ -188,8 +188,12 @@ function entropy(token: string): number {
 // not hex digests (at most 4 bits/char) or identifiers. `/` and `.` end a token, so
 // a path is judged segment by segment: a whole mixed-case temp path read as one key.
 const ENTROPY_TOKEN = /[A-Za-z0-9+=_-]{32,}/g
+// A segment that is a lowercase word (`toolu_01…`, `cite_note-…`, `warm-session-…`) marks a generated identifier,
+// not a key: on 21 Discovery runs every high-entropy hit was one of these.
+const NAMED = /(?:^|[-_])[a-z]{4,}(?:$|[-_])/
 const highEntropy = (text: string): boolean => {
   for (const [token] of text.matchAll(ENTROPY_TOKEN)) {
+    if (NAMED.test(token)) continue
     if (/[A-Z]/.test(token) && /[a-z]/.test(token) && /\d/.test(token) && entropy(token) > 4.3) {
       return true
     }
