@@ -63,7 +63,12 @@ export {
   toHarborTrajectory,
 } from './interchange/harbor'
 
-export { appendRolloutLines, readRolloutLedger, writeRolloutLedger } from './ledger'
+export {
+  appendRolloutLines,
+  readRolloutJournal,
+  readRolloutLedger,
+  writeRolloutLedger,
+} from './ledger'
 export {
   isLicenseEligible,
   LICENSE_CLASSES,
@@ -90,6 +95,13 @@ export {
   readClaudeTranscript,
 } from './readers/claude-jsonl'
 export { type CodexRollout, parseCodexRollout, readCodexRollout } from './readers/codex-rollout'
+export { gateReceiptRolloutLines } from './readers/gate-receipts'
+export {
+  type HarnessSessionImportOptions,
+  harnessSessionRefs,
+  harnessSessionRolloutLine,
+  harnessSessionRolloutLines,
+} from './readers/harness-session-lines'
 export { DEFAULT_OPENCODE_DB, readOpencodeSessionMessages } from './readers/opencode-sqlite'
 export { buildDatasetCard, type DatasetCardInputs, type ReleaseFormat } from './release/card'
 export {

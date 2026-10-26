@@ -52,7 +52,17 @@ export async function readRolloutLedger(path: string): Promise<MintedRolloutLine
   return readLines(path, (parsed, context) => assertMinted(parsed, context))
 }
 
-
+/**
+ * Read under the write policy: imported and supervision rows whose positive
+ * rewards no realness screen has seen stay readable, as they were writable.
+ * Not training input until a screen mints them.
+ */
+export async function readRolloutJournal(path: string): Promise<RolloutLine[]> {
+  return readLines(path, (parsed, context) => {
+    assertRolloutLine(parsed, context)
+    return parsed
+  })
+}
 
 async function readLines<T>(
   path: string,

@@ -14,13 +14,14 @@ import { resolve } from 'node:path'
 import { errorMessage } from '../errors'
 import { analyzeSupervisorRun } from './reader'
 import { renderSupervisorRunHeadline, renderSupervisorRunMarkdown } from './render'
+import { ROLLOUTS_USAGE, runRolloutsCommand } from './rollouts-command'
 
 export type SupervisorRunReportFormat = 'headline' | 'markdown' | 'json'
 
 const FORMATS: readonly SupervisorRunReportFormat[] = ['headline', 'markdown', 'json']
 
-const SUPERVISOR_RUN_USAGE =
-  'usage: agent-eval supervisor-run report <runDir> [--format headline|markdown|json]'
+const SUPERVISOR_RUN_USAGE = `usage: agent-eval supervisor-run report <runDir> [--format headline|markdown|json]
+       ${ROLLOUTS_USAGE.replace('usage: ', '')}`
 
 /** Output sinks, injectable so tests read the exact bytes a terminal would. */
 export interface SupervisorRunCommandIo {
@@ -89,6 +90,13 @@ export async function runSupervisorRunCommand(
   if (verb === undefined || verb === '--help' || verb === '-h' || verb === 'help') {
     io.stdout(`${SUPERVISOR_RUN_USAGE}\n`)
     return verb === undefined ? 2 : 0
+  }
+  if (verb === 'rollouts') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      io.stdout(`${ROLLOUTS_USAGE}\n`)
+      return 0
+    }
+    return runRolloutsCommand(rest, io)
   }
   if (verb !== 'report') {
     io.stderr(`unknown supervisor-run subcommand "${verb}"\n${SUPERVISOR_RUN_USAGE}\n`)

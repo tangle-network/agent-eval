@@ -15,7 +15,14 @@
  */
 
 export { analyzeSupervisorRunSources } from './analyze'
-export { type ClaudeCodeReaderOptions } from './claude-code-reader'
+export type { ClaudeCodeReaderOptions } from './claude-code-reader'
+export {
+  type DiscoveryRunRollouts,
+  discoveryPlayCheckReward,
+  discoveryPursuitOf,
+  discoveryRunRolloutLines,
+  type PlayCheckReward,
+} from './discovery-rollouts'
 export {
   analyzeSupervisorRunIntegrity,
   SUPERVISOR_RUN_INTEGRITY_SCHEMA,
@@ -28,16 +35,24 @@ export {
   type SupervisorRunSourceOnlyCheckCode,
 } from './integrity'
 export { parsePatch } from './patch-stats'
-export { analyzeSupervisorRun, findSupervisorRunDirs, type WriteSupervisorRunOptions } from './reader'
+export {
+  analyzeSupervisorRun,
+  findSupervisorRunDirs,
+  type WriteSupervisorRunOptions,
+} from './reader'
 export {
   renderSupervisorRollupMarkdown,
   renderSupervisorRunHeadline,
   renderSupervisorRunMarkdown,
 } from './render'
-export { type SupervisorRunCommandIo, type SupervisorRunReportFormat } from './report-command'
+export type { SupervisorRunCommandIo, SupervisorRunReportFormat } from './report-command'
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
 export { rollupSupervisorRuns } from './rollup'
-export { isRuntimeSupervisorRunDir, type RuntimeReaderOptions, readRuntimeSupervisorRun } from './runtime-reader'
+export {
+  isRuntimeSupervisorRunDir,
+  type RuntimeReaderOptions,
+  readRuntimeSupervisorRun,
+} from './runtime-reader'
 export {
   type CloseRow,
   parseSupervisorTree,
@@ -55,4 +70,38 @@ export {
   type TerminalRecord,
   type TerminalRecordInput,
 } from './terminal-record'
-export { type DecisionMetrics, type EconomicsMetrics, isUnavailable, type Measured, type NamedResourceReceipt, type OrchestrationMetrics, type OutcomeMetrics, type PatchStats, type PerWorkerRow, type ResourceSpendRecord, type RoleSpend, type RollupCellRow, type SourceLimits, type SpendMeasurement, type SpendMeasurements, type SteerBreakdown, type SupervisorRunNodeRole, type SupervisorRunReader, type SupervisorRunReport, type SupervisorRunRollup, type SupervisorRunSources, type SupervisorRunTree, type SupervisorRunTreeGap, type SupervisorRunTreeGapCode, type SupervisorStatusSource, showMeasured, type TerminalFailure, type Unavailable, unavailable, type WallDistribution, type WorkerLogSource, type WorkerNativeSession, type WorkerTurnCoverage } from './types'
+export {
+  type DecisionMetrics,
+  type EconomicsMetrics,
+  isUnavailable,
+  type Measured,
+  type NamedResourceReceipt,
+  type OrchestrationMetrics,
+  type OutcomeMetrics,
+  type PatchStats,
+  type PerWorkerRow,
+  type ResourceSpendRecord,
+  type RoleSpend,
+  type RollupCellRow,
+  type SourceLimits,
+  type SpendMeasurement,
+  type SpendMeasurements,
+  type SteerBreakdown,
+  type SupervisorRunNodeRole,
+  type SupervisorRunReader,
+  type SupervisorRunReport,
+  type SupervisorRunRollup,
+  type SupervisorRunSources,
+  type SupervisorRunTree,
+  type SupervisorRunTreeGap,
+  type SupervisorRunTreeGapCode,
+  type SupervisorStatusSource,
+  showMeasured,
+  type TerminalFailure,
+  type Unavailable,
+  unavailable,
+  type WallDistribution,
+  type WorkerLogSource,
+  type WorkerNativeSession,
+  type WorkerTurnCoverage,
+} from './types'
