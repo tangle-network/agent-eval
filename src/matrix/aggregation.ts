@@ -24,10 +24,6 @@ function flattenRuns<Output>(cells: MatrixResult<Output>['cells']): Row<Output>[
   return rows
 }
 
-function quantile(sorted: number[], q: number): number {
-  return sorted.length ? interpolatedQuantile(sorted, q) : 0
-}
-
 function summariseRows<Output>(
   rows: Row<Output>[],
   axisName: string,
@@ -71,8 +67,8 @@ function summariseRows<Output>(
     cells: rows.length,
     passRate: pass / rows.length,
     meanScore: scoreSum / rows.length,
-    p50Score: quantile(scores, 0.5),
-    p90Score: quantile(scores, 0.9),
+    p50Score: interpolatedQuantile(scores, 0.5),
+    p90Score: interpolatedQuantile(scores, 0.9),
     totalCostUsd: costSum,
     costUncapturedCells,
     meanDurationMs: durSum / rows.length,

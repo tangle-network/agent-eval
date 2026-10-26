@@ -17,6 +17,7 @@ import { ValidationError, VerificationError } from './errors'
 import type { HeldOutGateDecision } from './held-out-gate'
 import { isRealnessGated, observedSplitScore } from './rollout/reward'
 import { type RunRecord, type RunSplitTag, validateRunRecord } from './run-record'
+import { summarizeNumberSeries } from './statistics'
 import { FAILURE_CLASSES, type FailureClass } from './trace/schema'
 
 /** Severity of an actionable finding attached to a run/trace. */
@@ -262,7 +263,7 @@ export function evaluateReleaseConfidence(
     holdoutMeanScore,
     overfitGap: diffOrNull(searchMeanScore, holdoutMeanScore),
     meanCostUsd,
-    p95WallMs: percentileOrNull(wallTimes, 0.95),
+    p95WallMs: summarizeNumberSeries(wallTimes, { percentiles: [95] })?.percentiles?.[95] ?? null,
     failedRows: failed.length,
     failuresWithAsi: failed.filter((row) => row.hasAsi).length,
     singleShotTraces: traces.filter((t) => t.turnCount === 1).length,
@@ -735,12 +736,6 @@ function runSplitScore(run: RunRecord): number | undefined {
 function meanOrNull(xs: readonly number[]): number | null {
   if (xs.length === 0) return null
   return xs.reduce((sum, x) => sum + x, 0) / xs.length
-}
-
-function percentileOrNull(xs: readonly number[], p: number): number | null {
-  if (xs.length === 0) return null
-  const sorted = [...xs].sort((a, b) => a - b)
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!
 }
 
 function isFiniteNumber(value: unknown): value is number {

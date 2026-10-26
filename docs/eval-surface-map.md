@@ -107,6 +107,17 @@ Use registered gates for inference across independent source units; their `paire
 `distribution` is the `SeriesDistribution` value `summarizeNumberSeries` returns: `n`, `min`, `p50`, `p90`, `max`, and `sum` over the exact scores the mean was taken over.
 Quantiles use the nearest-rank definition, so every reported quantile is a score the campaign measured.
 
+`summarizeNumberSeries(values, { percentiles: [95, 99.9], medianInterval: { criticalValue: 1.96 } })`
+also reports the requested percentiles on a 0–100 scale and a deterministic median rank band.
+The band uses ranks `floor(n/2 − criticalValue·sqrt(n)/2)` and
+`ceil(n/2 + 1 + criticalValue·sqrt(n)/2)`, clamped to the observed sample.
+Its `method`, `criticalValue`, `sampleSize`, and ranks describe the evidence;
+it is a normal approximation over order statistics, not a bootstrap interval or a promotion test.
+An empty sample returns `null`; a singleton band is a point and establishes no spread.
+The optional fields appear only when requested, so existing campaign distributions retain their shape.
+Options must use finite, in-range percentiles and a finite, nonnegative critical value, even for an empty sample.
+Calls with options also reject non-finite observations and sum overflow rather than serializing missing numbers as `null`.
+
 Read the distribution before you read the mean.
 A mean and an interval alone cannot separate a bimodal judge from a tight one, and cannot show the outlier that carried the mean.
 Six cells scoring `0, 0, 0, 1, 1, 1` and six cells scoring `0.5` report the same mean; only `min` and `max` tell them apart.

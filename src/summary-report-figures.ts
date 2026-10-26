@@ -1,6 +1,7 @@
 /** Tables and library-independent chart specifications from scored runs. */
 
 import type { HeldOutGateDecision } from './held-out-gate'
+import { interpolatedQuantile } from './math/quantile'
 import { fmt } from './research-report-render'
 import { observedSplitScore } from './rollout/reward'
 import type { RunRecord } from './run-record'
@@ -12,7 +13,7 @@ import {
   wilcoxonSignedRank,
 } from './statistics'
 import { mean as avg } from './statistics/mean'
-import { medianOfSorted, pairScoresByKey } from './summary-report-evidence'
+import { pairScoresByKey } from './summary-report-evidence'
 
 // ── summaryTable ───────────────────────────────────────────────────────
 
@@ -343,7 +344,7 @@ export function gainHistogram(
 
   const deltas = before.map((b, i) => after[i]! - b)
   const sortedDeltas = [...deltas].sort((a, b) => a - b)
-  const median = medianOfSorted(sortedDeltas)
+  const median = interpolatedQuantile(sortedDeltas, 0.5)
   const min = sortedDeltas[0]!
   const max = sortedDeltas[sortedDeltas.length - 1]!
 

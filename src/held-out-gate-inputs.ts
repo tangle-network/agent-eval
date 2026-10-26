@@ -7,6 +7,7 @@ import type { GateEvidence, SplitCoverage } from './held-out-gate'
 import { pairRunRecords } from './paired-arms'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
+import { sampleMedian } from './statistics'
 
 /** Everything `evaluate` reads off the two run sets before it decides. */
 export interface GateInputs {
@@ -232,13 +233,6 @@ function diffOrNull(a: number | null, b: number | null): number | null {
   return a - b
 }
 
-function medianFinite(xs: number[]): number | null {
-  const ys = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y)
-  if (ys.length === 0) return null
-  const mid = Math.floor(ys.length / 2)
-  return ys.length % 2 === 0 ? (ys[mid - 1]! + ys[mid]!) / 2 : ys[mid]!
-}
-
 function completeCostMedian(runs: RunRecord[]): number | null {
   if (runs.length === 0) return null
   const costs: number[] = []
@@ -248,5 +242,5 @@ function completeCostMedian(runs: RunRecord[]): number | null {
     if (usd === null) return null
     costs.push(usd)
   }
-  return medianFinite(costs)
+  return sampleMedian(costs.filter(Number.isFinite))
 }

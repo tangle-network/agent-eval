@@ -1,4 +1,5 @@
 import { compareCodeUnits } from '../ledger-core/canonical'
+import { summarizeNumberSeries } from '../statistics'
 import type {
   AnalystBenchmarkObservation,
   AnalystBenchmarkSummary,
@@ -220,20 +221,15 @@ function stableSum(values: readonly number[]): number {
 }
 
 function latencyDistribution(values: readonly number[]): AnalystLatencyDistribution | null {
-  if (values.length === 0) return null
-  const sorted = [...values].sort((a, b) => a - b)
+  const summary = summarizeNumberSeries(values, { percentiles: [95] })
+  if (!summary) return null
   return {
-    min: sorted[0]!,
-    mean: mean(sorted),
-    p50: percentile(sorted, 0.5),
-    p95: percentile(sorted, 0.95),
-    max: sorted.at(-1)!,
+    min: summary.min,
+    mean: mean(values),
+    p50: summary.p50,
+    p95: summary.percentiles![95]!,
+    max: summary.max,
   }
-}
-
-function percentile(sorted: readonly number[], quantile: number): number {
-  if (sorted.length === 0) return 0
-  return sorted[Math.ceil(quantile * sorted.length) - 1] ?? sorted.at(-1) ?? 0
 }
 
 function repeatedObservationAgreement(

@@ -24,6 +24,8 @@ function indexValueFixture() {
         verifyAttestation,
         type AttestedReport,
         type DefaultVerdict,
+        type SeriesDistributionOptions,
+        summarizeNumberSeries,
       } from '@tangle-network/agent-eval'
       import {
         CONTROL_INTEGRITY_ANALYST,
@@ -450,6 +452,12 @@ function indexRuntimeFixture() {
       const packedDistribution: CampaignSeriesDistribution | undefined = (
         undefined as CampaignJudgeAggregate | undefined
       )?.distribution
+      const seriesOptions: SeriesDistributionOptions = {
+        percentiles: [95, 99.9], medianInterval: { criticalValue: 1.96 },
+      }
+      const seriesReport = summarizeNumberSeries([10, 20, 30, 40], seriesOptions)
+      const seriesTail: number | undefined = seriesReport?.percentiles?.[99.9]
+      const intervalMethod: 'normal-order-statistics' | undefined = seriesReport?.medianInterval?.method
       // Evidence receipts: content-address a report and bind it to provenance.
       const packedAttestation: AttestedReport = attest(
         { claim: 'packed' },
@@ -539,6 +547,8 @@ function indexRuntimeFixture() {
         LLM_REASONING_TOKENS,
         packedCellIds,
         packedDistribution,
+        seriesTail,
+        intervalMethod,
         packedAttestation,
       ]
     `

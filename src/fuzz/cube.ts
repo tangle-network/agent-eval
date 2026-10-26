@@ -9,6 +9,7 @@
  * split known-dollars vs unknown-runs, never folded into a fabricated $0.
  */
 
+import { summarizeNumberSeries } from '../statistics'
 import type { BehaviorSpace, Cell, CoverageCell, Distribution, Evaluation } from './types'
 
 /** One recorded evaluation — the unit coverage and the capsule are built from. */
@@ -43,27 +44,14 @@ export function cellId(space: BehaviorSpace, coords: Record<string, string>): st
   return space.axes.map((a) => `${a.name}=${coords[a.name]}`).join('|')
 }
 
-/** Nearest-rank percentile on a pre-sorted ascending sample. */
-function percentile(sorted: number[], p: number): number {
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))
-  return sorted[idx] as number
-}
-
 /** Summarize a sample. Throws on an empty sample — callers represent "no data"
  *  as `null`, never as a zeroed distribution. */
 export function distribution(values: number[]): Distribution {
-  if (values.length === 0)
+  const summary = summarizeNumberSeries(values)
+  if (!summary)
     throw new Error('distribution: empty sample — represent missing data as null, not zeros')
-  const sorted = [...values].sort((a, b) => a - b)
-  const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length
-  return {
-    mean,
-    median: percentile(sorted, 0.5),
-    p90: percentile(sorted, 0.9),
-    min: sorted[0] as number,
-    max: sorted[sorted.length - 1] as number,
-    n: sorted.length,
-  }
+  const { n, min, p50: median, p90, max, sum } = summary
+  return { mean: sum / n, median, p90, min, max, n }
 }
 
 /**
