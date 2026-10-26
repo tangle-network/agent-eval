@@ -4,6 +4,88 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.222.0] — 2026-10-26
+
+- feat(campaign): share concurrency for measured scenario adapters
+- fix(supervisor-run): staged play-check reward is stages passed, read from the SCORE line only (#1126)
+- refactor(statistics): delete duplicate numeric summary helpers
+- fix(rollout): import survives a damaged deliverables archive; named ids are not keys (#1125)
+- feat(supervisor-run): rollouts importer for Discovery runs, harness sessions and gate receipts (#1124)
+- feat(statistics): extend series summaries with nearest-rank evidence
+- test(rollout): isolate bundle permission probe from runner identity
+- fix(rollout): license class is provenance and an opt-in filter, not a default exclusion (#1121)
+- fix(rollout): allow nonroot images to read the base bundle
+- feat(rollout): license class on rollout lines and whole-row privacy drop in rollout-release (#1119)
+- test(rollout): inherit configured identity for Git fixtures
+- test(rollout): capture empty tool definitions at the ledger boundary
+- feat(rollout): write verified episodes as Harbor tasks
+- feat(rollout): project captured policy steps into Tinker data
+- adopt-stack: delete the adoption branch when its squash merge lands (#1115)
+- chore(deps)!: require Python 3.11 for patched locks and refresh dependencies
+- feat(rollout): read retained Codex sessions through the shared reader
+- chore(release): 0.221.8
+- test(adopt): retain failed browser child outcomes
+- docs: leave changelog preparation to the release workflow
+- chore(release): 0.221.7
+- feat(multishot): conversation legs report the USD they spent
+- chore(release): 0.221.6
+- docs(traces): bound the incomplete usage coverage claim
+- feat: own judge-panel calibration, multishot conversation legs and served-panel identity
+- test(traces): typecheck OTLP usage integration proof
+- fix(traces): retain incomplete OTLP token usage
+- chore(release): 0.221.5
+- ci: retain private adopter failure evidence (#1106)
+- test(process): isolate process-tree fixture environment
+- fix(adopt): invoke each resolved Playwright CLI (#1096)
+- test(systemone): close disposable provider connections
+- chore(release): 0.221.4
+- test(adoption): inherit the maintained integration deadline
+- fix(adoption): scope guard allowance to disposable Git fixtures
+- fix(analyst): carry root-cause target into failure-mode rubric
+- ci: check locally and in publication paths
+- test(adopt): give real-git fixtures their own commit identity (#1101)
+- chore(release): 0.221.3 (#1099)
+- fix(analyst): repin the benchmark implementation digest after #1097 (#1098)
+- fix(trace-analyst): build OTLP stores from bytes, not one joined string
+- fix(adopt): prepare caller-locked Chromium before gates
+- test(adopt): retain admitted identity in real Git fixtures
+- fix(adopt): retain the sparse caller entrypoint
+- fix(adopt): settle pushed proposal reads against remote refs
+- chore(release): 0.221.2
+- Return plain analyst findings from decision replay
+- chore(release): 0.221.1 (#1091)
+- fix(deps): pin zod 4.6.6 (GHSA-mrhx-c7xc-m3w5) (#1088)
+- Give the disposable adoption fixture its own Git author
+- Fix real adoption drift fixture under the declared package manager
+- Capture supporting trace events in the original native decision
+- test: inherit the integration default for behavioral questions
+- test: set the integration default from the observed loaded tail
+- chore(release): 0.221.0
+- test: own the measured integration deadline in Vitest config
+- test: await observed integration completion across tool paths
+- feat: preserve finding composition and assigned arm populations
+- test: await decision-point HTTP and ledger completion
+- test: await durable readiness in filesystem integration cases
+- test(process): wait for argv child readiness before abort
+- feat(analyst): add bounded calibrated trace question observations
+- fix(analyst): reject surrounding whitespace in caller gold ids
+- test(analyst): reproduce whitespace source-id bypass
+- test(optimizer): retire fake CLI metering harness
+- test(analyst): isolate recorded gold admission scenarios
+- fix(systemone): validate decision boundaries before routing
+- ci: pin the eval publication dispatcher body
+- fix(analyst): reserve excluded source ids across caller gold
+- fix(analyst): validate root provenance before gold admission
+- fix(analyst): preserve actor boundaries in AgentRx calibration gold
+- Preserve manual drafts observed while recording failed adoption (#1076)
+- Recover updater-owned failure drafts while preserving manual holds (#1075)
+- feat(systemone): persist calibrated decision points and outcomes
+- ci: move eval verification and Python publishing to owned runners
+- chore(deps): bump opentelemetry-api in /clients/python (#1068)
+- fix(adopt): quote optional workflow flags
+- fix(adopt): preserve shallow history and caller-owned dependency references
+- fix(adopt): reconcile effective workspace pins and preserve proposal history
+
 ## [0.221.8] — 2026-10-25
 
 - test(adopt): retain failed browser child outcomes
