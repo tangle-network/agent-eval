@@ -22,6 +22,7 @@ import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import { welchsTTest } from './baseline'
 import { type RunRecord, runTaskScore } from './run-record'
 import { cohensD } from './statistics'
+import { medianInPlace } from './statistics/internal'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -73,13 +74,6 @@ export interface RecordRunsOptions {
   commitSha: string
   /** Defaults to `new Date().toISOString()`. */
   timestamp?: string
-}
-
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const sorted = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
 // Cells rank on `runTaskScore` — RAW on purpose: a scorecard reports the
@@ -137,7 +131,7 @@ export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): Scorecar
       commitSha: opts.commitSha,
       timestamp,
       scores,
-      composite: median(scores),
+      composite: medianInPlace([...scores]),
       runIds: scored.map((s) => s.run.runId),
     }
     const perDimension = aggregatePerDimension(scenarioRuns)

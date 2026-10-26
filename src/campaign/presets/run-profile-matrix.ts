@@ -59,6 +59,7 @@ import {
   UNKNOWN_MODEL,
   validateRunRecord,
 } from '../../run-record'
+import { mean } from '../../statistics/mean'
 import { computeManifestHash } from '../campaign-manifest'
 import { runCampaign } from '../run-campaign'
 import { campaignCellToRunRecord } from '../run-record'
@@ -268,10 +269,6 @@ function sanitize(id: string): string {
 
 function sha(input: unknown): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')
-}
-
-function mean(xs: number[]): number {
-  return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
 }
 
 interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {

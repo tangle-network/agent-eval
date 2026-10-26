@@ -9,6 +9,8 @@ import {
 } from '../campaign'
 import { type CampaignStorage, fsCampaignStorage } from '../campaign/storage'
 import type { RunSplitTag } from '../run-record'
+import { summarizeNumberSeries } from '../statistics'
+import { mean } from '../statistics/mean'
 import type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
@@ -322,11 +324,13 @@ function summarizeSlices<T>(
       passed: boolean
       cell: { costUsd: number; durationMs: number }
     }>
+    const scores = withShape.map((row) => row.score).filter(Number.isFinite)
+    const passed = withShape.filter((row) => row.passed).length
     out[key] = {
       n: list.length,
-      meanScore: mean(withShape.map((row) => row.score)),
-      passRate: mean(withShape.map((row) => (row.passed ? 1 : 0))),
-      score: distribution(withShape.map((row) => row.score)),
+      meanScore: scores.length ? mean(scores) : 0,
+      passRate: list.length ? passed / list.length : 0,
+      score: distribution(scores),
       costUsd: distribution(withShape.map((row) => row.cell.costUsd)),
       latencyMs: distribution(withShape.map((row) => row.cell.durationMs)),
     }
@@ -341,31 +345,10 @@ function firstJudgeScore(
 }
 
 function distribution(values: readonly number[]): BenchmarkDistribution {
-  const finite = [...values].filter(Number.isFinite).sort((a, b) => a - b)
-  if (finite.length === 0) return { n: 0, min: 0, mean: 0, median: 0, p90: 0, max: 0 }
-  return {
-    n: finite.length,
-    min: finite[0]!,
-    mean: mean(finite),
-    median: percentile(finite, 0.5),
-    p90: percentile(finite, 0.9),
-    max: finite[finite.length - 1]!,
-  }
-}
-
-function percentile(sortedValues: readonly number[], p: number): number {
-  if (sortedValues.length === 0) return 0
-  const index = Math.min(
-    sortedValues.length - 1,
-    Math.max(0, Math.ceil(p * sortedValues.length) - 1),
-  )
-  return sortedValues[index]!
-}
-
-function mean(values: readonly number[]): number {
-  const finite = values.filter(Number.isFinite)
-  if (finite.length === 0) return 0
-  return finite.reduce((sum, value) => sum + value, 0) / finite.length
+  const summary = summarizeNumberSeries(values.filter(Number.isFinite))
+  if (!summary) return { n: 0, min: 0, mean: 0, median: 0, p90: 0, max: 0 }
+  const { n, min, p50: median, p90, max, sum } = summary
+  return { n, min, mean: sum / n, median, p90, max }
 }
 
 function clamp01(value: number): number {

@@ -1,5 +1,6 @@
 /** Matched split scores and paired statistical evidence for report consumers. */
 
+import { interpolatedQuantile } from './math/quantile'
 import { pairRunRecords } from './paired-arms'
 import { observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
@@ -76,7 +77,7 @@ export function pairedPosterior(
   const deltas = before.map((b, i) => after[i]! - b)
   const meanDelta = deltas.reduce((s, x) => s + x, 0) / n
   const sortedDeltas = [...deltas].sort((a, b) => a - b)
-  const medianDelta = medianOfSorted(sortedDeltas)
+  const medianDelta = interpolatedQuantile(sortedDeltas, 0.5)
   const sdDelta = stdev(deltas, meanDelta)
 
   const ci = pairedBootstrap(before, after, {
@@ -138,10 +139,4 @@ function stdev(xs: number[], mean: number): number {
   let sse = 0
   for (const x of xs) sse += (x - mean) ** 2
   return Math.sqrt(sse / (xs.length - 1))
-}
-
-export function medianOfSorted(sorted: number[]): number {
-  if (sorted.length === 0) return 0
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }

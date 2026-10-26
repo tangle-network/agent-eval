@@ -21,6 +21,7 @@
  * loud rather than silently passing an unproven candidate.
  */
 
+import { mean } from '../../statistics/mean'
 import type { Gate, GateContext, GateResult, Scenario } from '../types'
 import { pairHoldout } from './statistical-heldout'
 
@@ -33,11 +34,6 @@ export interface NeutralizationGateOptions<TScenario extends Scenario = Scenario
   maxDecorativeFraction?: number
 }
 
-/** Mean of a numeric array; 0 for an empty array (callers guard n separately). */
-function mean(xs: number[]): number {
-  return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
-}
-
 /** Paired mean held-out lift of `arm` over baseline, on the in-scope cells. */
 function pairedLift(
   arm: Map<string, Record<string, { composite: number }>>,
@@ -46,7 +42,7 @@ function pairedLift(
 ): { lift: number; n: number } {
   const paired = pairHoldout(arm as never, baseline as never, scenarioIds, (s) => s.composite)
   const deltas = paired.after.map((a, i) => a - (paired.before[i] ?? 0))
-  return { lift: mean(deltas), n: deltas.length }
+  return { lift: deltas.length ? mean(deltas) : 0, n: deltas.length }
 }
 
 /**

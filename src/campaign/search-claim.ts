@@ -24,6 +24,7 @@ import {
   type PairedPromotionPowerCall,
   pairedPromotionPower,
 } from '../paired-promotion-power'
+import { mean } from '../statistics/mean'
 import { normalizeSignedZero as plain } from '../statistics/normalize-signed-zero'
 import { estimateNode, searchPosterior, seedFromDigest } from './estimate-node'
 import type {
@@ -786,12 +787,6 @@ function requireHeader(state: SearchStateView) {
 
 function unitIds(tasks: ReadonlyArray<{ unitId: string }>): string[] {
   return [...new Set(tasks.map((task) => task.unitId))]
-}
-
-function mean(values: readonly number[]): number {
-  let total = 0
-  for (const value of values) total += value
-  return total / values.length
 }
 
 function round(value: number): number {

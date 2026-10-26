@@ -20,6 +20,7 @@ import {
   type ExpansionOperator,
   type OperatorYieldSignal,
 } from '../search/lenses/operator-yield'
+import { mean } from '../statistics/mean'
 import { mulberry32 } from '../statistics/random'
 import type { SearchPosterior } from './estimate-node'
 import type { NodeEstimate, SearchEdgeOperator, SearchNodeStatus } from './search-ledger-types'
@@ -709,10 +710,4 @@ function compareCrowded(a: FrontierMember, b: FrontierMember): number {
   if (a.distance !== b.distance) return a.distance > b.distance ? -1 : 1
   if (a.mean !== b.mean) return a.mean > b.mean ? -1 : 1
   return a.ordinal - b.ordinal
-}
-
-function mean(values: readonly number[]): number {
-  let total = 0
-  for (const value of values) total += value
-  return total / values.length
 }

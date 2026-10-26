@@ -18,14 +18,11 @@
 
 import type { Dataset, DatasetScenario } from './dataset'
 import { classifyFailure } from './failure-taxonomy'
+import { interpolatedQuantile } from './math/quantile'
 import type { Run } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
-type SynthesisReason =
-  | 'high-variance'
-  | 'undersampled'
-  | 'failure-cluster'
-  | 'difficulty-gap'
+type SynthesisReason = 'high-variance' | 'undersampled' | 'failure-cluster' | 'difficulty-gap'
 
 export interface SynthesisTarget {
   reason: SynthesisReason
@@ -82,8 +79,8 @@ export async function proposeSynthesisTargets(
   for (const r of runs) {
     runCountByScenario.set(r.scenarioId, (runCountByScenario.get(r.scenarioId) ?? 0) + 1)
   }
-  const runCounts = [...runCountByScenario.values()]
-  const p25 = runCounts.length > 0 ? quantile(runCounts, 0.25) : 0
+  const runCounts = [...runCountByScenario.values()].sort((a, b) => a - b)
+  const p25 = runCounts.length > 0 ? interpolatedQuantile(runCounts, 0.25) : 0
   for (const s of scenarios) {
     const count = runCountByScenario.get(s.id) ?? 0
     if (count <= p25 && count < 3) {
@@ -143,12 +140,4 @@ export async function proposeSynthesisTargets(
   }
 
   return targets.sort((a, b) => b.priority - a.priority).slice(0, topK)
-}
-
-function quantile(xs: number[], p: number): number {
-  const sorted = [...xs].sort((a, b) => a - b)
-  const idx = p * (sorted.length - 1)
-  const lo = Math.floor(idx)
-  const hi = Math.ceil(idx)
-  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo)
 }
