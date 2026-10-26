@@ -73,7 +73,10 @@ match the current text with `{ numericPolicy: 'conservative' }`, replace its UTF
 from right to left, then continue with the next
 detector. The iterator clones regex state, honors the detector's shared accept callback,
 and returns secret-only ranges for serialized credential fields. It never returns matched
-values. This preserves JSON syntax and citations; `redactText` keeps its conservative
+values. A credential hit inside a quoted credential field covers the entire value,
+including spaces and escaped quotes. Long detected assignment tokens are consumed
+to their delimiter. This prevents a marker from hiding an unredacted suffix on rescan.
+This preserves JSON syntax and citations; `redactText` keeps its conservative
 whole-string credential behavior.
 
 The catalog owns credential thresholds, numeric classification and Luhn validation.

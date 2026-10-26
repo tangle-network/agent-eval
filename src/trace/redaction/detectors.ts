@@ -255,12 +255,42 @@ export function* matchValueDetector(
       ? (detector.conservativePattern ?? detector.substringPattern ?? detector.pattern)
       : (detector.substringPattern ?? detector.pattern)
   const flags = [...new Set(`${pattern.flags}gd`)].join('')
+  // A credential shape inside a quoted secret must remove its entire value.
+  // Reuse the JSON rule; advance one iterator so many matches stay linear.
+  const quoted =
+    detector.id !== 'json-secret' && CREDENTIAL_DETECTORS.includes(detector)
+      ? matchValueDetector(
+          text,
+          CREDENTIAL_DETECTORS.find((rule) => rule.id === 'json-secret')!,
+          options,
+        )
+      : undefined
+  let enclosing: { start: number; end: number } | undefined
+  let coveredUntil = -1
   for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
     if (detector.accept && !detector.accept(match[0], options)) continue
-    const [start, end] = match.indices!.groups?.secret ?? match.indices![0]!
+    let [start, end] = match.indices!.groups?.secret ?? match.indices![0]!
+    if (start < coveredUntil) continue
+    if (quoted) {
+      while (!enclosing || enclosing.end <= start) {
+        const next = quoted.next()
+        enclosing = next.value
+        if (next.done) break
+      }
+      if (enclosing && enclosing.start <= start && enclosing.end >= end)
+        ({ start, end } = enclosing)
+    }
+    if (start < coveredUntil) continue
+    coveredUntil = end
     yield { start, end }
   }
 }
+
+const SECRET_ASSIGNMENT =
+  /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])(?<secret>[^\s"'`,;&|]{12,512})/i
+
+const QUOTED_CREDENTIAL_FIELD =
+  /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*/
 
 /**
  * High-confidence credential shapes. A hit replaces the whole string. Each
@@ -321,14 +351,18 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // characters, so prose (`token: string`), variable references (`$TOKEN`)
     // and dotenvx ciphertext (`encrypted:…`) pass. The pattern starts at the
     // key word itself, with no identifier prefix, so it scans in linear time.
-    // The two mixed-content lookaheads and the value itself are bounded to
-    // 512 chars: unbounded, `'token='` repeated took ~20s at 256 KiB and
+    // Detection and its mixed-content lookaheads are bounded to 512 chars:
+    // unbounded, `'token='` repeated took ~20s at 256 KiB and
     // `'password:x'` repeated took ~12s at 256 KiB (measured before this fix,
-    // scratchpad/rv/before.ts). A real credential value is always far under
-    // 512 chars.
+    // scratchpad/rv/before.ts). Substring replacement consumes the complete
+    // detected token so a long value cannot leave an unrecognized tail.
     id: 'secret-assignment',
-    pattern:
-      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])(?<secret>[^\s"'`,;&|]{12,512})/i,
+    pattern: SECRET_ASSIGNMENT,
+    // Only the consumed range is unbounded; detection lookaheads remain bounded.
+    substringPattern: new RegExp(
+      SECRET_ASSIGNMENT.source.replace('{12,512}', '{12,}'),
+      SECRET_ASSIGNMENT.flags,
+    ),
   },
   {
     // `{"password": "hunter2"}` or `'client_secret': '…'` inside serialized
@@ -338,8 +372,15 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // Placeholders (`[REDACTED…]`, `$VAR`, `{env:VAR}`, `***`, `<value>`) and
     // prose with two or more spaces (a field description) do not match.
     id: 'json-secret',
-    pattern:
-      /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )(?<secret>[^"'\r\n]{3,})["']/i,
+    pattern: new RegExp(
+      String.raw`${QUOTED_CREDENTIAL_FIELD.source}["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )(?<secret>[^"'\r\n]{3,})["']`,
+      'i',
+    ),
+    // Substring consumers must cover spaces and escaped quotes in the whole value.
+    substringPattern: new RegExp(
+      String.raw`${QUOTED_CREDENTIAL_FIELD.source}(?<quote>["'])(?!\[REDACTED|[$*{<])(?<secret>(?:\\.|(?!\k<quote>)[^\\\r\n]){3,})\k<quote>`,
+      'i',
+    ),
   },
   {
     // `DB_PASSWORD=CorrectHorseBatteryStaple`, `PGPASSWORD=postgres`: unlike
