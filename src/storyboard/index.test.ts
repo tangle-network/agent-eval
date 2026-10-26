@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Span } from '../trace/schema'
+import type { SemanticKind } from './index'
 import {
+  classifyTool,
   compileStoryboard,
+  extractVisual,
   reduceToSemanticEvents,
   renderStoryboardHtml,
   renderStoryboardMarkdown,
@@ -286,5 +289,65 @@ describe('modality visuals', () => {
     expect(md).toContain('https://api.stripe.com/v1/charges')
     expect(md).toContain('🌐') // browser modality
     expect(md).toContain('[screenshot]') // the captured frame is flagged
+  })
+})
+
+// One classifier for every consumer (run-capsule's run view, terminal and screen
+// capsules): a tool name maps to one class, and the class picks the scene kind
+// and the visual. Shell programs are terminal steps, never API cards.
+describe('tool classification conformance', () => {
+  const cases: Array<[string, string, SemanticKind, string]> = [
+    ['git', 'shell', 'ran_command', 'terminal'],
+    ['git_diff', 'shell', 'ran_command', 'terminal'],
+    ['npm', 'shell', 'ran_command', 'terminal'],
+    ['pnpm', 'shell', 'ran_command', 'terminal'],
+    ['yarn', 'shell', 'ran_command', 'terminal'],
+    ['cargo', 'shell', 'ran_command', 'terminal'],
+    ['forge', 'shell', 'ran_command', 'terminal'],
+    ['python3', 'shell', 'ran_command', 'terminal'],
+    ['openscad', 'shell', 'ran_command', 'terminal'],
+    ['Bash', 'shell', 'ran_command', 'terminal'],
+    ['run_tests', 'shell', 'ran_command', 'terminal'],
+    ['browser.scroll', 'browser', 'used_browser', 'browser'],
+    ['hover', 'browser', 'used_browser', 'browser'],
+    ['computer_use', 'computer', 'used_computer', 'browser'],
+    ['str_replace_editor', 'edit', 'edited_code', 'diff'],
+    ['write_file', 'write', 'edited_code', 'diff'],
+    ['Read', 'read', 'read_file', 'code'],
+    ['grep', 'grep', 'searched', 'terminal'],
+    ['list_files', 'glob', 'searched', 'terminal'],
+    ['web_fetch', 'api', 'called_api', 'api'],
+    ['mystery', 'other', 'called_tool', 'api'],
+  ]
+  it.each(cases)('%s is %s', (toolName, cls, kind, visual) => {
+    const span = tool('t1', 1000, toolName, { args: { command: 'git status' } })
+    expect(classifyTool(span)).toBe(cls)
+    expect(reduceToSemanticEvents([span])[0]?.kind).toBe(kind)
+    expect(extractVisual(span).type).toBe(visual)
+  })
+
+  it('a sandbox span is a terminal step with its command and test line', () => {
+    const span = {
+      spanId: 'sb',
+      runId: 'r1',
+      kind: 'sandbox',
+      name: 'sandbox.exec',
+      command: 'pnpm test',
+      testsTotal: 4,
+      testsPassed: 3,
+      startedAt: 1,
+      status: 'ok',
+    } as Span
+    expect(classifyTool(span)).toBe('shell')
+    expect(extractVisual(span)).toEqual({
+      type: 'terminal',
+      command: 'pnpm test',
+      output: '3/4 tests passing',
+    })
+  })
+
+  it('a screenshot that is not an image source is dropped from a browser visual', () => {
+    const span = tool('b1', 1000, 'browser.click', { attributes: { screenshot: 'not-an-image' } })
+    expect(extractVisual(span)).toMatchObject({ type: 'browser', screenshot: undefined })
   })
 })

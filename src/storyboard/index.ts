@@ -117,13 +117,70 @@ function isImageSrc(s: string | undefined): s is string {
   return !!s && (s.startsWith('data:image') || /^https?:\/\//.test(s))
 }
 
+/** What a tool span does, whatever the harness calls it. The one classifier
+ *  every consumer shares: storyboard scenes, extractVisual, and run-capsule's
+ *  run view, terminal and screen capsules. A shell command such as git, npm or
+ *  pnpm is `shell`, never `api`. */
+export type ToolClass =
+  | 'computer'
+  | 'browser'
+  | 'edit'
+  | 'write'
+  | 'read'
+  | 'grep'
+  | 'glob'
+  | 'api'
+  | 'shell'
+  | 'other'
+
+const COMPUTER_TOOL = /computer|cua|desktop|\bgui\b|xdotool|mouse|keyboard|screen_|pyautogui/
+const BROWSER_TOOL =
+  /browser|playwright|puppeteer|\bpage\b|navigate|goto|\bclick\b|\btype\b|screenshot|dom|\b(?:scroll|hover|press)/
+// A tool named for the program it runs. Checked before the name patterns so
+// `openscad` is not a file open and `git_diff` is not a code edit.
+const SHELL_PROGRAM = /^(?:npm|pnpm|yarn|git|cargo|forge|python3?|openscad|sh|bash|zsh)(?![a-z])/
+const EDIT_TOOL = /edit|patch|apply|str_replace/
+const DIFF_TOOL = /edit|write|patch|apply|str_replace|create|save|file/
+const WRITE_TOOL = /write|create.*file|save/
+const READ_TOOL = /read|\bcat\b|open|view|get.*file|load|fetch_file/
+const GREP_TOOL = /search|grep|query/
+const GLOB_TOOL = /glob|find|(?:^|[^a-z])(?:list|ls)(?![a-z])/
+const API_TOOL = /http|\bapi\b|fetch|request|webhook|rest|graphql|endpoint|\bweb/
+const SHELL_TOOL = /shell|exec|bash|(?:^|[^a-z])run(?![a-z])|terminal|command|sandbox|process/
+
+function diffOf(span: Span): string | undefined {
+  const a = span.kind === 'tool' ? asObj(span.args) : undefined
+  return str(attr(span, 'diff', 'patch')) ?? str(a?.diff) ?? str(a?.patch)
+}
+
+/** Classify a span by what it does. Sandbox spans are `shell`; non-tool spans
+ *  are `other`. Checked in priority order: computer, browser, named program,
+ *  edit (a diff payload also counts), write, read, grep, glob, api (a `url`
+ *  argument also counts), shell. */
+export function classifyTool(span: Span): ToolClass {
+  if (span.kind === 'sandbox') return 'shell'
+  if (span.kind !== 'tool') return 'other'
+  const tn = span.toolName.toLowerCase()
+  if (COMPUTER_TOOL.test(tn)) return 'computer'
+  if (BROWSER_TOOL.test(tn)) return 'browser'
+  if (SHELL_PROGRAM.test(tn)) return 'shell'
+  if ((diffOf(span) && DIFF_TOOL.test(tn)) || EDIT_TOOL.test(tn)) return 'edit'
+  if (WRITE_TOOL.test(tn)) return 'write'
+  if (READ_TOOL.test(tn)) return 'read'
+  if (GREP_TOOL.test(tn)) return 'grep'
+  if (GLOB_TOOL.test(tn)) return 'glob'
+  if (API_TOOL.test(tn) || str(asObj(span.args)?.url) || str(attr(span, 'url'))) return 'api'
+  if (SHELL_TOOL.test(tn)) return 'shell'
+  return 'other'
+}
+
 /** Pull the modality-appropriate visual out of whatever the span carries.
- *  Conventions (checked in priority order): an image rides on
+ *  The tool's class (see `classifyTool`) picks the visual. An image rides on
  *  `attributes.screenshot|image|frame|videoFrame` or `result.screenshot`; a
  *  diff on `attributes.diff|patch` or `args.diff`; a command on `args` /
  *  `args.command`; an API call on a `url`/`method` in args; file content on
  *  `result`. Unknown tools degrade to an args/result inspector. */
-function extractVisual(span: Span): SceneVisual {
+export function extractVisual(span: Span): SceneVisual {
   const shot =
     str(attr(span, 'screenshot', 'screenshotUrl', 'image', 'frame', 'videoFrame')) ??
     (span.kind === 'tool'
@@ -131,100 +188,88 @@ function extractVisual(span: Span): SceneVisual {
       : undefined)
 
   if (span.kind === 'tool') {
-    const tn = span.toolName.toLowerCase()
     const a = asObj(span.args)
-    // computer use (GUI / desktop control)
-    if (/computer|cua|desktop|\bgui\b|xdotool|mouse|keyboard|screen_|pyautogui/.test(tn)) {
-      return {
-        type: 'browser',
-        action: str(a?.action) ?? span.toolName,
-        url: str(a?.target),
-        screenshot: shot,
+    switch (classifyTool(span)) {
+      case 'computer':
+        return {
+          type: 'browser',
+          action: str(a?.action) ?? span.toolName,
+          url: str(a?.target),
+          screenshot: isImageSrc(shot) ? shot : undefined,
+        }
+      case 'browser':
+        return {
+          type: 'browser',
+          url: str(a?.url) ?? str(attr(span, 'url')),
+          action: str(a?.action) ?? str(a?.selector) ?? span.toolName,
+          screenshot: isImageSrc(shot) ? shot : undefined,
+        }
+      case 'edit':
+      case 'write': {
+        const diff = diffOf(span)
+        if (diff) {
+          return {
+            type: 'diff',
+            path: str(a?.path) ?? str(a?.file) ?? str(attr(span, 'path')) ?? '',
+            patch: truncate(diff, 2000),
+          }
+        }
+        const newText = str(a?.new_str) ?? str(a?.content) ?? str(a?.text)
+        return {
+          type: 'diff',
+          path: str(a?.path) ?? str(a?.file) ?? '',
+          patch: newText ? `+ ${truncate(newText, 1600)}` : '(no diff captured)',
+        }
       }
-    }
-    // browser use
-    if (
-      /browser|playwright|puppeteer|\bpage\b|navigate|goto|\bclick\b|\btype\b|screenshot|dom/.test(
-        tn,
-      )
-    ) {
-      return {
-        type: 'browser',
-        url: str(a?.url) ?? str(attr(span, 'url')),
-        action: str(a?.action) ?? str(a?.selector) ?? span.toolName,
-        screenshot: shot,
+      case 'read': {
+        const content =
+          str(asObj(span.result)?.content) ??
+          (typeof span.result === 'string' ? span.result : undefined) ??
+          str(attr(span, 'content'))
+        return {
+          type: 'code',
+          path: str(a?.path) ?? str(a?.file) ?? '',
+          content: truncate(content ?? '', 1400),
+        }
       }
-    }
-    // code edit → diff
-    const diff = str(attr(span, 'diff', 'patch')) ?? str(a?.diff) ?? str(a?.patch)
-    if (diff && /edit|write|patch|apply|str_replace|create|save|file/.test(tn)) {
-      return {
-        type: 'diff',
-        path: str(a?.path) ?? str(a?.file) ?? str(attr(span, 'path')) ?? '',
-        patch: truncate(diff, 2000),
+      case 'grep':
+      case 'glob':
+        return {
+          type: 'terminal',
+          command: `search ${str(a?.query) ?? str(a?.pattern) ?? ''}`.trim(),
+          output: truncate(safeJson(span.result) ?? '', 1000),
+        }
+      case 'api':
+        return {
+          type: 'api',
+          method: str(a?.method) ?? str(attr(span, 'method')),
+          url: str(a?.url) ?? str(attr(span, 'url')) ?? span.toolName,
+          status: num(attr(span, 'status', 'statusCode')) ?? num(asObj(span.result)?.status),
+          request: truncate(str(a?.body) ?? safeJson(span.args) ?? '', 900),
+          response: truncate(str(attr(span, 'response')) ?? safeJson(span.result) ?? '', 900),
+        }
+      case 'shell': {
+        const command =
+          typeof span.args === 'string'
+            ? span.args
+            : (str(a?.command) ?? str(a?.cmd) ?? span.toolName)
+        const output =
+          str(attr(span, 'output', 'stdout')) ??
+          (typeof span.result === 'string' ? span.result : safeJson(span.result))
+        return {
+          type: 'terminal',
+          command: truncate(command, 240),
+          output: truncate(output ?? '', 1400),
+        }
       }
-    }
-    if (/edit|write|patch|apply|str_replace/.test(tn)) {
-      const newText = str(a?.new_str) ?? str(a?.content) ?? str(a?.text)
-      return {
-        type: 'diff',
-        path: str(a?.path) ?? str(a?.file) ?? '',
-        patch: newText ? `+ ${truncate(newText, 1600)}` : '(no diff captured)',
-      }
-    }
-    // file read → code
-    if (/read|\bcat\b|open|view|get_file|load|fetch_file/.test(tn)) {
-      const content =
-        str(asObj(span.result)?.content) ??
-        (typeof span.result === 'string' ? span.result : undefined) ??
-        str(attr(span, 'content'))
-      return {
-        type: 'code',
-        path: str(a?.path) ?? str(a?.file) ?? '',
-        content: truncate(content ?? '', 1400),
-      }
-    }
-    // search
-    if (/search|grep|find|glob|query/.test(tn)) {
-      return {
-        type: 'terminal',
-        command: `search ${str(a?.query) ?? str(a?.pattern) ?? ''}`.trim(),
-        output: truncate(safeJson(span.result) ?? '', 1000),
-      }
-    }
-    // api / http / network
-    const url = str(a?.url) ?? str(attr(span, 'url'))
-    if (url || /http|\bapi\b|fetch|request|webhook|rest|graphql|endpoint/.test(tn)) {
-      return {
-        type: 'api',
-        method: str(a?.method) ?? str(attr(span, 'method')),
-        url: url ?? span.toolName,
-        status: num(attr(span, 'status', 'statusCode')) ?? num(asObj(span.result)?.status),
-        request: truncate(str(a?.body) ?? safeJson(span.args) ?? '', 900),
-        response: truncate(str(attr(span, 'response')) ?? safeJson(span.result) ?? '', 900),
-      }
-    }
-    // shell / sandbox exec
-    if (/shell|exec|bash|\brun\b|terminal|command|sandbox|process/.test(tn)) {
-      const command =
-        typeof span.args === 'string'
-          ? span.args
-          : (str(a?.command) ?? str(a?.cmd) ?? span.toolName)
-      const output =
-        str(attr(span, 'output', 'stdout')) ??
-        (typeof span.result === 'string' ? span.result : safeJson(span.result))
-      return {
-        type: 'terminal',
-        command: truncate(command, 240),
-        output: truncate(output ?? '', 1400),
-      }
-    }
-    // generic tool — show the call
-    return {
-      type: 'api',
-      url: span.toolName,
-      request: truncate(safeJson(span.args) ?? '', 900),
-      response: truncate(safeJson(span.result) ?? '', 900),
+      case 'other':
+        // generic tool — show the call
+        return {
+          type: 'api',
+          url: span.toolName,
+          request: truncate(safeJson(span.args) ?? '', 900),
+          response: truncate(safeJson(span.result) ?? '', 900),
+        }
     }
   }
 
@@ -233,8 +278,12 @@ function extractVisual(span: Span): SceneVisual {
     const text = str(span.output) ?? str(span.messages?.[span.messages.length - 1]?.content)
     return text ? { type: 'prose', text: truncate(text, 900) } : { type: 'none' }
   }
-  if (span.kind === 'sandbox')
-    return { type: 'terminal', command: span.name, output: str(attr(span, 'output')) }
+  if (span.kind === 'sandbox') {
+    const tests =
+      (span.testsTotal ?? 0) > 0 ? `${span.testsPassed ?? 0}/${span.testsTotal} tests passing` : ''
+    const output = [tests, str(attr(span, 'output')), span.error].filter(Boolean).join('\n')
+    return { type: 'terminal', command: span.command ?? span.name, output: output || undefined }
+  }
   return { type: 'none' }
 }
 
@@ -276,26 +325,27 @@ function classify(span: Span): Classified {
   if (span.kind === 'retrieval') return { kind: 'searched', importance: 2, label: span.name }
   if (span.kind === 'sandbox') return { kind: 'ran_command', importance: 3, label: span.name }
   if (span.kind === 'tool') {
-    const tn = span.toolName.toLowerCase()
     const label = toolLabel(span)
-    if (/computer|cua|desktop|\bgui\b|xdotool|pyautogui/.test(tn))
-      return { kind: 'used_computer', importance: 3, label }
-    if (/browser|playwright|puppeteer|\bpage\b|navigate|goto|\bclick\b|screenshot|dom/.test(tn))
-      return { kind: 'used_browser', importance: 3, label }
-    if (/edit|write|patch|apply|str_replace|create.*file|save/.test(tn))
-      return { kind: 'edited_code', importance: 4, label }
-    if (/read|\bcat\b|open|view|get.*file|load/.test(tn))
-      return { kind: 'read_file', importance: 2, label }
-    if (/search|grep|find|glob|query/.test(tn)) return { kind: 'searched', importance: 2, label }
-    if (
-      /http|\bapi\b|fetch|request|webhook|rest|graphql|endpoint/.test(tn) ||
-      str(asObj(span.args)?.url)
-    ) {
-      return { kind: 'called_api', importance: 3, label }
+    switch (classifyTool(span)) {
+      case 'computer':
+        return { kind: 'used_computer', importance: 3, label }
+      case 'browser':
+        return { kind: 'used_browser', importance: 3, label }
+      case 'edit':
+      case 'write':
+        return { kind: 'edited_code', importance: 4, label }
+      case 'read':
+        return { kind: 'read_file', importance: 2, label }
+      case 'grep':
+      case 'glob':
+        return { kind: 'searched', importance: 2, label }
+      case 'api':
+        return { kind: 'called_api', importance: 3, label }
+      case 'shell':
+        return { kind: 'ran_command', importance: 3, label }
+      case 'other':
+        return { kind: 'called_tool', importance: 3, label }
     }
-    if (/shell|exec|bash|\brun\b|terminal|command|process/.test(tn))
-      return { kind: 'ran_command', importance: 3, label }
-    return { kind: 'called_tool', importance: 3, label }
   }
   return { kind: 'called_tool', importance: 2, label: span.name }
 }
@@ -808,8 +858,8 @@ export function renderStoryboardHtml(storyboard: Storyboard, opts: HtmlRenderOpt
 `
 }
 
+export type { CodeAnimationOptions, CodeEdit } from './code-edit'
 // The "watch the agent write code" keystroke animation + the CodeEdit IR a
 // Remotion consumer reads. Composes with this pipeline: a 'diff' scene shows an
 // inline card here; renderCodeAnimationHtml types the whole file out there.
 export { editAnimationText, extractCodeEdits, renderCodeAnimationHtml } from './code-edit'
-export type { CodeAnimationOptions, CodeEdit } from './code-edit'
