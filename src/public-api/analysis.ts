@@ -148,6 +148,7 @@ export type {
   RiskDifferenceResult,
   ScoreRiskDifferenceResult,
   SeriesDistribution,
+  SeriesDistributionOptions,
   SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,

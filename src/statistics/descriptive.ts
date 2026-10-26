@@ -3,7 +3,8 @@
  * weighted judge-dimension composite. Nothing here is a significance test.
  */
 
-import { makeRng } from './internal'
+import { ValidationError } from '../errors'
+import { assertFiniteSample, makeRng } from './internal'
 
 /** Weighted mean — falls back to uniform weights when omitted */
 export function weightedMean(scores: { score: number; weight?: number }[]): number {
@@ -76,6 +77,23 @@ export interface SeriesDistribution {
   readonly p90: number
   readonly max: number
   readonly sum: number
+  readonly percentiles?: Readonly<Record<number, number>>
+  readonly medianInterval?: {
+    readonly method: 'normal-order-statistics'
+    readonly criticalValue: number
+    readonly sampleSize: number
+    readonly lowRank: number
+    readonly highRank: number
+    readonly low: number
+    readonly high: number
+  }
+}
+
+export interface SeriesDistributionOptions {
+  /** Nearest-rank percentiles on a 0–100 scale, including fractional tails. */
+  percentiles?: readonly number[]
+  /** Descriptive median rank band, not a bootstrap interval or promotion test. */
+  medianInterval?: { criticalValue: number }
 }
 
 /**
@@ -85,18 +103,68 @@ export interface SeriesDistribution {
  * series: an empty series has no distribution, and a zero-filled summary
  * would read as a measured all-zero series.
  */
-export function summarizeNumberSeries(values: readonly number[]): SeriesDistribution | null {
+export function summarizeNumberSeries(
+  values: readonly number[],
+  options?: SeriesDistributionOptions,
+): SeriesDistribution | null {
+  const criticalValue = options?.medianInterval?.criticalValue
+  if (options) {
+    assertFiniteSample('summarizeNumberSeries', 'values', values)
+    for (const percentile of options.percentiles ?? []) {
+      if (!Number.isFinite(percentile) || percentile < 0 || percentile > 100) {
+        throw new ValidationError(
+          'summarizeNumberSeries: percentiles must be finite and between 0 and 100',
+        )
+      }
+    }
+    if (
+      options.medianInterval &&
+      (criticalValue === undefined || !Number.isFinite(criticalValue) || criticalValue < 0)
+    ) {
+      throw new ValidationError(
+        'summarizeNumberSeries: median criticalValue must be finite and nonnegative',
+      )
+    }
+  }
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
+  const n = sorted.length
   const rank = (q: number): number =>
-    sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] as number
+    sorted[Math.min(n - 1, Math.max(0, Math.ceil(q * n) - 1))] as number
+  const sum = sorted.reduce((a, b) => a + b, 0)
+  if (options && !Number.isFinite(sum)) {
+    throw new ValidationError('summarizeNumberSeries: sample sum exceeded finite range')
+  }
+  const spread = criticalValue === undefined ? undefined : (criticalValue / 2) * Math.sqrt(n)
+  const lowRank = spread === undefined ? 1 : Math.max(1, Math.floor(n / 2 - spread))
+  const highRank = spread === undefined ? n : Math.min(n, Math.ceil(n / 2 + 1 + spread))
   return {
-    n: sorted.length,
+    n,
     min: sorted[0] as number,
     p50: rank(0.5),
     p90: rank(0.9),
     max: sorted[sorted.length - 1] as number,
-    sum: sorted.reduce((a, b) => a + b, 0),
+    sum,
+    ...(options?.percentiles === undefined
+      ? {}
+      : {
+          percentiles: Object.fromEntries(
+            options.percentiles.map((percentile) => [percentile, rank(percentile / 100)]),
+          ),
+        }),
+    ...(criticalValue === undefined
+      ? {}
+      : {
+          medianInterval: {
+            method: 'normal-order-statistics' as const,
+            criticalValue,
+            sampleSize: n,
+            lowRank,
+            highRank,
+            low: sorted[lowRank - 1] as number,
+            high: sorted[highRank - 1] as number,
+          },
+        }),
   }
 }
 
