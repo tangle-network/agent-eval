@@ -245,7 +245,7 @@ describe('supervisor-run rollouts', () => {
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
     ])
     expect(worker.outcome.reward).toBe(1)
-    expect(worker.outcome.metrics).toMatchObject({ deliverable_commits: 2, role_inferred: true })
+    expect(worker.outcome.metrics).toMatchObject({ deliverable_commits: 2 })
 
     const sessions = lines.filter((line) => line.task.suite.startsWith('harness/'))
     const harnesses = new Set(sessions.map((line) => line.policy.harness))

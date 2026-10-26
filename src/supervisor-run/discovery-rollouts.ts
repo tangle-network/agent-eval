@@ -8,9 +8,7 @@
  *   - Episode text: the node's task prompt (its `taskDigest` blob) and its
  *     final answer (its `outRef` blob), when the run kept both. The tool calls
  *     between them are not inlined, so the row stays a lossy projection.
- *   - Role: Discovery journals do not record one, so a node that spawned
- *     children is a supervisor and any other node a worker
- *     (`metrics.role_inferred`). A node respawned under the same id is one row.
+ *   - A node respawned under the same id (a reopened run) is one row.
  *   - Reward: the run's newest known play-check verdict on the root row
  *     (`solved` → 1, a staged `SCORE` → stages reached / stages), and each
  *     agent's own commits on its `workers/<label>` branch of `deliverables.git`.
@@ -212,18 +210,10 @@ export async function discoveryRunRolloutLines(
   const pursuit = discoveryPursuitOf(runDir)
   const src = await readRuntimeSupervisorRun(runDir)
   const facts0 = parseSupervisorTree(src)
-  const parents = new Set(facts0.spawns.map((spawn) => spawn.parent))
-  const inferred = new Set<string>()
   const seen = new Set<string>()
-  const workerSpawns = facts0.workerSpawns.flatMap((spawn) => {
-    if (seen.has(spawn.id)) return []
-    seen.add(spawn.id)
-    if (spawn.role !== null) return [spawn]
-    inferred.add(spawn.id)
-    return [
-      { ...spawn, role: parents.has(spawn.id) ? ('supervisor' as const) : ('worker' as const) },
-    ]
-  })
+  const workerSpawns = facts0.workerSpawns.filter(
+    (spawn) => !seen.has(spawn.id) && seen.add(spawn.id),
+  )
   const tree = supervisorRunRolloutLinesFromFacts(
     src,
     { ...facts0, workerSpawns },
@@ -280,7 +270,6 @@ export async function discoveryRunRolloutLines(
         ...outcome,
         metrics: {
           ...outcome.metrics,
-          ...(inferred.has(node.rollout_id) ? { role_inferred: true } : {}),
           deliverable_commits:
             commits === null ? null : (commits.get(isRoot ? 'root' : (label ?? '')) ?? 0),
         },
