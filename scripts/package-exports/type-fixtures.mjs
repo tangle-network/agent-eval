@@ -31,7 +31,10 @@ function indexValueFixture() {
         CONTROL_INTEGRITY_ANALYST,
         ControlIntegrityAnalyst,
         AnalystRegistry as AnalystSubpathRegistry,
+        BEHAVIORAL_FAILURE_CLASS,
         RawAnalystFindingSchema,
+        assertFailureClasses,
+        pinBehavioralFailureClass,
         agentRxBenchmarkCase,
         agentRxPredictionsToFindings,
         codeTraceBenchCase,
@@ -270,6 +273,7 @@ function indexRemovedApiFixture(removedSdkType) {
       const rootExactRegistry = new RootAnalystRegistry()
       const analystExactRegistry = new AnalystSubpathRegistry()
       const controlIntegrityAnalyst: ControlIntegrityAnalyst = CONTROL_INTEGRITY_ANALYST
+      assertFailureClasses(BEHAVIORAL_FAILURE_CLASS)
       const controlIntegrityInput = undefined as SupervisorRunSources | SupervisorRunTree | undefined
       const controlIntegrityReport = undefined as SupervisorRunIntegrityReport | undefined
       const controlTreeGap: SupervisorRunTreeGap = {
@@ -502,6 +506,7 @@ function indexRuntimeFixture() {
         rootExactRegistry,
         analystExactRegistry,
         controlIntegrityAnalyst,
+        pinBehavioralFailureClass,
         controlIntegrityInput,
         controlIntegrityReport,
         controlTreeGap,

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
-import { behavioralAnalyst } from './behavioral-analyst'
+import {
+  assertFailureClasses,
+  BEHAVIORAL_FAILURE_CLASS,
+  behavioralAnalyst,
+  pinBehavioralFailureClass,
+} from './behavioral-analyst'
 import { buildDefaultAnalystRegistry } from './default-registry'
 import type { TraceAnalysisEngine } from './engine'
 
@@ -401,5 +406,42 @@ describe('buildDefaultAnalystRegistry', () => {
 
     const planned = result.execution_plan.analysts.find((analyst) => analyst.id === 'failure-mode')
     expect(planned?.execution_config_digest).toMatch(/^sha256:/)
+  })
+})
+
+describe('behavioral failure classes', () => {
+  it('pins each behavioral subject to its FAILURE_CLASSES member', async () => {
+    const result = await buildDefaultAnalystRegistry().run('pin', { traceStore: fakeStore })
+    for (const finding of result.findings) pinBehavioralFailureClass(finding)
+
+    expect(
+      Object.fromEntries(result.findings.map((f) => [f.subject, f.metadata?.failure_class])),
+    ).toEqual({
+      'monotonic-input-growth': 'cost_overrun',
+      'output-length-decay': 'reasoning_error',
+      'single-tool-dependency': 'tool_selection_error',
+      'no-self-verification': 'tool_recovery_failure',
+    })
+    expect(result.findings.every((f) => f.metadata?.observed_trace_count === 1)).toBe(true)
+  })
+
+  it('rejects a class outside FAILURE_CLASSES', () => {
+    expect(() => assertFailureClasses(BEHAVIORAL_FAILURE_CLASS)).not.toThrow()
+    expect(() =>
+      assertFailureClasses({ ...BEHAVIORAL_FAILURE_CLASS, 'output-length-decay': 'context_bloat' }),
+    ).toThrow(/'output-length-decay' maps to 'context_bloat'/)
+  })
+
+  it('leaves a non-behavioral finding untouched', async () => {
+    const result = await buildDefaultAnalystRegistry().run('pin', { traceStore: fakeStore })
+    const behavioral = result.findings[0]!
+    const other = { ...behavioral, analyst_id: 'failure-mode', metadata: { kept: true } }
+    const unmapped = { ...behavioral, subject: 'constructor', metadata: { kept: true } }
+
+    pinBehavioralFailureClass(other)
+    pinBehavioralFailureClass(unmapped)
+
+    expect(other.metadata).toEqual({ kept: true })
+    expect(unmapped.metadata).toEqual({ kept: true })
   })
 })

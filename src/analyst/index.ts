@@ -9,7 +9,12 @@
 export type { SemanticConceptJudgeAdapterOpts } from './adapters'
 
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
-export { behavioralAnalyst } from './behavioral-analyst'
+export {
+  assertFailureClasses,
+  BEHAVIORAL_FAILURE_CLASS,
+  behavioralAnalyst,
+  pinBehavioralFailureClass,
+} from './behavioral-analyst'
 export type {
   BehavioralQuestionCalibration,
   BehavioralTraceAnswer,
