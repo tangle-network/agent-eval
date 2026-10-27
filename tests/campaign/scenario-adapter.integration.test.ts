@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runCampaign } from '@tangle-network/agent-eval/campaign'
 import { afterEach, expect, it } from 'vitest'
+import { runCampaign } from '../../src/campaign/index'
 
 const roots: string[] = []
 const peers: Server[] = []

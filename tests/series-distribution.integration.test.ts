@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
+import { expect, it } from 'vitest'
 import {
   type SeriesDistributionOptions,
   summarizeNumberSeries,
   ValidationError,
-} from '@tangle-network/agent-eval'
-import { expect, it } from 'vitest'
+} from '../src/index'
 
 interface LatencyRecord {
   run_id: string
@@ -17,7 +17,7 @@ const fixture = JSON.parse(
   readFileSync(new URL('./fixtures/series-latency-records.json', import.meta.url), 'utf8'),
 ) as { source: string; records: LatencyRecord[] }
 
-// The consumer imports the built public package, groups recorded measurements,
+// The consumer imports the public entry, groups recorded measurements,
 // and persists a report. A missing export or non-JSON number breaks this flow.
 function report(records: LatencyRecord[], options?: SeriesDistributionOptions) {
   const groups = new Map<string, number[]>()
