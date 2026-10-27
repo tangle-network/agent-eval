@@ -1,13 +1,58 @@
 import { describe, expect, it } from 'vitest'
 import {
   confidenceInterval,
+  meanConfidenceInterval,
   partialCredit,
   pearsonR,
   ranks,
   spearmanR,
+  studentTCritical,
   summarizeNumberSeries,
   weightedMean,
 } from './index'
+
+describe('meanConfidenceInterval', () => {
+  it('uses the df = n - 1 t critical value, wider than z = 1.96 at n = 5', () => {
+    const ci = meanConfidenceInterval([100, 200, 300, 400, 500])
+    expect(ci.n).toBe(5)
+    expect(ci.mean).toBe(300)
+    expect(ci.stdev).toBeCloseTo(Math.sqrt(25_000), 9)
+    expect(ci.criticalValue).toBeCloseTo(2.776, 3)
+    const zHalfWidth = (1.96 * ci.stdev!) / Math.sqrt(5)
+    expect(ci.high! - ci.low!).toBeGreaterThan(2 * zHalfWidth)
+    expect(ci.low).toBeCloseTo(300 - (ci.criticalValue! * ci.stdev!) / Math.sqrt(5), 9)
+  })
+
+  it('returns null bounds below two samples', () => {
+    expect(meanConfidenceInterval([7])).toEqual({
+      n: 1,
+      mean: 7,
+      stdev: null,
+      low: null,
+      high: null,
+      criticalValue: null,
+    })
+    expect(meanConfidenceInterval([]).mean).toBeNull()
+  })
+
+  it('approaches the normal value at n = 40', () => {
+    const samples = Array.from({ length: 40 }, (_, i) => i)
+    const ci = meanConfidenceInterval(samples)
+    // Exact t(0.975, df = 39) = 2.0227; the normal 1.96 understates it by 3%.
+    expect(ci.criticalValue).toBeCloseTo(2.0227, 4)
+    expect(Math.abs(ci.criticalValue! - 1.96) / 1.96).toBeLessThan(0.035)
+  })
+
+  it('matches published two-sided t critical values and refuses an invalid confidence', () => {
+    expect(studentTCritical(1)).toBeCloseTo(12.706, 3)
+    expect(studentTCritical(30)).toBeCloseTo(2.042, 3)
+    expect(studentTCritical(10, 0.99)).toBeCloseTo(3.169, 3)
+    expect(studentTCritical(1e7)).toBeCloseTo(1.96, 2)
+    expect(() => studentTCritical(4, 1)).toThrow(/confidence/)
+    expect(() => meanConfidenceInterval([1], 0)).toThrow(/confidence/)
+    expect(() => meanConfidenceInterval([1, Number.NaN])).toThrow(/finite/)
+  })
+})
 
 describe('weightedMean', () => {
   it('computes simple average with no weights', () => {
