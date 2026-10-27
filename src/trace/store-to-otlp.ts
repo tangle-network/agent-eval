@@ -20,6 +20,7 @@
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { toW3CSpanId, toW3CTraceId } from '@tangle-network/agent-trace-contract'
 import {
   applyLlmSpanOtlpAttributes,
   applyToolSpanOtlpAttributes,
@@ -28,7 +29,6 @@ import {
 } from './otlp-attributes'
 import { createOtlpFlatLine, epochMillisToIso, spanStatusToOtlp } from './otlp-flat'
 import type { Run, Span, TraceEvent } from './schema'
-import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 /** Marker `FileSystemTraceStore` stamps on partial-update NDJSON rows. */
 interface MaybeUpdate {
@@ -210,7 +210,7 @@ function projectCell(args: {
   }
 
   for (const run of runByRunId.values()) {
-    const traceId = traceIdForWire(run.runId)
+    const traceId = toW3CTraceId(run.runId)
     const agentName = run.variantId ?? run.scenarioId
     const sharedResource = {
       attributes: {
@@ -222,7 +222,7 @@ function projectCell(args: {
       },
     }
 
-    const runSpanId = spanIdForWire(`run-${run.runId}`)
+    const runSpanId = toW3CSpanId(`run-${run.runId}`)
     const runStart = msToIso(run.startedAt)
     const runEnd = msToIso(run.endedAt ?? run.startedAt)
     const runStatus =
@@ -262,8 +262,8 @@ function projectCell(args: {
         JSON.stringify(
           toLine({
             traceId,
-            spanId: spanIdForWire(span.spanId),
-            parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : runSpanId,
+            spanId: toW3CSpanId(span.spanId),
+            parentSpanId: span.parentSpanId ? toW3CSpanId(span.parentSpanId) : runSpanId,
             name: span.name,
             kind: spanKindToOtlpKind(span.kind),
             startTime: msToIso(span.startedAt),

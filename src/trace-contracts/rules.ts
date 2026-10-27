@@ -1,3 +1,4 @@
+import { ATTR } from '@tangle-network/agent-trace-contract'
 import { CaptureIntegrityError } from '../errors'
 import { canonicalString } from '../ledger-core/canonical'
 import { describePredicate } from './explain'
@@ -11,7 +12,6 @@ import {
   spanArguments,
   spanOfferedTools,
   spanTotalTokens,
-  TOOL_DEFINITIONS_ATTR,
 } from './spans'
 import type {
   ArgumentCheck,
@@ -76,7 +76,7 @@ function requireCaptureEvidence(
   if (hasCaptureEvidence(spans, kind)) return
   throw new CaptureIntegrityError(
     `rule '${rule}': ${situation} and the trace has no ${kind} capture evidence (no ${kind} span` +
-      (kind === 'TOOL' ? `, no ${TOOL_DEFINITIONS_ATTR}` : '') +
+      (kind === 'TOOL' ? `, no ${ATTR.toolDefinitions}` : '') +
       `) — cannot tell whether ${describePredicate(p)} never happened or was never recorded`,
   )
 }
@@ -370,7 +370,7 @@ function checkToolsOffered(
     return [
       {
         rule: rule.label,
-        detail: `no span records the tools offered to the model (${TOOL_DEFINITIONS_ATTR}), so what the harness enforced is unknown`,
+        detail: `no span records the tools offered to the model (${ATTR.toolDefinitions}), so what the harness enforced is unknown`,
       },
     ]
   }
@@ -423,7 +423,7 @@ function checkRetrySafe(
   if (calls.length === 0 && !hasCaptureEvidence(spans, 'TOOL')) {
     throw new CaptureIntegrityError(
       `rule '${rule.label}': retrySafe found 0 TOOL spans and the trace has no TOOL capture ` +
-        `evidence (no TOOL span, no ${TOOL_DEFINITIONS_ATTR}) — cannot tell whether no reads or ` +
+        `evidence (no TOOL span, no ${ATTR.toolDefinitions}) — cannot tell whether no reads or ` +
         'writes happened or the trace lost its TOOL spans',
     )
   }
