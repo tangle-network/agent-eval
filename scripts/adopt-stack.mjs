@@ -3,9 +3,7 @@
 // widen the caller's own peer ranges to include them, gate the result with the
 // caller's acceptance command, and open (and optionally merge) one pull request.
 // .github/workflows/adopt-stack.yml runs it for every caller repository.
-//
-// Rules carried over from gtm-agent scripts/agent-app-bump.mjs and
-// discovery-lab .github/workflows/runtime-bump.yml:
+// Its rules:
 // - One open adoption branch (`chore/adopt-stack`), deleted when its squash merge lands, so the
 //   next delivery starts from the default instead of a branch the squash left behind. Each delivery normally
 //   merges the captured default into the fetched owned proposal, plans against
@@ -29,36 +27,26 @@
 //   under `^22.0.3` while adopting agent-eval 0.217.1, and pnpm refused it.
 //   Each pass rebuilds targets from npm latest with the current raises and all
 //   holds so far, so a raise a later hold made unnecessary drops out.
-// - An install keeps a locked version its range still admits. A range whose
-//   lock is older than a target inside the range as written gets its floor
-//   raised (`^22.0.3` -> `^22.0.7`), as does one a peer raise requires. A pnpm
-//   catalog entry follows the root pin when that moves to the target, so every
-//   workspace importer resolves the same version. Any other locked dependency
-//   or catalog range stays as written: only peer ranges widen.
+// - A range that admits its target stays as written and `pnpm update --no-save`
+//   moves only the lock: a raised floor (`^1.0.39` -> `^1.0.40`) republished every
+//   caller per patch. Only peer ranges widen. One delivery a day: with no proposal
+//   open, a run within 20 h of the last merge stops (288 PRs in 24 h, 2026-10-27).
 // - A lockfile this script cannot read (or yarn/bun) stops the plan, since
 //   every hold, raise and cohort edit depends on what it holds.
 // - A caller's release/cohort.json entries move to the version the lockfile
 //   will hold for each planned package and its source commit (npm gitHead,
 //   else the release tag); an entry whose lock does not move stays.
-// - The adopted versions are exact pins, so the install refetches metadata for
-//   a version its cache has not seen; no cache override is needed.
 // - It merges only a head whose base is still the default branch head, so the
 //   merged tree is the one the gate passed. No admin or auto merge is attempted.
-// - A merge refused by the base branch policy while the pull request's review
-//   decision is REVIEW_REQUIRED waits for the approval bot: the same merge is
-//   retried every 20 s for up to 15 min. Any other refusal, or the wait running
-//   out, records merge-refused and the comment says which.
-//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS override the two bounds.
+// - A merge refused under REVIEW_REQUIRED waits for the approval bot (`mergeWhenApproved`;
+//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS set the bounds).
 //
 // Widening keeps the lower bound of the range's last alternative and moves its
 // upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
 // unless a sibling rule holds it lower; a peer never claims a version the gate
 // did not run. A peer range that already covers the version is left as written.
-// Packages past 1.0 (agent-knowledge, agent-interface) are pinned like any
-// other, but a range that excludes a new major is refused with a non-zero exit:
-// a major is a breaking release a person widens on purpose, and a 0.x range meets
-// that refusal at its package's first 1.0 release. A prerelease npm
-// latest is refused the same way. An unparseable range in an adopted release's
+// A range that excludes a new major, or a prerelease npm latest, is refused with a non-zero exit:
+// a person widens a breaking release on purpose. An unparseable range in an adopted release's
 // own peers is skipped with a warning instead of aborting every package.
 //
 // `--post-pin CMD` runs the caller's own sync step (template pins, peer floors
@@ -82,7 +70,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions, preparePlaywrightBrowsers } from './adopt-stack-workspace.mjs'
 
@@ -238,12 +226,8 @@ const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
 /**
  * What a dependency spec becomes for `target` (`to`, null when it stays as
  * written) and the version the lockfile then holds (`holds`, null when
- * unknown). An install keeps a locked version its range still admits, so a
- * range whose lock is older than `target` gets its floor raised, but only when
- * `target` is inside the range as written (a compatible update) or `force` is
- * set (a peer range requires it, or the caller's root pin moves to it). A
- * locked range otherwise stays as written, so a published dependency range
- * never admits a version no gate installed; only peer ranges widen.
+ * unknown). A range that admits `target` stays and the lock moves; one that
+ * excludes it moves only when `force` is set (a peer range requires it).
  */
 function respec(spec, target, locked, force = false) {
   if (EXACT.test(spec)) return { to: spec === target ? null : target, holds: target }
@@ -255,6 +239,7 @@ function respec(spec, target, locked, force = false) {
     return { to: widened === spec ? null : widened, holds: target }
   }
   if (compare(release(locked), release(target)) < 0 && (force || satisfies(target, spec))) {
+    if (satisfies(target, spec)) return { to: null, holds: target }
     const to = raiseFloor(widenRange(spec, target), target)
     if (!satisfies(target, to) || satisfies(locked, to)) throw new Error(`raising "${spec}" to ${target} gave "${to}", which does not move the locked ${locked} to it`)
     return { to, holds: target }
@@ -556,11 +541,24 @@ export function writePlan(dir, result) {
   if (result.edits.some((edit) => edit.file === COHORT)) writeFileSync(join(dir, COHORT), cohortText)
 }
 
-function install(dir) {
+/**
+ * Lock the planned versions without moving a range that admits them. Each pnpm importer
+ * updates only its own registry pins, so a `workspace:` link elsewhere is never re-resolved.
+ * npm cannot lock without saving, so its ranges are written back and the lock re-derived.
+ */
+export function install(dir, result) {
+  const expected = new Map(result.expected)
+  const targets = new Map()
+  for (const { file, name, spec } of dependencies(result.files.members)) {
+    if (expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:'))) targets.set(file, [...new Set([...(targets.get(file) ?? []), `${name}@${expected.get(name)}`])])
+  }
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
     if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
+    for (const [file, names] of targets) if (!run('pnpm', ['update', '--no-save', ...names], join(dir, dirname(file)))) throw new Error(`pnpm could not lock ${names.join(' ')} in ${file}`)
   } else if (existsSync(join(dir, 'package-lock.json'))) {
-    if (!run('npm', ['install', '--prefer-online'], dir)) throw new Error('npm install failed for the new pins')
+    if (!run('npm', ['install', '--prefer-online', ...[...targets.values()].flat()], dir)) throw new Error('npm install failed for the new pins')
+    writePlan(dir, result)
+    if (!run('npm', ['install', '--package-lock-only', '--prefer-online'], dir)) throw new Error('npm could not lock the planned ranges')
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
 
@@ -717,7 +715,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body,isDraft']))[0]
 
   writePlan(dir, result)
-  install(dir)
+  install(dir, result)
   const synced = { command, files: command ? postPin(dir, command) : [] }
   result.resolved = resolvedVersions(dir, new Map(result.expected))
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
@@ -796,15 +794,10 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
 }
 
 /**
- * Merge `head` while the default branch still sits at `base`, the tree the gate
- * passed. A base branch policy refusal while the review decision is
- * REVIEW_REQUIRED means an approval (usually the approval bot's) has not landed
- * yet, so the identical merge is retried every POLL_MS until WAIT_MS has
- * passed. Any other refusal returns at once, including a moved head, which
- * `--match-head-commit` refuses on every retry. A decision gh cannot read
- * (null) refuses at once. Each retry re-reads the default branch, so a base
- * that moves during the wait closes the pull request for a re-gate.
- * Returns {} when merged, { moved } when the base moved, or { refusal, why }.
+ * Merge `head` while the default branch still sits at `base`, the tree the gate passed. A policy
+ * refusal under REVIEW_REQUIRED waits for the approval bot (retried every POLL_MS up to WAIT_MS);
+ * any other refusal, an unreadable decision or a moved head returns at once, and a moved base
+ * closes the pull request for a re-gate. Returns {} when merged, { moved }, or { refusal, why }.
  */
 export async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
   const deadline = Date.now() + WAIT_MS
@@ -849,7 +842,12 @@ function options(argv) {
 async function main() {
   const opts = options(process.argv.slice(2))
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
-  if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--json', 'number'], opts.dir)).length > 0))
+  if (!opts.dryRun) {
+    const listed = (state) => JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', state, '--limit', '1', '--json', 'mergedAt'], opts.dir))
+    const [open, last] = [listed('open').length > 0, listed('merged')[0]?.mergedAt]
+    if (!open && Date.now() - Date.parse(last) < 20 * 3600_000) return log(`last refresh merged ${last}; the next runs a day later`)
+    Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
+  }
   const result = await plan(opts.dir, opts.packages)
   if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }

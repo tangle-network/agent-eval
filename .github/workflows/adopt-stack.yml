@@ -7,7 +7,7 @@
 # A caller schedules it, because a reusable workflow cannot schedule itself:
 #
 #   on:
-#     schedule: [{ cron: '*/30 * * * *' }]
+#     schedule: [{ cron: '17 6 * * *' }]  # daily; the script also delivers at most once a day
 #     workflow_dispatch:
 #   permissions:
 #     contents: write
