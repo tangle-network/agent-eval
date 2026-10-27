@@ -426,9 +426,9 @@ const CARD_NUMBER =
 const PHONE_NUMBER = /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g
 
 // Whole UUIDs and decimals are exemptions, not prefixes of a neighboring value.
-// Reuse formatted rules; whitespace cannot join otherwise independent numbers.
+// Match independent values before the fallback for other grouped contact formats.
 const NUMERIC_PRIVACY = new RegExp(
-  String.raw`(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.-])\d+\.\d+(?![\w.])|${CARD_NUMBER.source}|${PHONE_NUMBER.source}|(?<![A-Za-z0-9_-])\+\d{1,3}[ \t.-](?:\(\d{1,4}\)|\d{1,4})[ \t.-](?:\d{3,4}[ \t.-]\d{3,4}|\d{5,8})(?![\w-])|(?<![A-Za-z0-9_-])\+?\d[\d().-]{8,}\d(?![A-Za-z0-9_])`,
+  String.raw`(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.-])\d+\.\d+(?![\w.])|${CARD_NUMBER.source}|${PHONE_NUMBER.source}|(?<![A-Za-z0-9_-])\+?\d{1,3}[ \t.-](?:\(\d{1,4}\)|\d{1,4})[ \t.-](?:\d{3,4}[ \t.-]\d{3,4}|\d{5,8})(?![\w-])|(?<![A-Za-z0-9_-])\+?\d[\d().-]{8,}\d(?![A-Za-z0-9_])|(?<![A-Za-z0-9_-])\+?\d[\d\s().-]{8,}\d(?![A-Za-z0-9_])`,
   'gi',
 )
 
