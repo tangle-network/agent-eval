@@ -40,11 +40,8 @@
 //   a version its cache has not seen; no cache override is needed.
 // - It merges only a head whose base is still the default branch head, so the
 //   merged tree is the one the gate passed. No admin or auto merge is attempted.
-// - A merge refused by the base branch policy while the pull request's review
-//   decision is REVIEW_REQUIRED waits for the approval bot: the same merge is
-//   retried every 20 s for up to 15 min. Any other refusal, or the wait running
-//   out, records merge-refused and the comment says which.
-//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS override the two bounds.
+// - A merge refused under REVIEW_REQUIRED waits for the approval bot (`mergeWhenApproved`;
+//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS set the bounds).
 //
 // Widening keeps the lower bound of the range's last alternative and moves its
 // upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
@@ -802,15 +799,10 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
 }
 
 /**
- * Merge `head` while the default branch still sits at `base`, the tree the gate
- * passed. A base branch policy refusal while the review decision is
- * REVIEW_REQUIRED means an approval (usually the approval bot's) has not landed
- * yet, so the identical merge is retried every POLL_MS until WAIT_MS has
- * passed. Any other refusal returns at once, including a moved head, which
- * `--match-head-commit` refuses on every retry. A decision gh cannot read
- * (null) refuses at once. Each retry re-reads the default branch, so a base
- * that moves during the wait closes the pull request for a re-gate.
- * Returns {} when merged, { moved } when the base moved, or { refusal, why }.
+ * Merge `head` while the default branch still sits at `base`, the tree the gate passed. A policy
+ * refusal under REVIEW_REQUIRED waits for the approval bot (retried every POLL_MS up to WAIT_MS);
+ * any other refusal, an unreadable decision or a moved head returns at once, and a moved base
+ * closes the pull request for a re-gate. Returns {} when merged, { moved }, or { refusal, why }.
  */
 export async function mergeWhenApproved(dir, number, head, base, defaultBranch) {
   const deadline = Date.now() + WAIT_MS
