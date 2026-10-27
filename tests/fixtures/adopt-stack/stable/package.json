@@ -1,0 +1,7 @@
+{
+  "name": "adopt-stack-stable-fixture",
+  "private": true,
+  "devDependencies": {
+    "@tangle-network/brand": "1.25.0"
+  }
+}
