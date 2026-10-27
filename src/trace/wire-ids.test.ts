@@ -1,5 +1,7 @@
 /**
- * One run id → ONE wire derivation, valid W3C hex, validator-clean.
+ * One run id → ONE wire derivation, valid W3C hex, validator-clean, on both
+ * real export paths. The id rule itself (`toW3CTraceId`) and its pass-through
+ * cases are pinned in agent-trace-contract's `ids.test.ts`.
  *
  * This package used to ship TWO private `padTraceId` paddings that produced
  * DIFFERENT trace ids for the same run — and one emitted invalid hex embedding
@@ -19,7 +21,6 @@ import { join } from 'node:path'
 import {
   type ContractSpan,
   deriveHexId,
-  isW3CSpanId,
   isW3CTraceId,
   validateTraceSpans,
 } from '@tangle-network/agent-trace-contract'
@@ -27,7 +28,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { exportRunAsOtlp } from './otel'
 import { InMemoryTraceStore } from './store'
 import { convertTraceStoresToOtlp } from './store-to-otlp'
-import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 /** A real-shaped human run id — the class of id the retired paddings mangled. */
 const RUN_ID = 'vb-web-grounded-2026-08-01-cell-a'
@@ -54,46 +54,6 @@ function retiredStripPadTraceId(id: string): string {
   const cleaned = id.replace(/-/g, '')
   return cleaned.slice(0, 32).padEnd(32, '0')
 }
-
-describe('wire-ids — the one legal derivation', () => {
-  it('derives valid, non-equal-to-retired W3C ids from a human run id', () => {
-    const traceId = traceIdForWire(RUN_ID)
-    expect(traceId).toBe(deriveHexId(RUN_ID, 16))
-    expect(isW3CTraceId(traceId)).toBe(true)
-
-    const spanId = spanIdForWire(`run-${RUN_ID}`)
-    expect(spanId).toBe(deriveHexId(`run-${RUN_ID}`, 8))
-    expect(isW3CSpanId(spanId)).toBe(true)
-  })
-
-  it('passes an already-valid W3C id through unchanged (inbound traceparent survives)', () => {
-    const inbound = deriveHexId('some-remote-root', 16)
-    expect(traceIdForWire(inbound)).toBe(inbound)
-    const inboundSpan = deriveHexId('some-remote-span', 8)
-    expect(spanIdForWire(inboundSpan)).toBe(inboundSpan)
-  })
-
-  it('the retired strip+pad derivation is REJECTED by the contract validator', () => {
-    const leaked = retiredStripPadTraceId(RUN_ID)
-    // The retired output literally embeds the run id in the wire id…
-    expect(leaked).toBe('vbwebgrounded20260801cella000000')
-    // …and is not a W3C id at all.
-    expect(isW3CTraceId(leaked)).toBe(false)
-
-    const span: ContractSpan = {
-      trace_id: leaked,
-      span_id: retiredStripPadTraceId(RUN_ID).slice(0, 16),
-      parent_span_id: null,
-      name: 'run',
-      start_time: new Date(0).toISOString(),
-      end_time: new Date(0).toISOString(),
-      status: { code: 'STATUS_CODE_OK' },
-      attributes: {},
-    }
-    const validation = validateTraceSpans([span])
-    expect(validation.findings.some((f) => f.code === 'non-hex-id')).toBe(true)
-  })
-})
 
 describe('one run id → ONE derivation across ALL real export paths', () => {
   let root: string

@@ -48,18 +48,36 @@ export type {
   TraceInsightTask,
 } from './insights'
 export {
-  buildTraceInsightContext, buildTraceInsightPrompt, describeTraceInsightScope, domainEvidencePattern, inferDomainKeywords, isTraceInsightArtifact, isTraceInsightAttribution, isTraceInsightEvidence, scoreTraceInsightReadiness, tokenizeDomainWords,
+  buildTraceInsightContext,
+  buildTraceInsightPrompt,
+  describeTraceInsightScope,
+  domainEvidencePattern,
+  inferDomainKeywords,
+  isTraceInsightArtifact,
+  isTraceInsightAttribution,
+  isTraceInsightEvidence,
+  scoreTraceInsightReadiness,
+  tokenizeDomainWords,
 } from './insights'
 export {
+  type FlattenOtlpCollectorOptions,
   type FlattenOtlpOptions,
   flattenOtlpExportToNdjson,
   type OtlpFlatLine,
 } from './otlp-flatten'
 export {
-  asString, extractOtlpAttributes, firstStringAttr, type ProjectedOtlpSpan, projectOtlpFlatLine,
+  asString,
+  extractOtlpAttributes,
+  firstStringAttr,
+  type ProjectedOtlpSpan,
+  projectOtlpFlatLine,
 } from './otlp-span'
 export {
-  type OtlpToRunRecordsOptions, type OtlpTraceRunRecord, otlpRowsToRunRecords, otlpToRunRecords, type TraceAggregate,
+  type OtlpToRunRecordsOptions,
+  type OtlpTraceRunRecord,
+  otlpRowsToRunRecords,
+  otlpToRunRecords,
+  type TraceAggregate,
 } from './otlp-to-run-records'
 export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
@@ -110,6 +128,4 @@ export type {
   ViewTraceOversized,
   ViewTraceResult,
 } from './types'
-export {
-  DEFAULT_TRACE_ANALYST_BUDGETS,
-} from './types'
+export { DEFAULT_TRACE_ANALYST_BUDGETS } from './types'
