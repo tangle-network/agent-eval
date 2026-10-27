@@ -3,9 +3,7 @@
 // widen the caller's own peer ranges to include them, gate the result with the
 // caller's acceptance command, and open (and optionally merge) one pull request.
 // .github/workflows/adopt-stack.yml runs it for every caller repository.
-//
-// Rules carried over from gtm-agent scripts/agent-app-bump.mjs and
-// discovery-lab .github/workflows/runtime-bump.yml:
+// Its rules:
 // - One open adoption branch (`chore/adopt-stack`), deleted when its squash merge lands, so the
 //   next delivery starts from the default instead of a branch the squash left behind. Each delivery normally
 //   merges the captured default into the fetched owned proposal, plans against
@@ -29,12 +27,10 @@
 //   under `^22.0.3` while adopting agent-eval 0.217.1, and pnpm refused it.
 //   Each pass rebuilds targets from npm latest with the current raises and all
 //   holds so far, so a raise a later hold made unnecessary drops out.
-// - An install keeps a locked version its range still admits. A range whose
-//   lock is older than a target inside the range as written gets its floor
-//   raised (`^22.0.3` -> `^22.0.7`), as does one a peer raise requires. A pnpm
-//   catalog entry follows the root pin when that moves to the target, so every
-//   workspace importer resolves the same version. Any other locked dependency
-//   or catalog range stays as written: only peer ranges widen.
+// - A range that admits its target stays as written and `pnpm update --no-save`
+//   moves only the lock: a raised floor (`^1.0.39` -> `^1.0.40`) republished every
+//   caller per patch. Only peer ranges widen. One delivery a day: with no proposal
+//   open, a run within a day of the last merge stops (288 PRs in 24 h, 2026-10-27).
 // - A lockfile this script cannot read (or yarn/bun) stops the plan, since
 //   every hold, raise and cohort edit depends on what it holds.
 // - A caller's release/cohort.json entries move to the version the lockfile
@@ -238,12 +234,8 @@ const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
 /**
  * What a dependency spec becomes for `target` (`to`, null when it stays as
  * written) and the version the lockfile then holds (`holds`, null when
- * unknown). An install keeps a locked version its range still admits, so a
- * range whose lock is older than `target` gets its floor raised, but only when
- * `target` is inside the range as written (a compatible update) or `force` is
- * set (a peer range requires it, or the caller's root pin moves to it). A
- * locked range otherwise stays as written, so a published dependency range
- * never admits a version no gate installed; only peer ranges widen.
+ * unknown). A range that admits `target` stays and the lock moves; one that
+ * excludes it moves only when `force` is set (a peer range requires it).
  */
 function respec(spec, target, locked, force = false) {
   if (EXACT.test(spec)) return { to: spec === target ? null : target, holds: target }
@@ -255,6 +247,7 @@ function respec(spec, target, locked, force = false) {
     return { to: widened === spec ? null : widened, holds: target }
   }
   if (compare(release(locked), release(target)) < 0 && (force || satisfies(target, spec))) {
+    if (satisfies(target, spec)) return { to: null, holds: target }
     const to = raiseFloor(widenRange(spec, target), target)
     if (!satisfies(target, to) || satisfies(locked, to)) throw new Error(`raising "${spec}" to ${target} gave "${to}", which does not move the locked ${locked} to it`)
     return { to, holds: target }
@@ -556,11 +549,12 @@ export function writePlan(dir, result) {
   if (result.edits.some((edit) => edit.file === COHORT)) writeFileSync(join(dir, COHORT), cohortText)
 }
 
-function install(dir) {
+function install(dir, expected) {
+  const targets = expected.map(([name, version]) => `${name}@${version}`)
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
-    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
+    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir) || !run('pnpm', ['update', '--no-save', '-r', ...targets], dir)) throw new Error('pnpm could not lock the planned versions')
   } else if (existsSync(join(dir, 'package-lock.json'))) {
-    if (!run('npm', ['install', '--prefer-online'], dir)) throw new Error('npm install failed for the new pins')
+    if (!run('npm', ['install', '--prefer-online'], dir) || !run('npm', ['update', '--no-save', ...expected.map(([name]) => name)], dir)) throw new Error('npm could not lock the planned versions')
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
 
@@ -717,7 +711,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body,isDraft']))[0]
 
   writePlan(dir, result)
-  install(dir)
+  install(dir, result.expected)
   const synced = { command, files: command ? postPin(dir, command) : [] }
   result.resolved = resolvedVersions(dir, new Map(result.expected))
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
@@ -849,7 +843,12 @@ function options(argv) {
 async function main() {
   const opts = options(process.argv.slice(2))
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
-  if (!opts.dryRun) Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--json', 'number'], opts.dir)).length > 0))
+  if (!opts.dryRun) {
+    const listed = (state) => JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', state, '--limit', '1', '--json', 'mergedAt'], opts.dir))
+    const [open, last] = [listed('open').length > 0, listed('merged')[0]?.mergedAt]
+    if (!open && Date.now() - Date.parse(last) < 23 * 3600_000) return log(`last refresh merged ${last}; the next runs a day later`)
+    Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
+  }
   const result = await plan(opts.dir, opts.packages)
   if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
