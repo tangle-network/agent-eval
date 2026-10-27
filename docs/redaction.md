@@ -73,7 +73,7 @@ match the current text with `{ numericPolicy: 'conservative' }`, replace its UTF
 from right to left, then continue with the next
 detector. The iterator clones regex state, honors the detector's shared accept callback,
 and returns secret-only ranges for serialized credential fields. It never returns matched
-values. A credential hit inside a quoted credential field covers the entire value,
+values. A credential hit inside a quoted field or environment assignment covers its entire value,
 including spaces and escaped quotes. Long detected assignment tokens are consumed
 to their delimiter. This prevents a marker from hiding an unredacted suffix on rescan.
 This preserves JSON syntax and citations; `redactText` keeps its conservative
@@ -81,7 +81,8 @@ whole-string credential behavior.
 
 The catalog owns credential thresholds, numeric classification and Luhn validation.
 Conservative scanning consumes UUIDs before scanning their gaps and preserves complete
-decimal costs and ISO times. Every untyped bare number in the contact-number range is
+decimal costs and ISO times. Formatted contact/card rules match independently of adjacent
+numbers or costs. Every untyped bare number in the contact-number range is
 private; a prefix alone is not evidence of an epoch. Core redaction keeps its existing
 formatted-number defaults. Both policies use the same classification and Luhn owner. Local denylist loading, fuzzy matching, counters and post-redaction rescan/refusal
 remain the consumer's responsibility. A catalog match alone is not a share-safety verdict.

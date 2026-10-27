@@ -256,7 +256,7 @@ export function* matchValueDetector(
       : (detector.substringPattern ?? detector.pattern)
   const flags = [...new Set(`${pattern.flags}gd`)].join('')
   // A credential shape inside a quoted secret must remove its entire value.
-  // Reuse the JSON rule; advance one iterator so many matches stay linear.
+  // Reuse the quoted-value rule; advance one iterator so matches stay linear.
   const quoted =
     detector.id !== 'json-secret' && CREDENTIAL_DETECTORS.includes(detector)
       ? matchValueDetector(
@@ -286,8 +286,14 @@ export function* matchValueDetector(
   }
 }
 
-const SECRET_ASSIGNMENT =
-  /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])(?<secret>[^\s"'`,;&|]{12,512})/i
+const CREDENTIAL_ASSIGNMENT_KEY =
+  /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)/
+
+const SECRET_ASSIGNMENT = new RegExp(
+  CREDENTIAL_ASSIGNMENT_KEY.source +
+    '["\']?[ \\t]*[:=][ \\t]*["\']?(?!encrypted:)(?![$`<[{(%])(?=[^\\s"\'`,;&|]{0,512}[0-9])(?=[^\\s"\'`,;&|]{0,512}[A-Za-z])(?<secret>[^\\s"\'`,;&|]{12,512})',
+  'i',
+)
 
 const QUOTED_CREDENTIAL_FIELD =
   /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*/
@@ -376,9 +382,9 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
       String.raw`${QUOTED_CREDENTIAL_FIELD.source}["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )(?<secret>[^"'\r\n]{3,})["']`,
       'i',
     ),
-    // Substring consumers must cover spaces and escaped quotes in the whole value.
+    // Quoted fields and assignments cover spaces and escaped quotes in the whole value.
     substringPattern: new RegExp(
-      String.raw`${QUOTED_CREDENTIAL_FIELD.source}(?<quote>["'])(?!\[REDACTED|[$*{<])(?<secret>(?:\\.|(?!\k<quote>)[^\\\r\n]){3,})\k<quote>`,
+      String.raw`(?:${QUOTED_CREDENTIAL_FIELD.source}|${CREDENTIAL_ASSIGNMENT_KEY.source}[ \t]*[:=][ \t]*)(?<quote>["'])(?!\[REDACTED|[$*{<])(?<secret>(?:\\.|(?!\k<quote>)[^\\\r\n]){3,})\k<quote>`,
       'i',
     ),
   },
@@ -415,9 +421,16 @@ export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
   },
 ]
 
-// UUIDs are consumed whole before numeric gaps, so adjacent phone digits remain visible.
-const NUMERIC_PRIVACY =
-  /(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_-])\+?\d[\d\s().-]{8,}\d(?![A-Za-z0-9_])/gi
+const CARD_NUMBER =
+  /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g
+const PHONE_NUMBER = /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g
+
+// Whole UUIDs and decimals are exemptions, not prefixes of a neighboring value.
+// Reuse formatted rules; whitespace cannot join otherwise independent numbers.
+const NUMERIC_PRIVACY = new RegExp(
+  String.raw`(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.-])\d+\.\d+(?![\w.])|${CARD_NUMBER.source}|${PHONE_NUMBER.source}|(?<![A-Za-z0-9_-])\+\d{1,3}[ \t.-](?:\(\d{1,4}\)|\d{1,4})[ \t.-](?:\d{3,4}[ \t.-]\d{3,4}|\d{5,8})(?![\w-])|(?<![A-Za-z0-9_-])\+?\d[\d().-]{8,}\d(?![A-Za-z0-9_])`,
+  'gi',
+)
 
 function numericPrivacyKind(
   value: string,
@@ -451,15 +464,14 @@ export const PERSONAL_DATA_DETECTORS: readonly ValueDetector[] = [
   },
   {
     id: 'card-number',
-    pattern:
-      /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g,
+    pattern: CARD_NUMBER,
     conservativePattern: NUMERIC_PRIVACY,
     accept: (value, options) => numericPrivacyKind(value, options) === 'card-number',
   },
   { id: 'ssn', pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
   {
     id: 'phone',
-    pattern: /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g,
+    pattern: PHONE_NUMBER,
     conservativePattern: NUMERIC_PRIVACY,
     accept: (value, options) => numericPrivacyKind(value, options) === 'phone',
   },
