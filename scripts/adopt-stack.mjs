@@ -36,8 +36,6 @@
 // - A caller's release/cohort.json entries move to the version the lockfile
 //   will hold for each planned package and its source commit (npm gitHead,
 //   else the release tag); an entry whose lock does not move stays.
-// - The adopted versions are exact pins, so the install refetches metadata for
-//   a version its cache has not seen; no cache override is needed.
 // - It merges only a head whose base is still the default branch head, so the
 //   merged tree is the one the gate passed. No admin or auto merge is attempted.
 // - A merge refused under REVIEW_REQUIRED waits for the approval bot (`mergeWhenApproved`;
