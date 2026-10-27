@@ -23,7 +23,7 @@ pnpm add @tangle-network/agent-eval
 
 ## Contents
 
-- [Quickstart](#quickstart) — score your first change in 30 seconds
+- [Quickstart](#quickstart) — score a change offline
 - [Choose a workflow](#choose-a-workflow) — which API for which job
 - [Automated improvement](#make-automated-improvement-accountable) — the held-out gate
 - [Configure model calls](#configure-model-calls) — transports and pricing
@@ -86,6 +86,7 @@ candidate: 1
 The baseline scores `0`; the candidate scores `1` on all three cases.
 These scores describe the three examples.
 They do not establish a release decision or performance on new tasks.
+For a release decision, including the cases where the evidence justifies no change, see the [held-out gate example](./examples/held-out-gate/).
 
 A **case** is one task.
 A **surface** is the prompt, skill, or configuration being changed.
