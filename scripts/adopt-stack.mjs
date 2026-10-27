@@ -728,7 +728,8 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   if (!run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
   const gatedTree = trackedDigest(dir)
   if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
-  if (out('git', ['status', '--porcelain'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
+  // An untracked file the gate wrote (wrangler check startup's worker-startup.cpuprofile) is not in the commit.
+  if (out('git', ['status', '--porcelain', '--untracked-files=no'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
   if (!run('git', ['push', '-q', ...(replaces ? [`--force-with-lease=refs/heads/${BRANCH}:${replaces}`] : []), 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
   const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
