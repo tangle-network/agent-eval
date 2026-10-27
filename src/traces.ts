@@ -138,7 +138,6 @@ export type {
   BuildTraceAnalysisToolsOptions,
   DatasetOverview,
   ErrorCluster,
-  FlattenOtlpCollectorOptions,
   FlattenOtlpOptions,
   OtlpFileTraceStoreOptions,
   OtlpFlatLine,

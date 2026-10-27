@@ -21,12 +21,6 @@ import { createOtlpFlatLine, type OtlpFlatLine } from '../trace/otlp-flat'
 
 export type { OtlpFlatLine } from '../trace/otlp-flat'
 
-/** Select the collector projection: agent-trace-contract's lossless rows, with
- *  the export's own nanosecond strings and merged resource + span attributes. */
-export interface FlattenOtlpCollectorOptions {
-  projection: 'collector'
-}
-
 export interface FlattenOtlpOptions {
   /** `'openinference'` (default) maps source per-span attributes into the
    *  canonical OpenInference vocabulary the analyst readers consume. `'none'`
@@ -34,6 +28,10 @@ export interface FlattenOtlpOptions {
   attributeVocabulary?: 'openinference' | 'none'
   /** Override the numeric-kind → otlp-string mapping. */
   kindMap?: Partial<Record<number, string>>
+  /** `'scalar'` (default) is the analyst line below. `'collector'` returns
+   *  agent-trace-contract's lossless rows: the export's own nanosecond strings
+   *  and merged resource + span attributes. */
+  projection?: 'scalar' | 'collector'
 }
 
 const DEFAULT_KIND_MAP: Record<number, string> = {
@@ -80,7 +78,7 @@ function applyOpenInference(attrs: Record<string, unknown>): void {
  */
 export function flattenOtlpExportToNdjson(
   otlpExport: unknown,
-  opts: FlattenOtlpCollectorOptions,
+  opts: FlattenOtlpOptions & { projection: 'collector' },
 ): OtlpFlatSpan[]
 export function flattenOtlpExportToNdjson(
   otlpExport: OtlpExport,
@@ -88,12 +86,10 @@ export function flattenOtlpExportToNdjson(
 ): OtlpFlatLine[]
 export function flattenOtlpExportToNdjson(
   otlpExport: unknown,
-  opts: FlattenOtlpOptions | FlattenOtlpCollectorOptions = {},
+  opts: FlattenOtlpOptions = {},
 ): OtlpFlatSpan[] | OtlpFlatLine[] {
-  if ('projection' in opts && opts.projection === 'collector') {
-    return decodeOtlpTraceExport(otlpExport)
-  }
-  const legacy = opts as FlattenOtlpOptions
+  if (opts.projection === 'collector') return decodeOtlpTraceExport(otlpExport)
+  const legacy = opts
   const kindMap = { ...DEFAULT_KIND_MAP, ...legacy.kindMap }
   return decodeOtlpTraceExport(otlpExport, { attributeValues: 'scalar' }).map((span) => {
     const attributes = span.span_attributes

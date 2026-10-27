@@ -60,7 +60,6 @@ export {
   tokenizeDomainWords,
 } from './insights'
 export {
-  type FlattenOtlpCollectorOptions,
   type FlattenOtlpOptions,
   flattenOtlpExportToNdjson,
   type OtlpFlatLine,
