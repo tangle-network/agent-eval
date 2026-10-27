@@ -229,10 +229,74 @@ export function classifyKey(key: string): SafetyCategory | undefined {
 
 // ── Value detectors ──────────────────────────────────────────────────────
 
-interface ValueDetector {
-  id: string
-  pattern: RegExp
+export interface ValueDetectorOptions {
+  /** Conservative scanning treats untyped bare numbers as private; formatted preserves the core's existing policy. */
+  numericPolicy?: 'formatted' | 'conservative'
 }
+
+export interface ValueDetector {
+  readonly id: string
+  readonly pattern: RegExp
+  readonly requires?: string
+  readonly substringPattern?: RegExp
+  readonly conservativePattern?: RegExp
+  readonly accept?: (match: string, options?: ValueDetectorOptions) => boolean
+}
+
+/** Stateless UTF-16 ranges for String.slice. Named `secret` groups preserve surrounding syntax. */
+export function* matchValueDetector(
+  text: string,
+  detector: ValueDetector,
+  options: ValueDetectorOptions = {},
+): Generator<{ start: number; end: number }> {
+  if (detector.requires && !text.includes(detector.requires)) return
+  const pattern =
+    options.numericPolicy === 'conservative'
+      ? (detector.conservativePattern ?? detector.substringPattern ?? detector.pattern)
+      : (detector.substringPattern ?? detector.pattern)
+  const flags = [...new Set(`${pattern.flags}gd`)].join('')
+  // A credential shape inside a quoted secret must remove its entire value.
+  // Reuse the quoted-value rule; advance one iterator so matches stay linear.
+  const quoted =
+    detector.id !== 'json-secret' && CREDENTIAL_DETECTORS.includes(detector)
+      ? matchValueDetector(
+          text,
+          CREDENTIAL_DETECTORS.find((rule) => rule.id === 'json-secret')!,
+          options,
+        )
+      : undefined
+  let enclosing: { start: number; end: number } | undefined
+  let coveredUntil = -1
+  for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+    if (detector.accept && !detector.accept(match[0], options)) continue
+    let [start, end] = match.indices!.groups?.secret ?? match.indices![0]!
+    if (start < coveredUntil) continue
+    if (quoted) {
+      while (!enclosing || enclosing.end <= start) {
+        const next = quoted.next()
+        enclosing = next.value
+        if (next.done) break
+      }
+      if (enclosing && enclosing.start <= start && enclosing.end >= end)
+        ({ start, end } = enclosing)
+    }
+    if (start < coveredUntil) continue
+    coveredUntil = end
+    yield { start, end }
+  }
+}
+
+const CREDENTIAL_ASSIGNMENT_KEY =
+  /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)/
+
+const SECRET_ASSIGNMENT = new RegExp(
+  CREDENTIAL_ASSIGNMENT_KEY.source +
+    '["\']?[ \\t]*[:=][ \\t]*["\']?(?!encrypted:)(?![$`<[{(%])(?=[^\\s"\'`,;&|]{0,512}[0-9])(?=[^\\s"\'`,;&|]{0,512}[A-Za-z])(?<secret>[^\\s"\'`,;&|]{12,512})',
+  'i',
+)
+
+const QUOTED_CREDENTIAL_FIELD =
+  /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*/
 
 /**
  * High-confidence credential shapes. A hit replaces the whole string. Each
@@ -249,19 +313,27 @@ interface ValueDetector {
  * meaningful new false positives (`scripts/redaction-corpus.json` covers
  * both).
  */
-const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
-  { id: 'private-key', pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/ },
+export const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
+  {
+    id: 'private-key',
+    pattern: /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[^"'`]*?(?:-----END \1-----|(?=["'`]|$))/,
+  },
   { id: 'jwt', pattern: /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/ },
   { id: 'bearer', pattern: /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/i },
   {
     id: 'authorization-header',
     pattern: /^\s*(?:basic|digest|apikey)\s+[A-Za-z0-9._~+/=:-]{8,}\s*$/i,
   },
-  { id: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{16,}/ },
+  { id: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{8,}/ },
+  { id: 'tangle-key', pattern: /sk-tan-[A-Za-z0-9_-]{8,}/ },
+  { id: 'gtm-operator-key', pattern: /gak_[A-Za-z0-9_-]{8,}/ },
+  { id: 'agent-app-key', pattern: /lak_[A-Za-z0-9_-]{8,}/ },
+  { id: 'platform-labs-key', pattern: /plabs_[A-Za-z0-9_-]{8,}/ },
+  { id: 'stripe-webhook-secret', pattern: /whsec_[A-Za-z0-9]{8,}/ },
   { id: 'provider-key', pattern: /sk-(?:proj-|tan-)?[A-Za-z0-9_-]{16,}/ },
-  { id: 'stripe-key', pattern: /(?:sk|rk)_(?:live|test)_[A-Za-z0-9_]{10,}/ },
+  { id: 'stripe-key', pattern: /(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9_]{8,}/ },
   { id: 'google-api-key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
-  { id: 'github-token', pattern: /(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/ },
+  { id: 'github-token', pattern: /(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})/ },
   { id: 'slack-token', pattern: /xox[abeoprs]-[A-Za-z0-9-]{10,}/ },
   { id: 'aws-access-key', pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
   { id: 'tangle-capability', pattern: /(?:hubcap_|hct_)[A-Za-z0-9_=-]{8,}/ },
@@ -272,12 +344,12 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // measured before this fix (scratchpad/rv/before.ts). A real URL's scheme
     // and userinfo are always far under these bounds.
     id: 'url-credentials',
-    pattern: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/:@]{1,512}:[^\s/@]{1,512}@/i,
+    pattern: /\b[a-z][a-z0-9+.-]{0,31}:\/\/(?<secret>[^\s/:@]{1,512}:[^\s/@]{1,512})@/i,
   },
   {
     id: 'url-secret-param',
     pattern:
-      /[?&](?:access_token|api_key|apikey|auth|token|secret|password|sig|signature|x-amz-signature|x-goog-signature)=[^&\s"'#)]{8,}/i,
+      /[?&](?:access_token|api_key|apikey|auth|token|secret|password|sig|signature|x-amz-signature|x-goog-signature)=(?<secret>[^&\s"'#)]{8,})/i,
   },
   {
     // `GH_TOKEN=…`, `--api-key=…`, `"client_secret": "…"`, `password: …` in free
@@ -285,14 +357,18 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // characters, so prose (`token: string`), variable references (`$TOKEN`)
     // and dotenvx ciphertext (`encrypted:…`) pass. The pattern starts at the
     // key word itself, with no identifier prefix, so it scans in linear time.
-    // The two mixed-content lookaheads and the value itself are bounded to
-    // 512 chars: unbounded, `'token='` repeated took ~20s at 256 KiB and
+    // Detection and its mixed-content lookaheads are bounded to 512 chars:
+    // unbounded, `'token='` repeated took ~20s at 256 KiB and
     // `'password:x'` repeated took ~12s at 256 KiB (measured before this fix,
-    // scratchpad/rv/before.ts). A real credential value is always far under
-    // 512 chars.
+    // scratchpad/rv/before.ts). Substring replacement consumes the complete
+    // detected token so a long value cannot leave an unrecognized tail.
     id: 'secret-assignment',
-    pattern:
-      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])[^\s"'`,;&|]{12,512}/i,
+    pattern: SECRET_ASSIGNMENT,
+    // Only the consumed range is unbounded; detection lookaheads remain bounded.
+    substringPattern: new RegExp(
+      SECRET_ASSIGNMENT.source.replace('{12,512}', '{12,}'),
+      SECRET_ASSIGNMENT.flags,
+    ),
   },
   {
     // `{"password": "hunter2"}` or `'client_secret': '…'` inside serialized
@@ -302,8 +378,15 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // Placeholders (`[REDACTED…]`, `$VAR`, `{env:VAR}`, `***`, `<value>`) and
     // prose with two or more spaces (a field description) do not match.
     id: 'json-secret',
-    pattern:
-      /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )[^"'\r\n]{3,}["']/i,
+    pattern: new RegExp(
+      String.raw`${QUOTED_CREDENTIAL_FIELD.source}["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )(?<secret>[^"'\r\n]{3,})["']`,
+      'i',
+    ),
+    // Quoted fields and assignments cover spaces and escaped quotes in the whole value.
+    substringPattern: new RegExp(
+      String.raw`(?:${QUOTED_CREDENTIAL_FIELD.source}|${CREDENTIAL_ASSIGNMENT_KEY.source}[ \t]*[:=][ \t]*)(?<quote>["'])(?!\[REDACTED|[$*{<])(?<secret>(?:\\.|(?!\k<quote>)[^\\\r\n]){3,})\k<quote>`,
+      'i',
+    ),
   },
   {
     // `DB_PASSWORD=CorrectHorseBatteryStaple`, `PGPASSWORD=postgres`: unlike
@@ -314,7 +397,7 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // `TOKEN_EXPIRY=…` (the word isn't the end of the name) do not match.
     id: 'env-secret-assignment',
     pattern:
-      /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)[^\s"'`,;&|]{4,}/,
+      /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)(?<secret>[^\s"'`,;&|]{4,})/,
   },
   // Bare-key shapes not covered above. Each requires a distinctive prefix so
   // it does not fire on ordinary identifiers — same reasoning as the
@@ -333,15 +416,46 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // `Cookie: sessionid=…; csrftoken=…` in free text or a captured header.
     id: 'cookie-header',
     pattern: /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\r\n]{3,})*/i,
+    substringPattern:
+      /\bcookie\s*:\s*(?<secret>[A-Za-z0-9_-]+=(?:(?<quote>\\?")[^\r\n]*?\k<quote>|[^;\s"'\r\n]{3,})(?:;\s*[A-Za-z0-9_-]+=(?:(?<quote2>\\?")[^\r\n]*?\k<quote2>|[^;\s"'\r\n]{3,}))*)/i,
   },
 ]
 
-/** Personal-data shapes, replaced in place so the surrounding text survives. */
-export const PERSONAL_DATA_DETECTORS: readonly (ValueDetector & {
-  /** A substring the text must contain before the pattern runs. */
-  requires?: string
-  accept?: (match: string) => boolean
-})[] = [
+const CARD_NUMBER =
+  /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g
+const PHONE_NUMBER = /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g
+
+// Whole UUIDs and decimals are exemptions, not prefixes of a neighboring value.
+// Match independent values before the fallback for other grouped contact formats.
+const NUMERIC_PRIVACY = new RegExp(
+  String.raw`(?<![A-Za-z0-9_])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.-])\d+\.\d+(?![\w.])|${CARD_NUMBER.source}|${PHONE_NUMBER.source}|(?<![A-Za-z0-9_-])\+?\d{1,3}[ \t.-](?:\(\d{1,4}\)|\d{1,4})[ \t.-](?:\d{3,4}[ \t.-]\d{3,4}|\d{5,8})(?![\w-])|(?<![A-Za-z0-9_-])\+?\d[\d().-]{8,}\d(?![A-Za-z0-9_])|(?<![A-Za-z0-9_-])\+?\d[\d\s().-]{8,}\d(?![A-Za-z0-9_])`,
+  'gi',
+)
+
+function numericPrivacyKind(
+  value: string,
+  options: ValueDetectorOptions = {},
+): 'card-number' | 'phone' | undefined {
+  if (
+    /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ||
+    /^\d*\.\d+$/.test(value) ||
+    /\d\.\d{5,}/.test(value)
+  )
+    return
+  const digits = value.replace(/\D/g, '')
+  const conservative = options.numericPolicy === 'conservative'
+  if (
+    digits.length >= 13 &&
+    digits.length <= 19 &&
+    (conservative || CARD_PREFIX.test(digits)) &&
+    luhnValid(digits, conservative)
+  )
+    return 'card-number'
+  if (digits.length >= 10 && digits.length <= 15) return 'phone'
+}
+
+/** Ordered rules. Conservative numeric scanning is explicit; core patterns keep their existing defaults. */
+export const PERSONAL_DATA_DETECTORS: readonly ValueDetector[] = [
   {
     id: 'email',
     requires: '@',
@@ -349,27 +463,20 @@ export const PERSONAL_DATA_DETECTORS: readonly (ValueDetector & {
     accept: isEmailAddress,
   },
   {
-    // Card numbers: a card-network prefix and a valid Luhn digit, written
-    // unbroken (13-19 digits) or in printed groups (4-4-4-4, 4-4-4-4-3, Amex
-    // 4-6-5). A word character or hyphen on either side rejects the match, so
-    // digits inside UUIDs, dated file names and hyphenated ids never match.
     id: 'card-number',
-    pattern:
-      /(?<![\w-])(?:\d{13,19}|\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?:\1\d{3})?|\d{4}([ -])\d{6}\2\d{5})(?![\w-])/g,
-    accept: (match) => {
-      const digits = match.replace(/[ -]/g, '')
-      return CARD_PREFIX.test(digits) && luhnValid(digits)
-    },
+    pattern: CARD_NUMBER,
+    conservativePattern: NUMERIC_PRIVACY,
+    accept: (value, options) => numericPrivacyKind(value, options) === 'card-number',
   },
   { id: 'ssn', pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
   {
-    // Separators are required: a bare ten-digit run is usually an epoch second or an id.
     id: 'phone',
-    pattern: /(?:\+1[-.\s]?)?(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g,
+    pattern: PHONE_NUMBER,
+    conservativePattern: NUMERIC_PRIVACY,
+    accept: (value, options) => numericPrivacyKind(value, options) === 'phone',
   },
 ]
 
-/** Visa, Mastercard, Amex, Diners, JCB, Discover and UnionPay issuer prefixes. */
 const CARD_PREFIX = /^(?:4|5[1-5]|2[2-7]|3[04-9]|6(?:011|4[4-9]|5|2))/
 
 /**
@@ -418,8 +525,8 @@ function isEmailAddress(match: string): boolean {
   return !NON_EMAIL_TLDS.has(tld)
 }
 
-function luhnValid(digits: string): boolean {
-  if (/^(\d)\1+$/.test(digits)) return false
+function luhnValid(digits: string, allowRepeated = false): boolean {
+  if (!allowRepeated && /^(\d)\1+$/.test(digits)) return false
   let sum = 0
   let double = false
   for (let index = digits.length - 1; index >= 0; index -= 1) {
@@ -444,18 +551,9 @@ export function detectCredential(text: string): string | undefined {
 
 /** Personal-data detector ids that match somewhere in `text`. */
 export function detectPersonalData(text: string): string[] {
-  const hits: string[] = []
-  for (const detector of PERSONAL_DATA_DETECTORS) {
-    if (detector.requires && !text.includes(detector.requires)) continue
-    detector.pattern.lastIndex = 0
-    for (const match of text.matchAll(detector.pattern)) {
-      if (!detector.accept || detector.accept(match[0])) {
-        hits.push(detector.id)
-        break
-      }
-    }
-  }
-  return hits
+  return PERSONAL_DATA_DETECTORS.filter(
+    (detector) => !matchValueDetector(text, detector).next().done,
+  ).map((detector) => detector.id)
 }
 
 /**
