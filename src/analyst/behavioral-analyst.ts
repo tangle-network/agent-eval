@@ -4,6 +4,7 @@
  * model, ledger and window selection; only independently calibrated positives may alarm.
  */
 
+import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 import {
   type BehavioralMetrics,
   computeTraceMetrics,
@@ -27,6 +28,44 @@ const RECOMMENDED_ACTION: Record<SuboptimalCode, string> = {
 }
 
 const ANALYST_ID = 'efficiency-behavioral'
+
+/**
+ * The `FAILURE_CLASSES` member each behavioral finding rolls up under. Keyed by
+ * the analyst's subject vocabulary, so a new subject without a class fails to
+ * compile.
+ */
+export const BEHAVIORAL_FAILURE_CLASS: Readonly<Record<SuboptimalCode, FailureClass>> = {
+  'monotonic-input-growth': 'cost_overrun',
+  'output-length-decay': 'reasoning_error',
+  'single-tool-dependency': 'tool_selection_error',
+  'no-self-verification': 'tool_recovery_failure',
+}
+
+/** Throw when a mapped class is not a `FAILURE_CLASSES` member. */
+export function assertFailureClasses(map: Readonly<Record<string, string>>): void {
+  const taxonomy = new Set<string>(FAILURE_CLASSES)
+  for (const [subject, failureClass] of Object.entries(map)) {
+    if (!taxonomy.has(failureClass)) {
+      throw new Error(
+        `behavioral subject '${subject}' maps to '${failureClass}', which is not in FAILURE_CLASSES`,
+      )
+    }
+  }
+}
+// A cast or a JavaScript consumer can bypass the type; reject it when the module loads.
+assertFailureClasses(BEHAVIORAL_FAILURE_CLASS)
+
+/**
+ * Stamp `metadata.failure_class` in place on a behavioral finding with a mapped
+ * subject. Other findings, including the analyst's trace-question observations,
+ * are left untouched rather than guessed at.
+ */
+export function pinBehavioralFailureClass(finding: AnalystFinding): void {
+  if (finding.analyst_id !== ANALYST_ID || finding.subject === undefined) return
+  if (!Object.hasOwn(BEHAVIORAL_FAILURE_CLASS, finding.subject)) return
+  const failureClass = BEHAVIORAL_FAILURE_CLASS[finding.subject as SuboptimalCode]
+  finding.metadata = { ...finding.metadata, failure_class: failureClass }
+}
 const DEFAULT_MAX_TRACES = 1_000
 const DEFAULT_MAX_EVIDENCE_REFS = 20
 const TRACE_PAGE_SIZE = 200
