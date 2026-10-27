@@ -90,7 +90,8 @@ const SCOPE = '@tangle-network/'
 export const ADOPTION_BRANCH = 'chore/adopt-stack'
 const BRANCH = ADOPTION_BRANCH
 const COHORT = 'release/cohort.json'
-const BOT = ['-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com']
+const BOT_EMAIL = '41898282+github-actions[bot]@users.noreply.github.com'
+const BOT = ['-c', 'user.name=github-actions[bot]', '-c', `user.email=${BOT_EMAIL}`]
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
 const EXACT = /^\d+\.\d+\.\d+$/
 // gh's refusal when a required review (or check) is missing; reviewDecision tells which.
@@ -689,7 +690,7 @@ export async function readPushedProposal(dir, number, expectedHead, defaultBranc
   throw new Error(`#${number} PR head did not settle (expected ${expectedHead}, last PR ${observed}, branch remained expected); no metadata or merge attempted`)
 }
 
-/** Preserve an open proposal's history; with no open PR the branch outlived another's squash merge, so restart it from the default (`replaces` leases the push). */
+/** Preserve an open proposal's history. Restart from the default (`replaces` leases the push) when no PR is open, since the branch outlived another's squash merge, or when an open proposal only this updater wrote no longer merges. */
 export function prepareBranch(dir, defaultBranch, proposalOpen = true) {
   if (out('git', ['status', '--porcelain'], dir)) throw new Error('caller checkout is dirty; nothing was reset or discarded')
   if (out('git', ['rev-parse', '--is-shallow-repository'], dir) === 'true' && !run('git', ['fetch', '--unshallow', 'origin'], dir)) throw new Error('could not obtain complete proposal/default history; no merge was attempted')
@@ -697,14 +698,16 @@ export function prepareBranch(dir, defaultBranch, proposalOpen = true) {
   const current = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
   if (current !== base) throw new Error(`${defaultBranch} moved before planning; start from its fresh head`)
   const existing = out('git', ['ls-remote', 'origin', `refs/heads/${BRANCH}`], dir).split(/\s/)[0]
-  if (existing && proposalOpen) {
-    if (!run('git', ['fetch', '-q', 'origin', `refs/heads/${BRANCH}`], dir)
-      || !run('git', ['switch', '--detach', 'FETCH_HEAD'], dir)
-      || !run('git', [...BOT, 'merge', '--no-edit', base], dir)) {
+  const merged = existing && proposalOpen && run('git', ['fetch', '-q', 'origin', `refs/heads/${BRANCH}`], dir)
+    && run('git', ['switch', '--detach', 'FETCH_HEAD'], dir) && run('git', [...BOT, 'merge', '--no-edit', base], dir)
+  if (existing && proposalOpen && !merged) {
+    run('git', ['merge', '--abort'], dir)
+    if (out('git', ['log', '--format=%ae', `${base}..${existing}`], dir).split('\n').some((email) => email !== BOT_EMAIL)) {
       throw new Error(`could not normally merge ${defaultBranch} into ${BRANCH}; resolve its retained conflicts before retrying, no history was rewritten`)
     }
-  } else if (!run('git', ['switch', '-c', BRANCH], dir)) throw new Error(`could not create ${BRANCH}; no existing branch was reset`)
-  return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)), replaces: proposalOpen ? '' : existing }
+  }
+  if (!merged && !run('git', ['switch', '-C', BRANCH, base], dir)) throw new Error(`could not create ${BRANCH} from ${defaultBranch}`)
+  return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)), replaces: merged ? '' : existing }
 }
 
 async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow, replaces }) {
