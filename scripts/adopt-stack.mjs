@@ -47,11 +47,8 @@
 // upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
 // unless a sibling rule holds it lower; a peer never claims a version the gate
 // did not run. A peer range that already covers the version is left as written.
-// Packages past 1.0 (agent-knowledge, agent-interface) are pinned like any
-// other, but a range that excludes a new major is refused with a non-zero exit:
-// a major is a breaking release a person widens on purpose, and a 0.x range meets
-// that refusal at its package's first 1.0 release. A prerelease npm
-// latest is refused the same way. An unparseable range in an adopted release's
+// A range that excludes a new major, or a prerelease npm latest, is refused with a non-zero exit:
+// a person widens a breaking release on purpose. An unparseable range in an adopted release's
 // own peers is skipped with a warning instead of aborting every package.
 //
 // `--post-pin CMD` runs the caller's own sync step (template pins, peer floors
