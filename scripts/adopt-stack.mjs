@@ -30,7 +30,7 @@
 // - A range that admits its target stays as written and `pnpm update --no-save`
 //   moves only the lock: a raised floor (`^1.0.39` -> `^1.0.40`) republished every
 //   caller per patch. Only peer ranges widen. One delivery a day: with no proposal
-//   open, a run within a day of the last merge stops (288 PRs in 24 h, 2026-10-27).
+//   open, a run within 20 h of the last merge stops (288 PRs in 24 h, 2026-10-27).
 // - A lockfile this script cannot read (or yarn/bun) stops the plan, since
 //   every hold, raise and cohort edit depends on what it holds.
 // - A caller's release/cohort.json entries move to the version the lockfile
@@ -78,7 +78,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions, preparePlaywrightBrowsers } from './adopt-stack-workspace.mjs'
 
@@ -549,12 +549,24 @@ export function writePlan(dir, result) {
   if (result.edits.some((edit) => edit.file === COHORT)) writeFileSync(join(dir, COHORT), cohortText)
 }
 
-function install(dir, expected) {
-  const targets = expected.map(([name, version]) => `${name}@${version}`)
+/**
+ * Lock the planned versions without moving a range that admits them. Each pnpm importer
+ * updates only its own registry pins, so a `workspace:` link elsewhere is never re-resolved.
+ * npm cannot lock without saving, so its ranges are written back and the lock re-derived.
+ */
+export function install(dir, result) {
+  const expected = new Map(result.expected)
+  const targets = new Map()
+  for (const { file, name, spec } of dependencies(result.files.members)) {
+    if (expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:'))) targets.set(file, [...new Set([...(targets.get(file) ?? []), `${name}@${expected.get(name)}`])])
+  }
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
-    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir) || !run('pnpm', ['update', '--no-save', '-r', ...targets], dir)) throw new Error('pnpm could not lock the planned versions')
+    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
+    for (const [file, names] of targets) if (!run('pnpm', ['update', '--no-save', ...names], join(dir, dirname(file)))) throw new Error(`pnpm could not lock ${names.join(' ')} in ${file}`)
   } else if (existsSync(join(dir, 'package-lock.json'))) {
-    if (!run('npm', ['install', '--prefer-online'], dir) || !run('npm', ['update', '--no-save', ...expected.map(([name]) => name)], dir)) throw new Error('npm could not lock the planned versions')
+    if (!run('npm', ['install', '--prefer-online', ...[...targets.values()].flat()], dir)) throw new Error('npm install failed for the new pins')
+    writePlan(dir, result)
+    if (!run('npm', ['install', '--package-lock-only', '--prefer-online'], dir)) throw new Error('npm could not lock the planned ranges')
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
 
@@ -711,7 +723,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body,isDraft']))[0]
 
   writePlan(dir, result)
-  install(dir, result.expected)
+  install(dir, result)
   const synced = { command, files: command ? postPin(dir, command) : [] }
   result.resolved = resolvedVersions(dir, new Map(result.expected))
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
@@ -846,7 +858,7 @@ async function main() {
   if (!opts.dryRun) {
     const listed = (state) => JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', state, '--limit', '1', '--json', 'mergedAt'], opts.dir))
     const [open, last] = [listed('open').length > 0, listed('merged')[0]?.mergedAt]
-    if (!open && Date.now() - Date.parse(last) < 23 * 3600_000) return log(`last refresh merged ${last}; the next runs a day later`)
+    if (!open && Date.now() - Date.parse(last) < 20 * 3600_000) return log(`last refresh merged ${last}; the next runs a day later`)
     Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
   }
   const result = await plan(opts.dir, opts.packages)
