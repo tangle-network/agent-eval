@@ -9,6 +9,7 @@ export const buildEntries = {
   rl: 'src/rl/index.ts',
   fuzz: 'src/fuzz/index.ts',
   traces: 'src/traces.ts',
+  redaction: 'src/trace/redact.ts',
   'trace-attributes': 'src/trace/attribute-vocabulary.ts',
   'wire/index': 'src/wire/index.ts',
   'benchmarks/index': 'src/benchmarks/index.ts',

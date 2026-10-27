@@ -49,6 +49,11 @@
       "import": "./dist/fuzz.js",
       "default": "./dist/fuzz.js"
     },
+    "./redaction": {
+      "types": "./dist/redaction.d.ts",
+      "import": "./dist/redaction.js",
+      "default": "./dist/redaction.js"
+    },
     "./traces": {
       "types": "./dist/traces.d.ts",
       "import": "./dist/traces.js",
