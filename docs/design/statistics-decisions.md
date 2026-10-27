@@ -190,6 +190,7 @@ No better approximation reaches the right answer here; only an exact test does.
 | McNemar (`mcnemar`) | always exact — binomial, already correct | — | never |
 | Paired mean difference (`pairedTTest`) | — | — | valid from `n ≥ 3`, now that the `incompleteBeta` symmetry branch is in place |
 | Bootstrap interval (`confidenceInterval`, `pairedBootstrap`) | — | — | **not a valid gate below `n = 20`** |
+| One-sample mean interval (`meanConfidenceInterval`, `studentTCritical`) | — | — | exact Student-t quantile at `df = n − 1`; null bounds below `n = 2`; assumes roughly normal means |
 
 The bootstrap row is the strongest recommendation here and the one most likely to be resisted.
 Measured `P(low > 0)` under a true null against a nominal 2.5 % never reaches nominal in the tested range: 13.53 % at `n = 3`, 3.52 % at `n = 10`, 3.10 % at `n = 20` for the median statistic, and 13.85 % / 4.90 % / 3.80 % for the mean.

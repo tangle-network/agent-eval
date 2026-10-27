@@ -137,6 +137,7 @@ export type {
   ExactRiskDifferenceResult,
   MannWhitneyResult,
   McNemarResult,
+  MeanConfidenceInterval,
   PairedBootstrapOptions,
   PairedBootstrapResult,
   PairedSignTestResult,

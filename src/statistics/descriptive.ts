@@ -4,7 +4,9 @@
  */
 
 import { ValidationError } from '../errors'
+import { studentTQuantile } from '../math/student-t'
 import { assertFiniteSample, makeRng } from './internal'
+import { mean } from './mean'
 
 /** Weighted mean — falls back to uniform weights when omitted */
 export function weightedMean(scores: { score: number; weight?: number }[]): number {
@@ -60,6 +62,77 @@ export function confidenceInterval(
     mean,
     lower: bootstrapMeans[lowerIdx]!,
     upper: bootstrapMeans[Math.min(upperIdx, B - 1)]!,
+  }
+}
+
+/**
+ * Two-sided Student-t critical value: the `t` with `P(|T| ≤ t) = confidence`
+ * for `df` degrees of freedom. Exact, from {@link studentTQuantile}, so any
+ * confidence in (0, 1) and fractional `df` are supported.
+ */
+export function studentTCritical(df: number, confidence = 0.95): number {
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+    throw new ValidationError(`studentTCritical: confidence must be in (0, 1), got ${confidence}`)
+  }
+  if (!Number.isFinite(df) || df <= 0) {
+    throw new ValidationError(`studentTCritical: df must be positive and finite, got ${df}`)
+  }
+  return studentTQuantile(1 - (1 - confidence) / 2, df)
+}
+
+/** One-sample Student-t interval on the mean; see {@link meanConfidenceInterval}. */
+export interface MeanConfidenceInterval {
+  readonly n: number
+  /** Null for an empty sample. */
+  readonly mean: number | null
+  /** Sample standard deviation (n − 1 denominator); null below two samples. */
+  readonly stdev: number | null
+  readonly low: number | null
+  readonly high: number | null
+  /** Two-sided Student-t critical value for df = n − 1; null below two samples. */
+  readonly criticalValue: number | null
+}
+
+/**
+ * Student-t confidence interval on the mean of one sample:
+ * `mean ± t(df = n − 1) · s / √n`. Below two samples there is no spread to
+ * estimate, so the bounds are null rather than a zero-width interval that
+ * would read as certainty. Unlike {@link confidenceInterval} (a percentile
+ * bootstrap), the width keeps the small-n t penalty that z = 1.96 drops.
+ */
+export function meanConfidenceInterval(
+  samples: readonly number[],
+  confidence = 0.95,
+): MeanConfidenceInterval {
+  assertFiniteSample('meanConfidenceInterval', 'samples', samples)
+  const n = samples.length
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+    throw new ValidationError(
+      `meanConfidenceInterval: confidence must be in (0, 1), got ${confidence}`,
+    )
+  }
+  if (n < 2) {
+    return {
+      n,
+      mean: n === 0 ? null : samples[0]!,
+      stdev: null,
+      low: null,
+      high: null,
+      criticalValue: null,
+    }
+  }
+  const center = mean(samples)
+  const sumSquares = samples.reduce((sum, value) => sum + (value - center) ** 2, 0)
+  const stdev = Math.sqrt(sumSquares / (n - 1))
+  const criticalValue = studentTCritical(n - 1, confidence)
+  const halfWidth = (criticalValue * stdev) / Math.sqrt(n)
+  return {
+    n,
+    mean: center,
+    stdev,
+    low: center - halfWidth,
+    high: center + halfWidth,
+    criticalValue,
   }
 }
 
