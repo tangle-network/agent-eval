@@ -9,43 +9,27 @@
  * Reference: OTLP 1.3.2 (ResourceSpans / ScopeSpans / Span).
  */
 
+import { toW3CSpanId, toW3CTraceId } from '@tangle-network/agent-trace-contract'
+import {
+  msToUnixNano,
+  type OtlpSpan,
+  type OtlpTraceExport,
+  otlpTraceExport,
+  toOtlpAttributes,
+} from '@tangle-network/agent-trace-contract/otlp'
 import {
   applyLlmSpanOtlpAttributes,
   applyToolSpanOtlpAttributes,
   OPENINFERENCE_SPAN_KIND,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
-import { msToUnixNano, toOtlpAttributes } from './otlp-encoding'
-import type { Run, Span, TraceEvent } from './schema'
+import type { Span, TraceEvent } from './schema'
 import type { TraceStore } from './store'
-import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 const OTEL_AGENT_EVAL_SCOPE = { name: '@tangle-network/agent-eval', version: '0.3.0' }
 
-export interface OtlpSpan {
-  traceId: string
-  spanId: string
-  parentSpanId?: string
-  name: string
-  kind: number
-  startTimeUnixNano: string
-  endTimeUnixNano: string
-  attributes: Array<{
-    key: string
-    value: { stringValue?: string; intValue?: string; doubleValue?: number; boolValue?: boolean }
-  }>
-  events?: Array<{ timeUnixNano: string; name: string; attributes?: OtlpSpan['attributes'] }>
-  status?: { code: number; message?: string }
-}
-
-export interface OtlpResourceSpans {
-  resource: { attributes: OtlpSpan['attributes'] }
-  scopeSpans: Array<{ scope: typeof OTEL_AGENT_EVAL_SCOPE; spans: OtlpSpan[] }>
-}
-
-export interface OtlpExport {
-  resourceSpans: OtlpResourceSpans[]
-}
+export type { OtlpResourceSpans, OtlpSpan } from '@tangle-network/agent-trace-contract/otlp'
+export type OtlpExport = OtlpTraceExport
 
 /** Export a single run's spans + events in OTLP/JSON. */
 export async function exportRunAsOtlp(
@@ -64,37 +48,29 @@ export async function exportRunAsOtlp(
     arr.push(e)
     eventsBySpan.set(e.spanId, arr)
   }
-  const traceId = runToTraceId(run)
+  const traceId = toW3CTraceId(run.runId)
   const otlpSpans: OtlpSpan[] = spans.map((s) =>
     spanToOtlp(s, traceId, eventsBySpan.get(s.spanId) ?? []),
   )
-  return {
-    resourceSpans: [
-      {
-        resource: {
-          attributes: toOtlpAttributes({
-            'service.name': 'agent-eval',
-            'run.id': run.runId,
-            'run.scenario_id': run.scenarioId,
-            'run.variant_id': run.variantId ?? '',
-            'run.dataset_version': run.datasetVersion ?? '',
-            'run.code_sha': run.codeSha ?? '',
-            'run.model_fingerprint': run.modelFingerprint ?? '',
-            ...resourceAttrs,
-          }),
-        },
-        scopeSpans: [{ scope: OTEL_AGENT_EVAL_SCOPE, spans: otlpSpans }],
-      },
-    ],
-  }
+  const resource = toOtlpAttributes({
+    'service.name': 'agent-eval',
+    'run.id': run.runId,
+    'run.scenario_id': run.scenarioId,
+    'run.variant_id': run.variantId ?? '',
+    'run.dataset_version': run.datasetVersion ?? '',
+    'run.code_sha': run.codeSha ?? '',
+    'run.model_fingerprint': run.modelFingerprint ?? '',
+    ...resourceAttrs,
+  })
+  return otlpTraceExport(resource, OTEL_AGENT_EVAL_SCOPE, otlpSpans)
 }
 
 function spanToOtlp(span: Span, traceId: string, events: TraceEvent[]): OtlpSpan {
   const endedAt = span.endedAt ?? span.startedAt
   return {
     traceId,
-    spanId: spanIdForWire(span.spanId),
-    parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : undefined,
+    spanId: toW3CSpanId(span.spanId),
+    parentSpanId: span.parentSpanId ? toW3CSpanId(span.parentSpanId) : undefined,
     name: span.name,
     kind: 1, // SPAN_KIND_INTERNAL
     startTimeUnixNano: msToUnixNano(span.startedAt),
@@ -147,8 +123,4 @@ function flattenPayload(
     else out[k] = JSON.stringify(v)
   }
   return out
-}
-
-function runToTraceId(run: Run): string {
-  return traceIdForWire(run.runId)
 }

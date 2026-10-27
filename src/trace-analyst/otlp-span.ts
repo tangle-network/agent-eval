@@ -23,32 +23,10 @@
 
 import { declaredSpanKind } from '@tangle-network/agent-trace-contract'
 import { LLM_MODEL_ATTR_KEYS, TOOL_NAME_ATTR_KEYS } from '../trace/otlp-attributes'
-import type { TraceAnalystSpanKind, TraceAnalystSpanStatus } from './types'
+import type { TraceAnalystSpan, TraceAnalystSpanStatus } from './types'
 
-/**
- * The structural fields a flat OTLP-JSONL line projects to. `attributes`
- * is the merged resource+span attribute map (span overrides resource);
- * the named fields are the pivots every reader of a trace needs without
- * paying the full attribute materialisation.
- */
-export interface ProjectedOtlpSpan {
-  trace_id: string
-  span_id: string
-  parent_span_id: string | null
-  name: string
-  kind: TraceAnalystSpanKind
-  start_time: string
-  end_time: string
-  duration_ms: number
-  status: TraceAnalystSpanStatus
-  status_message: string | undefined
-  service_name: string | null
-  agent_name: string | null
-  model_name: string | null
-  tool_name: string | null
-  /** Merged resource + span attributes, span winning on overlap. */
-  attributes: Record<string, unknown>
-}
+/** The structural fields a flat OTLP-JSONL line projects to: the analyst's span view. */
+export type ProjectedOtlpSpan = TraceAnalystSpan & { status_message: string | undefined }
 
 /**
  * Project one parsed OTLP-JSONL object to `ProjectedOtlpSpan`, or `null`
@@ -59,7 +37,8 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
   const span_id = rawStringField(raw, 'span_id') ?? rawStringField(raw, 'spanId')
   if (!trace_id || !span_id) return null
 
-  const rawParentId = rawStringField(raw, 'parent_span_id') ?? rawStringField(raw, 'parentSpanId') ?? null
+  const rawParentId =
+    rawStringField(raw, 'parent_span_id') ?? rawStringField(raw, 'parentSpanId') ?? null
   const parent_id = normalizeParentSpanId(trace_id, span_id, rawParentId)
   const name = rawStringField(raw, 'name') ?? 'unknown'
   const start_time = rawStringField(raw, 'start_time') ?? rawStringField(raw, 'startTime') ?? ''

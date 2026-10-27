@@ -1,4 +1,5 @@
 import {
+  ATTR,
   firstNumberAttr,
   firstStringAttr,
   INPUT_TOKEN_ATTR_KEYS,
@@ -98,11 +99,6 @@ export function spanArguments(span: ContractSpan): ArgumentEvidence {
   return { known: false, reason: 'the span carries no argument evidence' }
 }
 
-/** The OTel GenAI attribute listing the tool definitions offered to the
- *  model: an array (or its JSON string) of `{ name }`, `{ function: { name } }`
- *  or plain names. */
-export const TOOL_DEFINITIONS_ATTR = 'gen_ai.tool.definitions'
-
 type OfferedTools =
   | { recorded: false }
   | { recorded: true; names: string[] }
@@ -110,11 +106,11 @@ type OfferedTools =
 
 /** The tool names a span records as offered to the model. */
 export function spanOfferedTools(span: ContractSpan): OfferedTools {
-  const raw = span.attributes?.[TOOL_DEFINITIONS_ATTR]
+  const raw = span.attributes?.[ATTR.toolDefinitions]
   if (raw === undefined || raw === null) return { recorded: false }
   const value = parseJsonString(raw)
   if (!Array.isArray(value)) {
-    return { recorded: true, unreadable: `${TOOL_DEFINITIONS_ATTR} is not a list` }
+    return { recorded: true, unreadable: `${ATTR.toolDefinitions} is not a list` }
   }
   const names: string[] = []
   for (const entry of value) {
@@ -122,7 +118,7 @@ export function spanOfferedTools(span: ContractSpan): OfferedTools {
     if (name === undefined) {
       return {
         recorded: true,
-        unreadable: `${TOOL_DEFINITIONS_ATTR} has an entry without a tool name`,
+        unreadable: `${ATTR.toolDefinitions} has an entry without a tool name`,
       }
     }
     names.push(name)
