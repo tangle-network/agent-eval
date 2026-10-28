@@ -106,7 +106,9 @@ jobs:
             scripts/adopt-stack-workspace.mjs
           sparse-checkout-cone-mode: false
 
-      - uses: pnpm/action-setup@v6
+      # v6.1.0 is the first release that can switch to a caller's pnpm 12; the floating v6 tag still
+      # resolves to v6.0.10, whose pnpm 11.19 bootstrap exits ERR_PNPM_BROKEN_PNPM_INSTALL on pnpm@12.x.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         if: ${{ hashFiles('caller/pnpm-lock.yaml', 'caller/pnpm-workspace.yaml') != '' }}
         with:
           package_json_file: caller/package.json
