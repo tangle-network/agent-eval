@@ -1,3 +1,4 @@
+import type { ExactCapableAnalyst } from './analyst/exact-types'
 import type { Analyst, AnalystContext, AnalystFinding } from './analyst/types'
 import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
 import type { CostReceiptInput, CustomTokenPricing } from './cost-ledger'
@@ -95,8 +96,7 @@ export function systemOneEvaluator(options: SystemOneEvaluatorOptions) {
     context?: EvaluationContext,
   ): Promise<EvaluationResult<SystemOneResult<Q>>> => {
     context?.signal?.throwIfAborted()
-    parseSystemOneRequest(request)
-    const snapshot = structuredClone(request)
+    const snapshot = structuredClone(parseSystemOneRequest(request))
     const result = await run(snapshot, context)
     // The validator checked these exact questions after recording the paid work.
     return { ...result, value: result.value as SystemOneResult<Q> }
@@ -114,9 +114,7 @@ export interface SystemOneJudgeOptions<
   A,
   S extends Scenario = Scenario,
   Q extends SystemOneQuestions = SystemOneQuestions,
-> extends SystemOneEvaluatorOptions {
-  model: string
-  version: string
+> extends Omit<SystemOneOptions, 'questions'> {
   questions: QuestionSource<Input<A, S>, Q>
   renderState: (
     input: Input<A, S>,
@@ -248,12 +246,11 @@ export function systemOneJudge<
 }
 
 export interface SystemOneAnalystOptions<I, Q extends SystemOneQuestions = SystemOneQuestions>
-  extends SystemOneEvaluatorOptions {
+  extends Omit<SystemOneOptions, 'questions'> {
   id: string
   description: string
   inputKind: Analyst<I>['inputKind']
-  model: string
-  version: string
+  executionConfig?: ExactCapableAnalyst<I>['executionConfig']
   questions: Q | ((input: I, context: AnalystContext) => Q | Promise<Q>)
   renderState: (input: I, context: AnalystContext) => SystemOneState | Promise<SystemOneState>
   findings: (
@@ -282,6 +279,7 @@ export function systemOneAnalyst<I, Q extends SystemOneQuestions = SystemOneQues
     id: config.id,
     description: config.description,
     inputKind: config.inputKind,
+    executionConfig: config.executionConfig,
     version: contentHash({
       model: config.model,
       version: config.version,
