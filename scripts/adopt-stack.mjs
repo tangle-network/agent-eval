@@ -555,6 +555,8 @@ export function install(dir, result) {
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
     if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
     for (const [file, names] of targets) if (!run('pnpm', ['update', '--no-save', ...names], join(dir, dirname(file)))) throw new Error(`pnpm could not lock ${names.join(' ')} in ${file}`)
+    // A transitive copy keeps the version locked before its dependents moved (agent-core 1.0.0 beside 1.0.1 in every app on 10-27); collapse it in the same refresh.
+    if (!run('pnpm', ['dedupe'], dir)) throw new Error('pnpm dedupe failed')
   } else if (existsSync(join(dir, 'package-lock.json'))) {
     if (!run('npm', ['install', '--prefer-online', ...[...targets.values()].flat()], dir)) throw new Error('npm install failed for the new pins')
     writePlan(dir, result)
