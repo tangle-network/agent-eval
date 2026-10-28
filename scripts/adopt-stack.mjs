@@ -29,8 +29,8 @@
 //   holds so far, so a raise a later hold made unnecessary drops out.
 // - A range that admits its target stays as written and `pnpm update --no-save`
 //   moves only the lock: a raised floor (`^1.0.39` -> `^1.0.40`) republished every
-//   caller per patch. Only peer ranges widen. One delivery a day: with no proposal
-//   open, a run within 20 h of the last merge stops (288 PRs in 24 h, 2026-10-27).
+//   caller per patch. Only peer ranges widen. Callers run it by hand (workflow_dispatch);
+//   no schedule triggers it, so every invocation plans and delivers.
 // - A lockfile this script cannot read (or yarn/bun) stops the plan, since
 //   every hold, raise and cohort edit depends on what it holds.
 // - A caller's release/cohort.json entries move to the version the lockfile
@@ -845,9 +845,7 @@ async function main() {
   const opts = options(process.argv.slice(2))
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
   if (!opts.dryRun) {
-    const listed = (state) => JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', state, '--limit', '1', '--json', 'mergedAt'], opts.dir))
-    const [open, last] = [listed('open').length > 0, listed('merged')[0]?.mergedAt]
-    if (!open && Date.now() - Date.parse(last) < 20 * 3600_000) return log(`last refresh merged ${last}; the next runs a day later`)
+    const open = JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--limit', '1', '--json', 'number'], opts.dir)).length > 0
     Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
   }
   const result = await plan(opts.dir, opts.packages)
