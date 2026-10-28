@@ -185,6 +185,12 @@ and analyst context. `map(value, input, analystContext)` creates evidence-backed
 findings. Use the existing `makeFinding` factory and real event/span/artifact references.
 An empty finding list is valid; an inference failure is not a clean review.
 
+`asAnalyst` and `systemOneAnalyst` accept optional `executionConfig` for the exact
+registry path. Supply canonical JSON for effective transport identity and controls
+not already bound by `version`. The factory detaches this declaration; the exact
+registry records its digest. Omitting it still refuses exact execution before the
+transport runs. This declaration supplies no observed model identity or usage.
+
 The optional `systemOneJudge` and `systemOneAnalyst` conveniences accept static questions or a
 question-producing function. State renderers may be async. Judge renderers receive
 the evaluation context; analyst renderers and finding mappers receive the effective

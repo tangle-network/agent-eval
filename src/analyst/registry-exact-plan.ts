@@ -293,16 +293,13 @@ function normalizeExactAnalysts(
   selections: ReadonlyArray<{ readonly registeredId: string; readonly analyst: Analyst }>,
 ): ExactCapableAnalyst[] {
   return selections.map(({ registeredId, analyst }) => {
-    const exactAnalyst = analyst as Analyst & {
-      readonly executionConfig?: Readonly<Record<string, unknown>>
-    }
     const id = analyst.id
     const description = analyst.description
     const inputKind = analyst.inputKind
     const rawCostValue = analyst.cost
     const requiresValue = analyst.requires
     const version = analyst.version
-    const executionConfigValue = exactAnalyst.executionConfig
+    const executionConfigValue = (analyst as Partial<ExactCapableAnalyst>).executionConfig
     const analyzeValue = analyst.analyze
     if (id !== registeredId) {
       throw new TypeError(

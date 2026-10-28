@@ -1,4 +1,5 @@
 import { analystEvaluationContext } from './analyst/evaluation-context'
+import type { ExactCapableAnalyst } from './analyst/exact-types'
 import type { Analyst, AnalystContext, AnalystFinding } from './analyst/types'
 import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
 import type {
@@ -128,6 +129,7 @@ export interface EvaluationAnalystOptions<I, O> {
   description: string
   inputKind: Analyst<I>['inputKind']
   cost: Analyst<I>['cost']
+  executionConfig?: ExactCapableAnalyst<I>['executionConfig']
   evaluate: (
     input: I,
     context: EvaluationContext,
@@ -146,6 +148,9 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
     description: config.description,
     inputKind: config.inputKind,
     cost: config.cost,
+    ...(config.executionConfig !== undefined && {
+      executionConfig: structuredClone(config.executionConfig),
+    }),
     async analyze(input, context) {
       const { evaluation, analystContext } = analystEvaluationContext(context, config.id)
       const signal = analystContext.signal
