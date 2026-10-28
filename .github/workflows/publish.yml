@@ -275,6 +275,11 @@ jobs:
       # npm. agent-eval has no `workspace:` deps, so `npm publish` is safe here.
       # Idempotent: a version already on the registry is skipped so the downstream
       # PyPI step still runs.
+      - name: Admit the release version
+        uses: tangle-network/agent-runtime/.github/actions/admit-release@76b8de28191e31f0c1301a3621bab2188f8695e7
+        with:
+          directories: .
+
       - name: Publish to npm (OIDC trusted publishing)
         env:
           # `npm publish` re-runs the `prepublishOnly` build hook. Match the heap
