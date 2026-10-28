@@ -4,10 +4,9 @@
 # merged when `merge` is true and the gate passed. scripts/adopt-stack.mjs owns
 # the steps and their rules.
 #
-# A caller schedules it, because a reusable workflow cannot schedule itself:
+# A caller runs it by hand; no schedule triggers it:
 #
 #   on:
-#     schedule: [{ cron: '17 6 * * *' }]  # daily; the script also delivers at most once a day
 #     workflow_dispatch:
 #   permissions:
 #     contents: write
