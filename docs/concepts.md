@@ -72,6 +72,9 @@ register retirement before readiness, and retain the allocated resource when rea
 A step marked `advisory` retains its failure timing while required expectations still gate
 the report. Unmarked steps and all setup/cleanup measurements remain required.
 
+Expectations accept the existing assertion objects or `[name, passed, details?]` tuples.
+Both produce the same named assertion report; details retain expected/actual/message fields.
+
 Pass the product's existing `measure` adapter to retain its server timing
 ledgers. A poll returns `undefined` when its budget expires; the scenario must
 assert the condition when exhaustion is a failure. The scope's budget signal

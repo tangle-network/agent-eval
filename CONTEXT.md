@@ -18,3 +18,5 @@
 **Source event map:** the ordered, window-scoped association of event IDs with sanitized-content digests and retained source references, stored with the decision definition and returned on replay. _Avoid:_ state-only mapping.
 
 **Record-only question:** an ancillary choice with no routing authority, calibration certificate or independent truth-label duty in decision reliability.
+
+**Harness expectation:** a named Boolean check with optional expected/actual/message details. It normalizes to the same assertion report as an explicit assertion object.

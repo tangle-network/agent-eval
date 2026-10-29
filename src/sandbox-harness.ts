@@ -175,6 +175,9 @@ export interface HarnessAssertion {
   message?: string
   soft?: boolean
 }
+export type HarnessExpectation =
+  | HarnessAssertion
+  | readonly [name: string, passed: boolean, details?: Omit<HarnessAssertion, 'name' | 'status'>]
 export interface HarnessTiming {
   name: string
   durationMs: number
@@ -198,7 +201,7 @@ export interface HarnessResource<T> {
 export interface HarnessScope {
   signal: AbortSignal
   resource<T>(input: HarnessResource<T>): Promise<{ resource?: T; timing: HarnessTiming }>
-  check(...assertions: HarnessAssertion[]): void
+  check(...assertions: HarnessExpectation[]): void
   measure(name: string, run: () => Promise<unknown>): Promise<HarnessTiming>
   /** Register retirement immediately after allocation; cleanup ignores workload cancellation. */
   defer(retire: () => Promise<unknown>): void
@@ -216,9 +219,9 @@ export interface HarnessScenario<T> {
     advisory?: boolean
     when?: (state: T) => boolean
     run(state: T, scope: HarnessScope): Promise<unknown>
-    expect?: (state: T, timing: HarnessTiming) => HarnessAssertion[]
+    expect?: (state: T, timing: HarnessTiming) => HarnessExpectation[]
   }>
-  expectations?: (state: T) => HarnessAssertion[]
+  expectations?: (state: T) => HarnessExpectation[]
   metadata?: (state: T) => Record<string, unknown>
   /** Includes setup and steps. Transports must honor scope.signal. */
   budgetMs: number
@@ -243,7 +246,18 @@ export async function runSandboxScenario<T>(
   const retirements: Array<() => Promise<unknown>> = []
   const scope: HarnessScope = {
     signal,
-    check: (...assertions) => report.assertions.push(...assertions),
+    check(...assertions) {
+      for (const value of assertions)
+        report.assertions.push(
+          'status' in value
+            ? value
+            : {
+                ...value[2],
+                name: value[0],
+                status: value[1] ? 'pass' : 'fail',
+              },
+        )
+    },
     defer: (retire) => retirements.push(retire),
     async measure(name, run) {
       const start = performance.now()

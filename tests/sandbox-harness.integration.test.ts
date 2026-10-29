@@ -44,10 +44,17 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
             },
           },
         ],
-        expectations: () => [{ name: 'complete', status: 'pass' }],
+        expectations: () => [['complete', true]],
         metadata: () => ({ transport: 'subprocess' }),
       })
-      expect(report).toMatchObject({ pass: true, metadata: { transport: 'subprocess' } })
+      expect(report).toMatchObject({
+        pass: true,
+        assertions: [
+          { name: 'command', status: 'pass' },
+          { name: 'complete', status: 'pass' },
+        ],
+        metadata: { transport: 'subprocess' },
+      })
       expect(report.timings.map((timing) => timing.name)).toEqual(['subprocess', 'cleanup'])
       await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
@@ -108,7 +115,7 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
             (text) => text === 'ready',
             { timeoutMs: 100, intervalMs: 5 },
           )
-          scope.check({ name: 'ready', status: present === 'ready' ? 'pass' : 'fail' })
+          scope.check(['ready', present === 'ready', { actual: present }])
         },
         steps: [],
       })
@@ -153,11 +160,17 @@ it('retires an allocated resource when its real readiness read fails', async () 
           ready: () => readFile(join(directory, 'missing-readiness')),
           retire: (path) => rm(path),
         }),
-      expectations: ({ resource }) => [
+      expectations: ({ resource, timing }) => [
         { name: 'allocation-retained', status: resource === marker ? 'pass' : 'fail' },
+        ['readiness', timing.success, { message: timing.error }],
       ],
     })
     expect(report.pass).toBe(false)
+    expect(report.assertions).toContainEqual({
+      name: 'readiness',
+      status: 'fail',
+      message: expect.stringContaining('ENOENT'),
+    })
     expect(report.timings.map((timing) => [timing.name, timing.success])).toEqual([
       ['allocate', false],
       ['cleanup', true],
