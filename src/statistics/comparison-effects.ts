@@ -16,8 +16,7 @@ export function meanEffect(a: number[], b: number[]): SampleEffect {
   const n: [number, number] = [a.length, b.length]
   const comparison = welchsTTest(a, b)
   const diff = a.length && b.length ? comparison.delta : null
-  if (comparison.status === 'insufficient-sample') return { n, diff, ci: null, g: null, gCi: null }
-  if (comparison.cohensD === null) return { n, diff, ci: comparison.standardError === 0 ? [comparison.delta, comparison.delta] : comparison.ci95, g: null, gCi: null }
+  if (comparison.status !== 'ok') return { n, diff, ci: comparison.status === 'zero-variance' ? [comparison.delta, comparison.delta] : null, g: null, gCi: null }
   const correction = 1 - 3 / (4 * (a.length + b.length) - 9)
   const g = correction * comparison.cohensD
   const gSe = Math.sqrt((a.length + b.length) / (a.length * b.length) + g ** 2 / (2 * (a.length + b.length)))
@@ -30,7 +29,8 @@ function binary(values: readonly number[], name: string): void {
 
 /** Independent binary samples, oriented b − a, with Newcombe's hybrid Wilson 95% interval. */
 export function rateEffect(a: number[], b: number[]): SampleEffect {
-  binary(a, 'rateEffect.a'); binary(b, 'rateEffect.b')
+  binary(a, 'rateEffect.a')
+  binary(b, 'rateEffect.b')
   const n: [number, number] = [a.length, b.length]
   if (!a.length || !b.length) return { n, diff: null, ci: null, g: null, gCi: null }
   const s1 = a.reduce((sum, value) => sum + value, 0), s2 = b.reduce((sum, value) => sum + value, 0)
@@ -46,8 +46,8 @@ export function rocAuc(scores: number[], labels: number[]): number | null {
   binary(labels, 'rocAuc.labels')
   if (scores.length !== labels.length) throw new ValidationError('rocAuc: scores and labels must have equal lengths')
   const ranked = ranks(scores)
-  let positive = 0, sum = 0
-  labels.forEach((label, index) => { if (label) { positive += 1; sum += ranked[index]! } })
+  const positive = labels.reduce((sum, label) => sum + label, 0)
+  const sum = labels.reduce((total, label, index) => total + label * ranked[index]!, 0)
   const negative = labels.length - positive
   return positive && negative ? (sum - positive * (positive + 1) / 2) / (positive * negative) : null
 }
