@@ -208,7 +208,7 @@ export {
   mcnemar,
   mcnemarPower,
   mcnemarRequiredN,
-  meanConfidenceInterval,
+  meanConfidenceInterval, meanEffect, rateEffect, rocAuc,
   mulberry32,
   pairedBootstrap,
   pairedCohensDz,

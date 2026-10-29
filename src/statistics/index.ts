@@ -1,13 +1,9 @@
-/**
- * The statistics surface: descriptive summaries, effect sizes, exact rank
- * tests, paired tests, paired-binary estimators, agreement/IRR, power + MDE,
- * multiplicity corrections, the anytime-valid e-process, and the seeded PRNG.
- * Import from `../statistics` — the module layout below is an internal detail.
- */
+/** Statistics surface; internal module paths are not public. */
 
 export * from './agreement-irr'
 export * from './descriptive'
 export * from './effect-sizes'
+export * from './comparison-effects'
 export * from './inference'
 export * from './multiplicity'
 export * from './paired-binary'

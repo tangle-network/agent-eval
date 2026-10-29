@@ -1,17 +1,4 @@
-/**
- * Baseline regression detection.
- *
- * Lifted from ADC baseline.ts. Every promotion-blocking signal boils down
- * to: "is this run measurably worse than baseline?" — with enough
- * statistical rigor to distinguish noise from drift.
- *
- * Uses:
- *   - Welch's t-test (unequal variance) for per-metric mean comparison
- *   - Cohen's d for effect size magnitude
- *   - IQR for stability flag (unstable samples can't be trusted for comparisons)
- *
- * Returns a structured verdict: improved | regressed | stable | unstable.
- */
+/** Baseline regression detection. Lifted from ADC baseline.ts. Every promotion-blocking signal boils down to: "is this run measurably worse than baseline?" — with enough statistical rigor to distinguish noise from drift. Uses: - Welch's t-test (unequal variance) for per-metric mean comparison - Cohen's d for effect size magnitude - IQR for stability flag (unstable samples can't be trusted for comparisons) Returns a structured verdict: improved | regressed | stable | unstable. */
 
 import { interpolatedQuantile } from './math/quantile'
 import { studentTQuantile } from './math/student-t'
@@ -32,8 +19,7 @@ export interface MetricVerdict {
   baselineMean: number
   candidateMean: number
   delta: number
-  /** Null when both samples are constant with unequal means — the
-   *  standardized effect is unbounded there, not zero. */
+  /** Null when both samples are constant with unequal means — the standardized effect is unbounded there, not zero. */
   cohensD: number | null
   welchT: number
   welchDf: number
@@ -63,14 +49,7 @@ export interface BaselineOptions {
 
 export type WelchTestStatus = 'ok' | 'insufficient-sample' | 'zero-variance'
 
-/**
- * Full unequal-variance comparison for two independent samples.
- *
- * `meanB`, `delta`, `t`, and `cohensD` are oriented as `b - a`. Inferential
- * fields are `NaN` and `ci95` is null when the sample count or observed
- * variance cannot define a Student-t result. `status` makes that state
- * explicit so callers cannot mistake it for evidence of no difference.
- */
+/** Full unequal-variance comparison for two independent samples. `meanB`, `delta`, `t`, and `cohensD` are oriented as `b - a`. Inferential fields are `NaN` and `ci95` is null when the sample count or observed variance cannot define a Student-t result. `status` makes that state explicit so callers cannot mistake it for evidence of no difference. */
 interface WelchTestResultBase {
   meanA: number
   meanB: number
@@ -97,13 +76,7 @@ export type WelchTestResult =
       cohensD: null
     })
 
-/**
- * Compare candidate samples against baseline per metric. Verdict logic:
- *   - unstable: IQR/|mean| > threshold on either set — not enough signal
- *   - improved: meaningful effect in the "better" direction AND p < alpha
- *   - regressed: meaningful effect in the "worse" direction AND p < alpha
- *   - stable: otherwise (no significant change)
- */
+/** Compare candidate samples against baseline per metric. Verdict logic: - unstable: IQR/|mean| > threshold on either set — not enough signal - improved: meaningful effect in the "better" direction AND p < alpha - regressed: meaningful effect in the "worse" direction AND p < alpha - stable: otherwise (no significant change) */
 export function compareToBaseline(
   samples: MetricSamples[],
   options: BaselineOptions = {},
@@ -177,14 +150,7 @@ export function iqr(xs: number[]): number {
   return interpolatedQuantile(sorted, 0.75) - interpolatedQuantile(sorted, 0.25)
 }
 
-/**
- * Welch's t-test and 95% interval for two independent samples.
- *
- * Uses the Student-t distribution at every finite degree of freedom. Fewer
- * than two observations per side and zero observed standard error cannot
- * define a t reference distribution; those cases return an explicit status,
- * `NaN` inferential fields, and no interval rather than fabricated certainty.
- */
+/** Welch's t-test and 95% interval for two independent samples. Uses the Student-t distribution at every finite degree of freedom. Fewer than two observations per side and zero observed standard error cannot define a t reference distribution; those cases return an explicit status, `NaN` inferential fields, and no interval rather than fabricated certainty. */
 export function welchsTTest(a: number[], b: number[]): WelchTestResult {
   assertFiniteSample('a', a)
   assertFiniteSample('b', b)
