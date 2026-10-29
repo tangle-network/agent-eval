@@ -245,6 +245,7 @@ export async function runSandboxScenario<T>(
   ])
   const report: HarnessReport = { pass: false, assertions: [], timings: [] }
   const skipped = Symbol('scenario skipped')
+  let retiring = false
   let measurementFailures = 0
   const retirements: Array<() => Promise<unknown>> = []
   const scope: HarnessScope = {
@@ -262,6 +263,7 @@ export async function runSandboxScenario<T>(
         )
     },
     skip(name, message, metadata) {
+      if (retiring) throw new Error('Retirement cannot be skipped')
       report.skipped = true
       report.metadata = { skipReason: message, ...metadata }
       scope.check({ name, status: 'skip', message })
@@ -280,6 +282,7 @@ export async function runSandboxScenario<T>(
           measured.durationMs = Math.round(performance.now() - start)
         }
       } catch (error) {
+        if (error === skipped) throw error
         measured = {
           name,
           durationMs: Math.round(performance.now() - start),
@@ -287,6 +290,7 @@ export async function runSandboxScenario<T>(
           error: error instanceof Error ? error.message : String(error),
         }
       }
+      if (report.skipped && !retiring) throw skipped
       if (!measured.success) measurementFailures++
       report.timings.push(measured)
       return measured
@@ -336,6 +340,7 @@ export async function runSandboxScenario<T>(
   } catch (error) {
     if (error !== skipped) report.error = error instanceof Error ? error.message : String(error)
   } finally {
+    retiring = true
     for (const retire of retirements.reverse()) {
       const measured = await scope.measure('cleanup', retire)
       if (!measured.success)
