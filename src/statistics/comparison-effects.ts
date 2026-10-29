@@ -1,6 +1,6 @@
 import { welchsTTest } from '../baseline'
 import { ValidationError } from '../errors'
-import { assertFiniteSample } from './internal'
+import { ranks } from './descriptive'
 import { wilson } from './paired-binary'
 
 export interface SampleEffect {
@@ -43,13 +43,11 @@ export function rateEffect(a: number[], b: number[]): SampleEffect {
 
 /** Mann–Whitney ROC area: ties count half; no observed member of either class means unknown. */
 export function rocAuc(scores: number[], labels: number[]): number | null {
-  assertFiniteSample('rocAuc', 'scores', scores)
   binary(labels, 'rocAuc.labels')
   if (scores.length !== labels.length) throw new ValidationError('rocAuc: scores and labels must have equal lengths')
-  const positive: number[] = [], negative: number[] = []
-  scores.forEach((score, index) => (labels[index] ? positive : negative).push(score))
-  if (!positive.length || !negative.length) return null
-  let wins = 0
-  for (const p of positive) for (const n of negative) wins += p > n ? 1 : p === n ? 0.5 : 0
-  return wins / (positive.length * negative.length)
+  const ranked = ranks(scores)
+  let positive = 0, sum = 0
+  labels.forEach((label, index) => { if (label) { positive += 1; sum += ranked[index]! } })
+  const negative = labels.length - positive
+  return positive && negative ? (sum - positive * (positive + 1) / 2) / (positive * negative) : null
 }

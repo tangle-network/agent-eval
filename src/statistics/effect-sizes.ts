@@ -16,7 +16,7 @@ export function cohensD(a: number[], b: number[]): number | null {
   return (meanB - meanA) / pooled
 }
 
-/** Independent Cohen's d, oriented b − a; null below two samples or for an unbounded effect. */
+/** Paired Cohen's dz; constant nonzero deltas have no finite standardized effect. */
 export function pairedCohensDz(before: number[], after: number[]): number | null {
   if (before.length !== after.length) {
     throw new ValidationError(
@@ -39,7 +39,7 @@ export function pairedCohensDz(before: number[], after: number[]): number | null
 
 export type CliffsMagnitude = 'negligible' | 'small' | 'medium' | 'large'
 
-/** Independent Cohen's d, oriented b − a; null below two samples or for an unbounded effect. */
+/** Cliff's delta, oriented after − before; empty samples return zero. */
 export function cliffsDelta(before: number[], after: number[]): number {
   const n = before.length * after.length
   if (n === 0) return 0
@@ -53,7 +53,7 @@ export function cliffsDelta(before: number[], after: number[]): number {
   return dominance / n
 }
 
-/** Cliff's delta, oriented after − before; empty samples return zero. */
+/** Romano magnitude thresholds for the absolute Cliff's delta. */
 export function interpretCliffs(delta: number): CliffsMagnitude {
   const d = Math.abs(delta)
   if (d < 0.147) return 'negligible'
