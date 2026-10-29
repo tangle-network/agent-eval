@@ -17,7 +17,7 @@ export function meanEffect(a: number[], b: number[]): SampleEffect {
   const comparison = welchsTTest(a, b)
   const diff = a.length && b.length ? comparison.delta : null
   if (comparison.status === 'insufficient-sample') return { n, diff, ci: null, g: null, gCi: null }
-  if (comparison.status === 'zero-variance') return { n, diff, ci: [comparison.delta, comparison.delta], g: null, gCi: null }
+  if (comparison.cohensD === null) return { n, diff, ci: comparison.standardError === 0 ? [comparison.delta, comparison.delta] : comparison.ci95, g: null, gCi: null }
   const correction = 1 - 3 / (4 * (a.length + b.length) - 9)
   const g = correction * comparison.cohensD
   const gSe = Math.sqrt((a.length + b.length) / (a.length * b.length) + g ** 2 / (2 * (a.length + b.length)))
