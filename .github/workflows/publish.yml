@@ -57,7 +57,7 @@ jobs:
           fi
           echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v6.1.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
 
       - uses: actions/setup-node@v7
         with:
@@ -230,7 +230,7 @@ jobs:
         with:
           ref: ${{ needs.verify.outputs.sha }}
 
-      - uses: pnpm/action-setup@v6.1.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
 
       - uses: actions/setup-node@v7
         with:
