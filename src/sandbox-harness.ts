@@ -224,7 +224,7 @@ export interface HarnessScenario<T> {
     expect?: (state: T, timing: HarnessTiming) => HarnessExpectation[]
   }>
   expectations?: (state: T) => HarnessExpectation[]
-  metadata?: (state: T) => Record<string, unknown>
+  metadata?: (state: T, timings: readonly HarnessTiming[]) => Record<string, unknown>
   /** Includes setup and steps. Transports must honor scope.signal. */
   budgetMs: number
 }
@@ -336,7 +336,7 @@ export async function runSandboxScenario<T>(
     }
     signal.throwIfAborted()
     scope.check(...(spec.expectations?.(state) ?? []))
-    report.metadata = spec.metadata?.(state)
+    report.metadata = spec.metadata?.(state, [...report.timings])
   } catch (error) {
     if (error !== skipped) report.error = error instanceof Error ? error.message : String(error)
   } finally {

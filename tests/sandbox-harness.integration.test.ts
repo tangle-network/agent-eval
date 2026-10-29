@@ -45,7 +45,7 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
           },
         ],
         expectations: () => [['complete', true]],
-        metadata: () => ({ transport: 'subprocess' }),
+        metadata: (_state, timings) => ({ transport: 'subprocess', steps: timings }),
       })
       expect(report).toMatchObject({
         pass: true,
@@ -56,6 +56,8 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
         metadata: { transport: 'subprocess' },
       })
       expect(report.timings.map((timing) => timing.name)).toEqual(['subprocess', 'cleanup'])
+      expect(report.metadata?.steps).toMatchObject([{ name: 'subprocess' }])
+      expect(report.metadata?.steps).toHaveLength(1)
       await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
       await rm(directory, { recursive: true, force: true })
