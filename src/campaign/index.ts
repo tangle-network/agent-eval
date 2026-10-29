@@ -20,6 +20,7 @@ export type {
 } from '../reference-equivalence-judge'
 export {
   type HarnessAssertion,
+  type HarnessExpectation,
   type HarnessReport,
   type HarnessScenario,
   type HarnessScope,
