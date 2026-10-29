@@ -33,11 +33,11 @@
  * names the unreported ones.
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
 import type { RolloutWorkspaceCapture } from '../rollout/schema'
-import { readCoordinationLog, readMaybe } from './coordination-reader'
+import { readCoordinationLog, readFileText, readMaybe } from './coordination-reader'
 import { expandJournalEventGroup } from './journal-event-group'
 import { sourceLimits } from './runtime-source-limits'
 import { nonEmptyString, recordOrNull as record } from './source-facts'
@@ -440,10 +440,13 @@ const HARNESS_SESSION_FILE: Readonly<Record<string, RegExp>> = {
 }
 
 /** Session files the receipt's transcript blob lists, or undefined when it cannot say. */
-async function receiptSessionFiles(file: string): Promise<number | undefined> {
+async function receiptSessionFiles(
+  file: string,
+  read: typeof readFileText,
+): Promise<number | undefined> {
   let descriptor: unknown
   try {
-    descriptor = JSON.parse(await readFile(file, 'utf8'))
+    descriptor = JSON.parse(await read(file))
   } catch {
     return undefined
   }
@@ -506,6 +509,7 @@ function nativeTraceSummary(
 async function workspaceCapturesFromOutput(
   runDir: string,
   ref: unknown,
+  read: typeof readFileText,
 ): Promise<RolloutWorkspaceCapture[]> {
   const outRef = typeof ref === 'string' ? ref : null
   const blobPath = blobFile(runDir, ref)
@@ -521,7 +525,7 @@ async function workspaceCapturesFromOutput(
   })
   if (blobPath === null) return [missing('Runtime output has no valid content address')]
   if (!(await isFile(blobPath))) return [missing('Runtime output blob is missing or not a file')]
-  const raw = await readMaybe(blobPath)
+  const raw = await readMaybe(blobPath, read)
   if (raw === null) return [missing('Runtime output blob is missing')]
   let output: unknown
   try {
@@ -623,6 +627,7 @@ async function nodeTranscripts(
   runDir: string,
   events: readonly Record<string, unknown>[],
   nodeIds: ReadonlySet<string>,
+  read: typeof readFileText,
   root?: { readonly id: string; readonly receipt: Record<string, unknown> | null },
 ): Promise<Map<string, NodeTranscript>> {
   const facts = new Map<string, NodeTranscriptFacts>()
@@ -672,14 +677,14 @@ async function nodeTranscripts(
         retained.push(file)
         if (turn) retainedTurns += 1
       }
-      workspaceCaptures.push(...(await workspaceCapturesFromOutput(runDir, ref)))
+      workspaceCaptures.push(...(await workspaceCapturesFromOutput(runDir, ref, read)))
     }
     let nativeSession: WorkerNativeSession | null = null
     if (fact.receipt !== null) {
       if (fact.receipt.status === 'available') {
         const file = blobFile(runDir, fact.receipt.transcriptRef)
         if (file !== null && (await isFile(file))) {
-          const sessionFiles = await receiptSessionFiles(file)
+          const sessionFiles = await receiptSessionFiles(file, read)
           const coverageComplete = fact.receipt.coverageComplete
           nativeSession = {
             status: 'available',
@@ -710,6 +715,8 @@ async function nodeTranscripts(
 }
 
 export interface RuntimeReaderOptions {
+  /** Read original UTF-8 bytes at logical run paths. Only ENOENT means absence; other failures propagate. */
+  readonly readFile?: typeof readFileText
   /**
    * Throw on a missing spawn journal instead of returning absent-shaped
    * sources. The default (false) models a journal-less run dir — a
@@ -718,11 +725,6 @@ export interface RuntimeReaderOptions {
   readonly strict?: boolean
 }
 
-/**
- * Sources for a run dir whose spawn journal does not exist. Mirrors the
- * absent shape the reader returns for a missing store: every
- * journal-dependent metric downstream reads `unavailable`, never 0.
- */
 /**
  * The run identity a terminal record names when no journal exists yet: the
  * settle record's `tree.root`, else the failure record's `runId`. Both are
@@ -793,13 +795,14 @@ export async function readRuntimeSupervisorRun(
   runDir: string,
   opts: RuntimeReaderOptions = {},
 ): Promise<SupervisorRunSources> {
+  const read = opts.readFile ?? readFileText
   const journalPath = join(runDir, JOURNAL_FILE)
   const rawJournal =
-    opts.strict === true ? await readFile(journalPath, 'utf8') : await readMaybe(journalPath)
+    opts.strict === true ? await read(journalPath) : await readMaybe(journalPath, read)
   const resultPath = join(runDir, RESULT_FILE)
   const failurePath = join(runDir, FAILURE_FILE)
-  const resultText = await readMaybe(resultPath)
-  const failureText = await readMaybe(failurePath)
+  const resultText = await readMaybe(resultPath, read)
+  const failureText = await readMaybe(failurePath, read)
   const failure = parseOptionalRecord(failureText, failurePath)
   assertFailureRecord(failure, failurePath)
   const result = parseOptionalRecord(resultText, resultPath)
@@ -825,6 +828,7 @@ export async function readRuntimeSupervisorRun(
     runDir,
     normalized.events,
     new Set([normalized.root, ...workerIds]),
+    read,
     { id: normalized.root, receipt: record(result?.rootHarnessTranscript) },
   )
   const workers: WorkerLogSource[] = childSpawns.map((event) => {
@@ -865,7 +869,7 @@ export async function readRuntimeSupervisorRun(
     judgeSource: null,
     patch: null,
     driverLog: null,
-    coordinationLog: await readCoordinationLog(runDir),
+    coordinationLog: await readCoordinationLog(runDir, read),
     harnessWorkerTokens: null,
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
@@ -888,18 +892,11 @@ export async function isRuntimeSupervisorRunDir(runDir: string): Promise<boolean
 }
 
 async function isFile(path: string): Promise<boolean> {
-  return stat(path)
-    .then((entry) => entry.isFile())
-    .catch((error: unknown) => {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        ((error as { code: unknown }).code === 'ENOENT' ||
-          (error as { code: unknown }).code === 'ENOTDIR')
-      ) {
-        return false
-      }
-      throw error
-    })
+  try {
+    return (await stat(path)).isFile()
+  } catch (error: unknown) {
+    const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : null
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false
+    throw error
+  }
 }
