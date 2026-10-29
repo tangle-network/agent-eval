@@ -121,10 +121,7 @@ export interface SandboxHarnessResult {
 }
 
 export class SandboxHarness {
-  private driver: SandboxDriver
-  constructor(driver: SandboxDriver = new SubprocessSandboxDriver()) {
-    this.driver = driver
-  }
+  constructor(private driver: SandboxDriver = new SubprocessSandboxDriver()) {}
 
   async run(config: HarnessConfig, emitter: TraceEmitter): Promise<SandboxHarnessResult> {
     const handle = await emitter.sandbox({
@@ -257,31 +254,23 @@ export async function runSandboxScenario<T>(
     },
     async measure(name, run) {
       const start = performance.now()
-      const measured = options.measure
-        ? await options.measure(name, run)
-        : await (async () => {
-            try {
-              const result = await run()
-              const failed =
-                result != null &&
-                typeof result === 'object' &&
-                'success' in result &&
-                result.success === false
-              return {
-                name,
-                durationMs: Math.round(performance.now() - start),
-                success: !failed,
-                ...(failed ? { error: 'measured operation returned success=false' } : {}),
-              }
-            } catch (error) {
-              return {
-                name,
-                durationMs: Math.round(performance.now() - start),
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              }
-            }
-          })()
+      let measured: HarnessTiming = { name, durationMs: 0, success: true }
+      try {
+        if (options.measure) measured = await options.measure(name, run)
+        else {
+          const result = (await run()) as { success?: boolean; error?: string } | undefined
+          if (result?.success === false)
+            throw new Error(result.error ?? 'measured operation returned success=false')
+          measured.durationMs = Math.round(performance.now() - start)
+        }
+      } catch (error) {
+        measured = {
+          name,
+          durationMs: Math.round(performance.now() - start),
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
       report.timings.push(measured)
       return measured
     },
