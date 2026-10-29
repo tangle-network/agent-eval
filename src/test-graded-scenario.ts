@@ -74,15 +74,14 @@ export async function runTestGradedScenario(
 }
 
 function reasonForFailure(result: SandboxHarnessResult): string {
-  for (const phase of ['setup', 'run'] as const) {
-    const measured = result[phase]
-    if (measured && measured.exitCode !== 0) return `${phase} failed: exit ${measured.exitCode}`
-  }
-  if (result.test) {
-    if (result.test.testsTotal !== undefined) {
-      return `tests: ${result.test.testsPassed ?? 0}/${result.test.testsTotal}`
-    }
-    return `test exit ${result.test.exitCode}`
-  }
-  return 'no test command'
+  const failed = (['setup', 'run'] as const).find(
+    (phase) => result[phase] && result[phase]!.exitCode !== 0,
+  )
+  if (failed) return `${failed} failed: exit ${result[failed]!.exitCode}`
+  const test = result.test
+  return !test
+    ? 'no test command'
+    : test.testsTotal !== undefined
+      ? `tests: ${test.testsPassed ?? 0}/${test.testsTotal}`
+      : `test exit ${test.exitCode}`
 }
