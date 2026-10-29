@@ -56,6 +56,23 @@ Paired lift, failure clusters, contamination checks, and outcome associations re
 Run records, scenarios, judge scores, statistics, and release decisions belong here because they work without an agent runtime.
 Agent sessions, worker coordination, sandbox execution, and runtime-specific profiles belong in `agent-runtime`.
 
+## Product integration scenarios
+
+`runSandboxScenario()` from `@tangle-network/agent-eval/campaign` runs a
+`HarnessScenario`: setup, named steps, expectations and a time budget.
+The product supplies transport callbacks and keeps its SDK, credentials and
+resource authorization. Steps receive one scope for measurement, assertions,
+condition polling and retirement registration. Register retirement immediately
+after allocation; callbacks use the scope signal for workload cancellation.
+Retirements run in reverse order even after setup or workload failure, and a
+failed retirement remains a failed assertion in the report.
+
+Pass the product's existing `measure` adapter to retain its server timing
+ledgers. A poll returns `undefined` when its budget expires; the scenario must
+assert the condition when exhaustion is a failure. The scope's budget signal
+is cooperative: callbacks must pass it through to their transport. Campaigns
+remain the owner of scenario scheduling, retries, artifacts and run reports.
+
 ## Measuring a complete profile
 
 Use the profile improvement functions from `/contract` when a host owns immutable agent-profile snapshots.

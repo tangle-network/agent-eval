@@ -1,16 +1,3 @@
-/**
- * TestGradedScenario — a scenario whose score comes from a test suite.
- *
- * This is the SWE-bench pattern generalized. The scenario ships:
- *   - fixture data (setup instructions)
- *   - a test command the harness runs
- *   - optional assertion overrides
- *
- * The runner emits a run, delegates to SandboxHarness, records the
- * outcome, and returns a structured verdict. Consumers bind their own
- * agent execution to this contract.
- */
-
 import type { HarnessConfig, SandboxDriver, SandboxHarnessResult } from './sandbox-harness'
 import { SandboxHarness } from './sandbox-harness'
 import { TraceEmitter } from './trace/emitter'
@@ -58,19 +45,17 @@ export async function runTestGradedScenario(
     tags: scenario.tags,
     ...options.provenance,
   })
-  const harness = new SandboxHarness(options.driver)
-  const result = await harness.run(scenario.harness, emitter)
-  const threshold = scenario.passThreshold ?? 1.0
-  const pass = result.passed && result.score >= threshold
-  const setupFailed = result.setup !== undefined && result.setup.exitCode !== 0
-  const runFailed = result.run !== undefined && result.run.exitCode !== 0
-  const testFailed = result.test !== undefined && result.test.exitCode !== 0
-  const failureClass: FailureClass | undefined = pass
+  const result = await new SandboxHarness(options.driver).run(scenario.harness, emitter)
+  const pass = result.passed && result.score >= (scenario.passThreshold ?? 1)
+  const failure = (['setup', 'run', 'test'] as const).find(
+    (phase) => result[phase] && result[phase]!.exitCode !== 0,
+  )
+  const failureClass: FailureClass = pass
     ? 'success'
-    : setupFailed || runFailed
-      ? 'sandbox_failure'
-      : testFailed
-        ? 'format_drift'
+    : failure === 'test'
+      ? 'format_drift'
+      : failure
+        ? 'sandbox_failure'
         : 'unknown'
   await emitter.endRun({
     pass,
@@ -89,9 +74,10 @@ export async function runTestGradedScenario(
 }
 
 function reasonForFailure(result: SandboxHarnessResult): string {
-  if (result.setup && result.setup.exitCode !== 0)
-    return `setup failed: exit ${result.setup.exitCode}`
-  if (result.run && result.run.exitCode !== 0) return `run failed: exit ${result.run.exitCode}`
+  for (const phase of ['setup', 'run'] as const) {
+    const measured = result[phase]
+    if (measured && measured.exitCode !== 0) return `${phase} failed: exit ${measured.exitCode}`
+  }
   if (result.test) {
     if (result.test.testsTotal !== undefined) {
       return `tests: ${result.test.testsPassed ?? 0}/${result.test.testsTotal}`

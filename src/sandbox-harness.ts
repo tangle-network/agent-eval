@@ -1,18 +1,4 @@
-/**
- * SandboxHarness — executes a scenario in an isolated environment and
- * emits a rich SandboxSpan into the trace.
- *
- * Two built-in drivers:
- *   - `SubprocessSandboxDriver` — runs the phase in a local cwd with env
- *     vars, through `runBoundedProcess` (deadline, process-group kill,
- *     output cap). Fast, no dependencies, fine for unit tests and CI gates.
- *   - `DockerSandboxDriver` — lifted from tangle-router's sandbox path;
- *     shells out to `docker run`. Stronger isolation, slower startup.
- *
- * Consumers implement `SandboxDriver` for custom backends (Firecracker,
- * Cloudflare sandbox product, etc.). The harness doesn't care which.
- */
-
+import { setTimeout as delay } from 'node:timers/promises'
 import { runBoundedProcess } from './bounded-process'
 
 import type { TraceEmitter } from './trace/emitter'
@@ -29,11 +15,7 @@ export interface HarnessConfig {
   cwd?: string
   /** Max wall-clock per phase in ms. Default 10 minutes. */
   timeoutMs?: number
-  /**
-   * Cap on captured stdout+stderr bytes per phase. A runaway process can
-   * otherwise grow the in-memory buffer without bound. Once hit, further
-   * output is dropped and `outputTruncated` is set. Default 16 MiB.
-   */
+  /** Captured stdout + stderr cap, default 16 MiB; excess is dropped. */
   maxOutputBytes?: number
   /** Image for the docker driver. */
   image?: string
@@ -67,11 +49,7 @@ export interface SandboxResult {
    * as a pass. `undefined`/`false` means the process completed on its own.
    */
   killedByTimeout?: boolean
-  /**
-   * True when captured stdout/stderr hit `maxOutputBytes` and further
-   * output was dropped. The result is still returned (the process was
-   * not killed for this), but downstream parsers see truncated text.
-   */
+  /** Captured output exceeded maxOutputBytes. */
   outputTruncated?: boolean
 }
 
@@ -84,105 +62,22 @@ export interface SandboxDriver {
   ): Promise<SandboxResult>
 }
 
-// ── Parsers ──────────────────────────────────────────────────────────
-
-/** Vitest default summary line: "Tests  X passed | Y failed". */
-export const vitestTestParser: TestOutputParser = {
-  id: 'vitest',
-  parse(stdout) {
-    const m = stdout.match(/Tests\s+(\d+)\s+(passed|failed)(?:\s*\|\s*(\d+)\s+(passed|failed))?/i)
-    if (!m) return undefined
-    let passed = 0
-    let failed = 0
-    const a = parseInt(m[1]!, 10)
-    const aLabel = m[2]!.toLowerCase()
-    if (aLabel === 'passed') passed += a
-    else failed += a
-    if (m[3] && m[4]) {
-      const b = parseInt(m[3], 10)
-      if (m[4].toLowerCase() === 'passed') passed += b
-      else failed += b
-    }
-    return { testsTotal: passed + failed, testsPassed: passed }
-  },
-}
-
-/** Pytest default: "collected N items" + " X passed, Y failed". */
-export const pytestTestParser: TestOutputParser = {
-  id: 'pytest',
-  parse(stdout) {
-    const total = stdout.match(/collected\s+(\d+)\s+items?/i)
-    const passed = stdout.match(/(\d+)\s+passed/)
-    if (!total || !passed) return undefined
-    return { testsTotal: parseInt(total[1]!, 10), testsPassed: parseInt(passed[1]!, 10) }
-  },
-}
-
-/** Jest: "Tests: X passed, Y total" (and optional failed). */
-export const jestTestParser: TestOutputParser = {
-  id: 'jest',
-  parse(stdout) {
-    const m = stdout.match(/Tests:\s+(?:(\d+)\s+failed[^,]*,\s*)?(\d+)\s+passed,\s+(\d+)\s+total/i)
-    if (!m) return undefined
-    return { testsTotal: parseInt(m[3]!, 10), testsPassed: parseInt(m[2]!, 10) }
-  },
-}
-
-/** Composite parser — tries a list of parsers in order. */
-export function composeParsers(...parsers: TestOutputParser[]): TestOutputParser {
-  return {
-    id: parsers.map((p) => p.id).join('|'),
-    parse(stdout, stderr, exitCode) {
-      for (const p of parsers) {
-        const res = p.parse(stdout, stderr, exitCode)
-        if (res) return res
-      }
-      return undefined
-    },
-  }
-}
-
-// ── Drivers ──────────────────────────────────────────────────────────
-
 interface SubprocessSandboxDriverOptions {
-  /**
-   * Default cwd for all `exec` calls. Used when the per-call `HarnessConfig`
-   * does not set its own `cwd`. Lets callers bind the driver to a working
-   * directory once instead of spreading cwd into every harness config —
-   * useful when the harness config is constructed far from the call site
-   * (e.g. starter-foundry's promoter passes a static HarnessConfig per
-   * family taxonomy but needs a per-run composed-scaffold cwd).
-   */
   cwd?: string
-  /**
-   * Default env merged into every `exec` call's env (per-call `HarnessConfig.env`
-   * still wins on key collision). Same ergonomic rationale as `cwd` above.
-   */
   env?: Record<string, string>
 }
 
 export class SubprocessSandboxDriver implements SandboxDriver {
   id = 'subprocess'
-  private defaultCwd?: string
-  private defaultEnv?: Record<string, string>
-
-  constructor(options: SubprocessSandboxDriverOptions = {}) {
-    this.defaultCwd = options.cwd
-    this.defaultEnv = options.env
-  }
+  constructor(private options: SubprocessSandboxDriverOptions = {}) {}
 
   async exec(
     phase: SandboxResult['phase'],
     command: string,
     config: HarnessConfig,
   ): Promise<SandboxResult> {
-    // Per-call config wins; fall back to constructor defaults. Honoring
-    // the constructor `cwd` keeps the subprocess from inheriting Node's
-    // cwd when only the constructor arg is supplied.
-    const effectiveCwd = config.cwd ?? this.defaultCwd
-    // The parent environment is merged here, so the runner is handed the
-    // complete environment and passes it through unchanged.
-    const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
+    const effectiveCwd = config.cwd ?? this.options.cwd
+    const effectiveEnv = { ...process.env, ...(this.options.env ?? {}), ...(config.env ?? {}) }
     const result = await runBoundedProcess({
       command,
       shell: true,
@@ -213,10 +108,6 @@ export class SubprocessSandboxDriver implements SandboxDriver {
   }
 }
 
-
-
-
-
 // ── Harness orchestration ────────────────────────────────────────────
 
 export interface SandboxHarnessResult {
@@ -245,62 +136,196 @@ export class SandboxHarness {
     })
     const result: SandboxHarnessResult = { passed: false, totalWallMs: 0, score: 0 }
     try {
-      if (config.setupCommand) {
-        result.setup = await this.driver.exec('setup', config.setupCommand, config)
-        result.totalWallMs += result.setup.wallMs
-        if (result.setup.killedByTimeout || result.setup.exitCode !== 0) {
-          const reason = result.setup.killedByTimeout
-            ? `setup timed out after ${result.setup.wallMs}ms`
-            : `setup failed (exit ${result.setup.exitCode})`
-          await handle.fail(reason, {
-            exitCode: result.setup.exitCode,
-            wallMs: result.totalWallMs,
-          } as Partial<SandboxSpan>)
+      for (const phase of ['setup', 'run', 'test'] as const) {
+        const command = config[`${phase}Command`]
+        if (!command) continue
+        const measured = await this.driver.exec(phase, command, config)
+        result[phase] = measured
+        result.totalWallMs += measured.wallMs
+        const passed = !measured.killedByTimeout && measured.exitCode === 0
+        if (phase !== 'test' && !passed) {
+          await handle.fail(
+            measured.killedByTimeout
+              ? `${phase} timed out after ${measured.wallMs}ms`
+              : `${phase} failed (exit ${measured.exitCode})`,
+            {
+              exitCode: measured.exitCode,
+              wallMs: result.totalWallMs,
+            } as Partial<SandboxSpan>,
+          )
           return result
         }
       }
-      if (config.runCommand) {
-        result.run = await this.driver.exec('run', config.runCommand, config)
-        result.totalWallMs += result.run.wallMs
-        if (result.run.killedByTimeout || result.run.exitCode !== 0) {
-          const reason = result.run.killedByTimeout
-            ? `run timed out after ${result.run.wallMs}ms`
-            : `run failed (exit ${result.run.exitCode})`
-          await handle.fail(reason, {
-            exitCode: result.run.exitCode,
-            wallMs: result.totalWallMs,
-          } as Partial<SandboxSpan>)
-          return result
-        }
-      }
-      if (config.testCommand) {
-        result.test = await this.driver.exec('test', config.testCommand, config)
-        result.totalWallMs += result.test.wallMs
-        // A timed-out test phase is a hard fail regardless of the exit code
-        // a SIGKILLed child happens to report — never let it score as a pass.
-        const passed = !result.test.killedByTimeout && result.test.exitCode === 0
-        result.passed = passed
-        if (result.test.testsTotal !== undefined && result.test.testsTotal > 0) {
-          result.score = (result.test.testsPassed ?? 0) / result.test.testsTotal
-        } else {
-          result.score = passed ? 1 : 0
-        }
-        await handle.end({
-          exitCode: result.test.exitCode,
-          testsTotal: result.test.testsTotal,
-          testsPassed: result.test.testsPassed,
-          wallMs: result.totalWallMs,
-          status: passed ? 'ok' : 'error',
-        } as Partial<SandboxSpan>)
-      } else {
-        result.passed = true
-        result.score = 1
-        await handle.end({ wallMs: result.totalWallMs } as Partial<SandboxSpan>)
-      }
+      const test = result.test
+      result.passed = !test || (!test.killedByTimeout && test.exitCode === 0)
+      result.score =
+        test?.testsTotal !== undefined && test.testsTotal > 0
+          ? (test.testsPassed ?? 0) / test.testsTotal
+          : result.passed
+            ? 1
+            : 0
+      await handle.end({
+        ...(test
+          ? {
+              exitCode: test.exitCode,
+              testsTotal: test.testsTotal,
+              testsPassed: test.testsPassed,
+              status: result.passed ? 'ok' : 'error',
+            }
+          : {}),
+        wallMs: result.totalWallMs,
+      } as Partial<SandboxSpan>)
     } catch (err) {
       await handle.fail(err instanceof Error ? err : String(err))
       throw err
     }
     return result
   }
+}
+
+/** Portable integration report; products may retain extra timing and assertion fields. */
+export interface HarnessAssertion {
+  name: string
+  status: 'pass' | 'fail' | 'skip'
+  expected?: string
+  actual?: string
+  message?: string
+  soft?: boolean
+}
+export interface HarnessTiming {
+  name: string
+  durationMs: number
+  success: boolean
+  error?: string
+}
+export interface HarnessReport {
+  pass: boolean
+  assertions: HarnessAssertion[]
+  timings: HarnessTiming[]
+  error?: string
+  metadata?: Record<string, unknown>
+}
+export interface HarnessScope {
+  signal: AbortSignal
+  check(...assertions: HarnessAssertion[]): void
+  measure(name: string, run: () => Promise<unknown>): Promise<HarnessTiming>
+  /** Register retirement immediately after allocation; cleanup ignores workload cancellation. */
+  defer(retire: () => Promise<unknown>): void
+  poll<T>(
+    read: () => Promise<T>,
+    ready: (value: T) => boolean,
+    budget: { timeoutMs: number; intervalMs: number },
+  ): Promise<T | undefined>
+}
+export interface HarnessScenario<T> {
+  setup(scope: HarnessScope): Promise<T>
+  steps: ReadonlyArray<{
+    name: string
+    when?: (state: T) => boolean
+    run(state: T, scope: HarnessScope): Promise<unknown>
+    expect?: (state: T, timing: HarnessTiming) => HarnessAssertion[]
+  }>
+  expectations?: (state: T) => HarnessAssertion[]
+  metadata?: (state: T) => Record<string, unknown>
+  /** Includes setup and steps. Transports must honor scope.signal. */
+  budgetMs: number
+}
+
+/** Campaigns own whole-scenario retries; polling only repeats the declared read. */
+export async function runSandboxScenario<T>(
+  spec: HarnessScenario<T>,
+  options: {
+    signal?: AbortSignal
+    measure?: HarnessScope['measure']
+  } = {},
+): Promise<HarnessReport> {
+  if (!(spec.budgetMs > 0 && Number.isFinite(spec.budgetMs)))
+    throw new Error('Scenario budgetMs must be positive and finite')
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(spec.budgetMs),
+    ...(options.signal ? [options.signal] : []),
+  ])
+  const report: HarnessReport = { pass: false, assertions: [], timings: [] }
+  const retirements: Array<() => Promise<unknown>> = []
+  const scope: HarnessScope = {
+    signal,
+    check: (...assertions) => {
+      report.assertions.push(...assertions)
+    },
+    defer: (retire) => {
+      retirements.push(retire)
+    },
+    async measure(name, run) {
+      const start = performance.now()
+      const measured = options.measure
+        ? await options.measure(name, run)
+        : await (async () => {
+            try {
+              const result = await run()
+              const failed =
+                result != null &&
+                typeof result === 'object' &&
+                'success' in result &&
+                result.success === false
+              return {
+                name,
+                durationMs: Math.round(performance.now() - start),
+                success: !failed,
+                ...(failed ? { error: 'measured operation returned success=false' } : {}),
+              }
+            } catch (error) {
+              return {
+                name,
+                durationMs: Math.round(performance.now() - start),
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }
+            }
+          })()
+      report.timings.push(measured)
+      return measured
+    },
+    async poll(read, ready, budget) {
+      if (!(budget.timeoutMs > 0 && budget.intervalMs > 0))
+        throw new Error('Polling timeout and interval must be positive')
+      const deadline = performance.now() + budget.timeoutMs
+      while (performance.now() < deadline) {
+        signal.throwIfAborted()
+        const value = await read()
+        if (ready(value)) return value
+        await delay(
+          Math.min(budget.intervalMs, Math.max(0, deadline - performance.now())),
+          undefined,
+          { signal },
+        )
+      }
+      return undefined
+    },
+  }
+  try {
+    signal.throwIfAborted()
+    const state = await spec.setup(scope)
+    for (const step of spec.steps) {
+      signal.throwIfAborted()
+      if (step.when && !step.when(state)) continue
+      const timing = await scope.measure(step.name, () => step.run(state, scope))
+      scope.check(...(step.expect?.(state, timing) ?? []))
+    }
+    signal.throwIfAborted()
+    scope.check(...(spec.expectations?.(state) ?? []))
+    report.metadata = spec.metadata?.(state)
+  } catch (error) {
+    report.error = error instanceof Error ? error.message : String(error)
+  } finally {
+    for (const retire of retirements.reverse()) {
+      const measured = await scope.measure('cleanup', retire)
+      if (!measured.success)
+        scope.check({ name: 'cleanup', status: 'fail', message: measured.error })
+    }
+  }
+  report.pass =
+    !report.error &&
+    report.timings.every((t) => t.success) &&
+    report.assertions.every((a) => a.soft || a.status === 'pass')
+  return report
 }
