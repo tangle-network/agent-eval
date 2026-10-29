@@ -71,12 +71,11 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     command: string,
     config: HarnessConfig,
   ): Promise<SandboxResult> {
-    const effectiveCwd = config.cwd ?? this.options.cwd
     const effectiveEnv = { ...process.env, ...(this.options.env ?? {}), ...(config.env ?? {}) }
     const result = await runBoundedProcess({
       command,
       shell: true,
-      cwd: effectiveCwd,
+      cwd: config.cwd ?? this.options.cwd,
       env: effectiveEnv,
       envMode: 'replace',
       timeoutMs: config.timeoutMs ?? 10 * 60_000,
@@ -231,7 +230,7 @@ export async function runSandboxScenario<T>(
     measure?: HarnessScope['measure']
   } = {},
 ): Promise<HarnessReport> {
-  if (!(spec.budgetMs > 0 && Number.isFinite(spec.budgetMs)))
+  if (!(spec.budgetMs > 0 && Number.isSafeInteger(spec.budgetMs)))
     throw new Error('Scenario budgetMs must be positive and finite')
   const signal = AbortSignal.any([
     AbortSignal.timeout(spec.budgetMs),
