@@ -178,6 +178,15 @@ export interface HarnessAssertion {
 export type HarnessExpectation =
   | HarnessAssertion
   | readonly [name: string, passed: boolean, details?: Omit<HarnessAssertion, 'name' | 'status'>]
+export function normalizeHarnessExpectation(value: HarnessExpectation): HarnessAssertion {
+  return 'status' in value
+    ? value
+    : {
+        ...value[2],
+        name: value[0],
+        status: value[1] ? 'pass' : 'fail',
+      }
+}
 export interface HarnessTiming {
   name: string
   durationMs: number
@@ -251,16 +260,7 @@ export async function runSandboxScenario<T>(
   const scope: HarnessScope = {
     signal,
     check(...assertions) {
-      for (const value of assertions)
-        report.assertions.push(
-          'status' in value
-            ? value
-            : {
-                ...value[2],
-                name: value[0],
-                status: value[1] ? 'pass' : 'fail',
-              },
-        )
+      for (const value of assertions) report.assertions.push(normalizeHarnessExpectation(value))
     },
     skip(name, message, metadata) {
       if (retiring) throw new Error('Retirement cannot be skipped')
@@ -298,11 +298,10 @@ export async function runSandboxScenario<T>(
     async resource<T>(input: HarnessResource<T>) {
       let resource: T | undefined
       const timing = await scope.measure(input.name, async () => {
-        const owned = await input.create(signal)
-        resource = owned
-        scope.defer(() => input.retire(owned))
-        input.onCreate?.(owned)
-        await input.ready?.(owned, signal)
+        resource = await input.create(signal)
+        scope.defer(() => input.retire(resource!))
+        input.onCreate?.(resource)
+        await input.ready?.(resource, signal)
       })
       return { resource, timing }
     },

@@ -25,6 +25,7 @@ export {
   type HarnessScenario,
   type HarnessScope,
   type HarnessTiming,
+  normalizeHarnessExpectation,
   runSandboxScenario,
 } from '../sandbox-harness'
 export type { SeriesDistribution } from '../statistics'

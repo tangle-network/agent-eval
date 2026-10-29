@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
-import { runSandboxScenario } from '../src/campaign'
+import { normalizeHarnessExpectation, runSandboxScenario } from '../src/campaign'
 import { SandboxHarness, SubprocessSandboxDriver } from '../src/sandbox-harness'
 import { TraceEmitter } from '../src/trace/emitter'
 import { InMemoryTraceStore } from '../src/trace/store'
@@ -44,7 +44,7 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
             },
           },
         ],
-        expectations: () => [['complete', true]],
+        expectations: () => [normalizeHarnessExpectation(['complete', true])],
         metadata: (_state, timings) => ({ transport: 'subprocess', steps: timings }),
       })
       expect(report).toMatchObject({
