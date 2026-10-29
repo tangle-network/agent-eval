@@ -67,6 +67,11 @@ after allocation; callbacks use the scope signal for workload cancellation.
 Retirements run in reverse order even after setup or workload failure, and a
 failed retirement remains a failed assertion in the report.
 
+Use `scope.resource({ name, create, ready, retire, onCreate })` to measure acquisition,
+register retirement before readiness, and retain the allocated resource when readiness fails.
+A step marked `advisory` retains its failure timing while required expectations still gate
+the report. Unmarked steps and all setup/cleanup measurements remain required.
+
 Pass the product's existing `measure` adapter to retain its server timing
 ledgers. A poll returns `undefined` when its budget expires; the scenario must
 assert the condition when exhaustion is a failure. The scope's budget signal

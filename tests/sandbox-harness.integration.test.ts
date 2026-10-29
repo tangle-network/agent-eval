@@ -136,3 +136,52 @@ describe('sandbox scenario lifecycle over real files and subprocesses', () => {
     await emitter.endRun({ pass: true })
   })
 })
+
+it('retires an allocated resource when its real readiness read fails', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'eval-harness-resource-'))
+  const marker = join(directory, 'resource')
+  try {
+    const report = await runSandboxScenario({
+      budgetMs: 5_000,
+      setup: (scope) =>
+        scope.resource({
+          name: 'allocate',
+          async create() {
+            await writeFile(marker, 'allocated')
+            return marker
+          },
+          ready: () => readFile(join(directory, 'missing-readiness')),
+          retire: (path) => rm(path),
+        }),
+      expectations: ({ resource }) => [
+        { name: 'allocation-retained', status: resource === marker ? 'pass' : 'fail' },
+      ],
+    })
+    expect(report.pass).toBe(false)
+    expect(report.timings.map((timing) => [timing.name, timing.success])).toEqual([
+      ['allocate', false],
+      ['cleanup', true],
+    ])
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('keeps failed diagnostic measurements separate from required expectations', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'eval-harness-diagnostic-'))
+  try {
+    const report = await runSandboxScenario({
+      budgetMs: 5_000,
+      setup: async () => undefined,
+      steps: [
+        { name: 'diagnostic', advisory: true, run: () => readFile(join(directory, 'absent')) },
+      ],
+      expectations: () => [{ name: 'required', status: 'pass' }],
+    })
+    expect(report.pass).toBe(true)
+    expect(report.timings).toMatchObject([{ name: 'diagnostic', success: false }])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
