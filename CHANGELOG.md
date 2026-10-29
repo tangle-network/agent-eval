@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.4] — 2026-10-29
+
+- refactor(harness): own resource acquisition and readiness cleanup (#1164)
+- chore(release): 1.0.3 (#1163)
+- chore(release): declare the existing deployment runner for workflow lint
+- fix(release): bind bootstrap to the existing qualified action revision
+- fix(release): use the qualified pnpm bootstrap in publication workflows
+- Refactor sandbox integration scenarios into the eval harness (#1161)
+
 ## [1.0.3] — 2026-10-29
 
 - chore(release): declare the existing deployment runner for workflow lint
