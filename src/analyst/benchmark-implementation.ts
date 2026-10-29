@@ -1,7 +1,5 @@
 export const ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM = 'sha256-canonical-source-manifest'
-
-/** The dependency files' manifest digest with the package's own version
- * fields blanked, so a release that only bumps the version keeps the pin. */
+/** Dependency identity excludes the package's own release version. */
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM =
   'sha256-canonical-file-manifest-without-own-version'
 
@@ -83,6 +81,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
+  'src/baseline.ts',
   'src/campaign/external-optimizer-anthropic.ts',
   'src/campaign/external-optimizer-callback.ts',
   'src/campaign/external-optimizer-contracts.ts',
@@ -137,6 +136,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/metrics.ts',
   'src/record-id.ts',
   'src/statistics/agreement-irr.ts',
+  'src/statistics/comparison-effects.ts',
   'src/statistics/descriptive.ts',
   'src/statistics/effect-sizes.ts',
   'src/statistics/index.ts',
@@ -174,7 +174,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '40b2429added60865cd62d73a140fd26b1a1e927dca6b2c2e02da019b00cc806'
+  'c8552d30f87e1f99b55258c1da90bc67086707288957689d649cd1ee8c77ad28'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

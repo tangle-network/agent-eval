@@ -1,22 +1,8 @@
-/**
- * Standardized effect sizes: Cohen's d family and Cliff's delta, with the
- * shared degenerate-input contract (null where the effect is undefined).
- */
+/** Standardized effect sizes; undefined effects remain null. */
 
 import { ValidationError } from '../errors'
 
-/**
- * Cohen's d — standardized effect size for two independent groups.
- * Positive d means group b has higher mean than group a.
- * Rule of thumb: |d| < 0.2 negligible, 0.2–0.5 small, 0.5–0.8 medium, > 0.8 large.
- *
- * Returns null where the standardized effect is undefined: fewer than two
- * observations in either group, or a zero pooled standard deviation with
- * unequal means. Null is NOT "no effect" — zero within-group spread across a
- * real mean gap is an unbounded effect, the opposite of negligible. Equal
- * means with zero spread is a genuine 0. Same contract as
- * {@link pairedCohensDz}.
- */
+/** Independent Cohen's d, oriented b − a; null below two samples or for an unbounded effect. */
 export function cohensD(a: number[], b: number[]): number | null {
   if (a.length < 2 || b.length < 2) return null
   const meanA = a.reduce((x, y) => x + y, 0) / a.length
@@ -30,14 +16,7 @@ export function cohensD(a: number[], b: number[]): number | null {
   return (meanB - meanA) / pooled
 }
 
-/**
- * Cohen's dz for paired observations: mean(after - before) divided by the
- * sample standard deviation of those within-pair deltas.
- *
- * Returns null when fewer than two pairs exist or a non-zero constant delta
- * has zero observed variance. In that case the standardized effect is
- * undefined, not an arbitrarily large finite number.
- */
+/** Paired Cohen's dz; constant nonzero deltas have no finite standardized effect. */
 export function pairedCohensDz(before: number[], after: number[]): number | null {
   if (before.length !== after.length) {
     throw new ValidationError(
@@ -60,16 +39,7 @@ export function pairedCohensDz(before: number[], after: number[]): number | null
 
 export type CliffsMagnitude = 'negligible' | 'small' | 'medium' | 'large'
 
-/**
- * Cliff's delta — a non-parametric effect size for two independent samples.
- * `δ = (#(after > before) − #(after < before)) / (n_before · n_after)`,
- * ranging [-1, 1]. Positive ⇒ `after` tends to exceed `before` (improvement).
- *
- * Distribution-free counterpart to Cohen's d: no normality assumption, robust
- * to the bounded/skewed score distributions judges produce. Pairs with
- * `pairedBootstrap` / `wilcoxonSignedRank` for the non-parametric reporting
- * path. Returns 0 when either sample is empty.
- */
+/** Cliff's delta, oriented after − before; empty samples return zero. */
 export function cliffsDelta(before: number[], after: number[]): number {
   const n = before.length * after.length
   if (n === 0) return 0
@@ -83,11 +53,7 @@ export function cliffsDelta(before: number[], after: number[]): number {
   return dominance / n
 }
 
-/**
- * Map a Cliff's delta to a qualitative magnitude using the standard
- * Romano et al. thresholds (|δ|): <0.147 negligible, <0.33 small,
- * <0.474 medium, else large.
- */
+/** Romano magnitude thresholds for the absolute Cliff's delta. */
 export function interpretCliffs(delta: number): CliffsMagnitude {
   const d = Math.abs(delta)
   if (d < 0.147) return 'negligible'
