@@ -1,8 +1,8 @@
 import { welchsTTest } from '../baseline'
 import { ValidationError } from '../errors'
 import { ranks } from './descriptive'
+import { assertFiniteSample } from './internal'
 import { wilson } from './paired-binary'
-
 export interface SampleEffect {
   n: [number, number]
   diff: number | null
@@ -11,7 +11,6 @@ export interface SampleEffect {
   gCi: [number, number] | null
   rates?: [number, number]
 }
-
 /** Independent means, oriented b − a: Welch 95% interval and Hedges' g with a normal 95% interval. */
 export function meanEffect(a: number[], b: number[]): SampleEffect {
   const n: [number, number] = [a.length, b.length]
@@ -43,6 +42,7 @@ export function rateEffect(a: number[], b: number[]): SampleEffect {
 
 /** Mann–Whitney ROC area: ties count half; no observed member of either class means unknown. */
 export function rocAuc(scores: number[], labels: number[]): number | null {
+  assertFiniteSample('rocAuc', 'scores', scores)
   binary(labels, 'rocAuc.labels')
   if (scores.length !== labels.length) throw new ValidationError('rocAuc: scores and labels must have equal lengths')
   const ranked = ranks(scores)
