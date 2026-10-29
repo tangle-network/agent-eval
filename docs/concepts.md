@@ -79,6 +79,9 @@ Use `scope.skip(name, message, metadata?)` for an unavailable precondition. It e
 work, retains a named skip assertion and reason, and still runs every retirement.
 A failed retirement remains a failure; an unavailable check is never a measured pass.
 
+The metadata callback receives a read-only snapshot of completed measurements
+before retirement. Derive timing metadata there instead of collecting another ledger.
+
 Pass the product's existing `measure` adapter to retain its server timing
 ledgers. A poll returns `undefined` when its budget expires; the scenario must
 assert the condition when exhaustion is a failure. The scope's budget signal
