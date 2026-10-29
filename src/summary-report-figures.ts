@@ -69,10 +69,7 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
   const byCandidate = new Map<string, { runs: RunRecord[]; scores: number[] }>()
   for (const r of runs) {
     if (r.splitTag !== split) continue
-    // RAW (`observedSplitScore`): every figure in this module reports what the
-    // runs scored. Zeroing a gamed run here would erase it from the very table
-    // a reviewer reads to notice it, and the split is already filtered above,
-    // so the exact-split reader is the right one — no cross-split fallback.
+    // Report raw, exact-split scores so gaming remains visible.
     const v = observedSplitScore(r, split)
     if (typeof v !== 'number' || !Number.isFinite(v)) continue
     const bucket = byCandidate.get(r.candidateId) ?? { runs: [], scores: [] }
@@ -81,66 +78,46 @@ export function summaryTable(runs: RunRecord[], opts: SummaryTableOptions = {}):
     byCandidate.set(r.candidateId, bucket)
   }
 
-  const candidateIds = [...byCandidate.keys()].sort()
   const compRuns = comparator ? byCandidate.get(comparator) : undefined
 
-  // First pass: per-candidate means + CIs + raw p-values.
-  const tentative: Array<SummaryTableRow & { rawP: number | null }> = []
-  for (const id of candidateIds) {
+  const rows: SummaryTableRow[] = [...byCandidate.keys()].sort().map((id) => {
     const bucket = byCandidate.get(id)!
     const ci = confidenceInterval(bucket.scores, confidence)
-    let rawP: number | null = null
-    let d: number | null = null
-    let pairedN: number | null = null
-    let unpairedCandidateN: number | null = null
-    let unpairedComparatorN: number | null = null
-    if (comparator && compRuns && id !== comparator) {
-      const paired = pairScoresByKey(bucket.runs, compRuns.runs, split)
-      pairedN = paired.before.length
-      unpairedCandidateN = paired.unpairedCandidateN
-      unpairedComparatorN = paired.unpairedComparatorN
-      if (paired.before.length >= 6) {
-        rawP = wilcoxonSignedRank(paired.before, paired.after).p
-      }
-      d = pairedCohensDz(paired.before, paired.after)
-    }
-    tentative.push({
+    const paired =
+      comparator && compRuns && id !== comparator
+        ? pairScoresByKey(bucket.runs, compRuns.runs, split)
+        : null
+    return {
       candidateId: id,
       n: bucket.scores.length,
       mean: ci.mean,
       ciLow: ci.lower,
       ciHigh: ci.upper,
-      qValue: rawP,
-      cohensD: d,
-      pairedN,
-      unpairedCandidateN,
-      unpairedComparatorN,
-      rawP,
-    })
-  }
-
-  // BH-adjust across the comparison set (skip NaN rows / the
-  // comparator itself). Adjustment is a no-op when there are 0 or 1
-  // comparators.
+      qValue:
+        paired && paired.before.length >= 6
+          ? wilcoxonSignedRank(paired.before, paired.after).p
+          : null,
+      cohensD: paired ? pairedCohensDz(paired.before, paired.after) : null,
+      pairedN: paired?.before.length ?? null,
+      unpairedCandidateN: paired?.unpairedCandidateN ?? null,
+      unpairedComparatorN: paired?.unpairedComparatorN ?? null,
+    }
+  })
   if (comparator) {
-    const idxs: number[] = []
-    const ps: number[] = []
-    for (let i = 0; i < tentative.length; i++) {
-      const r = tentative[i]!
-      if (r.candidateId === comparator) continue
-      if (r.rawP === null || !Number.isFinite(r.rawP)) continue
-      idxs.push(i)
-      ps.push(r.rawP)
-    }
-    if (ps.length > 0) {
-      const { qValues } = benjaminiHochberg(ps, fdr)
-      for (let k = 0; k < idxs.length; k++) {
-        tentative[idxs[k]!]!.qValue = qValues[k]!
-      }
+    const comparisons = rows.filter(
+      (row) => row.candidateId !== comparator && row.qValue !== null && Number.isFinite(row.qValue),
+    )
+    if (comparisons.length > 0) {
+      const { qValues } = benjaminiHochberg(
+        comparisons.map((row) => row.qValue!),
+        fdr,
+      )
+      comparisons.forEach((row, index) => {
+        row.qValue = qValues[index]!
+      })
     }
   }
 
-  const rows = tentative.map(({ rawP: _rawP, ...rest }) => rest)
   const markdown = renderSummaryTableMarkdown(rows, comparator, split)
   return { rows, comparator, split, markdown }
 }
@@ -150,26 +127,27 @@ function renderSummaryTableMarkdown(
   comparator: string | null,
   split: 'search' | 'holdout',
 ): string {
-  const lines: string[] = []
-  const cmpLabel = comparator ? ` (vs ${comparator})` : ''
-  lines.push(`Summary Table — ${split} split${cmpLabel}`)
-  lines.push('')
-  lines.push("| Candidate | N | Pairs | Unpaired | Mean | 95% CI | q (BH) | Cohen's dz |")
-  lines.push('|---|---:|---:|---:|---:|---|---:|---:|')
-  for (const r of rows) {
-    const ci = `[${fmt(r.ciLow)}, ${fmt(r.ciHigh)}]`
-    const q = r.qValue !== null ? r.qValue.toFixed(4) : '—'
-    const d = r.cohensD !== null ? r.cohensD.toFixed(3) : '—'
-    const paired = r.pairedN ?? '—'
-    const unpaired =
-      r.unpairedCandidateN === null || r.unpairedComparatorN === null
-        ? '—'
-        : `${r.unpairedCandidateN}/${r.unpairedComparatorN}`
-    lines.push(
-      `| ${r.candidateId} | ${r.n} | ${paired} | ${unpaired} | ${fmt(r.mean)} | ${ci} | ${q} | ${d} |`,
-    )
-  }
-  return lines.join('\n')
+  return [
+    `Summary Table — ${split} split${comparator ? ` (vs ${comparator})` : ''}`,
+    '',
+    "| Candidate | N | Pairs | Unpaired | Mean | 95% CI | q (BH) | Cohen's dz |",
+    '|---|---:|---:|---:|---:|---|---:|---:|',
+    ...rows.map(
+      (r) =>
+        `| ${[
+          r.candidateId,
+          r.n,
+          r.pairedN ?? '—',
+          r.unpairedCandidateN === null || r.unpairedComparatorN === null
+            ? '—'
+            : `${r.unpairedCandidateN}/${r.unpairedComparatorN}`,
+          fmt(r.mean),
+          `[${fmt(r.ciLow)}, ${fmt(r.ciHigh)}]`,
+          r.qValue?.toFixed(4) ?? '—',
+          r.cohensD?.toFixed(3) ?? '—',
+        ].join(' | ')} |`,
+    ),
+  ].join('\n')
 }
 
 // ── paretoChart ─────────────────────────────────────────────────────
@@ -223,19 +201,16 @@ export function paretoChart(
     buckets.set(r.candidateId, bucket)
   }
 
-  const points: ParetoPoint[] = []
-  for (const [candidateId, bucket] of buckets.entries()) {
-    points.push({
-      candidateId,
-      cost: avg(bucket.cost),
-      quality: avg(bucket.quality),
-      n: bucket.cost.length,
-      onFrontier: false,
-      gate: opts.gateDecisions?.[candidateId]
-        ? gateLabel(opts.gateDecisions[candidateId]!)
-        : undefined,
-    })
-  }
+  const points: ParetoPoint[] = [...buckets].map(([candidateId, bucket]) => ({
+    candidateId,
+    cost: avg(bucket.cost),
+    quality: avg(bucket.quality),
+    n: bucket.cost.length,
+    onFrontier: false,
+    gate: opts.gateDecisions?.[candidateId]
+      ? gateLabel(opts.gateDecisions[candidateId]!)
+      : undefined,
+  }))
 
   // Pareto: minimize cost, maximize quality. A point is dominated if
   // some other point has lower-or-equal cost AND higher-or-equal
@@ -327,35 +302,21 @@ export function gainHistogram(
   )
   const n = before.length
 
-  if (n === 0) {
-    return {
-      kind: 'gain-distribution',
-      candidateId,
-      comparator,
-      split,
-      n: 0,
-      unpairedCandidateN,
-      unpairedComparatorN,
-      bins: [],
-      median: null,
-      ci: null,
-    }
-  }
-
   const deltas = before.map((b, i) => after[i]! - b)
   const sortedDeltas = [...deltas].sort((a, b) => a - b)
-  const median = interpolatedQuantile(sortedDeltas, 0.5)
-  const min = sortedDeltas[0]!
-  const max = sortedDeltas[sortedDeltas.length - 1]!
+  const median = n === 0 ? null : interpolatedQuantile(sortedDeltas, 0.5)
 
   // Symmetric bins around the wider of (|min|, |max|) so the chart
   // visually centres on zero without dropping outliers.
-  const bound = Math.max(Math.abs(min), Math.abs(max), 1e-6)
+  const bound = Math.max(
+    Math.abs(sortedDeltas[0]!),
+    Math.abs(sortedDeltas[sortedDeltas.length - 1]!),
+    1e-6,
+  )
   const lo = -bound
-  const hi = bound
-  const width = (hi - lo) / binCount
+  const width = (bound - lo) / binCount
   const bins: GainDistributionBin[] = []
-  for (let i = 0; i < binCount; i++) {
+  for (let i = 0; n > 0 && i < binCount; i++) {
     bins.push({ lo: lo + i * width, hi: lo + (i + 1) * width, count: 0 })
   }
   for (const d of deltas) {
@@ -365,12 +326,15 @@ export function gainHistogram(
     bins[idx]!.count += 1
   }
 
-  const ci = pairedBootstrap(before, after, {
-    confidence: opts.confidence ?? 0.95,
-    resamples: opts.resamples ?? 2000,
-    statistic: 'median',
-    seed: opts.seed,
-  })
+  const ci =
+    n === 0
+      ? null
+      : pairedBootstrap(before, after, {
+          confidence: opts.confidence ?? 0.95,
+          resamples: opts.resamples ?? 2000,
+          statistic: 'median',
+          seed: opts.seed,
+        })
 
   return {
     kind: 'gain-distribution',
@@ -382,6 +346,6 @@ export function gainHistogram(
     unpairedComparatorN,
     bins,
     median,
-    ci: { low: ci.low, high: ci.high },
+    ci: ci === null ? null : { low: ci.low, high: ci.high },
   }
 }
