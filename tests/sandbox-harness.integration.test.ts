@@ -198,3 +198,25 @@ it('keeps failed diagnostic measurements separate from required expectations', a
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it('reports a missing filesystem precondition as skipped while retiring its allocation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'eval-harness-unavailable-'))
+  const marker = join(directory, 'resource')
+  const report = await runSandboxScenario({
+    budgetMs: 5_000,
+    async setup(scope) {
+      scope.defer(() => rm(directory, { recursive: true, force: true }))
+      await writeFile(marker, 'owned')
+      if ((await readFile(join(directory, 'capability')).catch(() => null)) === null)
+        scope.skip('capability', 'Capability file absent')
+    },
+    steps: [{ name: 'must-not-run', run: () => writeFile(marker, 'unexpected') }],
+  })
+  expect(report).toMatchObject({
+    pass: true,
+    skipped: true,
+    assertions: [{ name: 'capability', status: 'skip', message: 'Capability file absent' }],
+    metadata: { skipReason: 'Capability file absent' },
+  })
+  await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+})
