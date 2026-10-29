@@ -42,12 +42,7 @@ export interface SandboxResult {
   wallMs: number
   testsTotal?: number
   testsPassed?: number
-  /**
-   * True when the process was killed because it exceeded `timeoutMs`. A
-   * SIGKILLed child can still close with exit code 0; callers MUST treat
-   * a timed-out phase as a hard failure regardless of `exitCode`, never
-   * as a pass. `undefined`/`false` means the process completed on its own.
-   */
+  /** A timed-out phase always fails, even with exitCode 0. Absent/false means natural exit. */
   killedByTimeout?: boolean
   /** Captured output exceeded maxOutputBytes. */
   outputTruncated?: boolean
