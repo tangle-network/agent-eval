@@ -11,15 +11,12 @@ export interface HarnessConfig {
   runCommand?: string
   /** Test command (e.g. "pnpm test --run"). Drives the test count + pass count. */
   testCommand?: string
-  /** Absolute cwd for the subprocess driver. Ignored by docker driver. */
   cwd?: string
   /** Max wall-clock per phase in ms. Default 10 minutes. */
   timeoutMs?: number
   /** Captured stdout + stderr cap, default 16 MiB; excess is dropped. */
   maxOutputBytes?: number
-  /** Image for the docker driver. */
   image?: string
-  /** Extra env vars (validated; shell-escaped). */
   env?: Record<string, string>
   /** Parser for the test output — maps stdout/stderr/exit code → pass count. */
   testParser?: TestOutputParser
@@ -71,12 +68,11 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     command: string,
     config: HarnessConfig,
   ): Promise<SandboxResult> {
-    const effectiveEnv = { ...process.env, ...(this.options.env ?? {}), ...(config.env ?? {}) }
     const result = await runBoundedProcess({
       command,
       shell: true,
       cwd: config.cwd ?? this.options.cwd,
-      env: effectiveEnv,
+      env: { ...process.env, ...this.options.env, ...config.env },
       envMode: 'replace',
       timeoutMs: config.timeoutMs ?? 10 * 60_000,
       maxOutputBytes: config.maxOutputBytes ?? 16 * 1024 * 1024,
@@ -156,14 +152,10 @@ export class SandboxHarness {
             ? 1
             : 0
       await handle.end({
-        ...(test
-          ? {
-              exitCode: test.exitCode,
-              testsTotal: test.testsTotal,
-              testsPassed: test.testsPassed,
-              status: result.passed ? 'ok' : 'error',
-            }
-          : {}),
+        exitCode: test?.exitCode,
+        testsTotal: test?.testsTotal,
+        testsPassed: test?.testsPassed,
+        status: result.passed ? 'ok' : 'error',
         wallMs: result.totalWallMs,
       } as Partial<SandboxSpan>)
     } catch (err) {
@@ -196,8 +188,16 @@ export interface HarnessReport {
   error?: string
   metadata?: Record<string, unknown>
 }
+export interface HarnessResource<T> {
+  name: string
+  create(signal: AbortSignal): Promise<T>
+  retire(resource: T): Promise<unknown>
+  ready?: (resource: T, signal: AbortSignal) => Promise<unknown>
+  onCreate?: (resource: T) => void
+}
 export interface HarnessScope {
   signal: AbortSignal
+  resource<T>(input: HarnessResource<T>): Promise<{ resource?: T; timing: HarnessTiming }>
   check(...assertions: HarnessAssertion[]): void
   measure(name: string, run: () => Promise<unknown>): Promise<HarnessTiming>
   /** Register retirement immediately after allocation; cleanup ignores workload cancellation. */
@@ -210,8 +210,10 @@ export interface HarnessScope {
 }
 export interface HarnessScenario<T> {
   setup(scope: HarnessScope): Promise<T>
-  steps: ReadonlyArray<{
+  steps?: ReadonlyArray<{
     name: string
+    /** Diagnostic measurements retain failures without gating the scenario. */
+    advisory?: boolean
     when?: (state: T) => boolean
     run(state: T, scope: HarnessScope): Promise<unknown>
     expect?: (state: T, timing: HarnessTiming) => HarnessAssertion[]
@@ -237,15 +239,12 @@ export async function runSandboxScenario<T>(
     ...(options.signal ? [options.signal] : []),
   ])
   const report: HarnessReport = { pass: false, assertions: [], timings: [] }
+  let measurementFailures = 0
   const retirements: Array<() => Promise<unknown>> = []
   const scope: HarnessScope = {
     signal,
-    check: (...assertions) => {
-      report.assertions.push(...assertions)
-    },
-    defer: (retire) => {
-      retirements.push(retire)
-    },
+    check: (...assertions) => report.assertions.push(...assertions),
+    defer: (retire) => retirements.push(retire),
     async measure(name, run) {
       const start = performance.now()
       let measured: HarnessTiming = { name, durationMs: 0, success: true }
@@ -265,8 +264,20 @@ export async function runSandboxScenario<T>(
           error: error instanceof Error ? error.message : String(error),
         }
       }
+      if (!measured.success) measurementFailures++
       report.timings.push(measured)
       return measured
+    },
+    async resource<T>(input: HarnessResource<T>) {
+      let resource: T | undefined
+      const timing = await scope.measure(input.name, async () => {
+        const owned = await input.create(signal)
+        resource = owned
+        scope.defer(() => input.retire(owned))
+        input.onCreate?.(owned)
+        await input.ready?.(owned, signal)
+      })
+      return { resource, timing }
     },
     async poll(read, ready, budget) {
       if (!(budget.timeoutMs > 0 && budget.intervalMs > 0))
@@ -288,10 +299,12 @@ export async function runSandboxScenario<T>(
   try {
     signal.throwIfAborted()
     const state = await spec.setup(scope)
-    for (const step of spec.steps) {
+    for (const step of spec.steps ?? []) {
       signal.throwIfAborted()
       if (step.when && !step.when(state)) continue
+      const failuresBefore = measurementFailures
       const timing = await scope.measure(step.name, () => step.run(state, scope))
+      if (step.advisory) measurementFailures = failuresBefore
       scope.check(...(step.expect?.(state, timing) ?? []))
     }
     signal.throwIfAborted()
@@ -308,7 +321,7 @@ export async function runSandboxScenario<T>(
   }
   report.pass =
     !report.error &&
-    report.timings.every((t) => t.success) &&
+    measurementFailures === 0 &&
     report.assertions.every((a) => a.soft || a.status === 'pass')
   return report
 }

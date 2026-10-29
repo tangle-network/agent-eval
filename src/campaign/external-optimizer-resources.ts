@@ -8,34 +8,21 @@ export async function runWithCleanup<T>(args: {
   run: () => Promise<T>
   cleanup: () => Promise<void>
 }): Promise<T> {
-  let value: T | undefined
-  let operationError: Error | undefined
-  try {
-    value = await args.run()
-  } catch (cause) {
-    operationError = toError(cause)
-  }
-
-  let cleanupError: Error | undefined
-  try {
-    await args.cleanup()
-  } catch (cause) {
-    cleanupError = toError(cause)
-  }
-
-  if (operationError && cleanupError) {
+  const [operation] = await Promise.allSettled([Promise.resolve().then(args.run)])
+  const [cleanup] = await Promise.allSettled([Promise.resolve().then(args.cleanup)])
+  const operationError = operation.status === 'rejected' ? toError(operation.reason) : undefined
+  const cleanupError = cleanup.status === 'rejected' ? toError(cleanup.reason) : undefined
+  if (operationError && cleanupError)
     throw new AggregateError(
       [operationError, cleanupError],
       `${operationError.message}; ${args.label} cleanup failed: ${cleanupError.message}`,
     )
-  }
-  if (operationError) throw operationError
-  if (cleanupError) {
+  if (operation.status === 'rejected') throw operationError
+  if (cleanupError)
     throw new Error(`${args.label} cleanup failed: ${cleanupError.message}`, {
       cause: cleanupError,
     })
-  }
-  return value as T
+  return operation.value
 }
 
 export async function closeExternalOptimizerResources(args: {
@@ -48,9 +35,8 @@ export async function closeExternalOptimizerResources(args: {
     args.callback.close(),
   ])
   const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
-  if (errors.length > 0) {
+  if (errors.length)
     throw new AggregateError(errors, `${args.label}: failed to close optimizer resources`)
-  }
 }
 
 function toError(cause: unknown): Error {
