@@ -64,4 +64,39 @@ export type {
   SummaryTableOptions,
   SummaryTableRow,
 } from './summary-report'
-export { gainHistogram, RESEARCH_REPORT_HARD_PAIR_FLOOR, researchReport, summaryTable } from './summary-report'
+export {
+  gainHistogram,
+  RESEARCH_REPORT_HARD_PAIR_FLOOR,
+  researchReport,
+  summaryTable,
+} from './summary-report'
+
+/** A text report column; `none` leaves the cell unpadded. */
+export interface ReportTableColumn {
+  header: string
+  align?: 'left' | 'right' | 'none'
+}
+
+/** Render already-formatted measurements without changing values or missing-data labels. */
+export function formatReportTable(
+  columns: readonly ReportTableColumn[],
+  rows: readonly (readonly string[])[],
+): string {
+  const table = [columns.map((column) => column.header), ...rows]
+  const widths = columns.map((_, index) =>
+    Math.max(...table.map((row) => (row[index] ?? '').length)),
+  )
+  return table
+    .map((row) =>
+      columns
+        .map((column, index) => {
+          const value = row[index] ?? ''
+          if (column.align === 'none') return value
+          return column.align === 'right'
+            ? value.padStart(widths[index]!)
+            : value.padEnd(widths[index]!)
+        })
+        .join('  '),
+    )
+    .join('\n')
+}
