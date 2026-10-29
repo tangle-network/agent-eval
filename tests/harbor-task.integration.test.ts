@@ -39,15 +39,15 @@ async function repositoryFixture(): Promise<{
   const root = await mkdtemp(join(tmpdir(), 'eval-harbor-task-'))
   roots.push(root)
   const repo = join(root, 'repository')
-  await mkdir(repo)
+  await mkdir(join(repo, 'src'), { recursive: true })
   const git = (...args: string[]) => command(repo, 'git', args)
   const commit = (message: string) => git('commit', '-m', message)
   await git('init', '-b', 'main')
   await writeFile(
-    join(repo, 'production.mjs'),
+    join(repo, 'src/production.mjs'),
     'export function sum(a, b) {\n  const value = a + b\n  return value\n}\n',
   )
-  await writeFile(join(repo, 'support.mjs'), 'export const support = true\n')
+  await writeFile(join(repo, 'src/support.mjs'), 'export const support = true\n')
   await git('add', '.')
   await commit('base')
   const baseCommit = await git('rev-parse', 'HEAD')
@@ -55,7 +55,7 @@ async function repositoryFixture(): Promise<{
   const bundlePath = join(root, 'base.bundle')
   await git('bundle', 'create', bundlePath, 'HEAD')
   await git('checkout', '-b', 'candidate')
-  await writeFile(join(repo, 'production.mjs'), 'export const sum = (a, b) => a + b\n')
+  await writeFile(join(repo, 'src/production.mjs'), 'export const sum = (a, b) => a + b\n')
   await git('add', '.')
   await commit('reduce production lines')
   const candidateCommit = await git('rev-parse', 'HEAD')
@@ -84,17 +84,17 @@ async function repositoryFixture(): Promise<{
     },
   }
   const commands = {
-    acceptance: `#!/bin/sh\nset -eu\nnode --input-type=module -e 'import {sum} from "./production.mjs"; if(sum(2,3)!==5) process.exit(1)'\n`,
+    acceptance: `#!/bin/sh\nset -eu\nnode --input-type=module -e 'import {sum} from "./src/production.mjs"; if(sum(2,3)!==5) process.exit(1)'\n`,
     productionDelta:
       '#!/bin/sh\nset -eu\nnode --input-type=module -e ' +
       `'import {readFileSync} from "node:fs"; import {execFileSync} from "node:child_process";` +
       ` const lines=s=>s.trim().split(/\\n/).filter(s=>s.trim()).length;` +
-      ` const base=execFileSync("git",["show","${baseCommit}:production.mjs"],{encoding:"utf8"});` +
-      ' if(!(lines(readFileSync("production.mjs","utf8"))<lines(base))) process.exit(1)' +
+      ` const base=execFileSync("git",["show","${baseCommit}:src/production.mjs"],{encoding:"utf8"});` +
+      ' if(!(lines(readFileSync("src/production.mjs","utf8"))<lines(base))) process.exit(1)' +
       "'\n",
     danglingReferences:
       '#!/bin/sh\nset -eu\nnode --input-type=module -e ' +
-      '\'await import("./production.mjs"); await import("./support.mjs")\'\n',
+      '\'await import("./src/production.mjs"); await import("./src/support.mjs")\'\n',
   }
   const seen: HarborTaskVerification[] = []
   const verify: WriteHarborTaskOptions['verify'] = async (request) => {
@@ -275,7 +275,7 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       'checkout',
       fixture.options.surface.baseCommit,
       '--',
-      'production.mjs',
+      'src/production.mjs',
     ])
     await expect(
       command(fixture.repo, 'sh', [
@@ -290,9 +290,12 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       'checkout',
       fixture.options.surface.candidateCommit,
       '--',
-      'production.mjs',
+      'src/production.mjs',
     ])
-    await writeFile(join(fixture.repo, 'production.mjs'), 'export const sum = (a, b) => a - b\n')
+    await writeFile(
+      join(fixture.repo, 'src/production.mjs'),
+      'export const sum = (a, b) => a - b\n',
+    )
     await expect(
       command(fixture.repo, 'sh', [
         join(taskDir, 'tests/test.sh'),
@@ -306,9 +309,9 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       'checkout',
       fixture.options.surface.candidateCommit,
       '--',
-      'production.mjs',
+      'src/production.mjs',
     ])
-    await writeFile(join(fixture.repo, 'support.mjs'), 'import "./missing.mjs"\n')
+    await writeFile(join(fixture.repo, 'src/support.mjs'), 'import "./missing.mjs"\n')
     await expect(
       command(fixture.repo, 'sh', [
         join(taskDir, 'tests/test.sh'),
@@ -322,7 +325,7 @@ describe('verified episode → Harbor task public filesystem/process boundary', 
       'checkout',
       fixture.options.surface.candidateCommit,
       '--',
-      'support.mjs',
+      'src/support.mjs',
     ])
     await expect(writeHarborTask(fixture.options)).rejects.toThrow()
     const unknown = join(fixture.root, 'dataset/tasks/unknown')

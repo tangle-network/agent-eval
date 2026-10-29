@@ -43,7 +43,5 @@ true 1
 
 ## Adapt this to your agent
 
-Swap `SubprocessSandboxDriver` for `DockerSandboxDriver` to get isolation,
-network policy, and resource caps. Add `composeParsers(vitestTestParser,
-jestTestParser, pytestTestParser)` to surface per-test pass/fail counts in
-the run trace.
+Implement `SandboxDriver` for a remote sandbox. A custom `testParser` can
+surface per-test pass/fail counts; without one, the command exit code decides.

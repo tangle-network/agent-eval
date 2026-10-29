@@ -18,7 +18,14 @@ export type {
   ReferenceEquivalenceJudgeOptions,
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
-
+export {
+  type HarnessAssertion,
+  type HarnessReport,
+  type HarnessScenario,
+  type HarnessScope,
+  type HarnessTiming,
+  runSandboxScenario,
+} from '../sandbox-harness'
 export type { SeriesDistribution } from '../statistics'
 // ── The search kernel: policies, allocation, executor and proposer ports ──
 export {
@@ -610,7 +617,6 @@ export type {
   PhoenixEvaluationResultLike,
   PhoenixEvaluatorLike,
 } from './upstream-evaluators'
-
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type CodeSurfaceVerification,
