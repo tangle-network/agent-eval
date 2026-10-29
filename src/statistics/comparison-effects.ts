@@ -51,3 +51,27 @@ export function rocAuc(scores: number[], labels: number[]): number | null {
   const negative = labels.length - positive
   return positive && negative ? (sum - positive * (positive + 1) / 2) / (positive * negative) : null
 }
+
+/** L2 logistic fit by fixed-step gradient descent; the returned linear score preserves ROC ordering. */
+export function fitLogistic(rows: number[][], labels: number[], { lambda = 1, steps = 600, rate = 0.3 } = {}): (row: number[]) => number {
+  binary(labels, 'fitLogistic.labels')
+  const width = rows[0]?.length ?? 0
+  if (!rows.length || rows.length !== labels.length || rows.some(row => row.length !== width)) throw new ValidationError('fitLogistic: nonempty equal-width rows and one label per row required')
+  rows.forEach(row => assertFiniteSample('fitLogistic', 'row', row))
+  if (!(Number.isFinite(lambda) && lambda >= 0 && Number.isInteger(steps) && steps >= 0 && Number.isFinite(rate) && rate > 0)) throw new ValidationError('fitLogistic: invalid optimizer bounds')
+  const weights = new Array<number>(width).fill(0)
+  let bias = 0
+  const score = (row: number[]) => bias + row.reduce((sum, value, index) => sum + value * weights[index]!, 0)
+  for (let step = 0; step < steps; step++) {
+    const gradient = new Array<number>(width).fill(0)
+    let gradientBias = 0
+    rows.forEach((row, index) => {
+      const error = 1 / (1 + Math.exp(-score(row))) - labels[index]!
+      gradientBias += error
+      row.forEach((value, column) => { gradient[column] = gradient[column]! + error * value })
+    })
+    bias -= rate * gradientBias / rows.length
+    weights.forEach((weight, column) => { weights[column] = weight - rate * (gradient[column]! / rows.length + lambda * weight / rows.length) })
+  }
+  return score
+}

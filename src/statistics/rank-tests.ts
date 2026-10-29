@@ -8,35 +8,11 @@ import {
   symmetricTwoSampleSeed,
 } from './internal'
 
-// ── Rank tests: exact by default ─────────────────────────────────────
-//
-// At 3–10 repetitions per arm the binding constraint on a rank test is
-// combinatorial, not numerical. Three versus three admits only 20 splits, so
-// the attainable two-sided p-grid starts at 0.1000 and α = 0.05 is out of
-// reach at that design; a normal approximation reports 0.0495, a p-value that
-// describes no attainable outcome. No better approximation fixes this — adding
-// the tie correction moves `[0,0,0]` versus `[1,1,1]` from 0.0495 to 0.0469,
-// further from its exact 0.1000, not closer.
-//
-// So both null distributions are enumerated exactly inside bounded state and
-// work budgets, by convolution over the observed midranks (identical to
-// enumerating every split / sign pattern, and cheaper), which conditions on the
-// realised tie pattern for free. Above those budgets the default is a seeded
-// Monte Carlo permutation. The asymptotic path is never chosen automatically,
-// and asking for it inside the exact-feasible range throws.
-//
-// Every result carries `method` and `pFloor` so a downstream gate can SEE the
-// discreteness rather than infer it: a gate handed data whose `pFloor` exceeds
-// its alpha is underpowered by construction, which is a true statement about
-// the experiment, not a false one about the effect.
+// Bounded exact midranks or seeded permutation; results expose their attainable p-grid.
 
-/** How a rank test's p-value was actually computed. */
 export type RankTestMethod = 'exact' | 'permutation' | 'asymptotic'
 
-/**
- * What the caller asks for. `'auto'` selects `'exact'` inside the enumeration
- * threshold and `'permutation'` above it, and never selects `'asymptotic'`.
- */
+/** Auto selects bounded exact enumeration or seeded permutation; asymptotic requires an explicit request. */
 export type RankTestMethodRequest = 'auto' | 'exact' | 'asymptotic'
 
 export interface RankTestOptions {
