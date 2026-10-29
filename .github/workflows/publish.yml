@@ -25,8 +25,6 @@ jobs:
       actions: write
     uses: tangle-network/agent-eval/.github/workflows/dispatch-publication.yml@d1e0b6ced9543ac287e7f9cc457920439363c638
 
-  # Verify both packages build and pass tests, in lockstep.
-  # If either fails, neither publishes.
   verify:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on:
@@ -59,7 +57,7 @@ jobs:
           fi
           echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
 
       - uses: actions/setup-node@v7
         with:
@@ -232,7 +230,7 @@ jobs:
         with:
           ref: ${{ needs.verify.outputs.sha }}
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
 
       - uses: actions/setup-node@v7
         with:
