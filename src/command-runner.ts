@@ -93,25 +93,6 @@ export interface CommandRunner {
  * Host-process runner, mapped onto {@link runBoundedProcess} so the package
  * has one spawn site rather than two.
  *
- * It used `spawnSync` and therefore had none of the bounds that runner exists
- * to provide: a `capMs` timeout killed the direct child and left any
- * descendant it had started running, a killed run could still report exit
- * code 0, captured output was unbounded, and the whole run blocked the event
- * loop. This runner spawns build, test and lint commands, which are exactly
- * the commands most likely to start descendants.
- *
- * It is not the package's last private spawn: `nodeProcessRunner`
- * (`src/trace-repair/docker-environment.ts`) and `runProcess`
- * (`src/campaign/external-optimizer-subprocess.ts`) still spawn their own
- * detached children, and several one-shot `spawnSync` git and CLI calls
- * remain. What this removes is the second spawn behind the `CommandRunner`
- * contract, which is the one that graded build, test and lint commands.
- *
- * Two behaviours the mapping changes on purpose:
- *   - a run with no `capMs` is now bounded by
- *     {@link LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS} instead of running forever;
- *   - the run no longer blocks the event loop, so a minutes-long `capMs` no
- *     longer stalls everything else in the process.
  */
 /**
  * Wall clock {@link localCommandRunner} applies when the caller names no

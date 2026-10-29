@@ -186,6 +186,7 @@ export interface HarnessTiming {
 }
 export interface HarnessReport {
   pass: boolean
+  skipped?: boolean
   assertions: HarnessAssertion[]
   timings: HarnessTiming[]
   error?: string
@@ -202,6 +203,7 @@ export interface HarnessScope {
   signal: AbortSignal
   resource<T>(input: HarnessResource<T>): Promise<{ resource?: T; timing: HarnessTiming }>
   check(...assertions: HarnessExpectation[]): void
+  skip(name: string, message: string, metadata?: Record<string, unknown>): never
   measure(name: string, run: () => Promise<unknown>): Promise<HarnessTiming>
   /** Register retirement immediately after allocation; cleanup ignores workload cancellation. */
   defer(retire: () => Promise<unknown>): void
@@ -242,6 +244,8 @@ export async function runSandboxScenario<T>(
     ...(options.signal ? [options.signal] : []),
   ])
   const report: HarnessReport = { pass: false, assertions: [], timings: [] }
+  const skipped = Symbol('scenario skipped')
+  let retiring = false
   let measurementFailures = 0
   const retirements: Array<() => Promise<unknown>> = []
   const scope: HarnessScope = {
@@ -258,6 +262,13 @@ export async function runSandboxScenario<T>(
               },
         )
     },
+    skip(name, message, metadata) {
+      if (retiring) throw new Error('Retirement cannot be skipped')
+      report.skipped = true
+      report.metadata = { skipReason: message, ...metadata }
+      scope.check({ name, status: 'skip', message })
+      throw skipped
+    },
     defer: (retire) => retirements.push(retire),
     async measure(name, run) {
       const start = performance.now()
@@ -271,6 +282,7 @@ export async function runSandboxScenario<T>(
           measured.durationMs = Math.round(performance.now() - start)
         }
       } catch (error) {
+        if (error === skipped) throw error
         measured = {
           name,
           durationMs: Math.round(performance.now() - start),
@@ -278,6 +290,7 @@ export async function runSandboxScenario<T>(
           error: error instanceof Error ? error.message : String(error),
         }
       }
+      if (report.skipped && !retiring) throw skipped
       if (!measured.success) measurementFailures++
       report.timings.push(measured)
       return measured
@@ -325,8 +338,9 @@ export async function runSandboxScenario<T>(
     scope.check(...(spec.expectations?.(state) ?? []))
     report.metadata = spec.metadata?.(state)
   } catch (error) {
-    report.error = error instanceof Error ? error.message : String(error)
+    if (error !== skipped) report.error = error instanceof Error ? error.message : String(error)
   } finally {
+    retiring = true
     for (const retire of retirements.reverse()) {
       const measured = await scope.measure('cleanup', retire)
       if (!measured.success)
@@ -336,6 +350,8 @@ export async function runSandboxScenario<T>(
   report.pass =
     !report.error &&
     measurementFailures === 0 &&
-    report.assertions.every((a) => a.soft || a.status === 'pass')
+    report.assertions.every(
+      (a) => a.soft || a.status === 'pass' || (report.skipped && a.status === 'skip'),
+    )
   return report
 }

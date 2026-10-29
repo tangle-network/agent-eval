@@ -198,3 +198,62 @@ it('keeps failed diagnostic measurements separate from required expectations', a
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it.each(['setup', 'step'] as const)(
+  'reports an unavailable %s precondition and retires its allocation',
+  async (phase) => {
+    const directory = await mkdtemp(join(tmpdir(), 'eval-harness-unavailable-'))
+    const marker = join(directory, 'resource')
+    try {
+      const precondition = async (scope: import('../src/campaign').HarnessScope) => {
+        if ((await readFile(join(directory, 'capability')).catch(() => null)) === null)
+          scope.skip('capability', 'Capability file absent')
+      }
+      const report = await runSandboxScenario({
+        budgetMs: 5_000,
+        async setup(scope) {
+          scope.defer(() => rm(marker))
+          await writeFile(marker, 'owned')
+          if (phase === 'setup') await precondition(scope)
+        },
+        steps: [
+          { name: 'precondition', run: (_, scope) => precondition(scope) },
+          { name: 'must-not-run', run: () => writeFile(marker, 'unexpected') },
+        ],
+      })
+      expect(report).toMatchObject({
+        pass: true,
+        skipped: true,
+        assertions: [{ name: 'capability', status: 'skip', message: 'Capability file absent' }],
+        metadata: { skipReason: 'Capability file absent' },
+      })
+      expect(report.timings.map((timing) => timing.name)).toEqual(['cleanup'])
+      await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+it('refuses an unavailable retirement and still retires the remaining real resource', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'eval-harness-retirement-'))
+  const marker = join(directory, 'resource')
+  try {
+    const report = await runSandboxScenario({
+      budgetMs: 5_000,
+      async setup(scope) {
+        await writeFile(marker, 'owned')
+        scope.defer(() => rm(marker))
+        scope.defer(async () => scope.skip('retirement', 'Cannot skip removal'))
+      },
+    })
+    expect(report).toMatchObject({
+      pass: false,
+      assertions: [{ name: 'cleanup', status: 'fail', message: 'Retirement cannot be skipped' }],
+    })
+    expect(report.skipped).toBeUndefined()
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})

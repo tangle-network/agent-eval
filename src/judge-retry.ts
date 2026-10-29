@@ -89,7 +89,7 @@ export async function withJudgeRetry<T>(
   const attemptErrors: JudgeRetryOutcome<T>['attemptErrors'] = []
   let lastError: Error | undefined
 
-  for (const model of models) {
+  retryModels: for (const model of models) {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       totalAttempts += 1
       const controller = new AbortController()
@@ -113,18 +113,8 @@ export async function withJudgeRetry<T>(
           model: model ?? '(default)',
           error: errObj.message,
         })
-        if (!isRetryable(errObj)) {
-          // Non-retriable (e.g., JSON parse, schema rejection): break out of
-          // attempts on this model AND skip the fallback rotation — a
-          // permanent error here will be permanent on the fallback too.
-          return {
-            value: null,
-            succeeded: false,
-            attempts: totalAttempts,
-            error: errObj,
-            attemptErrors,
-          }
-        }
+        // A permanent error ends the whole rotation and retains this final failure.
+        if (!isRetryable(errObj)) break retryModels
         if (attempt < maxAttempts - 1) {
           await sleep(backoff(attempt))
         }
