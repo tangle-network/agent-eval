@@ -4,6 +4,28 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.9] — 2026-10-30
+
+- feat(statistics): summarizeDistribution + percentileNearestRank (consolidation home)
+- chore(release): 1.0.8
+- chore(analyst): re-pin the implementation manifest on merged main
+- feat(statistics,harness): two-sample Welch evidence + lifted sandbox assertion library
+- chore(release): 1.0.7 (#1172)
+- docs(statistics): keep inference policy and exports readable (#1173)
+- feat(statistics): own independent effect summaries and ROC area (#1171)
+- chore(release): 1.0.6 (#1170)
+- refactor(reporting): share text table layout and simplify summaries (#1169)
+- refactor(harness): retain unavailable verdicts through cleanup (#1168)
+- chore(release): 1.0.5 (#1167)
+- refactor(harness): normalize compact named expectations (#1166)
+- chore(release): 1.0.4 (#1165)
+- refactor(harness): own resource acquisition and readiness cleanup (#1164)
+- chore(release): 1.0.3 (#1163)
+- chore(release): declare the existing deployment runner for workflow lint
+- fix(release): bind bootstrap to the existing qualified action revision
+- fix(release): use the qualified pnpm bootstrap in publication workflows
+- Refactor sandbox integration scenarios into the eval harness (#1161)
+
 ## [1.0.8] — 2026-10-30
 
 - chore(analyst): re-pin the implementation manifest on merged main
