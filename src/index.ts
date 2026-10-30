@@ -344,6 +344,11 @@ export {
 } from './statistics/inference'
 export { sampleMedian, summarizeSample } from './statistics/samples'
 export * from './statistics/two-sample'
+export {
+  percentileNearestRank,
+  summarizeDistribution,
+  type SampleDistribution,
+} from './statistics/distribution-summary'
 export { PairwiseSteeringOptimizer } from './steering-optimizer'
 
 export { InMemoryRawProviderSink } from './trace/raw-provider-sink'
