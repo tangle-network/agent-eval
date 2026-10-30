@@ -343,6 +343,7 @@ export {
   twoByTwoPValue,
 } from './statistics/inference'
 export { sampleMedian, summarizeSample } from './statistics/samples'
+export * from './statistics/two-sample'
 export { PairwiseSteeringOptimizer } from './steering-optimizer'
 
 export { InMemoryRawProviderSink } from './trace/raw-provider-sink'
@@ -351,3 +352,5 @@ export {
   otlpTextToTraceAnalysisStore,
   spanRecordsToTraceAnalysisStore,
 } from './trace-analyst/store-otlp'
+
+export * from './sandbox-assertions'
