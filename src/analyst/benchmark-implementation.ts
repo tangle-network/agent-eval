@@ -176,7 +176,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'b480a601f52b64b4c949c92ecdf88fe22424c7c151b228e44dfc446eb3cc3019'
+  '72c4aededb7ea91a1d8f7f9d5d8bf3794e7f9981338597ae00a99f8fa9a6e9ac'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

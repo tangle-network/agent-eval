@@ -58,12 +58,27 @@ export function summarizeDistribution(
   values: number[],
   options: DistributionSummaryOptions = {},
 ): SampleDistribution {
+  if (values.some((value) => !Number.isFinite(value)))
+    throw new ValidationError('summarizeDistribution: samples must be finite')
   const finite =
     options.lowerBound === undefined
-      ? values.filter(Number.isFinite)
-      : values.filter((value) => Number.isFinite(value) && value >= options.lowerBound!)
-  if (finite.length === 0)
-    throw new ValidationError('summarizeDistribution: no finite samples')
+      ? values
+      : values.filter((value) => value >= options.lowerBound!)
+  if (finite.length === 0) {
+    // The retired implementation answered an empty sample with an all-NaN
+    // summary (n: 0) — dashboards render that row; keep the contract.
+    return {
+      min: Number.NaN,
+      p50: Number.NaN,
+      p90: Number.NaN,
+      p95: Number.NaN,
+      p99: Number.NaN,
+      max: Number.NaN,
+      mean: Number.NaN,
+      n: 0,
+      values: [],
+    }
+  }
   const sorted = [...finite].sort((a, b) => a - b)
   const n = sorted.length
   const mean = sorted.reduce((sum, value) => sum + value / n, 0)
