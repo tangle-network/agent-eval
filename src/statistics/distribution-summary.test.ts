@@ -16,10 +16,13 @@ describe('summarizeDistribution', () => {
     expect(s.ci95High!).toBeCloseTo(30 + margin, 10)
   })
 
-  it('filters to the lower bound and refuses empty samples', () => {
+  it('filters to the lower bound, answers empty with an all-NaN row, refuses non-finite', () => {
     const s = summarizeDistribution([-5, 0, 5, 100], { lowerBound: 0 })
     expect(s.min).toBe(0)
-    expect(() => summarizeDistribution([], { lowerBound: 1 })).toThrow()
+    const empty = summarizeDistribution([], { lowerBound: 1 })
+    expect(empty.n).toBe(0)
+    expect(empty.p50).toBeNaN()
+    expect(() => summarizeDistribution([1, Number.NaN])).toThrow()
   })
 
   it('omits the CI for a single sample', () => {
