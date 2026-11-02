@@ -7,6 +7,8 @@
  * that schema.
  */
 
+import { isRecord } from '../llm-client/json'
+
 
 
 export type DiagnosisSeverity = 'critical' | 'high' | 'medium' | 'low'
@@ -86,12 +88,12 @@ export function validateDiagnosisFindings(
   options: { spanIds?: ReadonlySet<string> } = {},
 ): string[] {
   const errors: string[] = []
-  if (!isObject(document)) return ['document is not an object']
+  if (!isRecord(document)) return ['document is not an object']
   closed(document, ['schemaVersion', 'subject', 'coverage', 'findings'], '', errors)
   if (document.schemaVersion !== 1) errors.push('schemaVersion must be 1')
 
   const subject = document.subject
-  if (!isObject(subject)) errors.push('subject must be an object')
+  if (!isRecord(subject)) errors.push('subject must be an object')
   else {
     closed(subject, ['label', 'runCount', 'window', 'contentIncluded'], 'subject', errors)
     if (typeof subject.label !== 'string') errors.push('subject.label must be a string')
@@ -103,13 +105,13 @@ export function validateDiagnosisFindings(
   }
 
   const coverage = document.coverage
-  if (!isObject(coverage)) errors.push('coverage must be an object')
+  if (!isRecord(coverage)) errors.push('coverage must be an object')
   else {
     closed(coverage, ['capabilities', 'skipped', 'redaction'], 'coverage', errors)
-    if (!isObject(coverage.capabilities)) errors.push('coverage.capabilities must be an object')
+    if (!isRecord(coverage.capabilities)) errors.push('coverage.capabilities must be an object')
     else {
       for (const [name, capability] of Object.entries(coverage.capabilities)) {
-        if (!isObject(capability) || typeof capability.available !== 'boolean') {
+        if (!isRecord(capability) || typeof capability.available !== 'boolean') {
           errors.push(`coverage.capabilities.${name}.available must be a boolean`)
         } else if (
           !capability.available &&
@@ -123,7 +125,7 @@ export function validateDiagnosisFindings(
     else
       coverage.skipped.forEach((entry, index) => {
         if (
-          !isObject(entry) ||
+          !isRecord(entry) ||
           typeof entry.analysis !== 'string' ||
           typeof entry.reason !== 'string'
         )
@@ -131,11 +133,11 @@ export function validateDiagnosisFindings(
       })
     if (coverage.redaction !== undefined) {
       const redaction = coverage.redaction
-      if (!isObject(redaction)) errors.push('coverage.redaction must be an object')
+      if (!isRecord(redaction)) errors.push('coverage.redaction must be an object')
       else {
         if (!Number.isInteger(redaction.redactionCount) || (redaction.redactionCount as number) < 0)
           errors.push('coverage.redaction.redactionCount must be a non-negative integer')
-        if (redaction.byRule !== undefined && !isObject(redaction.byRule))
+        if (redaction.byRule !== undefined && !isRecord(redaction.byRule))
           errors.push('coverage.redaction.byRule must be an object')
         if (
           redaction.droppedAttributes !== undefined &&
@@ -150,7 +152,7 @@ export function validateDiagnosisFindings(
   else
     document.findings.forEach((finding, index) => {
       const at = `findings[${index}]`
-      if (!isObject(finding)) {
+      if (!isRecord(finding)) {
         errors.push(`${at} must be an object`)
         return
       }
@@ -188,7 +190,7 @@ export function validateDiagnosisFindings(
       if (finding.measure !== undefined) {
         const measure = finding.measure
         if (
-          !isObject(measure) ||
+          !isRecord(measure) ||
           typeof measure.name !== 'string' ||
           typeof measure.value !== 'number' ||
           !Number.isFinite(measure.value) ||
@@ -216,8 +218,4 @@ function closed(
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) errors.push(`${at ? `${at}.` : ''}${key} is not allowed`)
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

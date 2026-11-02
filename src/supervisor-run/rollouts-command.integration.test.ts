@@ -38,6 +38,7 @@ const jsonl = (rows: unknown[]) => `${rows.map((row) => JSON.stringify(row)).joi
 async function discoveryRun(
   pass?: { goalAudit: { verdict: string } },
   stages?: Record<string, string>,
+  end?: { taggedAt: string; unansweredAt: string },
 ): Promise<string> {
   const runDir = join(dir, 'discovery-runs', RUN)
   await mkdir(join(runDir, 'blobs'), { recursive: true })
@@ -115,6 +116,15 @@ async function discoveryRun(
         root: ROOT,
         event: { ...event, id: WORKER, seq: seq + 1, at: at(2) },
       })),
+      ...(end === undefined
+        ? []
+        : [
+            {
+              kind: 'event',
+              root: ROOT,
+              event: { kind: 'execution-input', id: ROOT, taskRef: STEER, seq: 9, at: end.unansweredAt },
+            },
+          ]),
     ]),
   )
   await writeFile(
@@ -164,7 +174,10 @@ async function discoveryRun(
     ]),
   )
   if (stages !== undefined) {
-    await writeFile(join(runDir, 'RECEIPT.json'), JSON.stringify({ check: { calibration: { stages } } }))
+    await writeFile(
+      join(runDir, 'RECEIPT.json'),
+      JSON.stringify({ taggedAt: end?.taggedAt, check: { calibration: { stages } } }),
+    )
   }
   const repo = join(runDir, 'deliverables.git')
   const git = (...args: string[]) =>
@@ -248,6 +261,23 @@ describe('supervisor-run rollouts', () => {
       expect(unscreened.outcome.realness_screened).toBe(false)
       expect(() => assertMintedLines([unscreened])).toThrow(/realness_screened/)
     }
+  })
+
+  it('completes a run stopped after it solved, not one cut before it solved', async () => {
+    const outcomeWhen = async (taggedAt: string, unansweredAt: string) => {
+      const run = await discoveryRun(
+        { goalAudit: { verdict: 'consistent' } },
+        { check: 'calibrated' },
+        { taggedAt, unansweredAt },
+      )
+      const { lines } = await discoveryRunRolloutLines(run)
+      await rm(run, { recursive: true })
+      return lines.find((line) => line.rollout_id === ROOT)!.outcome
+    }
+    const earlier = '2026-10-25T04:00:00.000Z'
+    const later = '2026-10-25T05:00:00.000Z'
+    expect(await outcomeWhen(earlier, later)).toMatchObject({ is_completed: true, error: null })
+    expect(await outcomeWhen(later, earlier)).toMatchObject({ is_completed: false })
   })
 
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
