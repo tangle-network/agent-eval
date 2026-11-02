@@ -20,6 +20,8 @@ Behaviour and values live in the code; this file links to them and never copies 
 | `archive/` | Dated records superseded by later work. Read them for history only. | None |
 | `CHANGELOG.md` | Release history. | None |
 
+This package is public. It reads general sources (Runtime runs, harness sessions, OpenTelemetry spans) and general contracts a caller supplies, such as `RunVerdict`; it never carries a product's file names, naming conventions or verdict rules. A product adapts its records to these contracts; a missing capability is made general here.
+
 ## Shared helpers
 
 Each shared concern has one owner. Import it; do not re-implement it.
