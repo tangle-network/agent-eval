@@ -52,14 +52,8 @@ interface NodeFacts {
   executions?: Array<{ taskRef?: string; outRef: string }>
 }
 
-interface Producer {
-  harness: string | null
-  provider: string | null
-  model: string | null
-}
-
 /** `opencode/zai-coding-plan/glm-5.3` → harness, provider, model. */
-function producerOf(id: string): Producer {
+function producerOf(id: string): Record<'harness' | 'provider' | 'model', string | null> {
   const parts = id.split('/')
   if (parts.length >= 3) {
     return { harness: parts[0]!, provider: parts[1]!, model: parts.slice(2).join('/') }
@@ -158,19 +152,19 @@ export interface PlayCheckReward {
 }
 
 /**
- * The newest play-check row whose verdict is known. A staged check
- * (`SCORE {"reached": r, "of": n}`) that is not solved failed at stage r, so it
- * passed r − 1 of n: Discovery's own `stagesPassed` (runner/calibration.mjs).
- * Only the SCORE line itself is parsed; the check prints more lines after it.
+ * A known recheck (`play-check-recheck.json`, which decides in Lab's playCheckVerdict), else the newest known check row.
+ * A staged check (`SCORE {"reached": r, "of": n}`) that is not solved failed at stage r, so it passed r − 1 of n:
+ * Discovery's own `stagesPassed` (runner/calibration.mjs). Only the SCORE line is parsed; the check prints more after it.
  */
 export async function discoveryPlayCheckReward(runDir: string): Promise<PlayCheckReward | null> {
   const rows = await jsonlRows(join(runDir, 'play-checks.jsonl'))
-  const single = rows.length === 0 ? record(await readJson(join(runDir, 'play-check.json'))) : null
-  if (single) rows.push(single)
+  if (rows.length === 0) rows.push(record(await readJson(join(runDir, 'play-check.json'))) ?? {})
   const known = rows
     .filter((row) => row.known !== false && typeof row.solved === 'boolean')
     .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')))
-  const last = known.at(-1)
+  const recheck = record(await readJson(join(runDir, 'play-check-recheck.json')))
+  const decided = recheck?.known === true && typeof recheck.solved === 'boolean'
+  const last = decided ? recheck : known.at(-1)
   if (last === undefined) return null
   const detail = typeof last.detail === 'string' ? last.detail : ''
   let reward = last.solved === true ? 1 : 0
