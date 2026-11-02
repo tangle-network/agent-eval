@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.15] — 2026-11-02
+
+- fix(supervisor-run): count a run stopped after it solved as a whole episode (#1192)
+- fix(rollout): release from an importer's ledger and stop reading English as secrets (#1191)
+
 ## [1.0.14] — 2026-11-02
 
 - fix(supervisor-run): build Discovery rows from execution results (#1189)
