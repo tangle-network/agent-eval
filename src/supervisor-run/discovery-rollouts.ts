@@ -22,7 +22,7 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { sandboxEventsSession, toChatMessages } from '@tangle-network/harness-sessions'
+import { sandboxEventsSession, toChatMessages, toOtlpSpans } from '@tangle-network/harness-sessions'
 import { promisify } from 'node:util'
 import { licenseClassOfName } from '../rollout/license'
 import { screenedRewardFields, unscreenedRewardFields } from '../rollout/reward'
@@ -30,7 +30,7 @@ import type { RolloutLine } from '../rollout/schema'
 import { expandJournalEventGroup } from './journal-event-group'
 import { supervisorRunRolloutLinesFromFacts } from './rollout-nodes'
 import { readRuntimeSupervisorRun } from './runtime-reader'
-import { parseSupervisorTree } from './source-facts'
+import { parseJsonl, parseSupervisorTree } from './source-facts'
 import type { SupervisorRunTreeGap } from './types'
 
 const run = promisify(execFile)
@@ -81,15 +81,7 @@ async function journalFacts(runDir: string): Promise<Map<string, NodeFacts>> {
     facts.set(id, fact)
     return fact
   }
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue
-    let row: Record<string, unknown> | null
-    try {
-      row = record(JSON.parse(line))
-    } catch {
-      continue
-    }
-    if (row === null) continue
+  for (const row of parseJsonl(raw)) {
     const expanded = expandJournalEventGroup(row)
     if (!expanded.succeeded) continue
     for (const entry of expanded.value) {
@@ -126,16 +118,7 @@ async function blobValue(runDir: string, ref: string | undefined): Promise<unkno
   }
 }
 
-async function jsonlRows(path: string): Promise<Record<string, unknown>[]> {
-  const rows: Record<string, unknown>[] = []
-  for (const line of (await readFile(path, 'utf8').catch(() => '')).split('\n')) {
-    try {
-      const row = record(JSON.parse(line))
-      if (row) rows.push(row)
-    } catch {}
-  }
-  return rows
-}
+const jsonlRows = async (path: string) => parseJsonl(await readFile(path, 'utf8').catch(() => null))
 
 export interface PlayCheckReward {
   reward: number
@@ -240,6 +223,8 @@ export interface DiscoveryRunRollouts {
   gaps: SupervisorRunTreeGap[]
   /** Discovery facts this read could not recover, one sentence each. */
   notes: string[]
+  /** Each row's session as OTLP-JSONL, by rollout id. */
+  otlp: Map<string, string>
 }
 
 /** Read one Discovery run directory into rollout rows. */
@@ -267,6 +252,7 @@ export async function discoveryRunRolloutLines(
   const check = await discoveryPlayCheckReward(runDir)
   const commits = await deliverableCommits(runDir)
   const lines: RolloutLine[] = []
+  const otlp = new Map<string, string>()
   for (const node of tree.nodes) {
     const fact = facts.get(node.rollout_id) ?? {}
     const producer = fact.model === undefined ? null : producerOf(fact.model)
@@ -302,6 +288,8 @@ export async function discoveryRunRolloutLines(
             verdict: { at: check.at, commit: check.commit, detail: check.detail },
           }
         : node.outcome
+    const spans = session === null ? [] : toOtlpSpans(session)
+    otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
     lines.push({
       ...node,
       policy: {
@@ -330,5 +318,5 @@ export async function discoveryRunRolloutLines(
   const notes = commits === null ? ['deliverables.git unreadable: deliverable_commits is null'] : []
   // The play-check is the root's reward, so the tree's "no judge verdict" gap no longer holds.
   const gaps = tree.gaps.filter((gap) => check === null || gap.code !== 'root-reward-unavailable')
-  return { runDir, pursuit, lines, gaps, notes }
+  return { runDir, pursuit, lines, gaps, notes, otlp }
 }

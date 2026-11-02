@@ -8,6 +8,7 @@
  *   --since <ISO>            limit --sessions to stores changed since then
  *   --gate-receipts <file>   beelink-gate receipts.jsonl, as verifiable labels
  *   --denylist <file>        literal private terms, one per line
+ *   --otlp <file>            also write each kept run row's session as OTLP spans
  *
  * Every row passes the privacy screen before it is written: a row with any
  * secret or private detail is dropped whole and counted by rule, so the
@@ -15,7 +16,7 @@
  * back with `readRolloutJournal`; their rewards are unscreened.
  */
 
-import { readFile, rm } from 'node:fs/promises'
+import { appendFile, readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { errorMessage } from '../errors'
 import { appendRolloutLines } from '../rollout/ledger'
@@ -30,7 +31,7 @@ import { discoveryRunRolloutLines } from './discovery-rollouts'
 import type { SupervisorRunCommandIo } from './report-command'
 
 export const ROLLOUTS_USAGE =
-  'usage: agent-eval supervisor-run rollouts [<runDir>...] [--sessions [<harness>:]<path>]... [--since <ISO>] [--gate-receipts <file>]... [--denylist <file>] --out <ledger.jsonl>'
+  'usage: agent-eval supervisor-run rollouts [<runDir>...] [--sessions [<harness>:]<path>]... [--since <ISO>] [--gate-receipts <file>]... [--denylist <file>] [--otlp <file>] --out <ledger.jsonl>'
 
 interface RolloutsArgs {
   runDirs: string[]
@@ -38,6 +39,7 @@ interface RolloutsArgs {
   sinceMs?: number
   gateReceipts: string[]
   denylist: string | null
+  otlp: string | null
   out: string
 }
 
@@ -47,6 +49,7 @@ function parseArgs(argv: readonly string[]): RolloutsArgs {
     sessions: [],
     gateReceipts: [],
     denylist: null,
+    otlp: null,
     out: '',
   }
   const value = (i: number, flag: string): string => {
@@ -67,6 +70,7 @@ function parseArgs(argv: readonly string[]): RolloutsArgs {
       args.sinceMs = ms
     } else if (arg === '--gate-receipts') args.gateReceipts.push(value(++i, arg))
     else if (arg === '--denylist') args.denylist = value(++i, arg)
+    else if (arg === '--otlp') args.otlp = value(++i, arg)
     else if (arg.startsWith('--')) throw new Error(`unknown flag "${arg}"`)
     else args.runDirs.push(arg)
   }
@@ -111,6 +115,7 @@ export async function runRolloutsCommand(
     sources: [],
   }
   await rm(out, { force: true })
+  if (args.otlp !== null) await rm(args.otlp, { force: true })
 
   const write = async (source: RolloutsSummary['sources'][number], lines: RolloutLine[]) => {
     source.read += lines.length
@@ -122,6 +127,7 @@ export async function runRolloutsCommand(
     await appendRolloutLines(out, kept)
     source.written += kept.length
     summary.written += kept.length
+    return kept
   }
 
   for (const runDir of args.runDirs) {
@@ -130,7 +136,9 @@ export async function runRolloutsCommand(
     try {
       const run = await discoveryRunRolloutLines(resolve(runDir), { capturedAt })
       source.errors.push(...run.gaps.map((gap) => `${gap.code}: ${gap.message}`), ...run.notes)
-      await write(source, run.lines)
+      const kept = await write(source, run.lines)
+      const spans = kept.map((line) => run.otlp.get(line.rollout_id) ?? '')
+      if (args.otlp !== null) await appendFile(args.otlp, spans.join(''))
     } catch (error) {
       source.errors.push(errorMessage(error))
     }
