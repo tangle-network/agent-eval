@@ -148,14 +148,14 @@ export interface RunVerdict {
  */
 function judged(node: RolloutLine, verdict: RunVerdict | null, pending: string | undefined) {
   if (verdict === null || node.parent_rollout_id !== null) return node.outcome
-  const { reward, screened, gated = false, source, stoppedAt = '', at = '', commit = null } = verdict
+  const { reward, screened, gated = false, source, stoppedAt = '', commit = null } = verdict
   const ended = reward === 1 && !gated && (!pending || Date.parse(stoppedAt) <= Date.parse(pending))
   return {
     ...node.outcome,
     ...(screened || gated ? screenedRewardFields(reward, gated) : unscreenedRewardFields(reward)),
     ...(ended ? { is_completed: true, error: null } : {}),
     reward_source: source,
-    verdict: { at, commit, detail: (verdict.detail ?? '').slice(0, 500) },
+    verdict: { at: verdict.at ?? '', commit, detail: (verdict.detail ?? '').slice(0, 500) },
   }
 }
 
