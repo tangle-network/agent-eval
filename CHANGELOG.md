@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.17] — 2026-11-02
+
+- fix(supervisor-run)!: read Runtime runs generically; the caller supplies the verdict (#1196)
+
 ## [1.0.16] — 2026-11-02
 
 - fix(supervisor-run): let a known recheck decide a Discovery run's reward (#1194)
