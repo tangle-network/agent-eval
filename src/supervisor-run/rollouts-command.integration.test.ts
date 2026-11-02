@@ -240,6 +240,7 @@ describe('supervisor-run rollouts', () => {
 
   it('imports a Discovery run, harness sessions and gate receipts into one screened ledger', async () => {
     const out = join(dir, 'ledger.jsonl')
+    const otlp = join(dir, 'spans.otlp.jsonl')
     const stdout: string[] = []
     const stderr: string[] = []
     const code = await runSupervisorRunCommand(
@@ -254,6 +255,8 @@ describe('supervisor-run rollouts', () => {
         `kimi-code:${await kimiHome()}`,
         '--gate-receipts',
         await gateReceipts(),
+        '--otlp',
+        otlp,
         '--out',
         out,
       ],
@@ -296,6 +299,8 @@ describe('supervisor-run rollouts', () => {
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
     ])
     expect(worker.provenance.lossy_projection).toBeUndefined()
+    const spans = (await readFile(otlp, 'utf8')).trim().split('\n')
+    expect(spans.some((span) => JSON.parse(span).name.includes('bash'))).toBe(true)
     expect(worker.outcome.reward).toBe(1)
     expect(worker.outcome.metrics).toMatchObject({ deliverable_commits: 2 })
 
