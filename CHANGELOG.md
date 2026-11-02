@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.16] — 2026-11-02
+
+- fix(supervisor-run): let a known recheck decide a Discovery run's reward (#1194)
+
 ## [1.0.15] — 2026-11-02
 
 - fix(supervisor-run): count a run stopped after it solved as a whole episode (#1192)
