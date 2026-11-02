@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.14] — 2026-11-02
+
+- fix(supervisor-run): build Discovery rows from execution results (#1189)
+- fix(analyst): pin the benchmark lock digest for harness-sessions 1.0.8 (#1188)
+
 ## [1.0.13] — 2026-11-02
 
 - feat(supervisor-run): write a run's sessions as OTLP spans (#1186)
