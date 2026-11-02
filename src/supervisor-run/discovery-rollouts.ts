@@ -5,9 +5,10 @@
  *   - Producer: each node's `materialized` receipt names the model it ran on
  *     (`opencode/zai-coding-plan/glm-5.3` → harness, provider, model), and the
  *     root's `root-segment` names the root's. The license class follows.
- *   - Episode: the node's task prompt (its `taskDigest` blob) and its settled
- *     result (its `outRef` blob, `{content, events}`), read as a Sandbox session
- *     with every tool call. A result without events stays a lossy projection.
+ *   - Episode: each execution's input (`execution-input.taskRef`) and result
+ *     (`execution-result.outRef`, a `{content, events}` blob), read as Sandbox
+ *     sessions in order, so a node steered twice keeps both turns and every tool
+ *     call. A node with no event stream stays a lossy projection.
  *   - A node respawned under the same id (a reopened run) is one row.
  *   - Reward: the run's newest known play-check verdict on the root row
  *     (`solved` → 1, a staged `SCORE` → stages passed / stages), and each
@@ -22,6 +23,7 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import type { HarnessSession } from '@tangle-network/harness-sessions'
 import { sandboxEventsSession, toChatMessages, toOtlpSpans } from '@tangle-network/harness-sessions'
 import { promisify } from 'node:util'
 import { licenseClassOfName } from '../rollout/license'
@@ -44,6 +46,9 @@ interface NodeFacts {
   model?: string
   taskRef?: string
   outRef?: string
+  /** The node's newest input, which the next result answers. */
+  inputRef?: string
+  executions?: Array<{ taskRef?: string; outRef: string }>
 }
 
 interface Producer {
@@ -99,26 +104,44 @@ async function journalFacts(runDir: string): Promise<Map<string, NodeFacts>> {
         if (model) node(id).model = [text(to?.harness), text(to?.provider), model].join('/')
       } else if (event.kind === 'settled' && text(event.outRef)) {
         node(id).outRef = text(event.outRef)
+      } else if (event.kind === 'execution-input') {
+        node(id).inputRef = text(event.taskRef)
+      } else if (event.kind === 'execution-result' && text(event.outRef)) {
+        const fact = node(id)
+        const taskRef = fact.inputRef ?? fact.taskRef
+        ;(fact.executions ??= []).push({ taskRef, outRef: event.outRef as string })
       }
     }
   }
   return facts
 }
 
+const readJson = (path: string): Promise<unknown> =>
+  readFile(path, 'utf8').then(JSON.parse).catch(() => undefined)
+
 async function blobValue(runDir: string, ref: string | undefined): Promise<unknown> {
   if (ref === undefined || !/^sha256:[0-9a-f]{64}$/u.test(ref)) return undefined
-  const raw = await readFile(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`), 'utf8').catch(
-    () => undefined,
-  )
-  if (raw === undefined) return undefined
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return undefined
-  }
+  return readJson(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`))
 }
 
 const jsonlRows = async (path: string) => parseJsonl(await readFile(path, 'utf8').catch(() => null))
+
+/** One Sandbox session per execution, oldest first; older runs keep only the settled result. */
+async function nodeSessions(runDir: string, harness: string, id: string, fact: NodeFacts) {
+  const executions = fact.executions ?? [{ taskRef: fact.taskRef, outRef: fact.outRef }]
+  const sessions: HarnessSession[] = []
+  for (const [index, { taskRef, outRef }] of executions.entries()) {
+    const [input, result] = await Promise.all([blobValue(runDir, taskRef), blobValue(runDir, outRef)])
+    const task = text(input) ?? text(record(input)?.prompt) ?? text(record(input)?.instruction)
+    const answer = text(result) ?? text(record(result)?.content)
+    const stream = record(result)?.events
+    const events = Array.isArray(stream) ? stream : []
+    if (task === undefined || (answer === undefined && events.length === 0)) continue
+    const nativeSessionId = `${id}:${index}`
+    sessions.push(sandboxEventsSession({ harness, nativeSessionId, task, answer: answer ?? '', events }))
+  }
+  return sessions
+}
 
 export interface PlayCheckReward {
   reward: number
@@ -139,13 +162,8 @@ export interface PlayCheckReward {
  */
 export async function discoveryPlayCheckReward(runDir: string): Promise<PlayCheckReward | null> {
   const rows = await jsonlRows(join(runDir, 'play-checks.jsonl'))
-  if (rows.length === 0) {
-    const single = await readFile(join(runDir, 'play-check.json'), 'utf8').catch(() => null)
-    try {
-      const row = single === null ? null : record(JSON.parse(single))
-      if (row) rows.push(row)
-    } catch {}
-  }
+  const single = rows.length === 0 ? record(await readJson(join(runDir, 'play-check.json'))) : null
+  if (single) rows.push(single)
   const known = rows
     .filter((row) => row.known !== false && typeof row.solved === 'boolean')
     .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')))
@@ -156,24 +174,16 @@ export async function discoveryPlayCheckReward(runDir: string): Promise<PlayChec
   const score = detail.split('\n').find((line) => line.startsWith('SCORE {'))
   if (reward === 0 && score !== undefined) {
     try {
-      const staged = record(JSON.parse(score.slice('SCORE '.length)))
-      const reached = staged?.reached
-      const of = staged?.of
-      if (
-        Number.isSafeInteger(reached) &&
-        Number.isSafeInteger(of) &&
-        1 <= (reached as number) &&
-        (reached as number) <= (of as number)
-      ) {
-        reward = ((reached as number) - 1) / (of as number)
-      }
+      const { reached, of } = JSON.parse(score.slice('SCORE '.length))
+      const whole = Number.isSafeInteger(reached) && Number.isSafeInteger(of)
+      if (whole && 1 <= reached && reached <= of) reward = (reached - 1) / of
     } catch {}
   }
   const key = last.contentHash ?? last.commit ?? last.at
   const audits = await jsonlRows(join(runDir, 'goal-audits.jsonl'))
   const ruling = audits.filter((a) => a.key === key && a.verdict !== 'unavailable').at(-1)
-  const receipt = await readFile(join(runDir, 'RECEIPT.json'), 'utf8').then(JSON.parse, () => null)
-  const calibration = record(record(record(receipt)?.check)?.calibration)
+  const receipt = record(await readJson(join(runDir, 'RECEIPT.json')))
+  const calibration = record(record(receipt?.check)?.calibration)
   const stages = Object.values(record(calibration?.stages) ?? {})
   return {
     reward,
@@ -257,24 +267,9 @@ export async function discoveryRunRolloutLines(
     const fact = facts.get(node.rollout_id) ?? {}
     const producer = fact.model === undefined ? null : producerOf(fact.model)
     const license = licenseClassOfName(producer?.model) ?? licenseClassOfName(producer?.harness)
-    const [taskBlob, result] = await Promise.all([
-      blobValue(runDir, fact.taskRef),
-      blobValue(runDir, fact.outRef),
-    ])
-    const task = text(taskBlob)
-    const answer = text(result) ?? text(record(result)?.content)
-    const events = record(result)?.events
-    const stream = Array.isArray(events) ? events : []
-    const session =
-      task === undefined || answer === undefined
-        ? null
-        : sandboxEventsSession({
-            harness: producer?.harness ?? node.policy.harness ?? 'sandbox',
-            nativeSessionId: node.rollout_id,
-            task,
-            answer,
-            events: stream,
-          })
+    const harness = producer?.harness ?? node.policy.harness ?? 'sandbox'
+    const sessions = await nodeSessions(runDir, harness, node.rollout_id, fact)
+    const messages = sessions.flatMap((session) => toChatMessages(session))
     const label = typeof node.outcome.metrics.label === 'string' ? node.outcome.metrics.label : null
     const isRoot = node.parent_rollout_id === null
     const outcome =
@@ -288,7 +283,7 @@ export async function discoveryRunRolloutLines(
             verdict: { at: check.at, commit: check.commit, detail: check.detail },
           }
         : node.outcome
-    const spans = session === null ? [] : toOtlpSpans(session)
+    const spans = sessions.flatMap((session) => toOtlpSpans(session))
     otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
     lines.push({
       ...node,
@@ -303,8 +298,8 @@ export async function discoveryRunRolloutLines(
             }),
         ...(license === null ? {} : { license_class: license }),
       },
-      messages: session === null ? node.messages : toChatMessages(session),
-      provenance: stream.length === 0 ? node.provenance : wholeEpisode(node.provenance),
+      messages: sessions.length === 0 ? node.messages : messages,
+      provenance: messages.some((m) => m.role === 'tool') ? wholeEpisode(node.provenance) : node.provenance,
       outcome: {
         ...outcome,
         metrics: {

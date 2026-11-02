@@ -21,6 +21,9 @@ const ROOT = RUN
 const WORKER = `${RUN}:s0`
 const TASK = `sha256:${'a'.repeat(64)}`
 const ANSWER = `sha256:${'b'.repeat(64)}`
+const STEER = `sha256:${'c'.repeat(64)}`
+const STEERED = `sha256:${'d'.repeat(64)}`
+const RETURNED = `sha256:${'e'.repeat(64)}`
 
 let dir: string
 beforeEach(async () => {
@@ -96,12 +99,22 @@ async function discoveryRun(
           kind: 'settled',
           id: WORKER,
           status: 'done',
-          outRef: ANSWER,
+          outRef: RETURNED,
           verdict: { valid: true, score: 1 },
-          seq: 2,
+          seq: 5,
           at: at(3),
         },
       },
+      ...[
+        { kind: 'execution-input', taskRef: TASK },
+        { kind: 'execution-result', outRef: ANSWER },
+        { kind: 'execution-input', taskRef: STEER },
+        { kind: 'execution-result', outRef: STEERED },
+      ].map((event, seq) => ({
+        kind: 'event',
+        root: ROOT,
+        event: { ...event, id: WORKER, seq: seq + 1, at: at(2) },
+      })),
     ]),
   )
   await writeFile(
@@ -120,6 +133,11 @@ async function discoveryRun(
       ],
     }),
   )
+  const blob = (ref: string, value: unknown) =>
+    writeFile(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`), JSON.stringify(value))
+  await blob(STEER, 'Recheck the last case.')
+  await blob(STEERED, { content: 'Still 6 of 6.', events: [] })
+  await blob(RETURNED, { cases: 6, passed: 6 })
   await writeFile(
     join(runDir, 'play-checks.jsonl'),
     jsonl([
@@ -297,6 +315,8 @@ describe('supervisor-run rollouts', () => {
       { role: 'assistant', content: 'Running the cases.', tool_calls: [{ function: { name: 'bash' } }] },
       { role: 'tool', name: 'bash', content: '6 passed' },
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
+      { role: 'user', content: 'Recheck the last case.' },
+      { role: 'assistant', content: 'Still 6 of 6.' },
     ])
     expect(worker.provenance.lossy_projection).toBeUndefined()
     const spans = (await readFile(otlp, 'utf8')).trim().split('\n')
