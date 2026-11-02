@@ -9,7 +9,10 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { assertMintedLines } from '../rollout'
+import { toHarborTrajectories } from '../rollout/interchange/harbor'
 import { readRolloutJournal } from '../rollout/ledger'
+import { discoveryRunRolloutLines } from './discovery-rollouts'
 import { runSupervisorRunCommand } from './report-command'
 
 const FIXTURES = join(import.meta.dirname, '../../tests/fixtures/harness-sessions')
@@ -29,7 +32,10 @@ afterEach(async () => {
 
 const jsonl = (rows: unknown[]) => `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`
 
-async function discoveryRun(): Promise<string> {
+async function discoveryRun(
+  pass?: { goalAudit: { verdict: string } },
+  stages?: Record<string, string>,
+): Promise<string> {
   const runDir = join(dir, 'discovery-runs', RUN)
   await mkdir(join(runDir, 'blobs'), { recursive: true })
   const at = (m: number) => `2026-10-25T0${m}:00:00.000Z`
@@ -104,7 +110,15 @@ async function discoveryRun(): Promise<string> {
   )
   await writeFile(
     join(runDir, 'blobs', `${ANSWER.replace(':', '-')}.json`),
-    JSON.stringify('csvstat builds; 6 of 6 cases pass.'),
+    JSON.stringify({
+      content: 'csvstat builds; 6 of 6 cases pass.',
+      events: [
+        { type: 'message.part.updated', data: { part: { id: 'p1', messageID: 'm1', type: 'text', text: 'Running the cases.' } } },
+        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'running', input: { command: 'pnpm test' } } } } },
+        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'completed', input: { command: 'pnpm test' }, output: '6 passed' } } } },
+        { type: 'message.part.updated', data: { part: { id: 'p3', messageID: 'm2', type: 'text', text: 'csvstat builds; 6 of 6 cases pass.' } } },
+      ],
+    }),
   )
   await writeFile(
     join(runDir, 'play-checks.jsonl'),
@@ -126,8 +140,14 @@ async function discoveryRun(): Promise<string> {
         commit: null,
         detail: 'repo check waiting for Beelink',
       },
+      ...(pass === undefined
+        ? []
+        : [{ at: at(6), solved: true, known: true, commit: 'd'.repeat(40), detail: 'SOLVED', ...pass }]),
     ]),
   )
+  if (stages !== undefined) {
+    await writeFile(join(runDir, 'RECEIPT.json'), JSON.stringify({ check: { calibration: { stages } } }))
+  }
   const repo = join(runDir, 'deliverables.git')
   const git = (...args: string[]) =>
     execFileSync('git', [
@@ -190,6 +210,34 @@ async function gateReceipts(): Promise<string> {
 }
 
 describe('supervisor-run rollouts', () => {
+  it('trains on a calibrated pass, gates a contradicted one, and refuses an unscreened one', async () => {
+    const root = async (verdict: string, stages?: Record<string, string>) => {
+      const run = await discoveryRun({ goalAudit: { verdict } }, stages)
+      const { lines } = await discoveryRunRolloutLines(run)
+      await rm(run, { recursive: true })
+      return lines.find((line) => line.rollout_id === ROOT)!
+    }
+    const screened = await root('consistent', { check: 'calibrated' })
+    expect(screened.outcome).toMatchObject({ reward: 1, realness_gated: false, realness_screened: true })
+    expect(() => assertMintedLines([screened])).not.toThrow()
+
+    const gated = await root('contradiction', { check: 'calibrated' })
+    expect(gated.outcome).toMatchObject({ reward: 0, realness_gated: true, realness_screened: true })
+
+    // A consistent audit reads only the check's own report, so it screens nothing by itself.
+    for (const stages of [undefined, { keys: 'calibrated', parse: 'uncalibrated' }]) {
+      const unscreened = await root('consistent', stages)
+      expect(unscreened.outcome.realness_screened).toBe(false)
+      expect(() => assertMintedLines([unscreened])).toThrow(/realness_screened/)
+    }
+  })
+
+  it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
+    const { lines } = await discoveryRunRolloutLines(await discoveryRun())
+    const steps = toHarborTrajectories(lines).flatMap((t) => [t, ...(t.subagent_trajectories ?? [])]).flatMap((t) => t.steps)
+    expect(steps.flatMap((s) => s.tool_calls ?? []).map((c) => c.function_name)).toEqual(['bash'])
+  })
+
   it('imports a Discovery run, harness sessions and gate receipts into one screened ledger', async () => {
     const out = join(dir, 'ledger.jsonl')
     const stdout: string[] = []
@@ -241,10 +289,13 @@ describe('supervisor-run rollouts', () => {
       model: 'deepseek-v4',
       license_class: 'open-weight-api',
     })
-    expect(worker.messages).toEqual([
+    expect(worker.messages).toMatchObject([
       { role: 'user', content: 'Build csvstat to the spec.' },
+      { role: 'assistant', content: 'Running the cases.', tool_calls: [{ function: { name: 'bash' } }] },
+      { role: 'tool', name: 'bash', content: '6 passed' },
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
     ])
+    expect(worker.provenance.lossy_projection).toBeUndefined()
     expect(worker.outcome.reward).toBe(1)
     expect(worker.outcome.metrics).toMatchObject({ deliverable_commits: 2 })
 
