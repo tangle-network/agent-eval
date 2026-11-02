@@ -188,7 +188,7 @@ export async function discoveryPlayCheckReward(runDir: string): Promise<PlayChec
   }
   const key = last.contentHash ?? last.commit ?? last.at
   const audits = await jsonlRows(join(runDir, 'goal-audits.jsonl'))
-  const ruling = audits.findLast((audit) => audit.key === key && audit.verdict !== 'unavailable')
+  const ruling = audits.filter((a) => a.key === key && a.verdict !== 'unavailable').at(-1)
   const receipt = await readFile(join(runDir, 'RECEIPT.json'), 'utf8').then(JSON.parse, () => null)
   const calibration = record(record(record(receipt)?.check)?.calibration)
   const stages = Object.values(record(calibration?.stages) ?? {})
