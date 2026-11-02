@@ -5,24 +5,27 @@
  *   - Producer: each node's `materialized` receipt names the model it ran on
  *     (`opencode/zai-coding-plan/glm-5.3` → harness, provider, model), and the
  *     root's `root-segment` names the root's. The license class follows.
- *   - Episode text: the node's task prompt (its `taskDigest` blob) and its
- *     final answer (its `outRef` blob), when the run kept both. The tool calls
- *     between them are not inlined, so the row stays a lossy projection.
+ *   - Episode: the node's task prompt (its `taskDigest` blob) and its settled
+ *     result (its `outRef` blob, `{content, events}`), read as a Sandbox session
+ *     with every tool call. A result without events stays a lossy projection.
  *   - A node respawned under the same id (a reopened run) is one row.
  *   - Reward: the run's newest known play-check verdict on the root row
  *     (`solved` → 1, a staged `SCORE` → stages passed / stages), and each
  *     agent's own commits on its `workers/<label>` branch of `deliverables.git`.
+ *   - Screen: the calibration frozen in the run's receipt, where a fake fixture
+ *     failed every stage of the check, and the goal audit, whose `contradiction`
+ *     gates the reward. A check nothing calibrated stays unscreened.
  *
- * Every read is of files the run already wrote; nothing in the run dir is
- * changed. Rewards stay unscreened: no realness screen ran on a play-check.
+ * Every read is of files the run already wrote; nothing in the run dir is changed.
  */
 
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { sandboxEventsSession, toChatMessages } from '@tangle-network/harness-sessions'
 import { promisify } from 'node:util'
 import { licenseClassOfName } from '../rollout/license'
-import { unscreenedRewardFields } from '../rollout/reward'
+import { screenedRewardFields, unscreenedRewardFields } from '../rollout/reward'
 import type { RolloutLine } from '../rollout/schema'
 import { expandJournalEventGroup } from './journal-event-group'
 import { supervisorRunRolloutLinesFromFacts } from './rollout-nodes'
@@ -57,6 +60,12 @@ function producerOf(id: string): Producer {
   }
   if (parts.length === 2) return { harness: null, provider: parts[0]!, model: parts[1]! }
   return { harness: null, provider: null, model: id }
+}
+
+/** A row holding the agent's whole stream is no longer lossy; a workspace capture gap still stands. */
+function wholeEpisode({ lossy_projection: _, gap, ...kept }: RolloutLine['provenance']) {
+  const workspace = gap?.match(/workspace capture evidence \w+/u)?.[0]
+  return workspace === undefined ? kept : { ...kept, gap: workspace }
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>
@@ -104,17 +113,28 @@ async function journalFacts(runDir: string): Promise<Map<string, NodeFacts>> {
   return facts
 }
 
-async function blobText(runDir: string, ref: string | undefined): Promise<string | undefined> {
+async function blobValue(runDir: string, ref: string | undefined): Promise<unknown> {
   if (ref === undefined || !/^sha256:[0-9a-f]{64}$/u.test(ref)) return undefined
   const raw = await readFile(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`), 'utf8').catch(
     () => undefined,
   )
   if (raw === undefined) return undefined
   try {
-    return text(JSON.parse(raw))
+    return JSON.parse(raw)
   } catch {
     return undefined
   }
+}
+
+async function jsonlRows(path: string): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = []
+  for (const line of (await readFile(path, 'utf8').catch(() => '')).split('\n')) {
+    try {
+      const row = record(JSON.parse(line))
+      if (row) rows.push(row)
+    } catch {}
+  }
+  return rows
 }
 
 export interface PlayCheckReward {
@@ -122,6 +142,10 @@ export interface PlayCheckReward {
   at: string
   commit: string | null
   detail: string
+  /** A fake fixture failed every stage of this check, so a pass of it means something. */
+  calibrated: boolean
+  /** The goal audit ruled that this pass falls short of the goal. */
+  contradicted: boolean
 }
 
 /**
@@ -131,14 +155,7 @@ export interface PlayCheckReward {
  * Only the SCORE line itself is parsed; the check prints more lines after it.
  */
 export async function discoveryPlayCheckReward(runDir: string): Promise<PlayCheckReward | null> {
-  const rows: Record<string, unknown>[] = []
-  const lines = await readFile(join(runDir, 'play-checks.jsonl'), 'utf8').catch(() => '')
-  for (const line of lines.split('\n')) {
-    try {
-      const row = record(JSON.parse(line))
-      if (row) rows.push(row)
-    } catch {}
-  }
+  const rows = await jsonlRows(join(runDir, 'play-checks.jsonl'))
   if (rows.length === 0) {
     const single = await readFile(join(runDir, 'play-check.json'), 'utf8').catch(() => null)
     try {
@@ -169,8 +186,16 @@ export async function discoveryPlayCheckReward(runDir: string): Promise<PlayChec
       }
     } catch {}
   }
+  const key = last.contentHash ?? last.commit ?? last.at
+  const audits = await jsonlRows(join(runDir, 'goal-audits.jsonl'))
+  const ruling = audits.filter((a) => a.key === key && a.verdict !== 'unavailable').at(-1)
+  const receipt = await readFile(join(runDir, 'RECEIPT.json'), 'utf8').then(JSON.parse, () => null)
+  const calibration = record(record(record(receipt)?.check)?.calibration)
+  const stages = Object.values(record(calibration?.stages) ?? {})
   return {
     reward,
+    calibrated: stages.length > 0 && stages.every((state) => state === 'calibrated'),
+    contradicted: (ruling?.verdict ?? record(last.goalAudit)?.verdict) === 'contradiction',
     at: String(last.at ?? ''),
     commit: typeof last.commit === 'string' ? last.commit : null,
     detail: detail.slice(0, 500),
@@ -246,17 +271,33 @@ export async function discoveryRunRolloutLines(
     const fact = facts.get(node.rollout_id) ?? {}
     const producer = fact.model === undefined ? null : producerOf(fact.model)
     const license = licenseClassOfName(producer?.model) ?? licenseClassOfName(producer?.harness)
-    const [task, answer] = await Promise.all([
-      blobText(runDir, fact.taskRef),
-      blobText(runDir, fact.outRef),
+    const [taskBlob, result] = await Promise.all([
+      blobValue(runDir, fact.taskRef),
+      blobValue(runDir, fact.outRef),
     ])
+    const task = text(taskBlob)
+    const answer = text(result) ?? text(record(result)?.content)
+    const events = record(result)?.events
+    const stream = Array.isArray(events) ? events : []
+    const session =
+      task === undefined || answer === undefined
+        ? null
+        : sandboxEventsSession({
+            harness: producer?.harness ?? node.policy.harness ?? 'sandbox',
+            nativeSessionId: node.rollout_id,
+            task,
+            answer,
+            events: stream,
+          })
     const label = typeof node.outcome.metrics.label === 'string' ? node.outcome.metrics.label : null
     const isRoot = node.parent_rollout_id === null
     const outcome =
       isRoot && check !== null
         ? {
             ...node.outcome,
-            ...unscreenedRewardFields(check.reward),
+            ...(check.calibrated || check.contradicted
+              ? screenedRewardFields(check.reward, check.contradicted)
+              : unscreenedRewardFields(check.reward)),
             reward_source: 'discovery/play-check',
             verdict: { at: check.at, commit: check.commit, detail: check.detail },
           }
@@ -274,13 +315,8 @@ export async function discoveryRunRolloutLines(
             }),
         ...(license === null ? {} : { license_class: license }),
       },
-      messages:
-        task !== undefined && answer !== undefined
-          ? [
-              { role: 'user', content: task },
-              { role: 'assistant', content: answer },
-            ]
-          : node.messages,
+      messages: session === null ? node.messages : toChatMessages(session),
+      provenance: stream.length === 0 ? node.provenance : wholeEpisode(node.provenance),
       outcome: {
         ...outcome,
         metrics: {

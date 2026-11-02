@@ -52,12 +52,6 @@ export type {
   Verification,
   VerifyFn,
 } from '../propose-review'
-export type {
-  ProposeReviewControlAction,
-  ProposeReviewControlConfig,
-  ProposeReviewControlResult,
-  ProposeReviewControlState,
-} from '../propose-review-control'
 export type { ReflectionContext, ReflectionProposal, TrialTrace } from '../reflective-mutation'
 export type {
   ExperimentPlan,

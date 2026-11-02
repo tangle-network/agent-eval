@@ -190,3 +190,8 @@ export function rolloutRewardFields(record: Scored): RolloutRewardFields {
 export function unscreenedRewardFields(score: number | null): RolloutRewardFields {
   return { reward: score, realness_gated: false, realness_screened: false }
 }
+
+/** The same fields for a producer whose own screen ran; a gated reward is 0. */
+export function screenedRewardFields(score: number | null, gated: boolean): RolloutRewardFields {
+  return { reward: gated ? 0 : score, realness_gated: gated, realness_screened: true }
+}
