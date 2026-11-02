@@ -117,7 +117,13 @@ async function runtimeRun(end?: { unansweredAt: string }): Promise<string> {
             {
               kind: 'event',
               root: ROOT,
-              event: { kind: 'execution-input', id: ROOT, taskRef: STEER, seq: 9, at: end.unansweredAt },
+              event: {
+                kind: 'execution-input',
+                id: ROOT,
+                taskRef: STEER,
+                seq: 9,
+                at: end.unansweredAt,
+              },
             },
           ]),
     ]),
@@ -131,10 +137,47 @@ async function runtimeRun(end?: { unansweredAt: string }): Promise<string> {
     JSON.stringify({
       content: 'csvstat builds; 6 of 6 cases pass.',
       events: [
-        { type: 'message.part.updated', data: { part: { id: 'p1', messageID: 'm1', type: 'text', text: 'Running the cases.' } } },
-        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'running', input: { command: 'pnpm test' } } } } },
-        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'completed', input: { command: 'pnpm test' }, output: '6 passed' } } } },
-        { type: 'message.part.updated', data: { part: { id: 'p3', messageID: 'm2', type: 'text', text: 'csvstat builds; 6 of 6 cases pass.' } } },
+        {
+          type: 'message.part.updated',
+          data: { part: { id: 'p1', messageID: 'm1', type: 'text', text: 'Running the cases.' } },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p2',
+              messageID: 'm1',
+              type: 'tool',
+              callID: 'c1',
+              tool: 'bash',
+              state: { status: 'running', input: { command: 'pnpm test' } },
+            },
+          },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p2',
+              messageID: 'm1',
+              type: 'tool',
+              callID: 'c1',
+              tool: 'bash',
+              state: { status: 'completed', input: { command: 'pnpm test' }, output: '6 passed' },
+            },
+          },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p3',
+              messageID: 'm2',
+              type: 'text',
+              text: 'csvstat builds; 6 of 6 cases pass.',
+            },
+          },
+        },
       ],
     }),
   )
@@ -184,7 +227,12 @@ async function gateReceipts(): Promise<string> {
 }
 
 describe('supervisor-run rollouts', () => {
-  const verdict = (fields: Partial<RunVerdict> = {}): RunVerdict => ({ reward: 1, screened: false, source: 'suite/check', ...fields })
+  const verdict = (fields: Partial<RunVerdict> = {}): RunVerdict => ({
+    reward: 1,
+    screened: false,
+    source: 'suite/check',
+    ...fields,
+  })
 
   it('trains on a screened reward, gates a contradicted one, and refuses an unscreened one', async () => {
     const run = await runtimeRun()
@@ -193,10 +241,19 @@ describe('supervisor-run rollouts', () => {
       return lines.find((line) => line.rollout_id === ROOT)!
     }
     const screened = await root({ screened: true })
-    expect(screened.outcome).toMatchObject({ reward: 1, realness_gated: false, realness_screened: true, reward_source: 'suite/check' })
+    expect(screened.outcome).toMatchObject({
+      reward: 1,
+      realness_gated: false,
+      realness_screened: true,
+      reward_source: 'suite/check',
+    })
     expect(() => assertMintedLines([screened])).not.toThrow()
     const gated = await root({ screened: true, gated: true })
-    expect(gated.outcome).toMatchObject({ reward: 0, realness_gated: true, realness_screened: true })
+    expect(gated.outcome).toMatchObject({
+      reward: 0,
+      realness_gated: true,
+      realness_screened: true,
+    })
     const unscreened = await root({})
     expect(unscreened.outcome.realness_screened).toBe(false)
     expect(() => assertMintedLines([unscreened])).toThrow(/realness_screened/)
@@ -205,7 +262,9 @@ describe('supervisor-run rollouts', () => {
   it('completes a run stopped on its success, not one cut before it', async () => {
     const outcomeWhen = async (stoppedAt: string, unansweredAt: string) => {
       const run = await runtimeRun({ unansweredAt })
-      const { lines } = await runtimeRunRolloutLines(run, { verdict: verdict({ screened: true, stoppedAt }) })
+      const { lines } = await runtimeRunRolloutLines(run, {
+        verdict: verdict({ screened: true, stoppedAt }),
+      })
       await rm(run, { recursive: true })
       return lines.find((line) => line.rollout_id === ROOT)!.outcome
     }
@@ -217,7 +276,9 @@ describe('supervisor-run rollouts', () => {
 
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
     const { lines } = await runtimeRunRolloutLines(await runtimeRun())
-    const steps = toHarborTrajectories(lines).flatMap((t) => [t, ...(t.subagent_trajectories ?? [])]).flatMap((t) => t.steps)
+    const steps = toHarborTrajectories(lines)
+      .flatMap((t) => [t, ...(t.subagent_trajectories ?? [])])
+      .flatMap((t) => t.steps)
     expect(steps.flatMap((s) => s.tool_calls ?? []).map((c) => c.function_name)).toEqual(['bash'])
   })
 
@@ -274,7 +335,11 @@ describe('supervisor-run rollouts', () => {
     })
     expect(worker.messages).toMatchObject([
       { role: 'user', content: 'Build csvstat to the spec.' },
-      { role: 'assistant', content: 'Running the cases.', tool_calls: [{ function: { name: 'bash' } }] },
+      {
+        role: 'assistant',
+        content: 'Running the cases.',
+        tool_calls: [{ function: { name: 'bash' } }],
+      },
       { role: 'tool', name: 'bash', content: '6 passed' },
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
       { role: 'user', content: 'Recheck the last case.' },

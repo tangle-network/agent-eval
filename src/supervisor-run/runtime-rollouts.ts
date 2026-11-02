@@ -129,24 +129,35 @@ async function nodeSessions(runDir: string, harness: string, id: string, fact: N
 export interface RunVerdict {
   /** In [0, 1]; 1 is full success. */
   reward: number
-  /** The check behind the reward was validated (a fixture that must fail it did), so a positive may train. */
+  /** The check behind the reward was validated (a fixture that must fail it did). */
   screened: boolean
   /** An independent review contradicted the reward, so it trains nothing. */
   gated?: boolean
   /** Who produced the reward, such as `my-suite/check`. */
   source: string
-  /** When a controller stopped the run on this verdict; a root with no input pending then ended its episode. */
+  /** When a controller stopped the run on this verdict. */
   stoppedAt?: string
   at?: string
   commit?: string | null
   detail?: string
 }
 
-/** A run stopped on its success reads `cancelled`; it is whole if no turn was open when it was stopped. */
-const endedBy = (verdict: RunVerdict, pending: string | undefined): boolean =>
-  verdict.reward === 1 &&
-  verdict.gated !== true &&
-  (!pending || Date.parse(verdict.stoppedAt ?? '') <= Date.parse(pending))
+/**
+ * The root's outcome under the caller's verdict. A run stopped on its success reads `cancelled`;
+ * its episode is whole if no input was pending when it was stopped.
+ */
+function judged(node: RolloutLine, verdict: RunVerdict | null, pending: string | undefined) {
+  if (verdict === null || node.parent_rollout_id !== null) return node.outcome
+  const { reward, screened, gated = false, source, stoppedAt = '', at = '', commit = null } = verdict
+  const ended = reward === 1 && !gated && (!pending || Date.parse(stoppedAt) <= Date.parse(pending))
+  return {
+    ...node.outcome,
+    ...(screened || gated ? screenedRewardFields(reward, gated) : unscreenedRewardFields(reward)),
+    ...(ended ? { is_completed: true, error: null } : {}),
+    reward_source: source,
+    verdict: { at, commit, detail: (verdict.detail ?? '').slice(0, 500) },
+  }
+}
 
 export interface RuntimeRunRollouts {
   runDir: string
@@ -187,18 +198,6 @@ export async function runtimeRunRolloutLines(
     const harness = producer?.harness ?? node.policy.harness ?? 'sandbox'
     const sessions = await nodeSessions(runDir, harness, node.rollout_id, fact)
     const messages = sessions.flatMap((session) => toChatMessages(session))
-    const outcome =
-      node.parent_rollout_id === null && verdict !== null
-        ? {
-            ...node.outcome,
-            ...(verdict.screened || verdict.gated
-              ? screenedRewardFields(verdict.reward, verdict.gated === true)
-              : unscreenedRewardFields(verdict.reward)),
-            ...(endedBy(verdict, fact.unansweredSince) ? { is_completed: true, error: null } : {}),
-            reward_source: verdict.source,
-            verdict: { at: verdict.at ?? '', commit: verdict.commit ?? null, detail: (verdict.detail ?? '').slice(0, 500) },
-          }
-        : node.outcome
     // A session with no stream has only its root span, which `traces` rightly calls unread.
     const spans = sessions.map((session) => toOtlpSpans(session)).filter((s) => s.length > 1).flat()
     otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
@@ -217,7 +216,7 @@ export async function runtimeRunRolloutLines(
       },
       messages: sessions.length === 0 ? node.messages : messages,
       provenance: messages.some((m) => m.role === 'tool') ? wholeEpisode(node.provenance) : node.provenance,
-      outcome,
+      outcome: judged(node, verdict, fact.unansweredSince),
     })
   }
   // The verdict is the root's reward, so the tree's "no judge verdict" gap no longer holds.
