@@ -209,10 +209,7 @@ export {
   mcnemarPower,
   mcnemarRequiredN,
   meanConfidenceInterval,
-  meanEffect,
-  rateEffect,
   rocAuc,
-  fitLogistic,
   mulberry32,
   pairedBootstrap,
   pairedCohensDz,
@@ -343,7 +340,6 @@ export {
   twoByTwoPValue,
 } from './statistics/inference'
 export { sampleMedian, summarizeSample } from './statistics/samples'
-export * from './statistics/two-sample'
 export {
   percentileNearestRank,
   summarizeDistribution,

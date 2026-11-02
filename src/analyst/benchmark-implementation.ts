@@ -81,7 +81,6 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
-  'src/baseline.ts',
   'src/campaign/external-optimizer-anthropic.ts',
   'src/campaign/external-optimizer-callback.ts',
   'src/campaign/external-optimizer-contracts.ts',
@@ -152,7 +151,6 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/statistics/rank-tests.ts',
   'src/statistics/samples.ts',
   'src/statistics/sequential-eprocess.ts',
-  'src/statistics/two-sample.ts',
   'src/trace-analyst/errors.ts',
   'src/trace-analyst/otlp-span.ts',
   'src/trace-analyst/shared-abortable-task.ts',
@@ -176,7 +174,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '72c4aededb7ea91a1d8f7f9d5d8bf3794e7f9981338597ae00a99f8fa9a6e9ac'
+  '8fa3a0585992c1123da28fd6c1dd6c9f392e7368741a3be5ac4a85fd55d3bbdc'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

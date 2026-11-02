@@ -5,6 +5,7 @@ import {
   continuousAgreement,
 } from '../judge-calibration'
 import type { DimensionJudgeScore } from '../types'
+import { type BootstrapInterval, clusterBootstrap } from './internal'
 
 /**
  * Inter-rater reliability — Krippendorff's α under the squared-difference
@@ -82,21 +83,6 @@ export function interRaterReliability(judgeScores: DimensionJudgeScore[][]): num
   return 1 - observedDisagreement / expectedDisagreement
 }
 
-// ── Corpus-wide inter-rater agreement ──────────────────────────────
-//
-// `interRaterReliability(judgeScores)` computes a within-item
-// Krippendorff α — multiple judges score *the same item* and we ask
-// "how much do their scores agree on that item?" Useful for a single
-// scenario, but it cannot answer "how reliable are these judges across
-// the whole evaluation corpus?"
-//
-// `corpusInterRaterAgreement` does the corpus-wide question properly.
-// Inputs are flat per-(item, judge, dimension) score records. For each
-// dimension we pivot to a complete [n_items × n_judges] matrix and feed
-// it to the ICC(2,1) + κ_w machinery already validated in
-// `judge-calibration.ts`. An overall pooled metric averages the
-// per-dimension ICC/κ across dimensions.
-
 export interface CorpusScoreRecord {
   /** Stable identifier for the rated item (scenario, span, turn, …). */
   itemId: string
@@ -130,35 +116,23 @@ export interface CorpusAgreementReport {
 }
 
 export interface CorpusAgreementOptions extends ContinuousAgreementOptions {
-  /**
-   * Restrict the audit to these dimensions. Default = every dimension
-   * that appears in the input. A dimension named here but absent from
-   * the input throws — silent omission would corrupt the overall metric.
-   */
+  /** Restrict the audit to these dimensions; default every one in the input. A named absentee throws. */
   dimensions?: string[]
-  /**
-   * Restrict the audit to these judges. Default = every judge that
-   * appears in the input. A judge named here but absent from a
-   * dimension throws (see "fail loud" below).
-   */
+  /** Restrict the audit to these judges; default every one in the input. A named absentee throws. */
   judges?: string[]
 }
 
 /**
- * Corpus-wide inter-rater agreement across N items × M judges × D dimensions.
+ * Corpus-wide inter-rater agreement across N items × M judges × D dimensions, the
+ * question `interRaterReliability`'s within-item α cannot answer.
  *
  * For each dimension, builds the [n_items][n_judges] matrix of scores
  * (keeping only items every judge rated on that dimension), then runs
  * `continuousAgreement` to get ICC(2,1), κ_w, Pearson, Spearman, and
  * bootstrap CIs. Reports a pooled mean across dimensions as a single
- * "is this judge panel reliable on this corpus?" number.
- *
- * Fail-loud contract:
- *   - Empty input throws.
- *   - Fewer than 2 judges or fewer than 2 items per dimension throws.
- *   - A judge present in some dimensions but with zero scored items on
- *     another dimension throws (would silently shrink the matrix).
- *   - Duplicate (itemId, judgeName, dimension) records throw.
+ * "is this judge panel reliable on this corpus?" number. Empty input, fewer than 2 judges or
+ * items, a judge without scores on a dimension and duplicate records all throw: a silently
+ * shrunk matrix would corrupt the overall metric.
  */
 export function corpusInterRaterAgreement(
   records: CorpusScoreRecord[],
@@ -222,30 +196,20 @@ export function corpusInterRaterAgreement(
   for (const dim of targetDims) {
     const byJudge = grid.get(dim)!
     // Fail loud: every requested judge must have scored ≥1 item on this dim.
-    const judgeItemCounts: Record<string, number> = {}
-    for (const j of targetJudges) {
-      const m = byJudge.get(j)
-      judgeItemCounts[j] = m?.size ?? 0
-    }
+    const judgeItemCounts = Object.fromEntries(
+      targetJudges.map((j) => [j, byJudge.get(j)?.size ?? 0]),
+    )
     const emptyJudges = targetJudges.filter((j) => judgeItemCounts[j] === 0)
     if (emptyJudges.length > 0) {
       throw new ValidationError(
         `corpusInterRaterAgreement: dimension '${dim}' has no scores from judge(s) ${emptyJudges.join(', ')} (counts: ${JSON.stringify(judgeItemCounts)})`,
       )
     }
-
     // Items rated by *every* requested judge on this dim.
-    let commonItems: Set<string> | null = null
-    for (const j of targetJudges) {
-      const ids = new Set(byJudge.get(j)!.keys())
-      if (commonItems === null) {
-        commonItems = ids
-      } else {
-        const prev: Set<string> = commonItems
-        commonItems = new Set([...prev].filter((x) => ids.has(x)))
-      }
-    }
-    const sortedItems = [...(commonItems ?? new Set<string>())].sort()
+    const sortedItems = targetJudges
+      .map((j) => [...byJudge.get(j)!.keys()])
+      .reduce((common, ids) => common.filter((x) => ids.includes(x)))
+      .sort()
     if (sortedItems.length < 2) {
       throw new ValidationError(
         `corpusInterRaterAgreement: dimension '${dim}' has ${sortedItems.length} item(s) rated by all ${targetJudges.length} judges (need ≥2)`,
@@ -311,7 +275,7 @@ export function corpusInterRaterAgreementFromJudgeScores(
 }
 
 /** Agreement between two raters who each assigned one nominal label per item. */
-interface NominalAgreement {
+export interface NominalAgreement {
   /** Items both raters labeled. */
   n: number
   /** Share of items with identical labels. */
@@ -323,6 +287,16 @@ interface NominalAgreement {
    * thing, and no number distinguishes skill from luck.
    */
   kappa: number
+  /** Seeded percentile bootstrap of κ over clusters; NaN bounds when no resample has a finite κ. */
+  kappaCi: BootstrapInterval
+}
+
+export interface NominalAgreementOptions {
+  /** Cluster id per pair; pairs sharing one are resampled together. Default: every pair alone. */
+  clusters?: readonly string[]
+  /** Default 2000. */
+  resamples?: number
+  seed?: number
 }
 
 /**
@@ -331,9 +305,23 @@ interface NominalAgreement {
  */
 export function nominalAgreement(
   pairs: ReadonlyArray<readonly [string, string]>,
+  options: NominalAgreementOptions = {},
 ): NominalAgreement {
+  if (options.clusters && options.clusters.length !== pairs.length) {
+    throw new ValidationError('nominalAgreement: one cluster per pair')
+  }
+  const kappaCi = clusterBootstrap(
+    pairs,
+    (_, index) => options.clusters?.[index] ?? String(index),
+    (sample) => cohenKappa(sample).kappa,
+    options,
+  )
+  return { n: pairs.length, ...cohenKappa(pairs), kappaCi }
+}
+
+function cohenKappa(pairs: ReadonlyArray<readonly [string, string]>) {
   const n = pairs.length
-  if (n === 0) return { n: 0, agreement: Number.NaN, kappa: Number.NaN }
+  if (n === 0) return { agreement: Number.NaN, kappa: Number.NaN }
   const left = new Map<string, number>()
   const right = new Map<string, number>()
   let same = 0
@@ -349,5 +337,5 @@ export function nominalAgreement(
   let expected = 0
   for (const [label, count] of left) expected += (count / n) * ((right.get(label) ?? 0) / n)
   const kappa = expected === 1 ? Number.NaN : (observed - expected) / (1 - expected)
-  return { n, agreement: observed, kappa }
+  return { agreement: observed, kappa }
 }

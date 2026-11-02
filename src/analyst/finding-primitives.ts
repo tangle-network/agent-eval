@@ -5,15 +5,28 @@ const nonEmpty = z
   .refine((value) => value.trim().length > 0, { message: 'must be a non-empty string' })
 const finite = z.number().refine(Number.isFinite, { message: 'must be finite' })
 const unitRate = finite.refine((value) => value >= 0 && value <= 1, { message: 'must be in [0,1]' })
+const count = z.number().int().positive()
 
 /** Shared validation for every independently scored finding method. */
 export const findingCalibrationSchema = z
   .object({
-    gold_n: z.number().int().positive(),
+    gold_n: count,
     agreement: unitRate,
     kappa: finite.refine((value) => value >= -1 && value <= 1, {
       message: 'must be in [-1,1]',
     }),
+    auc: unitRate.nullable().optional(),
+    ci: z
+      .object({
+        low: unitRate,
+        high: unitRate,
+        resamples: count,
+        clusters: count,
+        cluster: nonEmpty,
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict()
 
