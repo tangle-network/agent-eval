@@ -21,7 +21,8 @@ import { spawnSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { toJsonl, toRftItems, toSftRows, toVerifiersRolloutOutputs } from '../exporters'
-import { readRolloutLedger, writeRolloutLedger } from '../ledger'
+import { GATE_POLICIES, gateErrors } from '../gate-checks'
+import { readRolloutJournal, writeRolloutLedger } from '../ledger'
 import { isTrainableSplit, type MintedRolloutLine } from '../schema'
 import { buildDatasetCard, FORMAT_FILES, RELEASE_FORMATS, type ReleaseFormat } from './card'
 import {
@@ -86,10 +87,12 @@ export async function buildHfDataset(
   let read = 0
 
   for (const input of inputs) {
-    const lines = await readRolloutLedger(input)
+    // An importer's ledger is a journal: a row the gate refuses is counted as not trainable.
+    const lines = await readRolloutJournal(input)
     read += lines.length
     const shippable = lines.filter((line) => {
-      if (!isTrainableSplit(line.task.split)) {
+      const refused = gateErrors(line, GATE_POLICIES.assertMinted).length > 0
+      if (refused || !isTrainableSplit(line.task.split)) {
         report.excluded.nonTrain += 1
         return false
       }
@@ -105,7 +108,7 @@ export async function buildHfDataset(
       }
       return true
     })
-    const scrubbed = scrubLines(shippable)
+    const scrubbed = scrubLines(shippable as MintedRolloutLine[])
     report.files[input] = scrubbed.counts
     addScrubCounts(report.totals, scrubbed.counts)
     kept.push(...scrubbed.lines)
@@ -225,15 +228,9 @@ function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
     if (arg === '--out') {
       args.out = argv[++i] ?? ''
     } else if (arg === '--formats') {
-      const raw = (argv[++i] ?? '').split(',').filter(Boolean)
-      for (const format of raw) {
-        if (!RELEASE_FORMATS.includes(format as ReleaseFormat)) {
-          throw new Error(
-            `unknown format "${format}" — expected one of ${RELEASE_FORMATS.join(',')}`,
-          )
-        }
-      }
-      args.formats = raw as ReleaseFormat[]
+      args.formats = (argv[++i] ?? '').split(',').filter(Boolean) as ReleaseFormat[]
+      const unknown = args.formats.find((format) => !RELEASE_FORMATS.includes(format))
+      if (unknown) throw new Error(`unknown format "${unknown}" — expected one of ${RELEASE_FORMATS}`)
     } else if (arg === '--include-proposers') {
       args.includeProposers = true
     } else if (arg === '--denylist') {

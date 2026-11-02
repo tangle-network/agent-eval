@@ -57,6 +57,20 @@ describe('rollout-release privacy and license screen', () => {
       'clean-1',
       'push git@github.com:tangle-network/agent-eval.git at 280ccb34b2a1c0d9e8f7a6b5c4d3e2f1a0b9c8d7 for ops@example.com from /tmp/rollouts-command-oyErgR/discovery-runs/spec-build-20261025a after tool call toolu_01Sj8oQwErTy7UiOpAsDfGh2JkL9zXcV',
     )
+    // Words and identifiers real Discovery rows carried, which read as secrets to the old rules.
+    const clearText = lineSaying(
+      'clear-text-1',
+      [
+        'You are using the Basic Version.',
+        'govinfo.gov/content/pkg/USCODE-2023-title42/html/USCODE-2023-title42-chap21-sec2000e.htm',
+        'sizes 1 2 34 56 78 901 234 567 890 1234',
+      ].join(' '),
+    )
+    const unscreened = {
+      ...base,
+      rollout_id: 'unscreened-1',
+      outcome: { ...base.outcome, reward: 1, realness_screened: false },
+    }
     const claude = fixtureRolloutLine({
       rollout_id: 'claude-1',
       policy: { ...base.policy, harness: 'claude', model: 'claude-opus-4' },
@@ -67,7 +81,8 @@ describe('rollout-release privacy and license screen', () => {
     })
     const secretLines = Object.entries(SECRETS).map(([kind, { text }]) => lineSaying(kind, text))
     const ledger = join(dir, 'ledger.jsonl')
-    await writeRolloutLedger(ledger, [clean, claude, evalOnly, ...secretLines])
+    await writeRolloutLedger(ledger, [clean, clearText, claude, evalOnly, ...secretLines])
+    await writeFile(ledger, `${await readFile(ledger, 'utf8')}${JSON.stringify(unscreened)}\n`)
     const denylist = join(dir, 'denylist.txt')
     await writeFile(denylist, '# private terms\nzebulon quartermaine\n')
     const out = join(dir, 'dataset')
@@ -84,7 +99,7 @@ describe('rollout-release privacy and license screen', () => {
     expect(code).toBe(0)
 
     const report = JSON.parse(await readFile(join(out, 'scrub-report.json'), 'utf8'))
-    expect(report.excluded).toEqual({ proposers: 0, nonTrain: 0, privacy: 14 })
+    expect(report.excluded).toEqual({ proposers: 0, nonTrain: 1, privacy: 14 })
     const expected: Record<string, number> = {}
     for (const { rule } of Object.values(SECRETS)) expected[rule] = (expected[rule] ?? 0) + 1
     expect(Object.fromEntries(Object.entries(report.dropped).filter(([, n]) => n !== 0))).toEqual(
@@ -94,11 +109,12 @@ describe('rollout-release privacy and license screen', () => {
     const raw = (await readFile(join(out, 'raw/train.jsonl'), 'utf8')).trim().split('\n')
     expect(raw.map((row) => JSON.parse(row).rollout_id)).toEqual([
       'clean-1',
+      'clear-text-1',
       'claude-1',
       'eval-only-1',
     ])
     const sft = (await readFile(join(out, 'sft/train.jsonl'), 'utf8')).trim().split('\n')
-    expect(sft).toHaveLength(3)
+    expect(sft).toHaveLength(4)
 
     // Zero emitted bytes, in any file the build wrote or printed, hold a secret.
     const shipped = [

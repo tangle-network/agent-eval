@@ -283,7 +283,8 @@ export async function discoveryRunRolloutLines(
             verdict: { at: check.at, commit: check.commit, detail: check.detail },
           }
         : node.outcome
-    const spans = sessions.flatMap((session) => toOtlpSpans(session))
+    // A session with no stream has only its root span, which `traces` rightly calls unread.
+    const spans = sessions.map((session) => toOtlpSpans(session)).filter((s) => s.length > 1).flat()
     otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
     lines.push({
       ...node,
