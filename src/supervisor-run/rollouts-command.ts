@@ -2,7 +2,7 @@
  * `agent-eval supervisor-run rollouts` writes one rollout ledger from the
  * places the fleet's work is recorded:
  *
- *   <runDir...>              Discovery / Runtime run directories (`discoveryRunRolloutLines`)
+ *   <runDir...>              Runtime run directories (`runtimeRunRolloutLines`)
  *   --sessions [<harness>:]<path>  a HOME, store directory, session file or OpenCode .db;
  *                            the prefix limits a directory to one harness and names a file's
  *   --since <ISO>            limit --sessions to stores changed since then
@@ -27,8 +27,8 @@ import {
 } from '../rollout/readers/harness-session-lines'
 import { PRIVACY_RULE_NAMES, privacyHit } from '../rollout/release/scrub'
 import type { RolloutLine } from '../rollout/schema'
-import { discoveryRunRolloutLines } from './discovery-rollouts'
 import type { SupervisorRunCommandIo } from './report-command'
+import { runtimeRunRolloutLines } from './runtime-rollouts'
 
 export const ROLLOUTS_USAGE =
   'usage: agent-eval supervisor-run rollouts [<runDir>...] [--sessions [<harness>:]<path>]... [--since <ISO>] [--gate-receipts <file>]... [--denylist <file>] [--otlp <file>] --out <ledger.jsonl>'
@@ -134,8 +134,8 @@ export async function runRolloutsCommand(
     const source = { source: runDir, kind: 'run-dir', read: 0, written: 0, errors: [] as string[] }
     summary.sources.push(source)
     try {
-      const run = await discoveryRunRolloutLines(resolve(runDir), { capturedAt })
-      source.errors.push(...run.gaps.map((gap) => `${gap.code}: ${gap.message}`), ...run.notes)
+      const run = await runtimeRunRolloutLines(resolve(runDir), { capturedAt })
+      source.errors.push(...run.gaps.map((gap) => `${gap.code}: ${gap.message}`))
       const kept = await write(source, run.lines)
       const spans = kept.map((line) => run.otlp.get(line.rollout_id) ?? '')
       if (args.otlp !== null) await appendFile(args.otlp, spans.join(''))

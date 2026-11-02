@@ -17,13 +17,6 @@
 export { analyzeSupervisorRunSources } from './analyze'
 export type { ClaudeCodeReaderOptions } from './claude-code-reader'
 export {
-  type DiscoveryRunRollouts,
-  discoveryPlayCheckReward,
-  discoveryPursuitOf,
-  discoveryRunRolloutLines,
-  type PlayCheckReward,
-} from './discovery-rollouts'
-export {
   analyzeSupervisorRunIntegrity,
   SUPERVISOR_RUN_INTEGRITY_SCHEMA,
   type SupervisorRunIntegrityEvidence,
@@ -53,6 +46,11 @@ export {
   type RuntimeReaderOptions,
   readRuntimeSupervisorRun,
 } from './runtime-reader'
+export {
+  type RuntimeRunRollouts,
+  type RunVerdict,
+  runtimeRunRolloutLines,
+} from './runtime-rollouts'
 export {
   type CloseRow,
   parseSupervisorTree,

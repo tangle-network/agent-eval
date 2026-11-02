@@ -1,10 +1,9 @@
 /**
- * `agent-eval supervisor-run rollouts` end to end: a Discovery run directory
- * laid out as Runtime and Discovery write it, real harness-session fixtures
+ * `agent-eval supervisor-run rollouts` end to end: a run directory laid out
+ * as Runtime writes it, real harness-session fixtures
  * (Claude Code, OpenCode, a Kimi HOME), and beelink-gate receipts, into one
  * ledger read back through the public journal reader.
  */
-import { execFileSync } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { assertMintedLines } from '../rollout'
 import { toHarborTrajectories } from '../rollout/interchange/harbor'
 import { readRolloutJournal } from '../rollout/ledger'
-import { discoveryRunRolloutLines } from './discovery-rollouts'
 import { runSupervisorRunCommand } from './report-command'
+import { type RunVerdict, runtimeRunRolloutLines } from './runtime-rollouts'
 
 const FIXTURES = join(import.meta.dirname, '../../tests/fixtures/harness-sessions')
 const RUN = 'spec-build-20261025a'
@@ -35,12 +34,8 @@ afterEach(async () => {
 
 const jsonl = (rows: unknown[]) => `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`
 
-async function discoveryRun(
-  pass?: { goalAudit: { verdict: string } },
-  stages?: Record<string, string>,
-  end?: { taggedAt: string; unansweredAt: string },
-): Promise<string> {
-  const runDir = join(dir, 'discovery-runs', RUN)
+async function runtimeRun(end?: { unansweredAt: string }): Promise<string> {
+  const runDir = join(dir, 'runs', RUN)
   await mkdir(join(runDir, 'blobs'), { recursive: true })
   const at = (m: number) => `2026-10-25T0${m}:00:00.000Z`
   await writeFile(
@@ -122,7 +117,13 @@ async function discoveryRun(
             {
               kind: 'event',
               root: ROOT,
-              event: { kind: 'execution-input', id: ROOT, taskRef: STEER, seq: 9, at: end.unansweredAt },
+              event: {
+                kind: 'execution-input',
+                id: ROOT,
+                taskRef: STEER,
+                seq: 9,
+                at: end.unansweredAt,
+              },
             },
           ]),
     ]),
@@ -136,10 +137,47 @@ async function discoveryRun(
     JSON.stringify({
       content: 'csvstat builds; 6 of 6 cases pass.',
       events: [
-        { type: 'message.part.updated', data: { part: { id: 'p1', messageID: 'm1', type: 'text', text: 'Running the cases.' } } },
-        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'running', input: { command: 'pnpm test' } } } } },
-        { type: 'message.part.updated', data: { part: { id: 'p2', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'completed', input: { command: 'pnpm test' }, output: '6 passed' } } } },
-        { type: 'message.part.updated', data: { part: { id: 'p3', messageID: 'm2', type: 'text', text: 'csvstat builds; 6 of 6 cases pass.' } } },
+        {
+          type: 'message.part.updated',
+          data: { part: { id: 'p1', messageID: 'm1', type: 'text', text: 'Running the cases.' } },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p2',
+              messageID: 'm1',
+              type: 'tool',
+              callID: 'c1',
+              tool: 'bash',
+              state: { status: 'running', input: { command: 'pnpm test' } },
+            },
+          },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p2',
+              messageID: 'm1',
+              type: 'tool',
+              callID: 'c1',
+              tool: 'bash',
+              state: { status: 'completed', input: { command: 'pnpm test' }, output: '6 passed' },
+            },
+          },
+        },
+        {
+          type: 'message.part.updated',
+          data: {
+            part: {
+              id: 'p3',
+              messageID: 'm2',
+              type: 'text',
+              text: 'csvstat builds; 6 of 6 cases pass.',
+            },
+          },
+        },
       ],
     }),
   )
@@ -148,58 +186,6 @@ async function discoveryRun(
   await blob(STEER, 'Recheck the last case.')
   await blob(STEERED, { content: 'Still 6 of 6.', events: [] })
   await blob(RETURNED, { cases: 6, passed: 6 })
-  await writeFile(
-    join(runDir, 'play-checks.jsonl'),
-    jsonl([
-      {
-        at: at(4),
-        solved: false,
-        known: true,
-        exitCode: 2,
-        commit: 'c'.repeat(40),
-        detail:
-          'SCORE {"stage":"keys","reached":4,"of":6}\nNOT SOLVED: the keys stage refused {"a":1}',
-      },
-      {
-        at: at(5),
-        solved: false,
-        known: false,
-        exitCode: null,
-        commit: null,
-        detail: 'repo check waiting for Beelink',
-      },
-      ...(pass === undefined
-        ? []
-        : [{ at: at(6), solved: true, known: true, commit: 'd'.repeat(40), detail: 'SOLVED', ...pass }]),
-    ]),
-  )
-  if (stages !== undefined) {
-    await writeFile(
-      join(runDir, 'RECEIPT.json'),
-      JSON.stringify({ taggedAt: end?.taggedAt, check: { calibration: { stages } } }),
-    )
-  }
-  const repo = join(runDir, 'deliverables.git')
-  const git = (...args: string[]) =>
-    execFileSync('git', [
-      '-C',
-      repo,
-      '-c',
-      'user.name=fixture',
-      '-c',
-      'user.email=fixture@example.com',
-      // A throwaway fixture repo: the host's global commit hooks guard real work, not this.
-      '-c',
-      'core.hooksPath=/dev/null',
-      ...args,
-    ])
-  await mkdir(repo)
-  git('init', '-q', '-b', 'main')
-  git('commit', '-q', '--allow-empty', '-m', 'base')
-  git('branch', 'workers/root')
-  git('switch', '-q', '-c', 'workers/builder')
-  git('commit', '-q', '--allow-empty', '-m', 'one')
-  git('commit', '-q', '--allow-empty', '-m', 'two')
   return runDir
 }
 
@@ -241,46 +227,44 @@ async function gateReceipts(): Promise<string> {
 }
 
 describe('supervisor-run rollouts', () => {
-  it('trains on a calibrated pass, gates a contradicted one, and refuses an unscreened one', async () => {
-    const root = async (verdict: string, stages?: Record<string, string>) => {
-      const run = await discoveryRun({ goalAudit: { verdict } }, stages)
-      const { lines } = await discoveryRunRolloutLines(run)
-      await rm(run, { recursive: true })
+  const verdict = (fields: Partial<RunVerdict> = {}): RunVerdict => ({
+    reward: 1,
+    screened: false,
+    source: 'suite/check',
+    ...fields,
+  })
+
+  it('trains on a screened reward, gates a contradicted one, and refuses an unscreened one', async () => {
+    const run = await runtimeRun()
+    const root = async (fields: Partial<RunVerdict>) => {
+      const { lines } = await runtimeRunRolloutLines(run, { verdict: verdict(fields) })
       return lines.find((line) => line.rollout_id === ROOT)!
     }
-    const screened = await root('consistent', { check: 'calibrated' })
-    expect(screened.outcome).toMatchObject({ reward: 1, realness_gated: false, realness_screened: true })
+    const screened = await root({ screened: true })
+    expect(screened.outcome).toMatchObject({
+      reward: 1,
+      realness_gated: false,
+      realness_screened: true,
+      reward_source: 'suite/check',
+    })
     expect(() => assertMintedLines([screened])).not.toThrow()
-
-    const gated = await root('contradiction', { check: 'calibrated' })
-    expect(gated.outcome).toMatchObject({ reward: 0, realness_gated: true, realness_screened: true })
-
-    // A consistent audit reads only the check's own report, so it screens nothing by itself.
-    for (const stages of [undefined, { keys: 'calibrated', parse: 'uncalibrated' }]) {
-      const unscreened = await root('consistent', stages)
-      expect(unscreened.outcome.realness_screened).toBe(false)
-      expect(() => assertMintedLines([unscreened])).toThrow(/realness_screened/)
-    }
+    const gated = await root({ screened: true, gated: true })
+    expect(gated.outcome).toMatchObject({
+      reward: 0,
+      realness_gated: true,
+      realness_screened: true,
+    })
+    const unscreened = await root({})
+    expect(unscreened.outcome.realness_screened).toBe(false)
+    expect(() => assertMintedLines([unscreened])).toThrow(/realness_screened/)
   })
 
-  it('lets a known recheck decide the reward over the pass it rechecked', async () => {
-    const run = await discoveryRun({ goalAudit: { verdict: 'consistent' } }, { check: 'calibrated' })
-    const recheck = { at: '2026-10-25T07:00:00.000Z', solved: false, known: true, detail: 'NOT SOLVED: isolation' }
-    await writeFile(join(run, 'play-check-recheck.json'), JSON.stringify(recheck))
-    const { lines } = await discoveryRunRolloutLines(run)
-    await rm(run, { recursive: true })
-    const root = lines.find((line) => line.rollout_id === ROOT)!
-    expect(root.outcome).toMatchObject({ reward: 0, verdict: { detail: 'NOT SOLVED: isolation' } })
-  })
-
-  it('completes a run stopped after it solved, not one cut before it solved', async () => {
-    const outcomeWhen = async (taggedAt: string, unansweredAt: string) => {
-      const run = await discoveryRun(
-        { goalAudit: { verdict: 'consistent' } },
-        { check: 'calibrated' },
-        { taggedAt, unansweredAt },
-      )
-      const { lines } = await discoveryRunRolloutLines(run)
+  it('completes a run stopped on its success, not one cut before it', async () => {
+    const outcomeWhen = async (stoppedAt: string, unansweredAt: string) => {
+      const run = await runtimeRun({ unansweredAt })
+      const { lines } = await runtimeRunRolloutLines(run, {
+        verdict: verdict({ screened: true, stoppedAt }),
+      })
       await rm(run, { recursive: true })
       return lines.find((line) => line.rollout_id === ROOT)!.outcome
     }
@@ -291,12 +275,14 @@ describe('supervisor-run rollouts', () => {
   })
 
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
-    const { lines } = await discoveryRunRolloutLines(await discoveryRun())
-    const steps = toHarborTrajectories(lines).flatMap((t) => [t, ...(t.subagent_trajectories ?? [])]).flatMap((t) => t.steps)
+    const { lines } = await runtimeRunRolloutLines(await runtimeRun())
+    const steps = toHarborTrajectories(lines)
+      .flatMap((t) => [t, ...(t.subagent_trajectories ?? [])])
+      .flatMap((t) => t.steps)
     expect(steps.flatMap((s) => s.tool_calls ?? []).map((c) => c.function_name)).toEqual(['bash'])
   })
 
-  it('imports a Discovery run, harness sessions and gate receipts into one screened ledger', async () => {
+  it('imports a Runtime run, harness sessions and gate receipts into one screened ledger', async () => {
     const out = join(dir, 'ledger.jsonl')
     const otlp = join(dir, 'spans.otlp.jsonl')
     const stdout: string[] = []
@@ -304,7 +290,7 @@ describe('supervisor-run rollouts', () => {
     const code = await runSupervisorRunCommand(
       [
         'rollouts',
-        await discoveryRun(),
+        await runtimeRun(),
         '--sessions',
         `claude-code:${join(FIXTURES, 'claude-code.jsonl')}`,
         '--sessions',
@@ -331,16 +317,13 @@ describe('supervisor-run rollouts', () => {
     const byId = new Map(lines.map((line) => [line.rollout_id, line]))
 
     const root = byId.get(ROOT)!
-    expect(root.task.suite).toBe('discovery/spec-build')
-    expect(root.outcome.reward).toBe(0.5) // failed at stage 4 of 6: 3 passed
-    expect(root.outcome.reward_source).toBe('discovery/play-check')
+    expect(root.task.suite).toBe(`runtime/${RUN}`)
     expect(root.policy).toMatchObject({
       harness: 'opencode',
       provider: 'zai-coding-plan',
       model: 'glm-5.3',
       license_class: 'open-weight-api',
     })
-    expect(root.outcome.metrics.deliverable_commits).toBe(0)
 
     const worker = byId.get(WORKER)!
     expect(worker.role).toBe('worker')
@@ -352,7 +335,11 @@ describe('supervisor-run rollouts', () => {
     })
     expect(worker.messages).toMatchObject([
       { role: 'user', content: 'Build csvstat to the spec.' },
-      { role: 'assistant', content: 'Running the cases.', tool_calls: [{ function: { name: 'bash' } }] },
+      {
+        role: 'assistant',
+        content: 'Running the cases.',
+        tool_calls: [{ function: { name: 'bash' } }],
+      },
       { role: 'tool', name: 'bash', content: '6 passed' },
       { role: 'assistant', content: 'csvstat builds; 6 of 6 cases pass.' },
       { role: 'user', content: 'Recheck the last case.' },
@@ -362,7 +349,6 @@ describe('supervisor-run rollouts', () => {
     const spans = (await readFile(otlp, 'utf8')).trim().split('\n')
     expect(spans.some((span) => JSON.parse(span).name.includes('bash'))).toBe(true)
     expect(worker.outcome.reward).toBe(1)
-    expect(worker.outcome.metrics).toMatchObject({ deliverable_commits: 2 })
 
     const sessions = lines.filter((line) => line.task.suite.startsWith('harness/'))
     const harnesses = new Set(sessions.map((line) => line.policy.harness))

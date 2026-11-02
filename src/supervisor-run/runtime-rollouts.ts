@@ -1,6 +1,6 @@
 /**
- * A Discovery run directory as `tangle.rollout.v1` rows: the supervision tree
- * `supervisorRunRolloutLines` mints, plus what only a Discovery run records.
+ * A Runtime run directory as `tangle.rollout.v1` rows: the supervision tree
+ * `supervisorRunRolloutLines` mints, with each node's whole episode.
  *
  *   - Producer: each node's `materialized` receipt names the model it ran on
  *     (`opencode/zai-coding-plan/glm-5.3` → harness, provider, model), and the
@@ -10,22 +10,17 @@
  *     sessions in order, so a node steered twice keeps both turns and every tool
  *     call. A node with no event stream stays a lossy projection.
  *   - A node respawned under the same id (a reopened run) is one row.
- *   - Reward: the run's newest known play-check verdict on the root row
- *     (`solved` → 1, a staged `SCORE` → stages passed / stages), and each
- *     agent's own commits on its `workers/<label>` branch of `deliverables.git`.
- *   - Screen: the calibration frozen in the run's receipt, where a fake fixture
- *     failed every stage of the check, and the goal audit, whose `contradiction`
- *     gates the reward. A check nothing calibrated stays unscreened.
+ *   - Reward: the caller's `RunVerdict` on the root row. The caller owns what
+ *     its check means; this reader owns how a reward is screened and when a
+ *     stopped episode is whole.
  *
- * Every read is of files the run already wrote; nothing in the run dir is changed.
+ * Every read is of files Runtime already wrote; nothing in the run dir is changed.
  */
 
-import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { HarnessSession } from '@tangle-network/harness-sessions'
 import { sandboxEventsSession, toChatMessages, toOtlpSpans } from '@tangle-network/harness-sessions'
-import { promisify } from 'node:util'
 import { licenseClassOfName } from '../rollout/license'
 import { screenedRewardFields, unscreenedRewardFields } from '../rollout/reward'
 import type { RolloutLine } from '../rollout/schema'
@@ -34,13 +29,6 @@ import { supervisorRunRolloutLinesFromFacts } from './rollout-nodes'
 import { readRuntimeSupervisorRun } from './runtime-reader'
 import { parseJsonl, parseSupervisorTree, recordOrNull as record } from './source-facts'
 import type { SupervisorRunTreeGap } from './types'
-
-const run = promisify(execFile)
-
-/** A run's pursuit: its directory name without the `-YYYYMMDD<letter>` date suffix. */
-export function discoveryPursuitOf(runDir: string): string {
-  return basename(runDir).replace(/-20\d{6}[a-z0-9]*$/u, '')
-}
 
 interface NodeFacts {
   model?: string
@@ -120,8 +108,6 @@ async function blobValue(runDir: string, ref: string | undefined): Promise<unkno
   return readJson(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`))
 }
 
-const jsonlRows = async (path: string) => parseJsonl(await readFile(path, 'utf8').catch(() => null))
-
 /** One Sandbox session per execution, oldest first; older runs keep only the settled result. */
 async function nodeSessions(runDir: string, harness: string, id: string, fact: NodeFacts) {
   const executions = fact.executions ?? [{ taskRef: fact.taskRef, outRef: fact.outRef }]
@@ -139,114 +125,54 @@ async function nodeSessions(runDir: string, harness: string, id: string, fact: N
   return sessions
 }
 
-export interface PlayCheckReward {
+/** A caller's verdict on a run, applied to its root row. */
+export interface RunVerdict {
+  /** In [0, 1]; 1 is full success. */
   reward: number
-  at: string
-  taggedAt: string | undefined
-  commit: string | null
-  detail: string
-  /** A fake fixture failed every stage of this check, so a pass of it means something. */
-  calibrated: boolean
-  /** The goal audit ruled that this pass falls short of the goal. */
-  contradicted: boolean
+  /** The check behind the reward was validated (a fixture that must fail it did). */
+  screened: boolean
+  /** An independent review contradicted the reward, so it trains nothing. */
+  gated?: boolean
+  /** Who produced the reward, such as `my-suite/check`. */
+  source: string
+  /** When a controller stopped the run on this verdict. */
+  stoppedAt?: string
+  at?: string
+  commit?: string | null
+  detail?: string
 }
 
 /**
- * A known recheck (`play-check-recheck.json`, which decides in Lab's playCheckVerdict), else the newest known check row.
- * A staged check (`SCORE {"reached": r, "of": n}`) that is not solved failed at stage r, so it passed r − 1 of n:
- * Discovery's own `stagesPassed` (runner/calibration.mjs). Only the SCORE line is parsed; the check prints more after it.
+ * The root's outcome under the caller's verdict. A run stopped on its success reads `cancelled`;
+ * its episode is whole if no input was pending when it was stopped.
  */
-export async function discoveryPlayCheckReward(runDir: string): Promise<PlayCheckReward | null> {
-  const rows = await jsonlRows(join(runDir, 'play-checks.jsonl'))
-  if (rows.length === 0) rows.push(record(await readJson(join(runDir, 'play-check.json'))) ?? {})
-  const known = rows
-    .filter((row) => row.known !== false && typeof row.solved === 'boolean')
-    .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')))
-  const recheck = record(await readJson(join(runDir, 'play-check-recheck.json')))
-  const decided = recheck?.known === true && typeof recheck.solved === 'boolean'
-  const last = decided ? recheck : known.at(-1)
-  if (last === undefined) return null
-  const detail = typeof last.detail === 'string' ? last.detail : ''
-  let reward = last.solved === true ? 1 : 0
-  const score = detail.split('\n').find((line) => line.startsWith('SCORE {'))
-  if (reward === 0 && score !== undefined) {
-    try {
-      const { reached, of } = JSON.parse(score.slice('SCORE '.length))
-      const whole = Number.isSafeInteger(reached) && Number.isSafeInteger(of)
-      if (whole && 1 <= reached && reached <= of) reward = (reached - 1) / of
-    } catch {}
-  }
-  const key = last.contentHash ?? last.commit ?? last.at
-  const audits = await jsonlRows(join(runDir, 'goal-audits.jsonl'))
-  const ruling = audits.filter((a) => a.key === key && a.verdict !== 'unavailable').at(-1)
-  const receipt = record(await readJson(join(runDir, 'RECEIPT.json')))
-  const calibration = record(record(receipt?.check)?.calibration)
-  const stages = Object.values(record(calibration?.stages) ?? {})
+function judged(node: RolloutLine, verdict: RunVerdict | null, pending: string | undefined) {
+  if (verdict === null || node.parent_rollout_id !== null) return node.outcome
+  const { reward, screened, gated = false, source, stoppedAt = '', commit = null } = verdict
+  const ended = reward === 1 && !gated && (!pending || Date.parse(stoppedAt) <= Date.parse(pending))
   return {
-    reward,
-    calibrated: stages.length > 0 && stages.every((state) => state === 'calibrated'),
-    contradicted: (ruling?.verdict ?? record(last.goalAudit)?.verdict) === 'contradiction',
-    at: String(last.at ?? ''),
-    taggedAt: text(receipt?.taggedAt),
-    commit: typeof last.commit === 'string' ? last.commit : null,
-    detail: detail.slice(0, 500),
+    ...node.outcome,
+    ...(screened || gated ? screenedRewardFields(reward, gated) : unscreenedRewardFields(reward)),
+    ...(ended ? { is_completed: true, error: null } : {}),
+    reward_source: source,
+    verdict: { at: verdict.at ?? '', commit, detail: (verdict.detail ?? '').slice(0, 500) },
   }
 }
 
-/** A solved run is stopped, so it reads `cancelled`; it is whole if no turn was open at the tag. */
-const holdsTheSolve = (check: PlayCheckReward, unansweredSince: string | undefined): boolean =>
-  check.reward === 1 &&
-  !check.contradicted &&
-  (!unansweredSince || Date.parse(check.taggedAt ?? '') <= Date.parse(unansweredSince))
-
-/** Commits each `workers/<label>` branch holds beyond the commit every worker started from. */
-async function deliverableCommits(runDir: string): Promise<Map<string, number> | null> {
-  const git = (args: string[]) =>
-    run('git', ['-C', join(runDir, 'deliverables.git'), ...args], { timeout: 30_000 })
-  let refs: string[]
-  try {
-    const { stdout } = await git([
-      'for-each-ref',
-      '--format=%(refname:short)',
-      'refs/heads/workers',
-    ])
-    refs = stdout.split('\n').filter(Boolean)
-  } catch {
-    return null
-  }
-  if (refs.length === 0) return new Map()
-  const base = await git(['merge-base', '--octopus', ...refs])
-    .then(({ stdout }) => stdout.trim())
-    .catch(() => '')
-  const counts = new Map<string, number>()
-  for (const ref of refs) {
-    // A damaged archive (an empty object file) leaves the metric unknown; the run's other rows still import.
-    const counted = await git(['rev-list', '--count', ref, ...(base ? [`^${base}`] : [])]).catch(
-      () => null,
-    )
-    if (counted === null) return null
-    counts.set(ref.slice('workers/'.length), Number(counted.stdout.trim()))
-  }
-  return counts
-}
-
-export interface DiscoveryRunRollouts {
+export interface RuntimeRunRollouts {
   runDir: string
-  pursuit: string
   lines: RolloutLine[]
   gaps: SupervisorRunTreeGap[]
-  /** Discovery facts this read could not recover, one sentence each. */
-  notes: string[]
   /** Each row's session as OTLP-JSONL, by rollout id. */
   otlp: Map<string, string>
 }
 
-/** Read one Discovery run directory into rollout rows. */
-export async function discoveryRunRolloutLines(
+/** Read one Runtime run directory into rollout rows; `suite` defaults to `runtime/<run>`. */
+export async function runtimeRunRolloutLines(
   runDir: string,
-  options: { capturedAt?: string } = {},
-): Promise<DiscoveryRunRollouts> {
-  const pursuit = discoveryPursuitOf(runDir)
+  options: { suite?: string; capturedAt?: string; verdict?: RunVerdict | null } = {},
+): Promise<RuntimeRunRollouts> {
+  const verdict = options.verdict ?? null
   const src = await readRuntimeSupervisorRun(runDir)
   const facts0 = parseSupervisorTree(src)
   const seen = new Set<string>()
@@ -257,14 +183,12 @@ export async function discoveryRunRolloutLines(
     src,
     { ...facts0, workerSpawns },
     {
-      suite: `discovery/${pursuit}`,
+      suite: options.suite ?? `runtime/${basename(runDir)}`,
       runId: basename(runDir),
       ...(options.capturedAt === undefined ? {} : { capturedAt: options.capturedAt }),
     },
   )
   const facts = await journalFacts(runDir)
-  const check = await discoveryPlayCheckReward(runDir)
-  const commits = await deliverableCommits(runDir)
   const lines: RolloutLine[] = []
   const otlp = new Map<string, string>()
   for (const node of tree.nodes) {
@@ -274,20 +198,6 @@ export async function discoveryRunRolloutLines(
     const harness = producer?.harness ?? node.policy.harness ?? 'sandbox'
     const sessions = await nodeSessions(runDir, harness, node.rollout_id, fact)
     const messages = sessions.flatMap((session) => toChatMessages(session))
-    const label = typeof node.outcome.metrics.label === 'string' ? node.outcome.metrics.label : null
-    const isRoot = node.parent_rollout_id === null
-    const outcome =
-      isRoot && check !== null
-        ? {
-            ...node.outcome,
-            ...(check.calibrated || check.contradicted
-              ? screenedRewardFields(check.reward, check.contradicted)
-              : unscreenedRewardFields(check.reward)),
-            ...(holdsTheSolve(check, fact.unansweredSince) ? { is_completed: true, error: null } : {}),
-            reward_source: 'discovery/play-check',
-            verdict: { at: check.at, commit: check.commit, detail: check.detail },
-          }
-        : node.outcome
     // A session with no stream has only its root span, which `traces` rightly calls unread.
     const spans = sessions.map((session) => toOtlpSpans(session)).filter((s) => s.length > 1).flat()
     otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
@@ -306,18 +216,10 @@ export async function discoveryRunRolloutLines(
       },
       messages: sessions.length === 0 ? node.messages : messages,
       provenance: messages.some((m) => m.role === 'tool') ? wholeEpisode(node.provenance) : node.provenance,
-      outcome: {
-        ...outcome,
-        metrics: {
-          ...outcome.metrics,
-          deliverable_commits:
-            commits === null ? null : (commits.get(isRoot ? 'root' : (label ?? '')) ?? 0),
-        },
-      },
+      outcome: judged(node, verdict, fact.unansweredSince),
     })
   }
-  const notes = commits === null ? ['deliverables.git unreadable: deliverable_commits is null'] : []
-  // The play-check is the root's reward, so the tree's "no judge verdict" gap no longer holds.
-  const gaps = tree.gaps.filter((gap) => check === null || gap.code !== 'root-reward-unavailable')
-  return { runDir, pursuit, lines, gaps, notes, otlp }
+  // The verdict is the root's reward, so the tree's "no judge verdict" gap no longer holds.
+  const gaps = tree.gaps.filter((gap) => verdict === null || gap.code !== 'root-reward-unavailable')
+  return { runDir, lines, gaps, otlp }
 }
