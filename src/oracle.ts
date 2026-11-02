@@ -13,6 +13,7 @@
  * and certifies nothing outside its own coverage.
  */
 
+import { isRecord } from './llm-client/json'
 import { packageVersion } from './package-version'
 import { certificationEvidenceDigest, type DefaultVerdict } from './verdict'
 
@@ -49,7 +50,7 @@ export function jsonShape(expected: Record<string, unknown>): Oracle {
     id,
     check(obs) {
       const json = obs.json
-      if (!isObject(json)) {
+      if (!isRecord(json)) {
         return { id, pass: false, detail: 'observation.json missing or not an object' }
       }
       for (const [k, v] of Object.entries(expected)) {
@@ -111,7 +112,3 @@ export function evaluateOracles(obs: OracleObservation, oracles: Oracle[]): Orac
 }
 
 
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}

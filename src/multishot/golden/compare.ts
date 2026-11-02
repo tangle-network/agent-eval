@@ -4,6 +4,8 @@
 // Every mismatch is one line: the dotted path, what the record holds, and what
 // the engine produced.
 
+import { isRecord } from '../../llm-client/json'
+
 const MAX_RENDER = 240
 
 export interface CompareOptions {
@@ -50,8 +52,8 @@ function walk(
     return
   }
 
-  const expectedIsRow = isRow(expected)
-  const actualIsRow = isRow(actual)
+  const expectedIsRow = isRecord(expected)
+  const actualIsRow = isRecord(actual)
   if (expectedIsRow || actualIsRow) {
     if (!expectedIsRow || !actualIsRow) {
       out.push(mismatch(path, expected, actual))
@@ -77,10 +79,6 @@ function walk(
   }
 
   if (!Object.is(expected, actual)) out.push(mismatch(path, expected, actual))
-}
-
-function isRow(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function mismatch(path: string, expected: unknown, actual: unknown): string {

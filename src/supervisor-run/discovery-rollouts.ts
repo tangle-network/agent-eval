@@ -32,7 +32,7 @@ import type { RolloutLine } from '../rollout/schema'
 import { expandJournalEventGroup } from './journal-event-group'
 import { supervisorRunRolloutLinesFromFacts } from './rollout-nodes'
 import { readRuntimeSupervisorRun } from './runtime-reader'
-import { parseJsonl, parseSupervisorTree } from './source-facts'
+import { parseJsonl, parseSupervisorTree, recordOrNull as record } from './source-facts'
 import type { SupervisorRunTreeGap } from './types'
 
 const run = promisify(execFile)
@@ -48,6 +48,7 @@ interface NodeFacts {
   outRef?: string
   /** The node's newest input, which the next result answers. */
   inputRef?: string
+  unansweredSince?: string
   executions?: Array<{ taskRef?: string; outRef: string }>
 }
 
@@ -73,8 +74,6 @@ function wholeEpisode({ lossy_projection: _, gap, ...kept }: RolloutLine['proven
   return workspace === undefined ? kept : { ...kept, gap: workspace }
 }
 
-const record = (v: unknown): Record<string, unknown> | null =>
-  v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
 const text = (v: unknown): string | undefined =>
   typeof v === 'string' && v.length > 0 ? v : undefined
 
@@ -105,9 +104,12 @@ async function journalFacts(runDir: string): Promise<Map<string, NodeFacts>> {
       } else if (event.kind === 'settled' && text(event.outRef)) {
         node(id).outRef = text(event.outRef)
       } else if (event.kind === 'execution-input') {
-        node(id).inputRef = text(event.taskRef)
+        const fact = node(id)
+        fact.inputRef = text(event.taskRef)
+        fact.unansweredSince ??= text(event.at)
       } else if (event.kind === 'execution-result' && text(event.outRef)) {
         const fact = node(id)
+        fact.unansweredSince = undefined
         const taskRef = fact.inputRef ?? fact.taskRef
         ;(fact.executions ??= []).push({ taskRef, outRef: event.outRef as string })
       }
@@ -146,6 +148,7 @@ async function nodeSessions(runDir: string, harness: string, id: string, fact: N
 export interface PlayCheckReward {
   reward: number
   at: string
+  taggedAt: string | undefined
   commit: string | null
   detail: string
   /** A fake fixture failed every stage of this check, so a pass of it means something. */
@@ -190,10 +193,17 @@ export async function discoveryPlayCheckReward(runDir: string): Promise<PlayChec
     calibrated: stages.length > 0 && stages.every((state) => state === 'calibrated'),
     contradicted: (ruling?.verdict ?? record(last.goalAudit)?.verdict) === 'contradiction',
     at: String(last.at ?? ''),
+    taggedAt: text(receipt?.taggedAt),
     commit: typeof last.commit === 'string' ? last.commit : null,
     detail: detail.slice(0, 500),
   }
 }
+
+/** A solved run is stopped, so it reads `cancelled`; it is whole if no turn was open at the tag. */
+const holdsTheSolve = (check: PlayCheckReward, unansweredSince: string | undefined): boolean =>
+  check.reward === 1 &&
+  !check.contradicted &&
+  (!unansweredSince || Date.parse(check.taggedAt ?? '') <= Date.parse(unansweredSince))
 
 /** Commits each `workers/<label>` branch holds beyond the commit every worker started from. */
 async function deliverableCommits(runDir: string): Promise<Map<string, number> | null> {
@@ -279,6 +289,7 @@ export async function discoveryRunRolloutLines(
             ...(check.calibrated || check.contradicted
               ? screenedRewardFields(check.reward, check.contradicted)
               : unscreenedRewardFields(check.reward)),
+            ...(holdsTheSolve(check, fact.unansweredSince) ? { is_completed: true, error: null } : {}),
             reward_source: 'discovery/play-check',
             verdict: { at: check.at, commit: check.commit, detail: check.detail },
           }

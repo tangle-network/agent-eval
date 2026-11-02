@@ -1,3 +1,4 @@
+import { isRecord } from '../llm-client/json'
 import { expandJournalEventGroup } from './journal-event-group'
 import {
   type Measured,
@@ -135,8 +136,8 @@ function parseJsonlWithDiagnostics(text: string | null): ParsedJsonl {
     if (!trimmed) continue
     try {
       const parsed: unknown = JSON.parse(trimmed)
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        out.push(parsed as Record<string, unknown>)
+      if (isRecord(parsed)) {
+        out.push(parsed)
       } else {
         invalidRows += 1
       }
@@ -926,7 +927,5 @@ export function nonEmptyString(value: unknown): string | null {
 }
 
 export function recordOrNull(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
+  return isRecord(value) ? value : null
 }

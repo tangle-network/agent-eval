@@ -32,6 +32,7 @@
  * enumerates every place that has to decide about it.
  */
 
+import { isRecord } from '../llm-client/json'
 import type { GatedEvidence, RolloutOutcome, RolloutStep } from './schema'
 
 /**
@@ -146,9 +147,6 @@ function readReward(value: unknown): RewardReading {
   }
 }
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
 /**
  * Whether a reward-derived field carries anything at all.
  *
@@ -163,7 +161,7 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
  */
 function payloadIsPopulated(value: unknown): boolean {
   if (value === undefined || value === null) return false
-  if (isPlainRecord(value)) return Object.keys(value).length > 0
+  if (isRecord(value)) return Object.keys(value).length > 0
   return true
 }
 
@@ -204,7 +202,7 @@ export function undeclaredStepPayload(steps: unknown): unknown {
   let found = false
   for (const step of steps) {
     const extra: Record<string, unknown> = {}
-    if (isPlainRecord(step)) {
+    if (isRecord(step)) {
       for (const [key, value] of Object.entries(step)) {
         if (key in DECLARED_STEP_KEYS) continue
         extra[key] = value
@@ -226,7 +224,7 @@ export function declaredSteps(steps: unknown): RolloutStep[] | undefined {
   if (!Array.isArray(steps)) return undefined
   const kept: RolloutStep[] = []
   for (const step of steps) {
-    if (!isPlainRecord(step)) continue
+    if (!isRecord(step)) continue
     const projected: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(step)) {
       if (key in DECLARED_STEP_KEYS) projected[key] = value

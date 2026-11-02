@@ -14,6 +14,7 @@
  */
 
 import { ValidationError } from '../errors'
+import { isRecord } from '../llm-client/json'
 import type { ActionPayloadKind } from './action-budget'
 
 /** The literal an analyst returns when no single step carries the failure. */
@@ -190,9 +191,9 @@ function extractJsonObject(
         const value = JSON.parse(slice) as unknown
         if (Array.isArray(value)) {
           for (const item of value) {
-            if (isPlainObject(item)) parsed.push(item)
+            if (isRecord(item)) parsed.push(item)
           }
-        } else if (isPlainObject(value)) {
+        } else if (isRecord(value)) {
           parsed.push(value)
         }
       } catch {
@@ -202,10 +203,6 @@ function extractJsonObject(
   }
   if (parsed.length === 0) return null
   return { value: parsed[0]!, count: parsed.length }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** Balanced `{…}` and `[…]` slices at the top level of a candidate string. */
