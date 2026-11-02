@@ -263,6 +263,16 @@ describe('supervisor-run rollouts', () => {
     }
   })
 
+  it('lets a known recheck decide the reward over the pass it rechecked', async () => {
+    const run = await discoveryRun({ goalAudit: { verdict: 'consistent' } }, { check: 'calibrated' })
+    const recheck = { at: '2026-10-25T07:00:00.000Z', solved: false, known: true, detail: 'NOT SOLVED: isolation' }
+    await writeFile(join(run, 'play-check-recheck.json'), JSON.stringify(recheck))
+    const { lines } = await discoveryRunRolloutLines(run)
+    await rm(run, { recursive: true })
+    const root = lines.find((line) => line.rollout_id === ROOT)!
+    expect(root.outcome).toMatchObject({ reward: 0, verdict: { detail: 'NOT SOLVED: isolation' } })
+  })
+
   it('completes a run stopped after it solved, not one cut before it solved', async () => {
     const outcomeWhen = async (taggedAt: string, unansweredAt: string) => {
       const run = await discoveryRun(
