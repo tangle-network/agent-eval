@@ -57,7 +57,9 @@ const SCRUB_RULES: readonly ScrubRule[] = [
   },
   {
     name: 'bearer-token',
-    pattern: /\b(Bearer|Basic)\s+(?!\[REDACTED:)[A-Za-z0-9\-._~+/=]{8,}/g,
+    // A short plain word is English ("the Basic Version."), not a credential.
+    pattern:
+      /\b(Bearer|Basic)\s+(?!\[REDACTED:)(?![A-Za-z]{1,16}\.?(?:[^\w\-.~+/=]|$))[A-Za-z0-9\-._~+/=]{8,}/g,
     rewrite: (_match, scheme) => `${scheme} [REDACTED:bearer]`,
   },
   {
@@ -188,9 +190,9 @@ function entropy(token: string): number {
 // not hex digests (at most 4 bits/char) or identifiers. `/` and `.` end a token, so
 // a path is judged segment by segment: a whole mixed-case temp path read as one key.
 const ENTROPY_TOKEN = /[A-Za-z0-9+=_-]{32,}/g
-// A segment that is a lowercase word (`toolu_01…`, `cite_note-…`, `warm-session-…`) marks a generated identifier,
-// not a key: on 21 Discovery runs every high-entropy hit was one of these.
-const NAMED = /(?:^|[-_])[a-z]{4,}(?:$|[-_])/
+// A segment that is a one-case word (`toolu_01…`, `cite_note-…`, `USCODE-2023-title42…`) marks a generated
+// identifier, not a key: on 21 Discovery runs every high-entropy hit was one of these.
+const NAMED = /(?:^|[-_])(?:[a-z]{4,}|[A-Z]{4,})(?:$|[-_])/
 const highEntropy = (text: string): boolean => {
   for (const [token] of text.matchAll(ENTROPY_TOKEN)) {
     if (NAMED.test(token)) continue
@@ -220,7 +222,7 @@ const PRIVACY_RULES: readonly PrivacyRule[] = [
   { name: 'email', hit: email },
   {
     name: 'phone',
-    hit: (text) => /(?<![\d.])(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\d.])/.test(text),
+    hit: (text) => /(?<![\d.]\s?)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\d.])/.test(text),
   },
   {
     name: 'postal-address',
