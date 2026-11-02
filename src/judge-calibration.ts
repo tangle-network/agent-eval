@@ -19,9 +19,8 @@
  * decide whether to trust the judge, retrain it, or add a tie-breaker.
  */
 
-import { interpolatedQuantile as quantile } from './math/quantile'
 import { pearsonR, spearmanR } from './statistics/descriptive'
-import { mulberry32 } from './statistics/random'
+import { clusterBootstrap, DEFAULT_BOOTSTRAP_SEED } from './statistics/internal'
 
 export interface GoldenItem {
   itemId: string
@@ -266,7 +265,7 @@ export function continuousAgreement(
 ): ContinuousAgreement {
   const bootstrap = opts.bootstrap ?? 1000
   const weights = opts.weights ?? 'quadratic'
-  const seed = opts.seed ?? 0xc0ffee
+  const seed = opts.seed ?? DEFAULT_BOOTSTRAP_SEED
   const ciLevel = opts.ciLevel ?? 0.95
 
   const matrix = scores.filter((row) => row.length >= 2 && row.every((v) => Number.isFinite(v)))
@@ -292,34 +291,17 @@ export function continuousAgreement(
   const pearson = avgPairwise(clean, pearsonR)
   const spearman = avgPairwise(clean, spearmanR)
 
-  const ciIcc: [number, number] = [NaN, NaN]
-  const ciKappa: [number, number] = [NaN, NaN]
-  if (bootstrap > 0) {
-    const rng = mulberry32(seed)
-    const iccs: number[] = []
-    const kappas: number[] = []
-    for (let b = 0; b < bootstrap; b++) {
-      const sample: number[][] = new Array(nClean)
-      for (let i = 0; i < nClean; i++) {
-        sample[i] = clean[Math.floor(rng() * nClean)]!
-      }
-      const iccB = icc21(sample)
-      const kB = continuousWeightedKappa(sample, weights)
-      if (Number.isFinite(iccB)) iccs.push(iccB)
-      if (Number.isFinite(kB)) kappas.push(kB)
-    }
-    const [lo, hi] = percentileBounds(ciLevel)
-    if (iccs.length > 0) {
-      iccs.sort((a, b) => a - b)
-      ciIcc[0] = quantile(iccs, lo)
-      ciIcc[1] = quantile(iccs, hi)
-    }
-    if (kappas.length > 0) {
-      kappas.sort((a, b) => a - b)
-      ciKappa[0] = quantile(kappas, lo)
-      ciKappa[1] = quantile(kappas, hi)
-    }
+  // Both intervals draw the same seeded row resamples, so a judge's vector stays whole in each.
+  const interval = (statistic: (sample: number[][]) => number): [number, number] => {
+    const ci = clusterBootstrap(clean, (_, i) => String(i), statistic, {
+      resamples: bootstrap,
+      seed,
+      level: ciLevel,
+    })
+    return [ci.low, ci.high]
   }
+  const ciIcc = interval(icc21)
+  const ciKappa = interval((sample) => continuousWeightedKappa(sample, weights))
 
   return {
     weightedKappa: kappa,
@@ -499,9 +481,4 @@ function avgPairwise(rows: number[][], fn: (a: number[], b: number[]) => number)
     }
   }
   return pairs === 0 ? NaN : sum / pairs
-}
-
-function percentileBounds(ciLevel: number): [number, number] {
-  const tail = (1 - ciLevel) / 2
-  return [tail, 1 - tail]
 }

@@ -61,8 +61,16 @@ export type {
 export type {
   BehavioralTraceCalibrationRow,
   BehavioralTraceGold,
+  ChoiceCalibration,
+  ChoiceGold,
+  ChoiceOptionCalibration,
+  ChoicePrediction,
+  ClassCalibration,
 } from './benchmark-behavioral-calibration'
-export { calibrateBehavioralTraceQuestions } from './benchmark-behavioral-calibration'
+export {
+  calibrateBehavioralTraceQuestions,
+  calibrateChoiceQuestion,
+} from './benchmark-behavioral-calibration'
 
 export type {
   AnalystBenchmarkArtifact,
@@ -285,6 +293,7 @@ export {
 export type { FindingConditions, FindingTreatment, TreatmentLayer } from './finding-composition'
 export { TREATMENT_LAYERS } from './finding-composition'
 export type {
+  CalibrationInterval,
   FindingCalibration,
   FindingEvidenceUnit,
   FindingLayer,

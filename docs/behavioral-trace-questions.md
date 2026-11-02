@@ -79,6 +79,29 @@ are exclusions, never No; missing predictions remain disagreements. Empty and de
 samples have null kappa. A missing prediction or one-class gold set cannot issue a routing
 certificate. The minimum kappa is owned by `DECISION_POINT_MIN_KAPPA` on `/systemone`.
 
+Each row also reads yes as the positive class: `precision` and `recall` from the confusion
+matrix, `auc` as the rank statistic of the finding's `probabilities.yes` against gold (ties count
+half; null when a class has no scored member) and `ci`, a 95 % percentile bootstrap of the AUC
+over clusters, seeded, 2,000 resamples by default (`resamples`, `seed`). A cluster is the
+finding's window subject, falling back to its trace and then the window, so windows of one
+agent move together; `ci.clusters` says how many there were, and one cluster collapses the
+interval to the point. `kappaCi` is the same bootstrap of κ. `eligibleAuc` is a second, named
+line beside `eligible`: `DECISION_POINT_AUC_BAR` (auc ≥ 0.80, ci.low ≥ 0.70 and at least 10 gold
+items of the positive class) on `/systemone`; `eligible` keeps the κ rule and callers choose which
+line gates a color. The certificate carries `auc` and `ci`, so the decision definition digest
+binds them.
+
+Worked example, the dl-ui behavior windows of 2026-11-02: 508 windows over agent-node clusters
+gave the deterministic rule an implementing AUC of 0.845 (0.780–0.905) and Jev 0.971
+(0.94–0.99) per window; the rule reads as calibrated on that line and the interval is what
+lets a run page color the class rather than the point alone.
+
+`calibrateChoiceQuestion(gold, findings, { options?, resamples?, seed? })` applies the same
+code to a Choice question over any option set: `gold` is `{ id, label }` (null or a label
+outside the set is an exclusion), each finding is `{ id, cluster?, choice, probabilities }`,
+and the result carries the multi-class κ with its interval plus one one-vs-rest row per option
+whose `gold_n` is the items labeled with that option.
+
 The evaluator identity covers transport, normalization, receipt interpretation, pricing and spending policy; it must change when those semantics change. It is captured once and bound in exact execution and calibration identities.
 
 Certificates bind the exact question, option order, implementation version, evaluator identity, layer,

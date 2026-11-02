@@ -21,6 +21,7 @@
  */
 
 import { z } from 'zod'
+import type { BootstrapInterval } from '../statistics/internal'
 import { findingConditionsSchema, findingTreatmentSchema } from './finding-composition'
 import { findingCalibrationSchema, findingEvidenceRefSchema } from './finding-primitives'
 import {
@@ -73,6 +74,11 @@ export interface FindingScope {
   domain_path?: string[]
 }
 
+/** A bootstrap interval with the key its clusters were drawn by (a window subject, a trace, ...). */
+export interface CalibrationInterval extends BootstrapInterval {
+  cluster: string
+}
+
 export interface FindingCalibration {
   /** Gold items the judge was scored against. */
   gold_n: number
@@ -80,6 +86,10 @@ export interface FindingCalibration {
   agreement: number
   /** Chance-corrected agreement (Cohen's κ). */
   kappa: number
+  /** Rank statistic of the positive class's probability against gold, when the judge supplied one. */
+  auc?: number | null
+  /** Seeded percentile cluster bootstrap of `auc`. */
+  ci?: CalibrationInterval | null
 }
 
 export interface FindingMethod {

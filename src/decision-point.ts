@@ -96,6 +96,8 @@ const cancelled = (): FindingsLedgerOutcome<never> => ({
 
 /** Minimum independent nominal-label agreement required before routing can drive work. */
 export const DECISION_POINT_MIN_KAPPA = 0.77
+/** The second, named line beside κ: ROC area, its interval's low end and the gold count a probability reading needs. */
+export const DECISION_POINT_AUC_BAR = { auc: 0.8, ciLow: 0.7, gold_n: 10 } as const
 
 function validateDecisionDefinition<Q extends DecisionQuestions>(
   config: Omit<DecisionPointOptions<Q>, 'ledger' | 'evaluator'>,

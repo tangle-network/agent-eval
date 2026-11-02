@@ -6,7 +6,7 @@ import {
   type ExactExecutionComponentIdentity,
   snapshotExactExecutionComponentIdentity,
 } from './exact-types'
-import type { FindingCalibration } from './finding-scope'
+import type { CalibrationInterval, FindingCalibration } from './finding-scope'
 import type { FindingsLedger } from './findings-ledger'
 import type { EvidenceRef } from './types'
 
@@ -164,6 +164,9 @@ export interface BehavioralQuestionCalibration extends FindingCalibration {
   /** Null for a computed extractor, an exact served identity for a model judgment. */
   servedModel: string | null
   evidenceRefs: EvidenceRef[]
+  /** Both null for a computed extractor or a one-class sample; the decision digest binds them. */
+  auc: number | null
+  ci: CalibrationInterval | null
 }
 
 export interface BehavioralTraceQuestionsOptions {
