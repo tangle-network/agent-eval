@@ -66,10 +66,11 @@ describe('rollout-release privacy and license screen', () => {
         'sizes 1 2 34 56 78 901 234 567 890 1234',
       ].join(' '),
     )
-    const unscreened = fixtureRolloutLine({
+    const unscreened = {
+      ...base,
       rollout_id: 'unscreened-1',
       outcome: { ...base.outcome, reward: 1, realness_screened: false },
-    })
+    }
     const claude = fixtureRolloutLine({
       rollout_id: 'claude-1',
       policy: { ...base.policy, harness: 'claude', model: 'claude-opus-4' },
