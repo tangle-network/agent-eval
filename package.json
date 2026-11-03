@@ -177,6 +177,11 @@
       "import": "./dist/storyboard/index.js",
       "default": "./dist/storyboard/index.js"
     },
+    "./app-grade": {
+      "types": "./dist/app-grade/index.d.ts",
+      "import": "./dist/app-grade/index.js",
+      "default": "./dist/app-grade/index.js"
+    },
     "./adapters/http": {
       "types": "./dist/adapters/http.d.ts",
       "import": "./dist/adapters/http.js",
@@ -244,6 +249,14 @@
     "smol-toml": "1.9.1",
     "zod": "^4.6.6"
   },
+  "peerDependencies": {
+    "playwright": ">=1.64.1"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.6.3",
@@ -256,6 +269,7 @@
     "lint-staged": "^17.6.0",
     "openapi3-ts": "^4.6.2",
     "oxc-parser": "^0.155.0",
+    "playwright": "1.64.1",
     "publint": "^0.3.25",
     "tsdown": "^0.23.2",
     "tsx": "^4.23.15",
