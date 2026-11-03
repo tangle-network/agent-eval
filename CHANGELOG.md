@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.1.0] — 2026-11-03
+
+- fix(app-grade): keep a judge's own error as the transport error's cause (#1200)
+- feat(app-grade): grade an app by operating its running build (#1199)
+- docs(agents): the package stays general; products adapt to it (#1198)
+
 ## [1.0.17] — 2026-11-02
 
 - fix(supervisor-run)!: read Runtime runs generically; the caller supplies the verdict (#1196)
