@@ -237,6 +237,7 @@ export async function grade<E extends { journeyMs: Record<string, number> }>(inp
         reviews.map((review) => [review.id, review.report.reviewDigest]),
       ),
       costUsd: cost.summary.totalCostUsd,
+      ...(judge.notionalUsd ? { notionalUsd: judge.notionalUsd() } : {}),
       toolCalls: [
         ...pick.stats.toolCalls,
         ...reviews.flatMap(

@@ -18,6 +18,12 @@ export interface AppGradeJudge {
   readonly pricing: CustomTokenPricing
   /** Hard per-call reservation rate, at or above every rate the client bills. */
   readonly bound: CustomTokenPricing
+  /**
+   * For a judge that bills $0 per call (a subscription): what its calls so far would cost at
+   * list price, as the judge reports it, or null when any call's figure is unknown. The
+   * manifest records it as `notionalUsd`; it is never billed.
+   */
+  readonly notionalUsd?: () => number | null
 }
 
 export interface JudgeReply {
