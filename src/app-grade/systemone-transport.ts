@@ -98,8 +98,9 @@ export class SystemOneTransportError extends Error {
     readonly model: string,
     readonly usage: { input_tokens: number; output_tokens: number },
     readonly costUsd: number | null,
+    options?: { cause?: unknown },
   ) {
-    super(message)
+    super(message, options)
     this.name = 'SystemOneTransportError'
   }
 }
@@ -152,6 +153,8 @@ export function chatSystemOneTransport(options: {
           servedModel,
           usage,
           costUsd,
+          // The caller reads the client's own error, such as a refused connection, from the cause.
+          { cause: error },
         )
       }
       servedModel = reply.servedModel

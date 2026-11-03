@@ -365,6 +365,30 @@ describe('SystemOne transport over a judge', () => {
     ).rejects.toThrow(/no valid answer after 1 paid requests/)
   })
 
+  it('keeps the refused connection of a judge that is down in the error cause', async () => {
+    const down = createServer()
+    await new Promise<void>((resolve) => down.listen(0, '127.0.0.1', () => resolve()))
+    const port = (down.address() as AddressInfo).port
+    await new Promise<void>((resolve) => down.close(() => resolve()))
+    const client = createChatClient({
+      transport: 'openai-compatible',
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      apiKey: 'k',
+      maximumAttempts: 1,
+    })
+    const error = await chatSystemOneTransport({
+      judge: { ...judge, client },
+      malformedRetries: 0,
+    })(request, context).then(
+      () => expect.unreachable('a down judge gives no answer'),
+      (thrown: unknown) => thrown,
+    )
+    const chain: string[] = []
+    for (let at = error; at; at = (at as { cause?: unknown }).cause)
+      chain.push(String((at as { code?: string }).code ?? (at as Error).message))
+    expect(chain.join(' | ')).toMatch(/ECONNREFUSED/)
+  })
+
   it('refuses a review that names another model than the judge serves', async () => {
     reply('{"answers":{"outcome":{"probabilities":{"good":1}}}}')
     await expect(
