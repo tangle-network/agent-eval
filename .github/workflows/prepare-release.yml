@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: Semver bump
+        description: Semver bump; release admission refuses a minor on 1.x (agent-runtime docs/release-versioning.md)
         required: true
         type: choice
-        options: [patch, minor, major]
+        options: [patch, major]
         default: patch
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
           TYPE: ${{ inputs.release_type }}
         run: |
           current=$(node -p "require('./package.json').version")
-          version=$(CURRENT="$current" TYPE="$TYPE" node -e "const [a,b,c]=process.env.CURRENT.split('.').map(Number);const t=process.env.TYPE;console.log(t==='major'?(a+1)+'.0.0':t==='minor'?a+'.'+(b+1)+'.0':a+'.'+b+'.'+(c+1))")
+          version=$(CURRENT="$current" TYPE="$TYPE" node -e "const [a,b,c]=process.env.CURRENT.split('.').map(Number);const t=process.env.TYPE;console.log(t==='major'?(a+1)+'.0.0':a+'.'+b+'.'+(c+1))")
           node scripts/prepare-release.mjs "$version"
           # prepare-release.mjs set the version in uv.lock; this only checks it.
           (cd clients/python && uv lock --check)
