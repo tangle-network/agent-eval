@@ -43,6 +43,7 @@ Each shared concern has one owner. Import it; do not re-implement it.
 - For a finding's layer, population, promotion or the findings ledger, read [finding-layers.md](docs/finding-layers.md).
 - For redacting or share-safety-checking a trace, read [redaction.md](docs/redaction.md). This package owns the one redaction core (`./traces` export); agent-runtime, traces and run-capsule import it instead of keeping their own patterns.
 - For registered experiments, read [experiment.md](docs/experiment.md).
+- For grading an app by operating its running build, read [app-grade.md](docs/app-grade.md).
 - For checks without an answer key, read [verification-strategies.md](docs/verification-strategies.md).
 - For result vocabulary and certification, read [verdicts.md](docs/verdicts.md).
 - For conversation-engine regressions, read [multishot-golden-records.md](docs/multishot-golden-records.md).

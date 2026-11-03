@@ -41,7 +41,8 @@ function distribution(raw: unknown, labels: string[], name: string): Record<stri
     return Number.isFinite(value) && value > 0 ? value : 0
   })
   const total = values.reduce((sum, value) => sum + value, 0)
-  if (total <= 0) throw new Error(`SystemOne transport: question ${name} returned no probability mass`)
+  if (total <= 0)
+    throw new Error(`SystemOne transport: question ${name} returned no probability mass`)
   const normalized = values.map((value) => Number((value / total).toFixed(6)))
   // Put rounding residue on the largest entry so the sum is exact to 1e-6.
   const residue = 1 - normalized.reduce((sum, value) => sum + value, 0)
@@ -52,12 +53,20 @@ function distribution(raw: unknown, labels: string[], name: string): Record<stri
 
 function nativeAnswer(question: SystemOneQuestions[string], raw: unknown, name: string) {
   const labels = labelsFor(question)
-  const probabilities = distribution((raw as { probabilities?: unknown })?.probabilities, labels, name)
+  const probabilities = distribution(
+    (raw as { probabilities?: unknown })?.probabilities,
+    labels,
+    name,
+  )
   if (question.type === 'noul') return { type: 'noul' as const, noul: probabilities.true! }
   const confidence = Math.max(...Object.values(probabilities))
   if (question.type === 'score') {
-    const score = Number(labels.reduce((sum, label) => sum + Number(label) * probabilities[label]!, 0).toFixed(6))
-    const legend = Object.fromEntries(question.criteria.map((criterion, index) => [String(index), criterion]))
+    const score = Number(
+      labels.reduce((sum, label) => sum + Number(label) * probabilities[label]!, 0).toFixed(6),
+    )
+    const legend = Object.fromEntries(
+      question.criteria.map((criterion, index) => [String(index), criterion]),
+    )
     return { type: 'score' as const, score, confidence, legend, probabilities }
   }
   const choice = labels.find((label) => probabilities[label] === confidence)!
@@ -69,9 +78,14 @@ function nativeAnswer(question: SystemOneQuestions[string], raw: unknown, name: 
  * garbles the wrapper key (`"answers{"`, `"answers:{"`, seen 2026-09-23 on
  * one-question reviews), so take the one top-level object that names a question.
  */
-function answersOf(parsed: Record<string, unknown>, questions: string[]): Record<string, unknown> | undefined {
+function answersOf(
+  parsed: Record<string, unknown>,
+  questions: string[],
+): Record<string, unknown> | undefined {
   const holds = (value: unknown): value is Record<string, unknown> =>
-    Boolean(value) && typeof value === 'object' && questions.some((name) => name in (value as Record<string, unknown>))
+    Boolean(value) &&
+    typeof value === 'object' &&
+    questions.some((name) => name in (value as Record<string, unknown>))
   if (holds(parsed.answers)) return parsed.answers
   if (holds(parsed)) return parsed
   return Object.values(parsed).find(holds)
@@ -95,12 +109,23 @@ export class SystemOneTransportError extends Error {
  * model returns unusable JSON. Their usage and billed cost are summed into the one
  * result (or error) the ledger records, so no paid attempt goes unaccounted.
  */
-export function chatSystemOneTransport(options: { judge: AppGradeJudge; malformedRetries?: number }) {
+export function chatSystemOneTransport(options: {
+  judge: AppGradeJudge
+  malformedRetries?: number
+}) {
   const malformedRetries = options.malformedRetries ?? 2
   const { judge } = options
-  return async (request: SystemOneRequest, context: { signal: AbortSignal; idempotencyKey: string }) => {
-    if (request.model !== judge.ref) throw new Error(`SystemOne transport: the review names ${request.model}; this transport serves ${judge.ref}`)
-    const allowed = Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, labelsFor(question)]))
+  return async (
+    request: SystemOneRequest,
+    context: { signal: AbortSignal; idempotencyKey: string },
+  ) => {
+    if (request.model !== judge.ref)
+      throw new Error(
+        `SystemOne transport: the review names ${request.model}; this transport serves ${judge.ref}`,
+      )
+    const allowed = Object.fromEntries(
+      Object.entries(request.questions).map(([name, question]) => [name, labelsFor(question)]),
+    )
     const usage = { input_tokens: 0, output_tokens: 0 }
     let costUsd: number | null = 0
     let servedModel = judge.model
@@ -122,7 +147,12 @@ export function chatSystemOneTransport(options: { judge: AppGradeJudge; malforme
           idempotencyKey: `${context.idempotencyKey}-${paid}`,
         })
       } catch (error) {
-        throw new SystemOneTransportError(`SystemOne transport: ${judge.client.transport}: ${error instanceof Error ? error.message : String(error)}`, servedModel, usage, costUsd)
+        throw new SystemOneTransportError(
+          `SystemOne transport: ${judge.client.transport}: ${error instanceof Error ? error.message : String(error)}`,
+          servedModel,
+          usage,
+          costUsd,
+        )
       }
       servedModel = reply.servedModel
       usage.input_tokens += reply.inputTokens
@@ -132,18 +162,32 @@ export function chatSystemOneTransport(options: { judge: AppGradeJudge; malforme
       try {
         const found = answersOf(parseJudgeJson(reply.content), Object.keys(request.questions))
         const answers = Object.fromEntries(
-          Object.entries(request.questions).map(([name, question]) => [name, nativeAnswer(question, found?.[name], name)]),
+          Object.entries(request.questions).map(([name, question]) => [
+            name,
+            nativeAnswer(question, found?.[name], name),
+          ]),
         )
         return {
           model: servedModel,
           answers,
           usage,
-          transport: { route: '/v1/chat/completions', via: judge.client.transport, paidRequests: paid + 1, costUsd, toolCalls },
+          transport: {
+            route: '/v1/chat/completions',
+            via: judge.client.transport,
+            paidRequests: paid + 1,
+            costUsd,
+            toolCalls,
+          },
         }
       } catch (error) {
         lastProblem = `${error instanceof Error ? error.message : String(error)}. Reply with every question and a probability for each allowed answer.`
       }
     }
-    throw new SystemOneTransportError(`SystemOne transport: no valid answer after ${malformedRetries + 1} paid requests: ${lastProblem}`, servedModel, usage, costUsd)
+    throw new SystemOneTransportError(
+      `SystemOne transport: no valid answer after ${malformedRetries + 1} paid requests: ${lastProblem}`,
+      servedModel,
+      usage,
+      costUsd,
+    )
   }
 }

@@ -9,23 +9,30 @@ import { join } from 'node:path'
 import type { CostLedger } from '../cost-ledger'
 import {
   assessSystemOneReview,
-  systemOneEvaluator,
+  type PreparedSystemOneReview,
   prepareSystemOneReview,
   type SystemOneQuestions,
   type SystemOneReviewCheck,
   type SystemOneReviewReport,
   type SystemOneState,
-  type PreparedSystemOneReview,
+  systemOneEvaluator,
 } from '../systemone'
 import type { AppGradeJudge } from './judge'
-import { chatSystemOneTransport, SYSTEM_ONE_MAX_OUTPUT_TOKENS, SystemOneTransportError } from './systemone-transport'
+import {
+  chatSystemOneTransport,
+  SYSTEM_ONE_MAX_OUTPUT_TOKENS,
+  SystemOneTransportError,
+} from './systemone-transport'
 import type { TierRole } from './verdict'
 
 export interface ReviewSpec {
   id: string
   questions: SystemOneQuestions
   state: unknown
-  checks: Record<string, Omit<SystemOneReviewCheck, 'evidence'> & { evidence: SystemOneReviewCheck['evidence'] }>
+  checks: Record<
+    string,
+    Omit<SystemOneReviewCheck, 'evidence'> & { evidence: SystemOneReviewCheck['evidence'] }
+  >
   tierRole: Record<string, TierRole>
 }
 
@@ -63,17 +70,25 @@ export async function runReviews(input: {
             model: error.model,
             inputTokens: error.usage.input_tokens,
             outputTokens: error.usage.output_tokens,
-            ...(error.costUsd !== null ? { actualCostUsd: error.costUsd } : { customTokenPricing: input.judge.pricing }),
+            ...(error.costUsd !== null
+              ? { actualCostUsd: error.costUsd }
+              : { customTokenPricing: input.judge.pricing }),
           }
         : undefined,
     // The cost the client reported ($0 on a subscription); the rate card otherwise.
     receipt: (raw) => {
-      const value = raw as { model: string; usage: { input_tokens: number; output_tokens: number }; transport?: { costUsd?: number | null } }
+      const value = raw as {
+        model: string
+        usage: { input_tokens: number; output_tokens: number }
+        transport?: { costUsd?: number | null }
+      }
       return {
         model: value.model,
         inputTokens: value.usage.input_tokens,
         outputTokens: value.usage.output_tokens,
-        ...(typeof value.transport?.costUsd === 'number' ? { actualCostUsd: value.transport.costUsd } : { customTokenPricing: input.judge.pricing }),
+        ...(typeof value.transport?.costUsd === 'number'
+          ? { actualCostUsd: value.transport.costUsd }
+          : { customTokenPricing: input.judge.pricing }),
       }
     },
   })
@@ -82,7 +97,11 @@ export async function runReviews(input: {
     input.specs.map(async (spec): Promise<StoredReview> => {
       const review = prepareSystemOneReview({
         version: input.version,
-        request: { model: input.judge.ref, state: json(spec.state) as SystemOneState, questions: json(spec.questions) },
+        request: {
+          model: input.judge.ref,
+          state: json(spec.state) as SystemOneState,
+          questions: json(spec.questions),
+        },
         checks: json(spec.checks) as never,
       })
       const result = await evaluate(review.request, {

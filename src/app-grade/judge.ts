@@ -34,7 +34,13 @@ export interface JudgeReply {
 /** One JSON chat call. A failed call throws the client's error. */
 export async function askJudge(
   judge: AppGradeJudge,
-  input: { system: string; user: string; maxTokens: number; signal?: AbortSignal; idempotencyKey?: string },
+  input: {
+    system: string
+    user: string
+    maxTokens: number
+    signal?: AbortSignal
+    idempotencyKey?: string
+  },
 ): Promise<JudgeReply> {
   const result = await judge.client.chat(
     {

@@ -208,10 +208,16 @@ export class EvidenceBrowser {
     readonly userAgent: string,
   ) {}
 
-  static async launch(input: { headless?: boolean } = {}): Promise<EvidenceBrowser> {
+  /** `executablePath`: a Chromium already on the machine, such as a Sandbox box's, instead of Playwright's download. */
+  static async launch(
+    input: { headless?: boolean; executablePath?: string } = {},
+  ): Promise<EvidenceBrowser> {
     // Loaded here so the rest of App Grade (specs, verdicts, products) runs without Playwright installed.
     const { chromium } = await import('playwright')
-    const browser = await chromium.launch({ headless: input.headless ?? true })
+    const browser = await chromium.launch({
+      headless: input.headless ?? true,
+      ...(input.executablePath ? { executablePath: input.executablePath } : {}),
+    })
     const cdp = await browser.newBrowserCDPSession()
     const { userAgent } = await cdp.send('Browser.getVersion')
     await cdp.detach()
@@ -219,7 +225,12 @@ export class EvidenceBrowser {
   }
 
   /** A fresh browser context per journey: its own storage, as a new buyer has. Without a wallet origin, no page records wallet evidence. */
-  async journey(input: { id: string; dir: string; appUrl: string; walletOrigin?: string }): Promise<JourneySession> {
+  async journey(input: {
+    id: string
+    dir: string
+    appUrl: string
+    walletOrigin?: string
+  }): Promise<JourneySession> {
     return JourneySession.open(this.browser, input)
   }
 
@@ -244,12 +255,23 @@ export class JourneySession {
     readonly walletOrigin: string | null,
   ) {}
 
-  static async open(browser: Browser, input: { id: string; dir: string; appUrl: string; walletOrigin?: string }): Promise<JourneySession> {
+  static async open(
+    browser: Browser,
+    input: { id: string; dir: string; appUrl: string; walletOrigin?: string },
+  ): Promise<JourneySession> {
     mkdirSync(input.dir, { recursive: true })
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
-    const session = new JourneySession(input.id, input.dir, context, originOf(input.appUrl), input.walletOrigin ?? null)
+    const session = new JourneySession(
+      input.id,
+      input.dir,
+      context,
+      originOf(input.appUrl),
+      input.walletOrigin ?? null,
+    )
     await context.tracing.start({ screenshots: true, snapshots: true, sources: false })
-    await context.exposeBinding(WALLET_CHANNEL_BINDING, (source, payload: unknown) => session.receive(source.page, source.frame, payload))
+    await context.exposeBinding(WALLET_CHANNEL_BINDING, (source, payload: unknown) =>
+      session.receive(source.page, source.frame, payload),
+    )
     // The binding stays exposed without a wallet: any call to it is then page code, kept as a forgery attempt.
     if (input.walletOrigin) await context.addInitScript({ content: walletTap(input.walletOrigin) })
     context.on('page', (page) => session.watch(page))
@@ -271,14 +293,18 @@ export class JourneySession {
       } catch {
         // Service-worker requests have no frame.
       }
-      const payloadType = ['fetch', 'xhr', 'document', 'eventsource'].includes(request.resourceType())
+      const payloadType = ['fetch', 'xhr', 'document', 'eventsource'].includes(
+        request.resourceType(),
+      )
       if (!payloadType || !(entry.appOrigin || fromApp)) {
         session.append('network.jsonl', entry)
         return
       }
       const body = (async () => {
         entry.requestBody = request.postData()?.slice(0, PAYLOAD_CHARS) ?? null
-        if (entry.appOrigin) entry.responseBody = (await response.text().catch(() => null))?.slice(0, PAYLOAD_CHARS) ?? null
+        if (entry.appOrigin)
+          entry.responseBody =
+            (await response.text().catch(() => null))?.slice(0, PAYLOAD_CHARS) ?? null
         session.append('network.jsonl', entry)
       })()
       session.pendingBodies.add(body)
@@ -302,7 +328,12 @@ export class JourneySession {
     const text = typeof payload === 'string' ? payload : JSON.stringify(payload ?? null)
     // Only a wallet-origin top frame runs the wallet tap; any other caller is page code.
     if (originOf(frame.url()) !== this.walletOrigin || frame !== page.mainFrame()) {
-      this.forgeryAttempts.push({ journey: this.id, frameUrl: frame.url().slice(0, 300), payload: text.slice(0, 2_000), t: Date.now() })
+      this.forgeryAttempts.push({
+        journey: this.id,
+        frameUrl: frame.url().slice(0, 300),
+        payload: text.slice(0, 2_000),
+        t: Date.now(),
+      })
       this.append('forgery-attempts.jsonl', this.forgeryAttempts.at(-1))
       return
     }
@@ -321,14 +352,31 @@ export class JourneySession {
 
   private watch(page: Page) {
     page.on('console', (message) => {
-      this.append('console.jsonl', { t: Date.now(), journey: this.id, page: page.url().slice(0, 160), type: message.type(), text: message.text().slice(0, 2_000) })
+      this.append('console.jsonl', {
+        t: Date.now(),
+        journey: this.id,
+        page: page.url().slice(0, 160),
+        type: message.type(),
+        text: message.text().slice(0, 2_000),
+      })
     })
     page.on('pageerror', (error) => {
-      this.append('console.jsonl', { t: Date.now(), journey: this.id, page: page.url().slice(0, 160), type: 'pageerror', text: String(error).slice(0, 2_000) })
+      this.append('console.jsonl', {
+        t: Date.now(),
+        journey: this.id,
+        page: page.url().slice(0, 160),
+        type: 'pageerror',
+        text: String(error).slice(0, 2_000),
+      })
     })
     // A wallet window is a page some app page opened: the grader never opens one itself.
     page.on('popup', (popup) => {
-      const window: WalletWindow = { opener: page, page: popup, url: popup.url(), records: this.unclaimed.get(popup) ?? [] }
+      const window: WalletWindow = {
+        opener: page,
+        page: popup,
+        url: popup.url(),
+        records: this.unclaimed.get(popup) ?? [],
+      }
       this.unclaimed.delete(popup)
       this.walletWindows.push(window)
       popup.on('framenavigated', (frame) => {
@@ -352,7 +400,9 @@ export class JourneySession {
 
   /** Windows at the wallet origin that `opener` opened, in open order, skipping the first `since` of them. */
   walletWindowsOf(opener: Page, since = 0): WalletWindow[] {
-    return this.walletWindows.filter((window) => window.opener === opener && originOf(window.url) === this.walletOrigin).slice(since)
+    return this.walletWindows
+      .filter((window) => window.opener === opener && originOf(window.url) === this.walletOrigin)
+      .slice(since)
   }
 
   /**
@@ -367,26 +417,46 @@ export class JourneySession {
     }
     const cdp = await session
     const { frameTree } = await cdp.send('Page.getFrameTree')
-    const { executionContextId } = await cdp.send('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: GRADER_WORLD })
-    const result = await cdp.send('Runtime.evaluate', { expression, contextId: executionContextId, returnByValue: true, awaitPromise: true })
+    const { executionContextId } = await cdp.send('Page.createIsolatedWorld', {
+      frameId: frameTree.frame.id,
+      worldName: GRADER_WORLD,
+    })
+    const result = await cdp.send('Runtime.evaluate', {
+      expression,
+      contextId: executionContextId,
+      returnByValue: true,
+      awaitPromise: true,
+    })
     if (result.exceptionDetails) {
-      throw new Error(`grader world: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`)
+      throw new Error(
+        `grader world: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`,
+      )
     }
     return result.result.value as T
   }
 
   /** Accessibility snapshot and screenshot of one moment, saved under this journey's directory. */
-  async capture(page: Page, label: string): Promise<{ aria: string; ariaPath: string; screenshotPath: string; url: string }> {
+  async capture(
+    page: Page,
+    label: string,
+  ): Promise<{ aria: string; ariaPath: string; screenshotPath: string; url: string }> {
     const base = join('journeys', this.id, label)
-    const aria = await page.locator('body').ariaSnapshot({ timeout: 5_000 }).catch((error) => `ARIA_UNAVAILABLE: ${String(error).slice(0, 200)}`)
+    const aria = await page
+      .locator('body')
+      .ariaSnapshot({ timeout: 5_000 })
+      .catch((error) => `ARIA_UNAVAILABLE: ${String(error).slice(0, 200)}`)
     this.write(`${base}.aria.yml`, aria)
-    await page.screenshot({ path: join(this.dir, `${base}.png`), fullPage: true, timeout: 10_000 }).catch(() => {})
+    await page
+      .screenshot({ path: join(this.dir, `${base}.png`), fullPage: true, timeout: 10_000 })
+      .catch(() => {})
     return { aria, ariaPath: `${base}.aria.yml`, screenshotPath: `${base}.png`, url: page.url() }
   }
 
   async close(): Promise<void> {
     await Promise.allSettled([...this.pendingBodies])
-    await this.context.tracing.stop({ path: join(this.dir, 'journeys', this.id, 'trace.zip') }).catch(() => {})
+    await this.context.tracing
+      .stop({ path: join(this.dir, 'journeys', this.id, 'trace.zip') })
+      .catch(() => {})
     await this.context.close().catch(() => {})
   }
 }

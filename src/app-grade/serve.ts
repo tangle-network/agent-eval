@@ -5,7 +5,7 @@
  * task's declared app variables (for a product task: the product URL and the app's
  * own scoped key). Grader credentials never reach it.
  */
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { createWriteStream, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -28,13 +28,17 @@ export interface ServedApp {
 }
 
 function startCommand(workdir: string): string[] {
-  const pkg = JSON.parse(readFileSync(join(workdir, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
+  const pkg = JSON.parse(readFileSync(join(workdir, 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
   const next = join(workdir, 'node_modules', '.bin', 'next')
   // The Next.js family's production server. A contestant `start` script that is not
   // `next start` is recorded but not trusted; the attestation below shows what ran.
   if (existsSync(next)) return [next, 'start']
   if (pkg.scripts?.start) return ['npm', 'run', 'start', '--']
-  throw new Error('no production start command: node_modules/.bin/next is missing and package.json has no start script')
+  throw new Error(
+    'no production start command: node_modules/.bin/next is missing and package.json has no start script',
+  )
 }
 
 /**
@@ -49,17 +53,29 @@ function listeningPid(port: number): number | null {
     return match ? Number(match[1]) : null
   }
   // lsof exits 1 when nothing listens; the caller reads that as no owner.
-  const pid = Number(execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim().split('\n')[0])
+  const pid = Number(
+    execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' })
+      .trim()
+      .split('\n')[0],
+  )
   return Number.isFinite(pid) && pid > 0 ? pid : null
 }
 
 /** The process listening on `port`, or all nulls when none does or the lookup fails. */
-export function portOwner(port: number): { pid: number | null; pgid: number | null; command: string | null } {
+export function portOwner(port: number): {
+  pid: number | null
+  pgid: number | null
+  command: string | null
+} {
   try {
     const pid = listeningPid(port)
     if (pid === null) return { pid: null, pgid: null, command: null }
-    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim()
-    const pgid = Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+      encoding: 'utf8',
+    }).trim()
+    const pgid = Number(
+      execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim(),
+    )
     return { pid, pgid: Number.isFinite(pgid) ? pgid : null, command }
   } catch {
     return { pid: null, pgid: null, command: null }
@@ -72,9 +88,11 @@ export function portOwner(port: number): { pid: number | null; pgid: number | nu
  * submission for the grader's own choice of port.
  */
 const BAD_PORTS = new Set([
-  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123,
-  135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995,
-  1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102,
+  103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465,
+  512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993,
+  995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
+  6669, 6679, 6697, 10080,
 ])
 
 /**
@@ -110,16 +128,34 @@ function installReaper(): void {
   }
 }
 
-export async function serveApp(input: { workdir: string; port: number; logPath: string; readyTimeoutMs?: number; env?: Record<string, string> }): Promise<ServedApp> {
-  if (BAD_PORTS.has(input.port)) throw new Error(`port ${input.port} is a blocked port (Fetch standard); browsers and next start refuse it`)
+export async function serveApp(input: {
+  workdir: string
+  port: number
+  logPath: string
+  readyTimeoutMs?: number
+  env?: Record<string, string>
+}): Promise<ServedApp> {
+  if (BAD_PORTS.has(input.port))
+    throw new Error(
+      `port ${input.port} is a blocked port (Fetch standard); browsers and next start refuse it`,
+    )
   // A server already on the port would answer the readiness probe and be graded in place of this submission.
   const occupant = portOwner(input.port)
-  if (occupant.pid !== null) throw new Error(`port ${input.port} is already served by pid ${occupant.pid}: ${occupant.command ?? ''}`)
+  if (occupant.pid !== null)
+    throw new Error(
+      `port ${input.port} is already served by pid ${occupant.pid}: ${occupant.command ?? ''}`,
+    )
   const command = [...startCommand(input.workdir), '-p', String(input.port)]
   const log = createWriteStream(input.logPath)
   const child: ChildProcess = spawn(command[0]!, command.slice(1), {
     cwd: input.workdir,
-    env: { ...input.env, PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', NODE_ENV: 'production', PORT: String(input.port) },
+    env: {
+      ...input.env,
+      PATH: process.env.PATH ?? '',
+      HOME: process.env.HOME ?? '',
+      NODE_ENV: 'production',
+      PORT: String(input.port),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   })
@@ -157,7 +193,9 @@ export async function serveApp(input: { workdir: string; port: number; logPath: 
     portOwnerIsChild: child.pid !== undefined && owner.pgid === child.pid,
     readyAfterMs,
     lastStatus,
-    isScaffoldPreview: /preview-server\.mjs|preview:instant/.test(`${command.join(' ')} ${owner.command ?? ''}`),
+    isScaffoldPreview: /preview-server\.mjs|preview:instant/.test(
+      `${command.join(' ')} ${owner.command ?? ''}`,
+    ),
   }
   return {
     url,

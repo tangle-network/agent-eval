@@ -12,15 +12,20 @@
  * sometimes cannot score a contestant, so one disagreeing run refuses it.
  *
  * The record keeps every input `deriveVerdict` read, so the admission gate re-derives each
- * tier offline instead of trusting the stored one. This module and `verdict.ts` import
- * only Node and Agent Interface, which the repository root also installs, so the
- * repository's admission gate reads them without App Grade's dependencies.
+ * tier offline instead of trusting the stored one.
  */
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { canonicalCandidateJson } from '@tangle-network/agent-interface'
-import { deriveVerdict, TIER_ORDER, type EngineeringGates, type Tier, type VerdictCheck, type VerdictReview } from './verdict'
+import { canonicalString, jsonDocument } from '../ledger-core/canonical'
+import {
+  deriveVerdict,
+  type EngineeringGates,
+  TIER_ORDER,
+  type Tier,
+  type VerdictCheck,
+  type VerdictReview,
+} from './verdict'
 
 export const CALIBRATION_SCHEMA = 'app-grade-calibration/1'
 export const TASK_SCHEMA = 'app-grade-task/1'
@@ -83,37 +88,52 @@ export function calibrationDecision(record: CalibrationRecord): CalibrationDecis
   const reasons: string[] = []
   const tiers = { reference: [], stale: [], broken: [] } as Record<Plant, Tier[]>
   if (record.schema !== CALIBRATION_SCHEMA) reasons.push(`schema must be ${CALIBRATION_SCHEMA}`)
-  if (!TIER_ORDER.includes(record.passTier) || FAILING.has(record.passTier)) reasons.push(`pass tier ${record.passTier} must be B, A or S`)
+  if (!TIER_ORDER.includes(record.passTier) || FAILING.has(record.passTier))
+    reasons.push(`pass tier ${record.passTier} must be B, A or S`)
   for (const run of record.runs) {
-    const derived = deriveVerdict({ served: run.served, checks: run.checks, reviews: run.reviews, engineering: run.engineering, unmeasured: run.unmeasured })
+    const derived = deriveVerdict({
+      served: run.served,
+      checks: run.checks,
+      reviews: run.reviews,
+      engineering: run.engineering,
+      unmeasured: run.unmeasured,
+    })
     if (derived.tier !== run.tier || derived.invalid !== run.invalid) {
-      reasons.push(`${run.plant} run ${run.run}: stored tier ${run.tier}${run.invalid ? ' (invalid)' : ''} does not re-derive (${derived.tier}${derived.invalid ? ', invalid' : ''})`)
+      reasons.push(
+        `${run.plant} run ${run.run}: stored tier ${run.tier}${run.invalid ? ' (invalid)' : ''} does not re-derive (${derived.tier}${derived.invalid ? ', invalid' : ''})`,
+      )
     }
     if (!PLANTS.includes(run.plant)) continue
     tiers[run.plant].push(derived.tier)
     const where = `${run.plant} run ${run.run}`
     if (derived.invalid) reasons.push(`${where}: an integrity check was supported`)
-    if (run.plant === 'reference' && rank(derived.tier) < rank(record.passTier)) reasons.push(`${where}: tier ${derived.tier} is below the pass tier ${record.passTier}: ${derived.reasons.slice(0, 3).join('; ')}`)
-    if (run.plant !== 'reference' && !FAILING.has(derived.tier)) reasons.push(`${where}: tier ${derived.tier} passes; a planted build must fail a gate`)
+    if (run.plant === 'reference' && rank(derived.tier) < rank(record.passTier))
+      reasons.push(
+        `${where}: tier ${derived.tier} is below the pass tier ${record.passTier}: ${derived.reasons.slice(0, 3).join('; ')}`,
+      )
+    if (run.plant !== 'reference' && !FAILING.has(derived.tier))
+      reasons.push(`${where}: tier ${derived.tier} passes; a planted build must fail a gate`)
     if (record.factCheckId) {
       const fact = run.checks.find((check) => check.id === record.factCheckId)
       if (!fact) reasons.push(`${where}: fact check ${record.factCheckId} did not run`)
-      else if (run.plant === 'reference' && fact.status !== 'pass') reasons.push(`${where}: fact check ${record.factCheckId} failed: ${fact.detail}`)
-      else if (run.plant === 'stale' && fact.status !== 'fail') reasons.push(`${where}: the from-memory build passed fact check ${record.factCheckId}`)
+      else if (run.plant === 'reference' && fact.status !== 'pass')
+        reasons.push(`${where}: fact check ${record.factCheckId} failed: ${fact.detail}`)
+      else if (run.plant === 'stale' && fact.status !== 'fail')
+        reasons.push(`${where}: the from-memory build passed fact check ${record.factCheckId}`)
     }
   }
   for (const plant of PLANTS) {
-    if (tiers[plant].length < MIN_CALIBRATION_RUNS) reasons.push(`${plant}: ${tiers[plant].length} run(s); calibration needs ${MIN_CALIBRATION_RUNS}`)
+    if (tiers[plant].length < MIN_CALIBRATION_RUNS)
+      reasons.push(
+        `${plant}: ${tiers[plant].length} run(s); calibration needs ${MIN_CALIBRATION_RUNS}`,
+      )
   }
   return { admitted: reasons.length === 0, reasons, tiers }
 }
 
-/**
- * Agent Interface's RFC 8785 canonical JSON, after a JSON round trip drops undefined fields,
- * so equal values have one byte form.
- */
+/** RFC 8785 canonical JSON of the value as a JSON file carries it (no undefined fields). */
 export function canonicalJson(value: unknown): string {
-  return canonicalCandidateJson(JSON.parse(JSON.stringify(value)))
+  return canonicalString(jsonDocument(value))
 }
 
 export function sha256(text: string | Buffer): string {
@@ -126,10 +146,15 @@ export function canonicalDigest(value: unknown): string {
 
 /** Digest of a directory's files by relative path and content: one calibration submission. */
 export function treeDigest(dir: string): string {
-  const files = (at: string): Array<{ path: string; sha256: string }> => readdirSync(at).sort().flatMap((name) => {
-    const full = join(at, name)
-    return statSync(full).isDirectory() ? files(full) : [{ path: relative(dir, full), sha256: sha256(readFileSync(full)) }]
-  })
+  const files = (at: string): Array<{ path: string; sha256: string }> =>
+    readdirSync(at)
+      .sort()
+      .flatMap((name) => {
+        const full = join(at, name)
+        return statSync(full).isDirectory()
+          ? files(full)
+          : [{ path: relative(dir, full), sha256: sha256(readFileSync(full)) }]
+      })
   return canonicalDigest(files(dir))
 }
 
@@ -148,5 +173,12 @@ export interface TaskMaterial {
 
 /** One digest binds a calibration record to the exact suite, leaf, product and grader spec. */
 export function taskMaterialDigest(task: TaskMaterial): string {
-  return canonicalDigest({ schema: TASK_SCHEMA, id: task.id, suite: task.suite, leaf: task.leaf, product: task.product, spec: task.spec })
+  return canonicalDigest({
+    schema: TASK_SCHEMA,
+    id: task.id,
+    suite: task.suite,
+    leaf: task.leaf,
+    product: task.product,
+    spec: task.spec,
+  })
 }

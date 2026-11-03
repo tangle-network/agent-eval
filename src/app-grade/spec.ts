@@ -57,7 +57,12 @@ export interface HostedProductSpec extends ProductBase {
      * by `create`, ready when GET `<create.path>/<id>` reads `ready.equals` at `ready.jsonPath`, deleted
      * on stop. Every admin and app request carries its id in `header`; app variable `appEnv` holds it.
      */
-    tenant?: { create: { path: string; body: Json }; header: string; ready: { jsonPath: string; equals: Json; timeoutMs?: number }; appEnv?: string }
+    tenant?: {
+      create: { path: string; body: Json }
+      header: string
+      ready: { jsonPath: string; equals: Json; timeoutMs?: number }
+      appEnv?: string
+    }
     /** The grader relays the run's events from `path` to the app's `route`, signed with the per-run secret in app variable `secretEnv`. */
     events?: { path: string; route: string; secretEnv: string }
   }
@@ -156,13 +161,28 @@ export type CheckKind =
   | { kind: 'pageContains'; capture: string; values: string[]; mode?: 'all' | 'any' }
   | { kind: 'pageLacks'; capture: string; values: string[] }
   | { kind: 'productRequests'; match: RequestMatch; min?: number; max?: number }
-  | { kind: 'readMatches'; read: string; jsonPath: string; equals?: Json; includes?: Json; length?: { min?: number; max?: number } }
+  | {
+      kind: 'readMatches'
+      read: string
+      jsonPath: string
+      equals?: Json
+      includes?: Json
+      length?: { min?: number; max?: number }
+    }
   /**
    * The strings at `jsonPath` (an array; `field` picks a property of each element) in a read,
    * first `limit` of them: `shown` requires each on the page, `ordered` also in that order,
    * `absent` requires none on the page.
    */
-  | { kind: 'pageRead'; capture: string; read: string; jsonPath: string; field?: string; limit?: number; expect: 'shown' | 'ordered' | 'absent' }
+  | {
+      kind: 'pageRead'
+      capture: string
+      read: string
+      jsonPath: string
+      field?: string
+      limit?: number
+      expect: 'shown' | 'ordered' | 'absent'
+    }
 
 /** `floor` failures give F; `journey` failures give C. See verdict.ts. */
 export type CheckSpec = { id: string; gate: 'floor' | 'journey'; why: string } & CheckKind
@@ -224,7 +244,9 @@ export function jsonPath(value: unknown, path: string): unknown {
   let current = value
   for (const segment of path.split('.')) {
     if (current === null || typeof current !== 'object') return undefined
-    current = Array.isArray(current) ? current[Number(segment)] : (current as Record<string, unknown>)[segment]
+    current = Array.isArray(current)
+      ? current[Number(segment)]
+      : (current as Record<string, unknown>)[segment]
   }
   return current
 }
@@ -246,7 +268,9 @@ export function render<T extends Json | undefined>(template: T, context: object)
   }
   if (Array.isArray(template)) return template.map((item) => render(item, context)) as T
   if (typeof template === 'object') {
-    return Object.fromEntries(Object.entries(template).map(([key, item]) => [key, render(item, context)])) as T
+    return Object.fromEntries(
+      Object.entries(template).map(([key, item]) => [key, render(item, context)]),
+    ) as T
   }
   return template
 }
@@ -268,13 +292,19 @@ export function references(value: unknown): string[] {
 // ─── Lint ──────────────────────────────────────────────────────────────────
 
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/
-const DIGEST_IMAGE = /^[a-z0-9][a-z0-9._\/-]*(:[\w.-]+)?@sha256:[a-f0-9]{64}$/
+const DIGEST_IMAGE = /^[a-z0-9][a-z0-9._/-]*(:[\w.-]+)?@sha256:[a-f0-9]{64}$/
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/
-const PRODUCT_EVIDENCE: ReadonlySet<CheckSpec['kind']> = new Set(['productRequests', 'readMatches', 'pageRead'])
+const PRODUCT_EVIDENCE: ReadonlySet<CheckSpec['kind']> = new Set([
+  'productRequests',
+  'readMatches',
+  'pageRead',
+])
 
 /** What calibration binds: the digest-pinned image, or the hosted origin with its pinned headers. */
 export function productIdentity(product: ProductSpec): string {
-  return product.hosted ? `${product.hosted.origin} ${JSON.stringify(product.hosted.headers ?? {})}` : product.image
+  return product.hosted
+    ? `${product.hosted.origin} ${JSON.stringify(product.hosted.headers ?? {})}`
+    : product.image
 }
 
 /** The image digest a provenance record freezes; a hosted product has none. */
@@ -287,27 +317,57 @@ export function lintProductSpec(product: ProductSpec): string[] {
   if (!ID.test(product.name ?? '')) problems.push('product.name must be a lowercase id')
   const { hosted } = product
   if (hosted) {
-    if (!/^https:\/\/[a-z0-9.-]+$/.test(hosted.origin ?? '')) problems.push('product.hosted.origin must be an https origin')
-    if (!/^[a-z]+_test_[a-z_]*$/.test(hosted.appKeyPrefix ?? '')) problems.push('product.hosted.appKeyPrefix must name a test key')
-    if (product.appKey !== undefined || product.appEnv?.key === undefined) problems.push('a hosted product gives the app its placeholder key in appEnv.key; product.appKey must be omitted')
-    if (hosted.tenant && (!hosted.tenant.create?.path?.startsWith('/') || !/^[A-Za-z-]+$/.test(hosted.tenant.header ?? '') || !hosted.tenant.ready?.jsonPath)) problems.push('product.hosted.tenant is incomplete')
-    if (hosted.events && (!hosted.events.path?.startsWith('/') || !hosted.events.route?.startsWith('/'))) problems.push('product.hosted.events paths must start with /')
-    for (const name of [hosted.secretEnv, ...(hosted.tenant?.appEnv ? [hosted.tenant.appEnv] : []), ...(hosted.events ? [hosted.events.secretEnv] : [])]) {
-      if (!ENV_NAME.test(name ?? '')) problems.push(`product.hosted: ${name} must be an environment variable name`)
+    if (!/^https:\/\/[a-z0-9.-]+$/.test(hosted.origin ?? ''))
+      problems.push('product.hosted.origin must be an https origin')
+    if (!/^[a-z]+_test_[a-z_]*$/.test(hosted.appKeyPrefix ?? ''))
+      problems.push('product.hosted.appKeyPrefix must name a test key')
+    if (product.appKey !== undefined || product.appEnv?.key === undefined)
+      problems.push(
+        'a hosted product gives the app its placeholder key in appEnv.key; product.appKey must be omitted',
+      )
+    if (
+      hosted.tenant &&
+      (!hosted.tenant.create?.path?.startsWith('/') ||
+        !/^[A-Za-z-]+$/.test(hosted.tenant.header ?? '') ||
+        !hosted.tenant.ready?.jsonPath)
+    )
+      problems.push('product.hosted.tenant is incomplete')
+    if (
+      hosted.events &&
+      (!hosted.events.path?.startsWith('/') || !hosted.events.route?.startsWith('/'))
+    )
+      problems.push('product.hosted.events paths must start with /')
+    for (const name of [
+      hosted.secretEnv,
+      ...(hosted.tenant?.appEnv ? [hosted.tenant.appEnv] : []),
+      ...(hosted.events ? [hosted.events.secretEnv] : []),
+    ]) {
+      if (!ENV_NAME.test(name ?? ''))
+        problems.push(`product.hosted: ${name} must be an environment variable name`)
     }
   } else {
-    if (!DIGEST_IMAGE.test(product.image ?? '')) problems.push('product.image must be pinned by sha256 digest')
-    if (!Number.isInteger(product.port) || product.port < 1 || product.port > 65_535) problems.push('product.port is invalid')
+    if (!DIGEST_IMAGE.test(product.image ?? ''))
+      problems.push('product.image must be pinned by sha256 digest')
+    if (!Number.isInteger(product.port) || product.port < 1 || product.port > 65_535)
+      problems.push('product.port is invalid')
     if (!product.ready?.path?.startsWith('/')) problems.push('product.ready.path must start with /')
-    if (references(product.args ?? []).some((path) => path === 'adminSecret')) problems.push('product.args must not carry the admin secret; use env')
-    for (const path of references(product.env ?? {})) if (path !== 'adminSecret') problems.push(`product.env references {{${path}}}; only {{adminSecret}} exists at start`)
+    if (references(product.args ?? []).some((path) => path === 'adminSecret'))
+      problems.push('product.args must not carry the admin secret; use env')
+    for (const path of references(product.env ?? {}))
+      if (path !== 'adminSecret')
+        problems.push(`product.env references {{${path}}}; only {{adminSecret}} exists at start`)
   }
-  if (typeof product.version !== 'string' || !product.version.trim()) problems.push('product.version is required')
-  if (!product.versionProbe?.path?.startsWith('/') || !product.versionProbe.jsonPath) problems.push('product.versionProbe is incomplete')
+  if (typeof product.version !== 'string' || !product.version.trim())
+    problems.push('product.version is required')
+  if (!product.versionProbe?.path?.startsWith('/') || !product.versionProbe.jsonPath)
+    problems.push('product.versionProbe is incomplete')
   if (!product.auth?.header) problems.push('product.auth.header is required')
-  if (!ENV_NAME.test(product.appEnv?.url ?? '')) problems.push('product.appEnv.url must be an environment variable name')
-  if (product.appEnv?.key !== undefined && !ENV_NAME.test(product.appEnv.key)) problems.push('product.appEnv.key must be an environment variable name')
-  if (!hosted && (product.appEnv?.key === undefined) !== (product.appKey === undefined)) problems.push('product.appEnv.key and product.appKey go together')
+  if (!ENV_NAME.test(product.appEnv?.url ?? ''))
+    problems.push('product.appEnv.url must be an environment variable name')
+  if (product.appEnv?.key !== undefined && !ENV_NAME.test(product.appEnv.key))
+    problems.push('product.appEnv.key must be an environment variable name')
+  if (!hosted && (product.appEnv?.key === undefined) !== (product.appKey === undefined))
+    problems.push('product.appEnv.key and product.appKey go together')
   return problems
 }
 
@@ -318,13 +378,19 @@ export function lintProductSpec(product: ProductSpec): string[] {
 export function lintAppGradeSpec(spec: AppGradeSpec, product: ProductSpec | undefined): string[] {
   const problems: string[] = []
   if (!product) problems.push('an App Grade task needs the seed product')
-  if (!spec.task || spec.task.trim().length < 40) problems.push('task must describe the job in at least 40 characters')
+  if (!spec.task || spec.task.trim().length < 40)
+    problems.push('task must describe the job in at least 40 characters')
   if (!['B', 'A', 'S'].includes(spec.passTier)) problems.push('passTier must be B, A or S')
   const probes = new Set(Object.keys(spec.probes ?? {}))
   for (const [name, probe] of Object.entries(spec.probes ?? {})) {
     if (!/^[a-z][a-zA-Z0-9]*$/.test(name)) problems.push(`probe ${name}: name must be camelCase`)
-    if (probe.kind === 'int' && !(Number.isInteger(probe.min) && Number.isInteger(probe.max) && probe.min < probe.max)) problems.push(`probe ${name}: int range is invalid`)
-    if (probe.kind === 'pick' && (!Array.isArray(probe.from) || probe.from.length < 2)) problems.push(`probe ${name}: pick needs at least two values`)
+    if (
+      probe.kind === 'int' &&
+      !(Number.isInteger(probe.min) && Number.isInteger(probe.max) && probe.min < probe.max)
+    )
+      problems.push(`probe ${name}: int range is invalid`)
+    if (probe.kind === 'pick' && (!Array.isArray(probe.from) || probe.from.length < 2))
+      problems.push(`probe ${name}: pick needs at least two values`)
   }
   const vars = new Set<string>()
   const known = (path: string, where: string, allowed: { reads?: Set<string> } = {}) => {
@@ -339,11 +405,14 @@ export function lintAppGradeSpec(spec: AppGradeSpec, product: ProductSpec | unde
     if (!ID.test(step.name)) problems.push(`setup step ${step.name}: invalid name`)
     if (stepNames.has(step.name)) problems.push(`setup step ${step.name}: duplicate name`)
     stepNames.add(step.name)
-    if (!step.path?.startsWith('/')) problems.push(`setup step ${step.name}: path must start with /`)
-    for (const path of references([step.path, step.body ?? null])) known(path, `setup step ${step.name}`)
+    if (!step.path?.startsWith('/'))
+      problems.push(`setup step ${step.name}: path must start with /`)
+    for (const path of references([step.path, step.body ?? null]))
+      known(path, `setup step ${step.name}`)
     for (const name of Object.keys(step.capture ?? {})) vars.add(name)
     // `runSetup` captures before it polls, so a step's wait may name its own captures.
-    for (const path of references([step.waitFor?.path ?? '', step.waitFor?.equals ?? null])) known(path, `setup step ${step.name}`)
+    for (const path of references([step.waitFor?.path ?? '', step.waitFor?.equals ?? null]))
+      known(path, `setup step ${step.name}`)
   }
   if (product?.appKey) for (const path of references(product.appKey)) known(path, 'product.appKey')
   const journeys = new Set<string>()
@@ -353,10 +422,12 @@ export function lintAppGradeSpec(spec: AppGradeSpec, product: ProductSpec | unde
     if (journeys.has(journey.id)) problems.push(`journey ${journey.id}: duplicate id`)
     journeys.add(journey.id)
     if (!journey.steps?.length) problems.push(`journey ${journey.id}: no steps`)
-    if (!journey.steps?.some((step) => 'open' in step)) problems.push(`journey ${journey.id}: must open the app`)
+    if (!journey.steps?.some((step) => 'open' in step))
+      problems.push(`journey ${journey.id}: must open the app`)
     for (const step of journey.steps ?? []) {
       if ('capture' in step) {
-        if (!ID.test(step.capture)) problems.push(`journey ${journey.id}: capture ${step.capture} has an invalid name`)
+        if (!ID.test(step.capture))
+          problems.push(`journey ${journey.id}: capture ${step.capture} has an invalid name`)
         if (captures.has(step.capture)) problems.push(`capture ${step.capture}: duplicate name`)
         captures.add(step.capture)
       }
@@ -377,47 +448,75 @@ export function lintAppGradeSpec(spec: AppGradeSpec, product: ProductSpec | unde
     if (!/^[a-z][a-zA-Z0-9.-]*$/.test(check.id)) problems.push(`check ${check.id}: invalid id`)
     if (checkIds.has(check.id)) problems.push(`check ${check.id}: duplicate id`)
     checkIds.add(check.id)
-    if (check.gate !== 'floor' && check.gate !== 'journey') problems.push(`check ${check.id}: gate must be floor or journey`)
-    if (!check.why || check.why.trim().length < 10) problems.push(`check ${check.id}: say why it matters`)
-    if ('capture' in check && !captures.has(check.capture)) problems.push(`check ${check.id}: unknown capture ${check.capture}`)
-    if ('journey' in check && !journeys.has(check.journey)) problems.push(`check ${check.id}: unknown journey ${check.journey}`)
-    if ('read' in check && !reads.has(check.read)) problems.push(`check ${check.id}: unknown read ${check.read}`)
+    if (check.gate !== 'floor' && check.gate !== 'journey')
+      problems.push(`check ${check.id}: gate must be floor or journey`)
+    if (!check.why || check.why.trim().length < 10)
+      problems.push(`check ${check.id}: say why it matters`)
+    if ('capture' in check && !captures.has(check.capture))
+      problems.push(`check ${check.id}: unknown capture ${check.capture}`)
+    if ('journey' in check && !journeys.has(check.journey))
+      problems.push(`check ${check.id}: unknown journey ${check.journey}`)
+    if ('read' in check && !reads.has(check.read))
+      problems.push(`check ${check.id}: unknown read ${check.read}`)
     if (check.kind === 'productRequests') {
       if (check.match.path !== undefined) {
-        try { new RegExp(check.match.path) } catch { problems.push(`check ${check.id}: match.path is not a regular expression`) }
+        try {
+          new RegExp(check.match.path)
+        } catch {
+          problems.push(`check ${check.id}: match.path is not a regular expression`)
+        }
       }
-      if (check.min === undefined && check.max === undefined) problems.push(`check ${check.id}: productRequests needs min or max`)
+      if (check.min === undefined && check.max === undefined)
+        problems.push(`check ${check.id}: productRequests needs min or max`)
     }
     for (const path of references(check)) known(path, `check ${check.id}`)
   }
   // Something the product itself holds or answered must gate the floor, or a page that only
   // prints the right words passes.
-  if (!(spec.checks ?? []).some((check) => check.gate === 'floor' && PRODUCT_EVIDENCE.has(check.kind))) {
-    problems.push('at least one floor check must read product evidence (productRequests, readMatches or pageRead)')
+  if (
+    !(spec.checks ?? []).some((check) => check.gate === 'floor' && PRODUCT_EVIDENCE.has(check.kind))
+  ) {
+    problems.push(
+      'at least one floor check must read product evidence (productRequests, readMatches or pageRead)',
+    )
   }
   const reviewIds = new Set<string>()
   for (const review of spec.reviews ?? []) {
     if (!ID.test(review.id)) problems.push(`review ${review.id}: invalid id`)
     if (reviewIds.has(review.id)) problems.push(`review ${review.id}: duplicate id`)
     reviewIds.add(review.id)
-    for (const name of review.evidence?.captures ?? []) if (!captures.has(name)) problems.push(`review ${review.id}: unknown capture ${name}`)
-    for (const name of review.evidence?.reads ?? []) if (!reads.has(name)) problems.push(`review ${review.id}: unknown read ${name}`)
+    for (const name of review.evidence?.captures ?? [])
+      if (!captures.has(name)) problems.push(`review ${review.id}: unknown capture ${name}`)
+    for (const name of review.evidence?.reads ?? [])
+      if (!reads.has(name)) problems.push(`review ${review.id}: unknown read ${name}`)
     const questions = Object.entries(review.questions ?? {})
     if (questions.length === 0) problems.push(`review ${review.id}: no questions`)
     for (const [name, question] of questions) {
-      const labels = question.question.type === 'noul' ? ['true', 'false']
-        : question.question.type === 'score' ? question.question.criteria.map((_, index) => String(index))
-          : Object.keys(question.question.criteria)
-      if (question.question.type === 'score' && question.question.criteria.length < 2) problems.push(`review ${review.id}.${name}: score needs two or more levels`)
+      const labels =
+        question.question.type === 'noul'
+          ? ['true', 'false']
+          : question.question.type === 'score'
+            ? question.question.criteria.map((_, index) => String(index))
+            : Object.keys(question.question.criteria)
+      if (question.question.type === 'score' && question.question.criteria.length < 2)
+        problems.push(`review ${review.id}.${name}: score needs two or more levels`)
       for (const answer of [...question.supports, ...question.refutes]) {
-        if (!labels.includes(answer)) problems.push(`review ${review.id}.${name}: ${answer} is not an answer`)
+        if (!labels.includes(answer))
+          problems.push(`review ${review.id}.${name}: ${answer} is not an answer`)
       }
-      if (question.supports.length === 0 || question.refutes.length === 0) problems.push(`review ${review.id}.${name}: needs supporting and refuting answers`)
-      if (question.supports.some((answer) => question.refutes.includes(answer))) problems.push(`review ${review.id}.${name}: an answer both supports and refutes`)
-      if (!['core', 'senior', 'engineering', 'integrity'].includes(question.role)) problems.push(`review ${review.id}.${name}: invalid role`)
+      if (question.supports.length === 0 || question.refutes.length === 0)
+        problems.push(`review ${review.id}.${name}: needs supporting and refuting answers`)
+      if (question.supports.some((answer) => question.refutes.includes(answer)))
+        problems.push(`review ${review.id}.${name}: an answer both supports and refutes`)
+      if (!['core', 'senior', 'engineering', 'integrity'].includes(question.role))
+        problems.push(`review ${review.id}.${name}: invalid role`)
     }
   }
   if (!Array.isArray(spec.unmeasured)) problems.push('unmeasured must be a list')
-  if (spec.factCheck !== undefined && !(spec.checks ?? []).some((check) => check.id === spec.factCheck)) problems.push(`factCheck ${spec.factCheck} names no check`)
+  if (
+    spec.factCheck !== undefined &&
+    !(spec.checks ?? []).some((check) => check.id === spec.factCheck)
+  )
+    problems.push(`factCheck ${spec.factCheck} names no check`)
   return problems
 }

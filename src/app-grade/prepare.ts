@@ -2,13 +2,10 @@
  * Build gates for one submission workdir: install, typecheck, production build,
  * and the contestant's own tests. Run once per submission; every grading run
  * serves the build this step produced.
- *
- *   tsx prepare.ts --workdir <dir> --out <engineering.json>
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseArgs } from 'node:util'
 import type { EngineeringGates } from './verdict'
 
 function run(workdir: string, command: string, args: string[], timeoutMs: number) {
@@ -17,10 +14,20 @@ function run(workdir: string, command: string, args: string[], timeoutMs: number
     cwd: workdir,
     encoding: 'utf8',
     timeout: timeoutMs,
-    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', CI: '1', NEXT_TELEMETRY_DISABLED: '1' },
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: process.env.HOME ?? '',
+      CI: '1',
+      NEXT_TELEMETRY_DISABLED: '1',
+    },
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  return { command: [command, ...args].join(' '), exit: result.status, ms: Date.now() - started, tail: output.slice(-2_500) }
+  return {
+    command: [command, ...args].join(' '),
+    exit: result.status,
+    ms: Date.now() - started,
+    tail: output.slice(-2_500),
+  }
 }
 
 export function prepare(workdir: string) {
@@ -35,11 +42,14 @@ export function prepare(workdir: string) {
   // only has its Write/Edit calls, so building first restores the same tsconfig.
   steps.build = run(workdir, 'npm', ['run', 'build'], 600_000)
   steps.typecheck = run(workdir, 'npx', ['tsc', '--noEmit', '-p', '.'], 300_000)
-  const pkg = JSON.parse(readFileSync(join(workdir, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
+  const pkg = JSON.parse(readFileSync(join(workdir, 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
   const testScript = pkg.scripts?.test
-  steps.tests = testScript && !/no test specified/.test(testScript)
-    ? run(workdir, 'npm', ['test'], 300_000)
-    : { skipped: 'no test script' }
+  steps.tests =
+    testScript && !/no test specified/.test(testScript)
+      ? run(workdir, 'npm', ['test'], 300_000)
+      : { skipped: 'no test script' }
   const exit = (key: string) => ('exit' in steps[key]! ? steps[key]!.exit : 0)
   const gates: EngineeringGates = {
     install: existsSync(join(workdir, 'node_modules', '.bin', 'next')),
@@ -48,12 +58,4 @@ export function prepare(workdir: string) {
     tests: 'skipped' in steps.tests! ? 'absent' : exit('tests') === 0 ? 'pass' : 'fail',
   }
   return { gates, steps }
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const { values } = parseArgs({ options: { workdir: { type: 'string' }, out: { type: 'string' } } })
-  if (!values.workdir || !values.out) throw new Error('usage: prepare.ts --workdir <dir> --out <engineering.json>')
-  const result = prepare(values.workdir)
-  writeFileSync(values.out, JSON.stringify(result, null, 1))
-  console.log(JSON.stringify(result.gates))
 }
