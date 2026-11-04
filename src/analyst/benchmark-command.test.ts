@@ -364,22 +364,46 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
-  it('refuses an execution-owner module without a call function or a stable identity', async () => {
+  it('refuses an execution-owner module without a call function', async () => {
     const fixture = await codeTraceFixture()
-    const owners = [
-      [{ callRef: 'test-owner:invalid' }, /model execution owner call must be a function/],
-      [{ call: async () => undefined, callRef: ' ' }, /callRef must be trimmed and non-empty/],
-    ] as const
-    for (const [owner, error] of owners) {
-      const createAnalystRunner = vi.fn()
-      const loadModelExecutionOwner = async () =>
-        ({ ...owner, recordExecution: () => undefined }) as never
-      const deps = { createAnalystRunner, loadModelExecutionOwner }
-      await expect(runAnalystBenchmarkCommand(commandArgs(fixture), {}, deps)).rejects.toThrow(
-        error,
-      )
-      expect(createAnalystRunner).not.toHaveBeenCalled()
-    }
+    const args = commandArgs(fixture)
+    const createAnalystRunner = vi.fn()
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        args,
+        {},
+        {
+          createAnalystRunner,
+          loadModelExecutionOwner: async () =>
+            ({ callRef: 'test-owner:invalid', recordExecution: () => undefined }) as never,
+        },
+      ),
+    ).rejects.toThrow(/model execution owner call must be a function/)
+    expect(createAnalystRunner).not.toHaveBeenCalled()
+  })
+
+  it('refuses an execution-owner module without a stable public identity', async () => {
+    const fixture = await codeTraceFixture()
+    const args = commandArgs(fixture)
+    const createAnalystRunner = vi.fn()
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        args,
+        {},
+        {
+          createAnalystRunner,
+          loadModelExecutionOwner: async () =>
+            ({
+              call: async () => undefined,
+              callRef: ' ',
+              recordExecution: () => undefined,
+            }) as never,
+        },
+      ),
+    ).rejects.toThrow(/callRef must be trimmed and non-empty/)
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('records the consensus sample count in identity, provenance, and the result artifact', async () => {
