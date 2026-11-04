@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.19] — 2026-11-04
+
+- perf(lock): owner records skip fsync; a torn record born before this boot is stale (#1206)
+- fix(release): prepare-release offers no minor bump (#1205)
+
 ## [1.0.18] — 2026-11-03
 
 - feat(app-grade): record a subscription judge's list-price cost in the manifest (#1202)
