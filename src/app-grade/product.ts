@@ -254,7 +254,8 @@ async function connectProduct(
 ): Promise<RunningProduct> {
   const scope = on.scope ?? {}
   const admin = adminClient(spec, on.url, on.secret, scope, signal)
-  const versionReply = await admin('GET', spec.versionProbe.path)
+  const probe = spec.versionProbe
+  const versionReply = await admin(probe.method ?? 'GET', probe.path, probe.body)
   signal?.throwIfAborted()
   const reportedVersion = String(
     jsonPath(versionReply.body, spec.versionProbe.jsonPath) ?? `HTTP ${versionReply.status}`,
@@ -508,6 +509,9 @@ export async function startProduct(
       options.signal?.throwIfAborted()
       const timeout = AbortSignal.timeout(5_000)
       const status = await fetch(new URL(spec.ready.path, url), {
+        method: spec.ready.method ?? 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: spec.ready.body === undefined ? undefined : JSON.stringify(spec.ready.body),
         signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
       })
         .then((response) => response.status)

@@ -30,8 +30,8 @@ export interface ImageProductSpec extends ProductBase {
   env?: Record<string, string>
   /** Arguments after the image entrypoint. They must not carry the admin secret. */
   args?: string[]
-  /** Unauthenticated readiness probe. */
-  ready: { path: string; status?: number }
+  /** Unauthenticated readiness probe; GET unless `method` says otherwise, as `versionProbe`. */
+  ready: { path: string; method?: HttpMethod; body?: Json; status?: number }
   readyTimeoutMs?: number
   hosted?: undefined
 }
@@ -75,10 +75,11 @@ interface ProductBase {
   /** The version the running product must report through `versionProbe`. */
   version: string
   /**
-   * Admin-authenticated GET whose JSON value at `jsonPath` is the running version. A hosted
-   * product states its test mode here: Stripe's `/v1/balance` `livemode` must read `false`.
+   * Admin-authenticated request (GET by default; a JSON-RPC node takes POST `/` with its envelope
+   * as `body`) whose JSON value at `jsonPath` is the running version. A hosted product states its
+   * test mode here: Stripe's `/v1/balance` `livemode` must read `false`.
    */
-  versionProbe: { path: string; jsonPath: string }
+  versionProbe: { path: string; method?: HttpMethod; body?: Json; jsonPath: string }
   /** How admin requests authenticate: `<header>: <prefix><adminSecret>`. */
   auth: { header: string; prefix?: string }
   /**
