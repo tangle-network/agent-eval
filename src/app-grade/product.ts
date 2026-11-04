@@ -39,11 +39,9 @@ const run = promisify(execFile)
 const DEFAULT_READY_TIMEOUT_MS = 600_000
 
 /**
- * Where the product port is published. Docker honours DOCKER_HOST, so DOCKER_HOST=ssh://drew-gtr-pro
- * runs the product there; it must then publish on an address this host can reach, such as that
- * machine's tailnet IP (VB_PRODUCT_BIND=100.87.125.67). `docker port` reports the bound address,
- * so the product URL follows it. On 2026-09-25 three define lanes ran products under colima on a
- * 10-core Mac at load 290; the same run fits easily on the 32-core Linux host.
+ * Where the product port is published. Docker honours DOCKER_HOST, so a remote daemon runs the
+ * product; it must then publish on an address this host can reach, such as that machine's tailnet
+ * IP. `docker port` reports the bound address, so the product URL follows it.
  */
 const PRODUCT_BIND = process.env.VB_PRODUCT_BIND || '127.0.0.1'
 const OWNER_LABEL = 'verticalbench.app-grade.owner'
@@ -254,7 +252,8 @@ async function connectProduct(
 ): Promise<RunningProduct> {
   const scope = on.scope ?? {}
   const admin = adminClient(spec, on.url, on.secret, scope, signal)
-  const versionReply = await admin('GET', spec.versionProbe.path)
+  const probe = spec.versionProbe
+  const versionReply = await admin(probe.method ?? 'GET', probe.path, probe.body)
   signal?.throwIfAborted()
   const reportedVersion = String(
     jsonPath(versionReply.body, spec.versionProbe.jsonPath) ?? `HTTP ${versionReply.status}`,
@@ -508,6 +507,9 @@ export async function startProduct(
       options.signal?.throwIfAborted()
       const timeout = AbortSignal.timeout(5_000)
       const status = await fetch(new URL(spec.ready.path, url), {
+        method: spec.ready.method ?? 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: spec.ready.body === undefined ? undefined : JSON.stringify(spec.ready.body),
         signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
       })
         .then((response) => response.status)

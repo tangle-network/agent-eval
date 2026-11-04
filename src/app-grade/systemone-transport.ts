@@ -1,14 +1,9 @@
 /**
- * SystemOne answers from a chat model (`AppGradeJudge`).
- *
- * `systemOneEvaluator` takes an injected transport. The Router's native route
- * (`POST /v1/systemone`) answered 503 "TypeSafe is not configured" on 2026-09-23,
- * so this transport asks a chat model for the same native answer shape:
- * a probability distribution over each question's authored alternatives. The
- * result is validated by `parseSystemOneResult`, so questions, answer
- * shapes, receipts and review thresholds stay SystemOne's. The probabilities are
- * the chat model's stated distribution, not TypeSafe's classifier output; every
- * stored result records the served model so the two are never confused.
+ * SystemOne answers from a chat model (`AppGradeJudge`). The Router's native route
+ * (`POST /v1/systemone`) answered 503 "TypeSafe is not configured" on 2026-09-23, so this
+ * transport asks a chat model for the native answer shape, a distribution over each question's
+ * alternatives, that `parseSystemOneResult` validates. The probabilities are the model's stated
+ * distribution, not TypeSafe's classifier output; every stored result records the served model.
  */
 import type { SystemOneQuestions, SystemOneRequest } from '../systemone'
 import { type AppGradeJudge, askJudge, parseJudgeJson } from './judge'
