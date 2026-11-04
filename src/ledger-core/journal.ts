@@ -24,15 +24,8 @@
  * appended are verified as that tail. A file that was replaced, shrank, or no
  * longer carries the verified head is verified whole again. What an open
  * instance cannot see is a same-length rewrite of rows before its head; a new
- * instance verifies every row and refuses one.
- *
- * That "whole file once" is still every row, however long ago it was already
- * proven unchanged. A codec that opts into `snapshotProjection` lets a fresh
- * instance shortcut it: `projector-snapshot.ts`'s cache still walks the whole
- * hash chain up to its checkpoint — nothing is exempted from tamper detection
- * — but only the checkpoint row and the true tail after it go through the
- * codec's own parsing and projector; the FileLedgerJournalOptions.projectorSnapshot
- * option controls how often a pinning append refreshes it.
+ * instance verifies every row and refuses one. A codec with `snapshotProjection`
+ * skips parsing rows before a cached checkpoint (`projector-snapshot.ts`).
  *
  * Domain vocabulary lives entirely in the consumer's codec: entry schema
  * validation, the constant header fields stamped into every entry, the error
@@ -103,12 +96,8 @@ export interface LedgerProjector<Entry, Projection> {
 
 /** Serialize a projection into JSON-safe cache data, and rebuild a projector
  * from it whose next `apply` continues right after the entry it was taken
- * after — as if that projector had been live since sequence 0. Supplying
- * both opts a codec into the projector snapshot cache (`projector-snapshot.ts`):
- * a fresh journal open can then verify the generic hash chain of the rows
- * before a cached checkpoint without parsing or applying any of them through
- * this codec. Omit to disable the cache for this codec; every open then
- * fully replays through `createProjector`, exactly as before. */
+ * after. Supplying both opts a codec into the projector snapshot cache
+ * (`projector-snapshot.ts`); without them every open replays fully. */
 export interface LedgerProjectorSnapshotCodec<Entry, Projection> {
   serialize(projection: Projection): unknown
   restore(serialized: unknown): LedgerProjector<Entry, Projection>
@@ -325,12 +314,7 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
       }
       writeTrustedHeadFile(this.trustedHeadPath, head, this.codec)
       state.pin = head
-      // An explicit pin is already a deliberate, infrequent checkpoint call,
-      // so — when the caller opted into the cache at all — it always
-      // refreshes it rather than waiting for the interval. Gated on
-      // `snapshotEvery`, not just the codec's support, so a journal that
-      // never asked for `projectorSnapshot` never gets a cache file from
-      // this path either; caching stays one on/off decision, not two.
+      // An explicit pin is a rare checkpoint, so it refreshes an opted-in cache at once.
       if (this.snapshotEvery !== null) this.writeProjectorSnapshotNow(state)
       return head
     })

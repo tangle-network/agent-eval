@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir } from 'node:os'
+import { tmpdir, uptime } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { probeAtomicFileLock, tryAcquireAtomicFileLock } from './atomic-file-lock'
 import { DEAD_PID, writeHolderRecord, writeRunnableLockModules } from './lock-holder-test-fixtures'
 
@@ -131,19 +131,21 @@ describe('tryAcquireAtomicFileLock dead-holder takeover', () => {
     }
   }, 15_000)
 
-  it('keeps a lock whose record predates holder identity', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'agent-eval-lock-legacy-'))
+  it('refuses a torn record from this boot and reclaims one born before it', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agent-eval-lock-torn-'))
     const lockPath = join(directory, 'events.lock')
-    const legacy = { host: hostname(), nonce: 'legacy-writer', pid: DEAD_PID }
-    writeFileSync(lockPath, `${JSON.stringify(legacy)}\n`)
+    writeFileSync(lockPath, '{"pid":')
 
     try {
-      expect(tryAcquireAtomicFileLock({ lockPath })).toMatchObject({
-        acquired: false,
-        reason: 'held',
-        holder: { pid: DEAD_PID },
-      })
+      expect(() => tryAcquireAtomicFileLock({ lockPath })).toThrow(/invalid owner/u)
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + uptime() * 1000 + 10_000)
+      const result = tryAcquireAtomicFileLock({ lockPath })
+      expect(result.acquired).toBe(true)
+      if (result.acquired) result.lock.release()
+      expect(existsSync(lockPath)).toBe(false)
     } finally {
+      vi.useRealTimers()
       rmSync(directory, { recursive: true, force: true })
     }
   })

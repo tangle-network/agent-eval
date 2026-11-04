@@ -6,7 +6,6 @@ import {
   constants,
   existsSync,
   fstatSync,
-  fsyncSync,
   linkSync,
   openSync,
   readFileSync,
@@ -14,6 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { uptime } from 'node:os'
 import {
   type LockHolderIdentity,
   type LockHolderRecord,
@@ -196,8 +196,9 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
   try {
     // A hard link keeps the inode, so this identity is the lock path's once linked.
     const lock = lockIdentity(fstatSync(descriptor, { bigint: true }))
+    // No fsync: it waited one journal commit on every fenced write (agent-runtime#2362). A power
+    // loss can then leave the linked record empty or torn, which readOwner settles by boot time.
     writeFileSync(descriptor, `${JSON.stringify({ ...owner, lock })}\n`, 'utf8')
-    fsyncSync(descriptor)
   } catch (error) {
     closeSync(descriptor)
     unlinkIfExists(ownerPath)
@@ -220,8 +221,8 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
 function ownerState(lockPath: string): OwnerState {
   const current = readOwner(lockPath)
   if (!current) return { state: 'missing' }
-  const verdict = lockHolderVerdict(current.record, current.identity)
-  return { state: verdict.liveness === 'dead' ? 'stale' : 'held', owner: current.owner }
+  const dead = current.torn || lockHolderVerdict(current.record, current.identity).liveness === 'dead'
+  return { state: dead ? 'stale' : 'held', owner: current.owner }
 }
 
 interface LockFileOwner {
@@ -229,6 +230,7 @@ interface LockFileOwner {
   readonly record: LockHolderRecord & { readonly nonce: string }
   /** The inode the record was read from, so a verdict compares it with the recorded lock. */
   readonly identity: LockIdentity
+  readonly torn?: true
 }
 
 function readOwner(lockPath: string): LockFileOwner | undefined {
@@ -248,16 +250,29 @@ function readOwner(lockPath: string): LockFileOwner | undefined {
     closeSync(descriptor)
   }
 
-  let value: unknown
-  try {
-    value = JSON.parse(contents)
-  } catch (error) {
-    throw invalidOwner(lockPath, error)
+  const record = parseOwnerRecord(parseJson(contents))
+  if (record) {
+    const { lock: _lock, ...owner } = record
+    return { owner, record, identity }
   }
-  const record = parseOwnerRecord(value)
-  if (!record) throw invalidOwner(lockPath)
-  const { lock: _lock, ...owner } = record
-  return { owner, record, identity }
+  // Only a power loss leaves a linked record unreadable; an inode born before this boot has no holder left here.
+  if (!bornBeforeBoot(identity)) throw invalidOwner(lockPath)
+  const owner = { pid: 0, host: '', nonce: `torn.${identity.ino}.${identity.birthtimeNs}` }
+  return { owner, record: owner, identity, torn: true }
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+/** Boot time from uptime; the 1 s margin covers its rounding, so a lock made just after boot stays live. */
+function bornBeforeBoot(lock: LockIdentity): boolean {
+  const born = BigInt(lock.birthtimeNs)
+  return born > 0n && born < BigInt(Math.floor(Date.now() - uptime() * 1000 - 1000)) * 1_000_000n
 }
 
 /**
@@ -275,12 +290,10 @@ function parseOwnerRecord(value: unknown): LockFileOwner['record'] | undefined {
   return { ...holder, nonce }
 }
 
-function invalidOwner(lockPath: string, cause?: unknown): AtomicFileLockError {
-  const error = new AtomicFileLockError(
+function invalidOwner(lockPath: string): AtomicFileLockError {
+  return new AtomicFileLockError(
     `atomic file lock has an invalid owner (${lockPath}); refusing unsafe recovery`,
   )
-  if (cause !== undefined) Object.defineProperty(error, 'cause', { value: cause })
-  return error
 }
 
 function releaseOwnedPath(lockPath: string, owner: AtomicFileLockOwner): void {
