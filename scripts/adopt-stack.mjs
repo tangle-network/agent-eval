@@ -31,7 +31,7 @@ const COHORT = 'release/cohort.json'
 // A producer whose publication runs an `evidence` job: its versions adopt only once that job passed.
 const RELEASE_EVIDENCE = new Map([['@tangle-network/agent-runtime', { repo: 'tangle-network/agent-runtime', publish: 'publish.yml', legacy: 'upstream-evidence.yml' }]])
 const BOT_EMAIL = '41898282+github-actions[bot]@users.noreply.github.com'
-const BOT = ['-c', 'user.name=github-actions[bot]', '-c', `user.email=${BOT_EMAIL}`]
+const BOT = process.env.GITHUB_ACTIONS === 'true' ? ['-c', 'user.name=github-actions[bot]', '-c', `user.email=${BOT_EMAIL}`] : []
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
 const EXACT = /^\d+\.\d+\.\d+$/
 // gh's refusal when a required review (or check) is missing; reviewDecision tells which.
@@ -723,23 +723,23 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   result.resolved = resolvedVersions(dir, new Map(result.expected))
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
   preparePlaywrightBrowsers(dir)
+  const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
+  // -A stages a file the post-pin command deleted.
+  if (!run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
+  const committedTree = trackedDigest(dir)
+  if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
+  if (out('git', ['status', '--porcelain', '--untracked-files=no'], dir) || trackedDigest(dir) !== committedTree) throw new Error('commit hooks changed the planned tree; retained locally, no push or merge was attempted')
+  const head = out('git', ['rev-parse', 'HEAD'], dir)
   log(`gate: ${gate}`)
   const gated = run('bash', ['-c', gate], dir)
+  if (out('git', ['status', '--porcelain', '--untracked-files=no'], dir) || trackedDigest(dir) !== committedTree || out('git', ['rev-parse', 'HEAD'], dir) !== head) throw new Error('gate changed the committed head or tree; retained locally, no push or merge was attempted')
   if (gated) result.resolved = resolvedVersions(dir, new Map(result.expected))
   // Refused release evidence holds a passing candidate as a draft, like a failed gate.
   const refused = result.evidence.filter((entry) => entry.refused)
   const green = gated && !refused.length
   const outcome = green ? 'pass' : gated ? 'evidence-refused' : 'gate-fail'
 
-  const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
-  // -A stages a file the post-pin command deleted.
-  if (!run('git', ['add', '-A', '--', ...new Set([...files, ...synced.files])], dir)) throw new Error('could not stage the adoption')
-  const gatedTree = trackedDigest(dir)
-  if (out('git', ['diff', '--cached', '--name-only'], dir) && !run('git', [...BOT, 'commit', '-q', '-m', title], dir)) throw new Error('commit failed')
-  // An untracked file the gate wrote (wrangler check startup's worker-startup.cpuprofile) is not in the commit.
-  if (out('git', ['status', '--porcelain', '--untracked-files=no'], dir) || trackedDigest(dir) !== gatedTree) throw new Error('commit hooks changed the gated tree; retained locally, no push or merge was attempted')
   if (!run('git', ['push', '-q', ...(replaces ? [`--force-with-lease=refs/heads/${BRANCH}:${replaces}`] : []), 'origin', `HEAD:refs/heads/${BRANCH}`], dir)) throw new Error('push failed')
-  const head = out('git', ['rev-parse', 'HEAD'], dir)
   const bodyFile = join(mkdtempSync(join(tmpdir(), 'adopt-stack-body-')), 'body.md')
   const draftMarker = UPDATER_DRAFT_MARKER
   const previous = open ? await readPushedProposal(dir, open.number, head, defaultBranch) : null
