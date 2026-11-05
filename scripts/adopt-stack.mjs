@@ -509,7 +509,7 @@ export function planHash(edits, postPin = '') {
 
 // ---- effects ----
 
-const out = (cmd, argv, cwd) => execFileSync(cmd, argv, { cwd, encoding: 'utf8' }).trim()
+const out = (cmd, argv, cwd) => execFileSync(cmd, argv, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
 const run = (cmd, argv, cwd, env = {}) => spawnSync(cmd, argv, { cwd, stdio: 'inherit', env: { ...process.env, ...env } }).status === 0
 const log = (line) => console.log(`adopt-stack: ${line}`)
 
