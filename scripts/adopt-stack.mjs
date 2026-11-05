@@ -1,71 +1,21 @@
 #!/usr/bin/env node
-// Adopt the newest @tangle-network releases in a caller repository: pin them,
-// widen the caller's own peer ranges to include them, gate the result with the
-// caller's acceptance command, and open (and optionally merge) one pull request.
-// .github/workflows/adopt-stack.yml runs it for every caller repository.
-// Its rules:
-// - One open adoption branch (`chore/adopt-stack`), deleted when its squash merge lands, so the
-//   next delivery starts from the default instead of a branch the squash left behind. Each delivery normally
-//   merges the captured default into the fetched owned proposal, plans against
-//   that tree, verifies real installed/locked resolutions and gates before an
-//   ordinary fast-forward push. Conflicts retain their state and fail safely.
-//   Existing proposals are re-gated even when the new plan has no pin edits.
-// - Commits use the Actions bot identity, because self-hosted runners have no
-//   git identity and the first discovery-lab bumps died at their first commit.
-// - The planned releases' peer ranges decide the sibling pins: a sibling the
-//   caller pins outside a planned release's peer range moves to the newest
-//   version inside every such range, even when that holds it below npm latest.
-//   A planned release's dependency range also caps an adopted target the
-//   current version is inside (agent-eval 0.217.1 depends on agent-core
-//   ^0.12.0, so agent-core stays on 0.12.x rather than becoming a second copy).
-// - Peer checks read the version the lockfile will hold (an exact pin, the
-//   locked version, or the target when the edit moves the lock), never npm
-//   latest. A sibling whose locked release peers a range excluding a planned
-//   version rises to the newest release of its major whose peers admit it;
-//   without one, the planned version is held inside the sibling's peer range.
-//   agent-runtime#1946 kept agent-knowledge 22.0.3 (peer agent-eval <0.216.0)
-//   under `^22.0.3` while adopting agent-eval 0.217.1, and pnpm refused it.
-//   Each pass rebuilds targets from npm latest with the current raises and all
-//   holds so far, so a raise a later hold made unnecessary drops out.
-// - A range that admits its target stays as written and `pnpm update --no-save`
-//   moves only the lock: a raised floor (`^1.0.39` -> `^1.0.40`) republished every
-//   caller per patch. Only peer ranges widen. Callers run it by hand (workflow_dispatch);
-//   no schedule triggers it, so every invocation plans and delivers.
-// - A lockfile this script cannot read (or yarn/bun) stops the plan, since
-//   every hold, raise and cohort edit depends on what it holds.
-// - A caller's release/cohort.json entries move to the version the lockfile
-//   will hold for each planned package and its source commit (npm gitHead,
-//   else the release tag); an entry whose lock does not move stays.
-// - It merges only a head whose base is still the default branch head, so the
-//   merged tree is the one the gate passed. No admin or auto merge is attempted.
-// - A merge refused under REVIEW_REQUIRED waits for the approval bot (`mergeWhenApproved`;
-//   ADOPT_STACK_POLL_MS and ADOPT_STACK_WAIT_MS set the bounds).
-//
-// Widening keeps the lower bound of the range's last alternative and moves its
-// upper bound to <0.(m+1).0 for the 0.m.x version pinned, which is npm latest
-// unless a sibling rule holds it lower; a peer never claims a version the gate
-// did not run. A peer range that already covers the version is left as written.
-// A range that excludes a new major, or a prerelease npm latest, is refused with a non-zero exit:
-// a person widens a breaking release on purpose. An unparseable range in an adopted release's
-// own peers is skipped with a warning instead of aborting every package.
-//
-// `--post-pin CMD` runs the caller's own sync step (template pins, peer floors
-// and other rules only the caller knows) in its checkout after the pins and the
-// lockfile are written and before the gate. Every file it changes is committed
-// in the adoption commit and listed in the pull request body; the command is
-// part of the plan hash, so changing it re-gates. A failing command fails the
-// run with its output before anything is committed. A dry run runs it in a
-// throwaway copy of the pinned manifest without an install and lists the files
-// it would change.
-//
-// The semver subset below is hand-written because the script runs from a
-// sparse checkout in each caller with no installed dependencies.
+// Plan stable @tangle-network releases in the caller, verify their installed/locked versions,
+// run its required acceptance gate and deliver one owned chore/adopt-stack proposal.
+// Peer/dependency constraints may hold or raise sibling targets. Caller-owned protocols remain.
+// Dependency ranges already admitting a target stay; newer stable majors become gated candidates.
+// Peer ranges append only the tested new-major caret, never untested intervening majors.
+// Existing 0.x widening preserves the last lower bound; prerelease latest is refused.
+// Every open proposal is re-gated on the captured default, retaining its normally merged history.
+// Only the exact gated head/base may merge. Failed gates leave updater-owned drafts; manual
+// holds, changed refs, unknown state, conflicts and hook edits prevent promotion or merge.
+// Post-pin changes join the commit and plan hash. Cohort sources follow actual lock versions.
+// No dependencies are installed to plan; the semver subset serves sparse workflow checkouts.
 //
 // usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b] [--gate CMD]
 //          [--post-pin CMD] [--deploy-workflow NAME] [--default-branch main]
 //          [--merge] [--dry-run] [--json]
-// Without --dry-run it needs git, gh (GH_TOKEN with contents and pull-requests:
-// write) and the caller's package manager.
+// Non-dry-run needs git, authenticated gh and the caller's package manager; deploy dispatch
+// follows confirmed merge only, and the existing deploy workflow owns served-revision proof.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
@@ -156,19 +106,19 @@ export function satisfies(version, range) {
 }
 
 /**
- * Widen `range` so it includes `latest`, keeping the lower bound of its last
- * alternative. Returns the range unchanged when it already covers `latest`.
+ * Admit the candidate without claiming skipped stable majors. Existing 0.x
+ * ranges retain their last lower bound; stable majors append a target caret.
  */
 export function widenRange(range, latest) {
   const v = release(latest)
   if (!v) throw new Error(`${latest} is not a release version`)
   if (satisfies(latest, range)) return range
-  if (v[0] > 0) throw new Error(`"${range}" excludes ${latest}, a new major release; widen it by hand`)
   const alternatives = range.split('||').map((part) => part.trim())
   const lower = comparators(alternatives.at(-1)).filter(([op]) => op === '>=').map(([, bound]) => bound)
     .sort(compare).at(-1)
+  if (lower && compare(lower, v) > 0) throw new Error(`cannot widen "${range}": its lower bound is above ${latest}`)
+  if (v[0] > 0) return [...alternatives, `^${format(v)}`].join(' || ')
   if (!lower) throw new Error(`cannot widen "${range}": its last alternative has no lower bound`)
-  if (compare(lower, v) > 0) throw new Error(`cannot widen "${range}": its lower bound is above ${latest}`)
   alternatives[alternatives.length - 1] = `>=${format(lower)} <0.${v[1] + 1}.0`
   return alternatives.join(' || ')
 }
@@ -194,11 +144,7 @@ export function raiseFloor(range, version) {
 
 // ---- lockfile ----
 
-/**
- * The versions the caller's lockfile holds for its root manifest's dependencies
- * (`importer`) and its pnpm catalog entries (`catalog`, the lowest across named
- * catalogs). Read line by line, since the script has no YAML parser.
- */
+/** Read the caller lockfile and catalogs through their workspace owner. */
 export function lockedVersions(dir) {
   return readLocks(dir)
 }
@@ -227,7 +173,7 @@ const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
  * What a dependency spec becomes for `target` (`to`, null when it stays as
  * written) and the version the lockfile then holds (`holds`, null when
  * unknown). A range that admits `target` stays and the lock moves; one that
- * excludes it moves only when `force` is set (a peer range requires it).
+ * excludes it moves for a newer stable major or a forced cohort adjustment.
  */
 function respec(spec, target, locked, force = false) {
   if (EXACT.test(spec)) return { to: spec === target ? null : target, holds: target }
@@ -238,7 +184,8 @@ function respec(spec, target, locked, force = false) {
     const widened = widenRange(spec, target)
     return { to: widened === spec ? null : widened, holds: target }
   }
-  if (compare(release(locked), release(target)) < 0 && (force || satisfies(target, spec))) {
+  const newerMajor = release(target)[0] > release(locked)[0]
+  if (compare(release(locked), release(target)) < 0 && (force || newerMajor || satisfies(target, spec))) {
     if (satisfies(target, spec)) return { to: null, holds: target }
     const to = raiseFloor(widenRange(spec, target), target)
     if (!satisfies(target, to) || satisfies(locked, to)) throw new Error(`raising "${spec}" to ${target} gave "${to}", which does not move the locked ${locked} to it`)
@@ -417,7 +364,7 @@ export async function plan(dir, requested = []) {
     if (!entry || !names.includes(name)) continue
     const to = widenRange(range, entry.target)
     const pinnedAt = entry.target === entry.latest ? `npm latest ${entry.target}` : `${entry.target}, the version pinned`
-    if (to !== range) edits.push({ file, section: 'peerDependencies', name, from: range, to, version: entry.target, why: `upper bound widened to include ${pinnedAt}` })
+    if (to !== range) edits.push({ file, section: 'peerDependencies', name, from: range, to, version: entry.target, why: `peer range widened to include ${pinnedAt}` })
   }
   const workspace = { edits: [] }
   if (workspaceText !== null) {
@@ -434,7 +381,7 @@ export async function plan(dir, requested = []) {
   const expected = new Map([...targets.keys()].map((name) => [name, planned(name)]).filter(([, version]) => version))
   const policy = constraints(members, workspace.text ?? workspaceText, expected, (name, spec) => respec(spec, expected.get(name), locks.importer.get(name), true).to)
   edits.push(...policy.edits)
-  const installRequired = pins.some(({ file, section, name, spec }) => {
+  const installRequired = dependencies(members, true).some(({ file, section, name, spec }) => {
     if (!expected.has(name) || PROTOCOL.test(spec) && !spec.startsWith('catalog:')) return false
     return lockedVersion(locks, file, section, name) !== expected.get(name)
   })
@@ -524,11 +471,14 @@ const out = (cmd, argv, cwd) => execFileSync(cmd, argv, { cwd, encoding: 'utf8' 
 const run = (cmd, argv, cwd, env = {}) => spawnSync(cmd, argv, { cwd, stdio: 'inherit', env: { ...process.env, ...env } }).status === 0
 const log = (line) => console.log(`adopt-stack: ${line}`)
 
-export function writePlan(dir, result) {
+export function writePlan(dir, result, restore = false) {
   const { members, workspaceText, cohortText } = result.files
   for (const member of members) {
     const edits = result.edits.filter((edit) => edit.file === member.file)
-    if (!edits.length) continue
+    if (!edits.length) {
+      if (restore) writeFileSync(join(dir, member.file), member.text)
+      continue
+    }
     for (const edit of edits) {
       const path = edit.path ?? [edit.section, edit.name]
       const parent = path.slice(0, -1).reduce((obj, key) => obj[key], member.pkg)
@@ -549,17 +499,23 @@ export function writePlan(dir, result) {
 export function install(dir, result) {
   const expected = new Map(result.expected)
   const targets = new Map()
-  for (const { file, name, spec } of dependencies(result.files.members)) {
+  for (const { file, name, spec } of dependencies(result.files.members, true)) {
     if (expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:'))) targets.set(file, [...new Set([...(targets.get(file) ?? []), `${name}@${expected.get(name)}`])])
   }
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
     if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
+    const peerOnly = dependencies(result.files.members, true).filter(pin => pin.section === 'peerDependencies' && expected.has(pin.name) && !PROTOCOL.test(pin.spec) && !dependencies(result.files.members).some(direct => direct.file === pin.file && direct.name === pin.name))
+    for (const { file, name } of peerOnly) if (!run('pnpm', ['add', '--save-peer', `${name}@${expected.get(name)}`], join(dir, dirname(file)))) throw new Error(`pnpm could not install peer candidate ${name} in ${file}`)
     for (const [file, names] of targets) if (!run('pnpm', ['update', '--no-save', ...names], join(dir, dirname(file)))) throw new Error(`pnpm could not lock ${names.join(' ')} in ${file}`)
     // A transitive copy keeps the version locked before its dependents moved (agent-core 1.0.0 beside 1.0.1 in every app on 10-27); collapse it in the same refresh.
     if (!run('pnpm', ['dedupe'], dir)) throw new Error('pnpm dedupe failed')
+    if (peerOnly.length) {
+      writePlan(dir, result, true)
+      if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm could not restore the caller peer declarations')
+    }
   } else if (existsSync(join(dir, 'package-lock.json'))) {
     if (!run('npm', ['install', '--prefer-online', ...[...targets.values()].flat()], dir)) throw new Error('npm install failed for the new pins')
-    writePlan(dir, result)
+    writePlan(dir, result, true)
     if (!run('npm', ['install', '--package-lock-only', '--prefer-online'], dir)) throw new Error('npm could not lock the planned ranges')
   } else throw new Error('no pnpm-lock.yaml or package-lock.json to update')
 }
