@@ -30,8 +30,8 @@ export function manifests(dir) {
   })
 }
 
-export function dependencies(members) {
-  return members.flatMap(({ file, pkg }) => SECTIONS.flatMap((section) =>
+export function dependencies(members, includePeers = false) {
+  return members.flatMap(({ file, pkg }) => (includePeers ? [...SECTIONS, 'peerDependencies'] : SECTIONS).flatMap((section) =>
     Object.entries(pkg[section] ?? {}).filter(([name]) => name.startsWith(SCOPE) && name !== pkg.name)
       .map(([name, spec]) => ({ file, section, name, spec }))))
 }
@@ -91,7 +91,7 @@ export function readLocks(dir) {
 
 export function lockedVersion(locks, file, section, name) {
   const importer = dirname(file) === '.' ? '.' : dirname(file)
-  return locks.format === 'pnpm' ? locks.rows.find((row) => row.importer === importer && row.section === section && row.name === name)?.version
+  return locks.format === 'pnpm' ? locks.rows.find((row) => row.importer === importer && (section === 'peerDependencies' || row.section === section) && row.name === name)?.version
     : locks.importers.get(importer)?.get(name) ?? locks.importer.get(name)
 }
 
@@ -229,7 +229,7 @@ export function preparePlaywrightBrowsers(dir) {
 export function resolvedVersions(dir, expected) {
   const locks = readLocks(dir)
   const rows = []
-  for (const { file, section, name, spec } of dependencies(manifests(dir))) {
+  for (const { file, section, name, spec } of dependencies(manifests(dir), true)) {
     if (!expected.has(name)) continue
     if (protocol.test(spec) && !spec.startsWith('catalog:')) {
       rows.push({ file, name, source: spec, verified: false, reason: 'caller-owned protocol retained' })

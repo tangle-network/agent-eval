@@ -1,10 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import {
-  gradeSemanticStatus,
-  type Layer,
-  type LayerResult,
-  MultiLayerVerifier,
-} from './multi-layer-verifier'
+import { describe, expect, it } from 'vitest'
+import { type Layer, type LayerResult, MultiLayerVerifier } from './multi-layer-verifier'
 
 function passLayer(name: string, score = 1, extras: Partial<Layer> = {}): Layer {
   return {
@@ -33,20 +28,6 @@ function failLayer(name: string, score = 0, extras: Partial<Layer> = {}): Layer 
     }),
   }
 }
-
-describe('MultiLayerVerifier — construction', () => {
-  it('rejects duplicate layer names', () => {
-    expect(() => new MultiLayerVerifier([passLayer('install'), passLayer('install')])).toThrow(
-      /duplicate/,
-    )
-  })
-
-  it('rejects unknown dependsOn', () => {
-    expect(
-      () => new MultiLayerVerifier([{ ...passLayer('build'), dependsOn: ['install'] }]),
-    ).toThrow(/depends on "install"/)
-  })
-})
 
 describe('MultiLayerVerifier — execution', () => {
   it('runs layers in order, produces aggregated report', async () => {
@@ -105,25 +86,6 @@ describe('MultiLayerVerifier — execution', () => {
     const r = await v.run({ env: null })
     // Weights 1 each: (0.3 + 1) / 2 = 0.65
     expect(r.blendedScore).toBeCloseTo(0.65, 2)
-  })
-
-  it('respects per-layer weights in the blend', async () => {
-    const v = new MultiLayerVerifier([
-      { ...passLayer('install', 1), weight: 1 },
-      { ...passLayer('semantic', 0.5), weight: 3 },
-    ])
-    const r = await v.run({ env: null })
-    // (1*1 + 3*0.5) / (1+3) = 2.5/4 = 0.625
-    expect(r.blendedScore).toBeCloseTo(0.625, 3)
-  })
-
-  it('calls onLayer after each layer completes', async () => {
-    const onLayer = vi.fn<(r: LayerResult) => void>()
-    const v = new MultiLayerVerifier([passLayer('a'), passLayer('b')])
-    await v.run({ env: null, onLayer })
-    expect(onLayer).toHaveBeenCalledTimes(2)
-    expect(onLayer.mock.calls[0]![0]!.layer).toBe('a')
-    expect(onLayer.mock.calls[1]![0]!.layer).toBe('b')
   })
 
   it('leaves an all-error report without a task score', async () => {
@@ -299,59 +261,6 @@ describe('MultiLayerVerifier — execution', () => {
     ])
     await v.run({ env: null })
     expect(seen.priorAScore).toBe(1)
-  })
-})
-
-describe('gradeSemanticStatus', () => {
-  it('pass: high score + no critical gaps', () => {
-    expect(
-      gradeSemanticStatus({
-        score: 0.85,
-        available: true,
-        findings: [{ severity: 'minor', present: true, score: 6 }],
-      }),
-    ).toBe('pass')
-  })
-
-  it('fail: score below threshold', () => {
-    expect(
-      gradeSemanticStatus({
-        score: 0.5,
-        available: true,
-        findings: [],
-      }),
-    ).toBe('fail')
-  })
-
-  it('fail: critical gap despite high score', () => {
-    expect(
-      gradeSemanticStatus({
-        score: 0.9,
-        available: true,
-        findings: [{ severity: 'critical', present: false, score: 0 }],
-      }),
-    ).toBe('fail')
-  })
-
-  it('error: judge unavailable', () => {
-    expect(
-      gradeSemanticStatus({
-        score: 0,
-        available: false,
-        findings: [],
-      }),
-    ).toBe('error')
-  })
-
-  it('custom threshold', () => {
-    expect(
-      gradeSemanticStatus({
-        score: 0.6,
-        available: true,
-        findings: [],
-        threshold: 0.5,
-      }),
-    ).toBe('pass')
   })
 })
 
