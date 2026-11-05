@@ -6,12 +6,12 @@
 // Peer ranges append only the tested new-major caret, never untested intervening majors.
 // Existing 0.x widening preserves the last lower bound; prerelease latest is refused.
 // Every open proposal is re-gated on the captured default, retaining its normally merged history.
-// Only the exact gated head/base may merge. Failed gates leave updater-owned drafts; manual
-// holds, changed refs, unknown state, conflicts and hook edits prevent promotion or merge.
-// Post-pin changes join the commit and plan hash. Cohort sources follow actual lock versions.
-// No dependencies are installed to plan; the semver subset serves sparse workflow checkouts.
+// Only the exact gated head/base may merge. Failed gates and refused release evidence leave
+// updater-owned drafts; manual holds, changed refs, unknown state, conflicts and hook edits
+// prevent promotion or merge. Post-pin changes join the commit and plan hash. Cohort sources
+// follow actual lock versions. No dependencies are installed to plan.
 //
-// usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b] [--gate CMD]
+// usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b@1.2.3] [--gate CMD]
 //          [--post-pin CMD] [--deploy-workflow NAME] [--default-branch main]
 //          [--merge] [--dry-run] [--json]
 // Non-dry-run needs git, authenticated gh and the caller's package manager; deploy dispatch
@@ -28,6 +28,8 @@ const SCOPE = '@tangle-network/'
 export const ADOPTION_BRANCH = 'chore/adopt-stack'
 const BRANCH = ADOPTION_BRANCH
 const COHORT = 'release/cohort.json'
+// A producer whose release tag starts an evidence workflow: its versions adopt only once that run passed.
+const RELEASE_EVIDENCE = new Map([['@tangle-network/agent-runtime', 'tangle-network/agent-runtime/actions/workflows/upstream-evidence.yml']])
 const BOT_EMAIL = '41898282+github-actions[bot]@users.noreply.github.com'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', `user.email=${BOT_EMAIL}`]
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
@@ -142,14 +144,25 @@ export function raiseFloor(range, version) {
   return upper ? `>=${version} <${format(upper)}` : `>=${version}`
 }
 
-// ---- lockfile ----
+// ---- registry and release evidence ----
 
-/** Read the caller lockfile and catalogs through their workspace owner. */
-export function lockedVersions(dir) {
-  return readLocks(dir)
+/**
+ * The newest evidence run the push of tag v`version` started, refused when absent (never started
+ * or deleted), unfinished or unsuccessful; null when the producer runs none. A token only lifts the rate limit.
+ */
+export async function releaseEvidence(name, version) {
+  const workflow = RELEASE_EVIDENCE.get(name)
+  if (!workflow) return null
+  const tag = `v${version}`
+  const url = `https://api.github.com/repos/${workflow}/runs?branch=${tag}&event=push&per_page=100`
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+  const response = await fetch(url, { headers: { accept: 'application/vnd.github+json', ...(token ? { authorization: `Bearer ${token}` } : {}) } })
+  if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
+  const run = (await response.json()).workflow_runs.filter((entry) => entry.head_branch === tag).sort((a, b) => b.id - a.id)[0]
+  const refused = !run ? `no ${workflow.split('/').at(-1)} run exists for ${tag}: it never started or was deleted`
+    : run.status !== 'completed' ? `its evidence run is ${run.status}` : run.conclusion !== 'success' ? `its evidence run concluded ${run.conclusion}` : null
+  return { name, version, run: run?.html_url ?? null, refused }
 }
-
-// ---- registry ----
 
 async function packument(name) {
   const url = `${REGISTRY}/${name.replace('/', '%2f')}`
@@ -216,7 +229,9 @@ export async function plan(dir, requested = []) {
   const pins = dependencies(members)
   const found = new Set([...pins.map(({ name }) => name), ...members.flatMap(({ pkg }) => Object.keys(pkg.peerDependencies ?? {}).filter((name) => name.startsWith(SCOPE) && name !== pkg.name))])
   const callerOwned = new Set(pins.filter(({ spec }) => PROTOCOL.test(spec) && !spec.startsWith('catalog:')).map(({ name }) => name).filter((name) => !pins.some((pin) => pin.name === name && (!PROTOCOL.test(pin.spec) || pin.spec.startsWith('catalog:')))))
-  const names = (requested.length ? requested : [...found].sort()).filter((name) => !callerOwned.has(name))
+  // `name@1.2.3` asks for that release instead of npm latest.
+  const asked = new Map(requested.map((entry) => /^(.+?)(?:@([^@]+))?$/.exec(entry).slice(1)))
+  const names = (asked.size ? [...asked.keys()] : [...found].sort()).filter((name) => !callerOwned.has(name))
   for (const name of names) if (!name.startsWith(SCOPE)) throw new Error(`${name} is not a ${SCOPE}* package`)
 
   const docs = new Map()
@@ -226,7 +241,12 @@ export async function plan(dir, requested = []) {
   }
   await Promise.all(names.map(doc))
   const targets = new Map()
-  for (const name of names) targets.set(name, { latest: (await doc(name)).latest, target: (await doc(name)).latest, why: 'npm latest' })
+  for (const name of names) {
+    const { latest, versions } = await doc(name)
+    const version = asked.get(name)
+    if (version && !(release(version) && versions[version])) throw new Error(`${name}@${version} is not a published release`)
+    targets.set(name, { latest, target: version ?? latest, why: version ? 'requested' : 'npm latest' })
+  }
 
   const pinned = new Map()
   for (const { name, spec } of [...pins].sort((a, b) => (a.file === 'package.json' ? -1 : b.file === 'package.json' ? 1 : a.file.localeCompare(b.file)))) {
@@ -236,7 +256,7 @@ export async function plan(dir, requested = []) {
   const workspaceText = existsSync(workspacePath) ? readFileSync(workspacePath, 'utf8') : null
   const catalogSpecs = new Map()
   if (workspaceText !== null) catalogLines(workspaceText, (name, spec) => void (catalogSpecs.has(name) || catalogSpecs.set(name, spec)))
-  const locks = lockedVersions(dir)
+  const locks = readLocks(dir)
   for (const versions of locks.importers.values()) for (const [name, version] of versions) if (!locks.importer.has(name)) locks.importer.set(name, version)
   // Every hold, raise and cohort edit reads the lock; guessing it would publish edits no install backs.
   if (locks.unread && pinned.size) throw new Error(`${locks.unread}, so the versions it holds are unknown and no plan is made`)
@@ -387,10 +407,12 @@ export async function plan(dir, requested = []) {
   })
   const cohort = await cohortEdits(dir, (name) => (targets.has(name) ? planned(name) : null))
   edits.push(...cohort.edits)
+  const moved = [...expected].filter(([name, version]) => version !== before(name))
 
   return {
     packages: names.map((name) => ({ name, ...targets.get(name), effective: expected.get(name) ?? null })),
     expected: [...expected],
+    evidence: (await Promise.all(moved.map(([name, version]) => releaseEvidence(name, version)))).filter(Boolean),
     unmanaged: [...callerOwned].map((name) => ({ name, verified: false, reason: 'caller-owned protocol retained; no registry target' })),
     installRequired,
     held: [...targets].filter(([name, entry]) => !names.includes(name) || entry.target !== entry.latest)
@@ -582,10 +604,13 @@ function body(result, gate, hash, outcome, head, synced) {
     ...(result.resolved?.length ? ['| package | importer | expected | lock | installed |', '|---|---|---|---|---|', ...result.resolved.map((row) => `| ${row.name} | ${row.file} | ${row.expected ?? row.source} | ${row.locked ?? 'unverified'} | ${row.installed ?? row.reason} |`), ''] : []),
     ...(synced.command ? [`Post-pin: \`${synced.command}\` ${synced.files.length ? `changed ${synced.files.map((file) => `\`${file}\``).join(', ')}` : 'changed no files'}.`, ''] : []),
     `Gate: \`${gate}\` on ${head.slice(0, 12)}: ${outcome === 'gate-fail' ? 'failed' : 'passed'}.`,
+    ...result.evidence.map((entry) => `${verdict(entry)}.`),
     '',
     `<!-- adopt-stack:plan=${hash} result=${outcome} -->`,
   ].join('\n')
 }
+
+const verdict = ({ name, version, run, refused }) => `\`${name}@${version}\` release evidence${run ? ` ${run}` : ''}: ${refused ? `refused, ${refused}` : 'passed'}`
 
 export const UPDATER_DRAFT_MARKER = '<!-- adopt-stack:draft=gate-fail -->'
 const SETTLE_MS = 30_000
@@ -679,8 +704,12 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
   preparePlaywrightBrowsers(dir)
   log(`gate: ${gate}`)
-  const green = run('bash', ['-c', gate], dir)
-  if (green) result.resolved = resolvedVersions(dir, new Map(result.expected))
+  const gated = run('bash', ['-c', gate], dir)
+  if (gated) result.resolved = resolvedVersions(dir, new Map(result.expected))
+  // Refused release evidence holds a passing candidate as a draft, like a failed gate.
+  const refused = result.evidence.filter((entry) => entry.refused)
+  const green = gated && !refused.length
+  const outcome = green ? 'pass' : gated ? 'evidence-refused' : 'gate-fail'
 
   const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
   // -A stages a file the post-pin command deleted.
@@ -696,7 +725,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   const previous = open ? await readPushedProposal(dir, open.number, head, defaultBranch) : null
   // Only drafts created by this updater are promoted. Preserve manual holds, including ones added while the gate ran.
   let manualDraft = isManuallyHeldDraft(open, previous)
-  writeFileSync(bodyFile, body(result, gate, hash, green ? 'pass' : 'gate-fail', head, synced)
+  writeFileSync(bodyFile, body(result, gate, hash, outcome, head, synced)
     + (!green && !manualDraft ? `\n\n${draftMarker}\n` : ''))
   const promoteDraft = green && previous?.isDraft && !manualDraft
   let number = open?.number
@@ -712,7 +741,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
     // A hold observed after recording a failed gate belongs to its maintainer.
     // Do not leave our marker behind for the next green run to claim it.
     if (!green) {
-      writeFileSync(bodyFile, body(result, gate, hash, 'gate-fail', head, synced))
+      writeFileSync(bodyFile, body(result, gate, hash, outcome, head, synced))
       gh(['pr', 'edit', String(number), '--title', title, '--body-file', bodyFile])
     }
   }
@@ -725,8 +754,9 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
 
   const comment = (text) => gh(['pr', 'comment', String(number), '--body', text])
   if (!green) {
-    comment(`Gate \`${gate}\` failed on ${head.slice(0, 12)}. Left open; the next run re-gates it.`)
-    throw new Error(`#${number} failed its gate`)
+    const why = gated ? refused.map(verdict).join('; ') : `Gate \`${gate}\` failed on ${head.slice(0, 12)}`
+    comment(`${why}. Left open; the next run re-checks it.`)
+    throw new Error(`#${number} ${gated ? `is held: ${why}` : 'failed its gate'}`)
   }
   if (manualDraft) return log(`#${number} remains a manually held draft; no merge attempted`)
   if (!merge) return log('merge is off; left open')
@@ -816,11 +846,13 @@ async function main() {
     for (const p of result.packages) log(`${p.name}: npm latest ${p.latest}${p.target !== p.latest ? `, held at ${p.target} (${p.why})` : ''}${p.effective !== p.target ? `, effective ${p.effective ?? 'unknown'} (caller-owned range/protocol retained)` : ''}`)
     for (const h of result.held) if (!result.packages.some((p) => p.name === h.name)) log(`${h.name}: sibling moves to ${h.target} (${h.why})`)
     for (const e of result.edits) log(`${e.file} ${e.section} ${e.name}: ${e.from} -> ${e.to} (${e.why})`)
+    for (const entry of result.evidence) log(verdict(entry))
     if (result.postPin) log(`post-pin would change ${result.postPin.changed.join(', ') || 'no files'} (given the pinned manifest, without an install)`)
   }
   for (const warning of result.warnings) console.error(`adopt-stack: warning: ${warning}`)
   if (!result.edits.length && !result.installRequired && !opts.proposal) return log('nothing to adopt; effective lock versions match the plan')
-  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits, opts.postPin)})${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge ? ' and merge it when green' : ''}; nothing was changed`)
+  const held = result.evidence.some((entry) => entry.refused)
+  if (opts.dryRun) return log(`dry run: would open "${titleOf(result.edits)}" (plan ${planHash(result.edits, opts.postPin)})${held ? ' as a draft held by its release evidence' : ''}${opts.gate ? `, gate it with \`${opts.gate}\`` : ''}${opts.merge && !held ? ' and merge it when green' : ''}; nothing was changed`)
   await deliver(opts.dir, result, opts)
 }
 
