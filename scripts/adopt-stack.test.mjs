@@ -86,6 +86,23 @@ describe('adopt-stack --dry-run against npm', () => {
     expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
+  // Real GitHub records: Runtime 6.0.3's upstream evidence run failed and 6.0.4's passed.
+  test('a requested Runtime release adopts only when its tag evidence passed', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adopt-evidence-'))
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'adopt-evidence', private: true, devDependencies: { '@tangle-network/agent-runtime': '6.0.2' } }))
+    const runs = 'https://github.com/tangle-network/agent-runtime/actions/runs'
+    try {
+      for (const [version, verdict] of [['6.0.3', `${runs}/42039323640: refused, its evidence run concluded failure`], ['6.0.4', `${runs}/42052851316: passed`]]) {
+        const result = spawnSync(process.execPath, [script, '--dir', root, '--dry-run', '--merge', '--packages', `@tangle-network/agent-runtime@${version}`], { encoding: 'utf8' })
+        expect(result.status, result.stderr).toBe(0)
+        expect(result.stdout).toContain(`\`@tangle-network/agent-runtime@${version}\` release evidence ${verdict}`)
+        expect(result.stdout).toMatch(version === '6.0.3' ? /as a draft held by its release evidence; nothing was changed/ : /and merge it when green; nothing was changed/)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   test('the human plan names the pull request and changes nothing', async () => {
     const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, 'agent-knowledge'), '--dry-run'], { encoding: 'utf8' })
     expect(result.status, result.stderr).toBe(0)
