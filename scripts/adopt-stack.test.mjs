@@ -86,18 +86,34 @@ describe('adopt-stack --dry-run against npm', () => {
     expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
-  // Real GitHub records: Runtime 6.0.3's upstream evidence run failed and 6.0.4's passed.
+  // Real GitHub records of releases published before the `evidence` job: the upstream evidence run of 6.0.1 and 6.0.3 failed, 6.0.4's passed.
   test('a requested Runtime release adopts only when its tag evidence passed', () => {
     const root = mkdtempSync(join(tmpdir(), 'adopt-evidence-'))
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'adopt-evidence', private: true, devDependencies: { '@tangle-network/agent-runtime': '6.0.2' } }))
     const runs = 'https://github.com/tangle-network/agent-runtime/actions/runs'
     try {
-      for (const [version, verdict] of [['6.0.3', `${runs}/42039323640: refused, its evidence run concluded failure`], ['6.0.4', `${runs}/42052851316: passed`]]) {
+      for (const [version, verdict] of [['6.0.1', `${runs}/42017023455: refused, its evidence run concluded failure`], ['6.0.3', `${runs}/42039323640: refused, its evidence run concluded failure`], ['6.0.4', `${runs}/42052851316: passed`]]) {
         const result = spawnSync(process.execPath, [script, '--dir', root, '--dry-run', '--merge', '--packages', `@tangle-network/agent-runtime@${version}`], { encoding: 'utf8' })
         expect(result.status, result.stderr).toBe(0)
         expect(result.stdout).toContain(`\`@tangle-network/agent-runtime@${version}\` release evidence ${verdict}`)
-        expect(result.stdout).toMatch(version === '6.0.3' ? /as a draft held by its release evidence; nothing was changed/ : /and merge it when green; nothing was changed/)
+        expect(result.stdout).toMatch(version === '6.0.4' ? /and merge it when green; nothing was changed/ : /as a draft held by its release evidence; nothing was changed/)
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  // Lab's package.json before #3121: Runtime 6.0.1 depends on agent-trace-contract ^2.2.2 and Lab pins 2.2.1 exactly.
+  test('an exact pin below a dependency floor of the adopted release rises with it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adopt-floor-'))
+    const contract = '@tangle-network/agent-trace-contract'
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'adopt-floor', private: true, dependencies: { '@tangle-network/agent-runtime': '5.0.0', [contract]: '2.2.1' } }))
+    try {
+      const result = spawnSync(process.execPath, [script, '--dir', root, '--dry-run', '--json', '--packages', '@tangle-network/agent-runtime@6.0.1'], { encoding: 'utf8' })
+      expect(result.status, result.stderr).toBe(0)
+      const raised = JSON.parse(result.stdout).edits.find((edit) => edit.name === contract)
+      expect(raised?.from).toBe('2.2.1')
+      expect(satisfies(raised.to, '^2.2.2')).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -28,8 +28,8 @@ const SCOPE = '@tangle-network/'
 export const ADOPTION_BRANCH = 'chore/adopt-stack'
 const BRANCH = ADOPTION_BRANCH
 const COHORT = 'release/cohort.json'
-// A producer whose release tag starts an evidence workflow: its versions adopt only once that run passed.
-const RELEASE_EVIDENCE = new Map([['@tangle-network/agent-runtime', 'tangle-network/agent-runtime/actions/workflows/upstream-evidence.yml']])
+// A producer whose publication runs an `evidence` job: its versions adopt only once that job passed.
+const RELEASE_EVIDENCE = new Map([['@tangle-network/agent-runtime', { repo: 'tangle-network/agent-runtime', publish: 'publish.yml', legacy: 'upstream-evidence.yml' }]])
 const BOT_EMAIL = '41898282+github-actions[bot]@users.noreply.github.com'
 const BOT = ['-c', 'user.name=github-actions[bot]', '-c', `user.email=${BOT_EMAIL}`]
 const REGISTRY = (process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '')
@@ -147,19 +147,33 @@ export function raiseFloor(range, version) {
 // ---- registry and release evidence ----
 
 /**
- * The newest evidence run the push of tag v`version` started, refused when absent (never started
- * or deleted), unfinished or unsuccessful; null when the producer runs none. A token only lifts the rate limit.
+ * The newest Publish run of tag v`version` (its push, or a retry titled `Publish v<version>`) that ran
+ * `evidence` jobs; every one must have succeeded. A tag published before that job existed needs its
+ * own upstream-evidence.yml push run to have succeeded. Refused when absent (never started or deleted),
+ * unfinished or unsuccessful; null when the producer runs none. A token only lifts the rate limit.
  */
 export async function releaseEvidence(name, version) {
-  const workflow = RELEASE_EVIDENCE.get(name)
-  if (!workflow) return null
+  const source = RELEASE_EVIDENCE.get(name)
+  if (!source) return null
   const tag = `v${version}`
-  const url = `https://api.github.com/repos/${workflow}/runs?branch=${tag}&event=push&per_page=100`
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const response = await fetch(url, { headers: { accept: 'application/vnd.github+json', ...(token ? { authorization: `Bearer ${token}` } : {}) } })
-  if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
-  const run = (await response.json()).workflow_runs.filter((entry) => entry.head_branch === tag).sort((a, b) => b.id - a.id)[0]
-  const refused = !run ? `no ${workflow.split('/').at(-1)} run exists for ${tag}: it never started or was deleted`
+  const get = async (path) => {
+    const url = `https://api.github.com/repos/${source.repo}/actions/${path}`
+    const response = await fetch(url, { headers: { accept: 'application/vnd.github+json', ...(token ? { authorization: `Bearer ${token}` } : {}) } })
+    if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
+    return response.json()
+  }
+  const runs = async (workflow, query) => (await get(`workflows/${workflow}/runs?${query}&per_page=100`)).workflow_runs
+  const published = (await Promise.all([`branch=${tag}`, 'event=workflow_dispatch'].map((query) => runs(source.publish, query)))).flat()
+    .filter((run) => run.head_branch === tag || run.display_title === `Publish ${tag}`).sort((a, b) => b.id - a.id)
+  for (const run of published) {
+    const jobs = (await get(`runs/${run.id}/jobs?per_page=100`)).jobs.filter((job) => job.name === 'evidence' || job.name.startsWith('evidence / '))
+    const bad = jobs.find((job) => job.conclusion !== 'success')
+    if (jobs.length) return { name, version, run: run.html_url, refused: bad ? `its evidence job ${bad.name} ${bad.status === 'completed' ? `concluded ${bad.conclusion}` : `is ${bad.status}`}` : null }
+  }
+  // Legacy: dies when no consumer pins below the first Runtime version published with an `evidence` job.
+  const run = (await runs(source.legacy, `branch=${tag}&event=push`)).filter((entry) => entry.head_branch === tag).sort((a, b) => b.id - a.id)[0]
+  const refused = !run ? `no ${source.publish} evidence job or ${source.legacy} run exists for ${tag}: it never started or was deleted`
     : run.status !== 'completed' ? `its evidence run is ${run.status}` : run.conclusion !== 'success' ? `its evidence run concluded ${run.conclusion}` : null
   return { name, version, run: run?.html_url ?? null, refused }
 }
@@ -298,8 +312,9 @@ export async function plan(dir, requested = []) {
 
     // Holds: each planned release's peer ranges constrain the caller's
     // @tangle-network pins, adopted or not, and its dependency ranges cap an
-    // adopted target that would otherwise leave a second copy behind (a range
-    // the current version already escapes is ignored). A sibling's peer range
+    // adopted target that would otherwise leave a second copy behind. A pin
+    // below a dependency floor, exact or ranged, named or not, rises to the
+    // newest release in range; a pin above it is left. A sibling's peer range
     // that no newer sibling meets holds the adopted package too (peerHolds).
     for (let round = 0; round < 6; round++) {
       const snapshot = JSON.stringify([...targets])
@@ -310,7 +325,12 @@ export async function plan(dir, requested = []) {
         for (const [kind, ranges] of [['peers', manifest?.peerDependencies], ['depends on', manifest?.dependencies]]) {
           for (const [other, range] of Object.entries(ranges ?? {})) {
             if (other === name || !pinned.has(other) || !other.startsWith(SCOPE)) continue
-            if (kind === 'depends on' && (!targets.has(other) || !before(other) || !parsed(`${name}@${at}`, kind, other, range) || !satisfies(before(other), range))) continue
+            if (kind === 'depends on') {
+              if (!before(other) || !parsed(`${name}@${at}`, kind, other, range)) continue
+              const fits = satisfies(before(other), range)
+              const floor = fits ? null : newestIn(await doc(other), [range])
+              if (fits ? !targets.has(other) : !floor || !release(before(other)) || compare(release(floor), release(before(other))) <= 0) continue
+            }
             if (kind === 'peers' && !parsed(`${name}@${at}`, kind, other, range)) continue
             rules.set(other, [...(rules.get(other) ?? []), { by: `${name}@${at}`, kind, range }])
           }
@@ -328,7 +348,7 @@ export async function plan(dir, requested = []) {
         const reason = used.map(({ by, kind, range }) => `${by} ${kind} ${range}`).join('; ')
         if (!allowed) throw new Error(`no published ${sibling} satisfies every planned peer range (${reason})`)
         if (!all) warn(`no ${sibling} meets both its peer ranges and ${list.filter(({ kind }) => kind !== 'peers').map(({ by, range }) => `${by} depends on ${range}`).join('; ')}; held by the peer ranges only`)
-        if (allowed !== current) targets.set(sibling, { latest: siblingDoc.latest, target: allowed, why: `held by ${used.every(({ kind }) => kind === 'peers') ? 'peer ranges' : 'peer and dependency ranges'}: ${reason}` })
+        if (allowed !== current) targets.set(sibling, { latest: siblingDoc.latest, target: allowed, why: `${release(current) && compare(release(allowed), release(current)) > 0 ? 'raised' : 'held'} by ${used.every(({ kind }) => kind === 'peers') ? 'peer ranges' : 'peer and dependency ranges'}: ${reason}` })
       }
       if (JSON.stringify([...targets]) === snapshot) break
     }
