@@ -9,7 +9,6 @@ const cluster = (row: (typeof rows)[number]) => `${row.cell}:${Math.floor(row.ts
 const mean = (sample: typeof rows) =>
   sample.reduce((sum, row) => sum + row.value, 0) / sample.length
 const timestamp = (row: (typeof rows)[number]) => row.ts
-// Identical baseline-p99 winsorization and failure scoring on real and placebo arms.
 const statistic = (before: typeof rows, after: typeof rows) => {
   const sorted = before
     .filter((row) => row.outcome === 'ok')
@@ -71,8 +70,11 @@ describe('recorded create statistics public contract', () => {
       high: null,
     })
     // Constructed replay, NOT measured 72-hour history: one recorded value per ten-minute cluster.
+    const successes = rows.filter((row) => row.outcome === 'ok')
+    const failures = rows.filter((row) => row.outcome !== 'ok')
+    const replayRows = successes.flatMap((row, i) => [row, ...failures.slice(i, i + 1)])
     const replay = Array.from({ length: 481 }, (_, i) => ({
-      ...rows[i % rows.length]!,
+      ...replayRows[i % replayRows.length]!,
       ts: i * 600_000,
       cell: 'replay',
     }))

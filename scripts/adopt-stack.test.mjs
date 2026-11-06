@@ -63,15 +63,11 @@ describe('adopt-stack --dry-run against npm', () => {
   test('agent-app adopts agent-runtime latest and widens its agent-runtime peer', async () => {
     const { version, plan, pkg } = await dryRun('agent-app', '@tangle-network/agent-runtime')
     expectAdopted(plan, pkg, '@tangle-network/agent-runtime', version)
-    // Alias pins such as agent-eval-0204 (npm:@tangle-network/agent-eval@0.204.0) stay as written.
     expect(plan.edits.some((edit) => !edit.name.startsWith('@tangle-network/'))).toBe(false)
   }, 60_000)
 
-  // These two run on a manifest with no 0.x peer, so the plan builds whatever the
-  // registry's latest majors are.
   test('a post-pin command sees the pinned manifest and its second file joins the plan', async () => {
     const brand = '@tangle-network/brand'
-    // Like agent-app's template pins: a second file derived from the adopted pins.
     const sync = `node -e "const p = require('./package.json'); require('node:fs').mkdirSync('template', { recursive: true }); require('node:fs').writeFileSync('template/_package.json', JSON.stringify(p.devDependencies))"`
     const { version, plan } = await dryRun('stable', brand, '--post-pin', sync)
     expect(plan.edits.find((edit) => edit.name === brand && edit.section === 'devDependencies')?.to).toBe(version)
@@ -86,17 +82,23 @@ describe('adopt-stack --dry-run against npm', () => {
     expect(result.stdout).not.toMatch(/dry run: would open/)
   }, 60_000)
 
-  // Real GitHub records of releases published before the `evidence` job: the upstream evidence run of 6.0.1 and 6.0.3 failed, 6.0.4's passed.
-  test('a requested Runtime release adopts only when its tag evidence passed', () => {
+  // Historical failed runs may expire; absence must continue to hold the real CLI's draft.
+  test('a requested Runtime release adopts only when its current tag evidence passed', () => {
     const root = mkdtempSync(join(tmpdir(), 'adopt-evidence-'))
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'adopt-evidence', private: true, devDependencies: { '@tangle-network/agent-runtime': '6.0.2' } }))
-    const runs = 'https://github.com/tangle-network/agent-runtime/actions/runs'
     try {
-      for (const [version, verdict] of [['6.0.1', `${runs}/42017023455: refused, its evidence run concluded failure`], ['6.0.3', `${runs}/42039323640: refused, its evidence run concluded failure`], ['6.0.4', `${runs}/42052851316: passed`]]) {
-        const result = spawnSync(process.execPath, [script, '--dir', root, '--dry-run', '--merge', '--packages', `@tangle-network/agent-runtime@${version}`], { encoding: 'utf8' })
+      for (const version of ['6.0.1', '6.0.3', '6.0.4']) {
+        const args = [script, '--dir', root, '--dry-run', '--merge', '--packages', `@tangle-network/agent-runtime@${version}`]
+        const preview = spawnSync(process.execPath, [...args, '--json'], { encoding: 'utf8' })
+        expect(preview.status, preview.stderr).toBe(0)
+        const evidence = JSON.parse(preview.stdout).evidence.find(entry => entry.name === '@tangle-network/agent-runtime' && entry.version === version)
+        expect(evidence).toBeDefined()
+        if (version !== '6.0.4') expect(evidence.refused).toMatch(/concluded failure|never started or was deleted/)
+        const result = spawnSync(process.execPath, args, { encoding: 'utf8' })
         expect(result.status, result.stderr).toBe(0)
-        expect(result.stdout).toContain(`\`@tangle-network/agent-runtime@${version}\` release evidence ${verdict}`)
-        expect(result.stdout).toMatch(version === '6.0.4' ? /and merge it when green; nothing was changed/ : /as a draft held by its release evidence; nothing was changed/)
+        expect(result.stdout).toContain(`\`@tangle-network/agent-runtime@${version}\` release evidence${evidence.run ? ` ${evidence.run}` : ''}: ${evidence.refused ? `refused, ${evidence.refused}` : 'passed'}`)
+        expect(result.stdout).toContain(evidence.refused ? 'as a draft held by its release evidence' : 'and merge it when green')
+        if (evidence.refused) expect(result.stdout).not.toContain('and merge it when green')
       }
     } finally {
       rmSync(root, { recursive: true, force: true })

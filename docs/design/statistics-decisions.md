@@ -9,7 +9,7 @@ Keep statistics in-house with independent numerical oracles, rather than adding 
 `scripts/generate-statistics-oracle.py` generates `tests/fixtures/statistics-oracle.json`;
 `tests/statistics-oracle.test.ts` checks the scipy and statsmodels reference values.
 `tests/statistics-library-crosscheck.test.ts` checks untied exact null distributions against R through the development-only `lib-r-math.js`.
-Neither oracle ships to consumers. Historical audits and affected-version notices live in `CHANGELOG.md`.
+Historical audits and affected-version notices live in `CHANGELOG.md`.
 
 ## Small samples
 
@@ -38,8 +38,7 @@ credit, including baseline winsorization and failure scoring. It selects the nea
 number of clusters on each side of hourly boundaries, excluding windows crossing sealed
 steps. At least 72 hours and 39 eligible boundaries are required; otherwise bounds remain
 null with `status: 'uncalibrated'`. It reports K, n, boundaries and drift deltas, and inverts
-empirical quantiles as `[delta - q975, delta - q025]`. It adds no decision rule.
-
+empirical quantiles as `[delta - q975, delta - q025]`. 
 `tests/cluster-recorded.integration.test.ts` exercises the public APIs on a numeric projection
 of recorded create rows. Its long replay is explicitly constructed; short measured history
 must remain uncalibrated. Product owners still validate cadence, cell membership, complete
