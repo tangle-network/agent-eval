@@ -24,7 +24,7 @@ afterAll(async () => {
 })
 
 async function command(cwd: string, program: string, args: string[]): Promise<string> {
-  const result = await execute(program, args, { cwd, timeout: 10_000, maxBuffer: 1024 * 1024 })
+  const result = await execute(program, args, { cwd, timeout: 10_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' } })
   return result.stdout.trim()
 }
 

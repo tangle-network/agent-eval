@@ -129,8 +129,7 @@ describe('adopt-stack --dry-run against npm', () => {
   }, 60_000)
 })
 
-// Real registry artifacts, workspace installs and local Git histories. No gh,
-// registry, filesystem or package-manager stand-ins participate in this proof.
+process.env.GIT_ALLOW_TEST_IDENTITY = '1' // This worker owns only disposable Git fixtures.
 describe('adopt-stack effective workspace delivery', () => {
   test.each(['package.json', 'pnpm-workspace.yaml'])('reconciles %s overrides and rejects installed drift', async (overrideFile) => {
     const brand = '@tangle-network/brand'
