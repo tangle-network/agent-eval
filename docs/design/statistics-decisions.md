@@ -28,8 +28,10 @@ functions cannot account for its sufficiency gates, vetoes or repeated reads.
 
 `clusterBootstrap` redraws whole clusters with replacement, preserving each stratum's cluster
 count. A cluster spanning strata is invalid. Its statistic can be a mean, percentile, share
-or ratio; a non-finite statistic is refused. `clusterBootstrapMean` delegates to this engine.
-One cluster carries no between-cluster information even if its interval collapses.
+or ratio; degenerate resamples are omitted and no finite draws leaves NaN bounds. `clusterBootstrapMean` delegates to this engine.
+The mean wrapper keeps its data-derived seed; its bounds now use the shared interpolated
+quantiles, so previously recorded endpoints may differ. One cluster carries no between-cluster
+information even if its interval collapses.
 
 `placeboBand` receives one same-cell history and the exact before/after estimator used for
 credit, including baseline winsorization and failure scoring. It selects the nearest sealed

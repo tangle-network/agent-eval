@@ -137,7 +137,7 @@ export function makeRng(
 }
 
 /** FNV-1a over the IEEE-754 bytes of every observation. */
-function seedFromData(series: readonly (readonly number[])[]): number {
+export function seedFromData(series: readonly (readonly number[])[]): number {
   const view = new DataView(new ArrayBuffer(8))
   // 32-bit FNV-1a over the IEEE-754 BYTES of each observation, not over a
   // string. Frozen: it seeds the unseeded bootstrap from the data itself, so a

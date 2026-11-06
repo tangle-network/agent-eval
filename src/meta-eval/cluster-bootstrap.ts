@@ -1,5 +1,6 @@
 import { ValidationError } from '../errors'
-import { clusterBootstrap, DEFAULT_BOOTSTRAP_SEED } from '../statistics/cluster'
+import { clusterBootstrap } from '../statistics/cluster'
+import { seedFromData } from '../statistics/internal'
 
 /** One observation and the source cluster it belongs to. */
 export interface ClusteredObservation {
@@ -13,7 +14,7 @@ export interface ClusterBootstrapOptions {
   confidence?: number
   /** Bootstrap resample count. Default 2000. */
   resamples?: number
-  /** Deterministic seed. Defaults to the shared reproducible bootstrap seed. */
+  /** Deterministic seed. If omitted, derived from the values for reproducible intervals. */
   seed?: number
 }
 
@@ -33,6 +34,13 @@ export function clusterBootstrapMean(
   observations: readonly ClusteredObservation[],
   options: ClusterBootstrapOptions = {},
 ): ClusterBootstrapResult {
+  if (
+    !observations.length ||
+    (options.resamples !== undefined &&
+      (!Number.isSafeInteger(options.resamples) || options.resamples < 1))
+  ) {
+    throw new ValidationError('clusterBootstrapMean: requires observations and positive resamples')
+  }
   if (observations.some((row) => !Number.isFinite(row.value))) {
     throw new ValidationError('clusterBootstrapMean: value must be finite')
   }
@@ -42,7 +50,7 @@ export function clusterBootstrapMean(
   return {
     ...clusterBootstrap(observations, (row) => row.cluster, mean, {
       level: confidence,
-      seed: options.seed ?? DEFAULT_BOOTSTRAP_SEED,
+      seed: options.seed ?? seedFromData([observations.map((row) => row.value)]),
       ...(options.resamples === undefined ? {} : { resamples: options.resamples }),
       strata: (row) => row.stratum ?? '',
     }),

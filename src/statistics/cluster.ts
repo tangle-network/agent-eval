@@ -12,7 +12,7 @@ export interface ClusterResampleOptions<T> {
   strata?: (item: T, index: number) => string
 }
 
-/** Percentile bootstrap. A cluster cannot cross strata; non-finite estimates are refused. */
+/** Percentile bootstrap; degenerate resamples are omitted, with NaN bounds if none remain. */
 export function clusterBootstrap<T>(
   items: readonly T[],
   cluster: (item: T, index: number) => string,
@@ -24,15 +24,8 @@ export function clusterBootstrap<T>(
     strata,
   }: ClusterResampleOptions<T> = {},
 ): BootstrapInterval {
-  if (
-    !items.length ||
-    !Number.isSafeInteger(resamples) ||
-    resamples < 1 ||
-    !(level > 0 && level < 1)
-  ) {
-    throw new ValidationError(
-      'clusterBootstrap: requires observations, positive resamples and level in (0,1)',
-    )
+  if (!Number.isSafeInteger(resamples) || resamples < 0 || !(level > 0 && level < 1)) {
+    throw new ValidationError('clusterBootstrap: requires nonnegative resamples and level in (0,1)')
   }
   const groups = new Map<string, { stratum: string; rows: T[] }>()
   items.forEach((item, index) => {
@@ -62,9 +55,7 @@ export function clusterBootstrap<T>(
       ).flat(),
     )
     const value = statistic(sample)
-    if (!Number.isFinite(value))
-      throw new ValidationError('clusterBootstrap: statistic must be finite')
-    values.push(value)
+    if (Number.isFinite(value)) values.push(value)
   }
   values.sort((a, b) => a - b)
   return {
