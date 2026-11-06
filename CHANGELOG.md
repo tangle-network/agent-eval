@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.20] — 2026-11-06
+
+- docs(statistics): trim whitespace in interval guidance
+- fix(verification): retain valid replay baselines and current release evidence
+- chore(analyst): refresh manifest for shared statistics owner
+- fix(statistics): preserve degenerate bootstrap results and mean seed
+- feat(statistics): share stratified cluster resampling and calibrated placebo bands
+- fix(exports): ship ./statistics subpath, gpt-5-mini pricing, sequentialCrossingHorizon
+- fix(adopt-stack): qualify the committed caller tree
+- fix(adopt-stack): read large tracked path inventories
+- fix(adoption): read a Runtime release's evidence from its Publish run, and raise pins below a dependency floor (#1211)
+- fix(adoption): hold a Runtime release whose tag evidence failed or never ran
+- fix(adoption): gate stable-major candidates against installed versions
+- feat(app-grade): probes take a method and JSON body (#1208)
+
 ## [1.0.19] — 2026-11-04
 
 - perf(lock): owner records skip fsync; a torn record born before this boot is stale (#1206)
