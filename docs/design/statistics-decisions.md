@@ -33,17 +33,8 @@ The mean wrapper keeps its data-derived seed; its bounds now use the shared inte
 quantiles, so previously recorded endpoints may differ. One cluster carries no between-cluster
 information even if its interval collapses.
 
-`placeboBand` receives one same-cell history and the exact before/after estimator used for
-credit, including baseline winsorization and failure scoring. It selects the nearest sealed
-number of clusters on each side of hourly boundaries, excluding windows crossing sealed
-steps. At least 72 hours and 39 eligible boundaries are required; otherwise bounds remain
-null with `status: 'uncalibrated'`. It reports K, n, boundaries and drift deltas, and inverts
-empirical quantiles as `[delta - q975, delta - q025]`.
-`tests/cluster-recorded.integration.test.ts` exercises the public APIs on a numeric projection
-of recorded create rows. Its long replay is explicitly constructed; short measured history
-must remain uncalibrated. Product owners still validate cadence, cell membership, complete
-reads, cluster identity and their selected statistic before claiming a calibrated result.
-
-## Reproducibility
-
-Use `makeRng` from `src/statistics/internal.ts` or the shared cluster bootstrap seed.
+`placeboBand` takes same-cell history, a sealed cluster count and the exact credit estimator,
+including winsorization and failure scoring. Hourly windows exclude sealed steps; fewer than
+72 hours or 39 eligible boundaries yields `uncalibrated` with null bounds. It returns K, n,
+boundaries and deltas; bounds invert as `[delta - q975, delta - q025]`.
+The [recorded contract](../../tests/cluster-recorded.integration.test.ts) labels constructed replay; callers validate cadence, cell, coverage, clusters and estimator.

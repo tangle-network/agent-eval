@@ -129,8 +129,7 @@ describe('adopt-stack --dry-run against npm', () => {
   }, 60_000)
 })
 
-// Real registry artifacts, workspace installs and local Git histories. No gh,
-// registry, filesystem or package-manager stand-ins participate in this proof.
+process.env.GIT_ALLOW_TEST_IDENTITY = '1' // This worker owns only disposable Git fixtures.
 describe('adopt-stack effective workspace delivery', () => {
   test.each(['package.json', 'pnpm-workspace.yaml'])('reconciles %s overrides and rejects installed drift', async (overrideFile) => {
     const brand = '@tangle-network/brand'
@@ -187,6 +186,7 @@ describe('adopt-stack effective workspace delivery', () => {
         // An old proposal + independently advanced default retain both histories.
         save('.gitignore', 'node_modules/\n')
         const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' } }).trim()
+        const clone = (...args) => git(root, 'clone', '-q', '-c', 'user.name=adopt-test', '-c', 'user.email=adopt-test@example.invalid', ...args)
         const remote = mkdtempSync(join(tmpdir(), 'adopt-effective-remote-'))
         const caller = mkdtempSync(join(tmpdir(), 'adopt-effective-caller-'))
         const fresh = mkdtempSync(join(tmpdir(), 'adopt-effective-fresh-'))
@@ -209,7 +209,7 @@ describe('adopt-stack effective workspace delivery', () => {
           git(root, 'commit', '-qm', 'Advance default independently')
           const base = git(root, 'rev-parse', 'HEAD')
           git(root, 'push', '-q', 'origin', 'main')
-          git(root, 'clone', '-q', '--depth', '1', `file://${remote}`, caller)
+          clone('--depth', '1', `file://${remote}`, caller)
           expect(git(caller, 'rev-parse', '--is-shallow-repository')).toBe('true')
           const prepared = prepareBranch(caller, 'main')
           expect(prepared).toEqual({ base, proposal: true, replaces: '' })
@@ -231,7 +231,7 @@ describe('adopt-stack effective workspace delivery', () => {
           // This returns before any GitHub command: the actual remote is the gate.
           expect(await mergeWhenApproved(caller, 1, pushed, prepared.base, 'main')).toEqual({ moved })
           // With no open PR the branch is a leftover of someone else's squash merge: start from the default.
-          git(root, 'clone', '-q', `file://${remote}`, fresh)
+          clone(`file://${remote}`, fresh)
           expect(prepareBranch(fresh, 'main', false)).toEqual({ base: moved, proposal: false, replaces: pushed })
           expect(git(fresh, 'rev-parse', 'HEAD')).toBe(moved)
           // An open proposal that no longer merges restarts only when this updater wrote all of it.
@@ -250,17 +250,15 @@ describe('adopt-stack effective workspace delivery', () => {
           git(root, 'push', '-q', 'origin', 'main')
           const conflicted = git(root, 'rev-parse', 'HEAD')
           rmSync(fresh, { recursive: true, force: true })
-          git(root, 'clone', '-q', `file://${remote}`, fresh)
+          clone(`file://${remote}`, fresh)
           expect(() => prepareBranch(fresh, 'main')).toThrow(/no history was rewritten/)
           git(remote, 'update-ref', 'refs/heads/chore/adopt-stack', updaterOnly)
           rmSync(fresh, { recursive: true, force: true })
-          git(root, 'clone', '-q', `file://${remote}`, fresh)
+          clone(`file://${remote}`, fresh)
           expect(prepareBranch(fresh, 'main')).toEqual({ base: conflicted, proposal: false, replaces: updaterOnly })
           expect(git(fresh, 'rev-parse', 'HEAD')).toBe(conflicted)
         } finally {
-          rmSync(remote, { recursive: true, force: true })
-          rmSync(caller, { recursive: true, force: true })
-          rmSync(fresh, { recursive: true, force: true })
+          for (const directory of [remote, caller, fresh]) rmSync(directory, { recursive: true, force: true })
         }
       }
     } finally {

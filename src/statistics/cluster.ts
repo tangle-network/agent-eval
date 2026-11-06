@@ -92,7 +92,6 @@ export interface PlaceboBandResult {
   q975: number | null
 }
 
-/** Time-ordered empirical drift band; invert its quantiles around the observed delta. */
 export function placeboBand<T>(
   history: readonly T[],
   options: PlaceboBandOptions<T>,
@@ -140,7 +139,8 @@ export function placeboBand<T>(
       const before = ordered.filter((g) => g.end < boundary).slice(-clustersPerArm)
       const after = ordered.filter((g) => g.start >= boundary).slice(0, clustersPerArm)
       if (before.length !== clustersPerArm || after.length !== clustersPerArm) continue
-      if (steps.some((t) => t >= before[0]!.start && t <= after[after.length - 1]!.end)) continue
+      const windowEnd = Math.max(...after.map((g) => g.end))
+      if (steps.some((t) => t >= before[0]!.start && t <= windowEnd)) continue
       const value = statistic(
         before.flatMap((g) => g.rows),
         after.flatMap((g) => g.rows),

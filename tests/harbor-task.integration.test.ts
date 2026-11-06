@@ -24,7 +24,7 @@ afterAll(async () => {
 })
 
 async function command(cwd: string, program: string, args: string[]): Promise<string> {
-  const result = await execute(program, args, { cwd, timeout: 10_000, maxBuffer: 1024 * 1024 })
+  const result = await execute(program, args, { cwd, timeout: 10_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' } })
   return result.stdout.trim()
 }
 
@@ -41,15 +41,16 @@ async function repositoryFixture(): Promise<{
   const repo = join(root, 'repository')
   await mkdir(join(repo, 'src'), { recursive: true })
   const git = (...args: string[]) => command(repo, 'git', args)
-  const commit = (message: string) => git('commit', '-m', message)
   await git('init', '-b', 'main')
+  await git('config', 'user.name', 'harbor-fixture')
+  await git('config', 'user.email', 'harbor-fixture@example.invalid')
   await writeFile(
     join(repo, 'src/production.mjs'),
     'export function sum(a, b) {\n  const value = a + b\n  return value\n}\n',
   )
   await writeFile(join(repo, 'src/support.mjs'), 'export const support = true\n')
   await git('add', '.')
-  await commit('base')
+  await git('commit', '-m', 'base')
   const baseCommit = await git('rev-parse', 'HEAD')
   const baseTree = await git('rev-parse', 'HEAD^{tree}')
   const bundlePath = join(root, 'base.bundle')
@@ -57,7 +58,7 @@ async function repositoryFixture(): Promise<{
   await git('checkout', '-b', 'candidate')
   await writeFile(join(repo, 'src/production.mjs'), 'export const sum = (a, b) => a + b\n')
   await git('add', '.')
-  await commit('reduce production lines')
+  await git('commit', '-m', 'reduce production lines')
   const candidateCommit = await git('rev-parse', 'HEAD')
   const candidateTree = await git('rev-parse', 'HEAD^{tree}')
   const patch = (
