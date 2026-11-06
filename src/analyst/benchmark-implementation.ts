@@ -11,7 +11,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  'dc5fce87645756f8349e883cc032eb86a0fc7784c179fbbb57e183e6ca15ffa8'
+  '5168b25401e307b8b6d6cd305bcc7d3fcfe5619a9977f54ba33e7eba9a899a48'
 
 export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
   '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
@@ -135,6 +135,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/metrics.ts',
   'src/record-id.ts',
   'src/statistics/agreement-irr.ts',
+  'src/statistics/cluster.ts',
   'src/statistics/comparison-effects.ts',
   'src/statistics/descriptive.ts',
   'src/statistics/distribution-summary.ts',
@@ -174,7 +175,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '159c0a180971bd381166527a7747bed352ee95888108bc3a3a434ab17364b6fd'
+  '10b351923c83b37c229e2ec5c782f85dede01556708b0a6b2c9d72825be6c5ae'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

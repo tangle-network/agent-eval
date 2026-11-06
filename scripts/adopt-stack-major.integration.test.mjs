@@ -150,11 +150,11 @@ async function fixture(acceptsMajor, peerOnly, manager = 'npm', alreadyAdmits = 
       const raw = Buffer.concat(chunks)
       if (req.url.startsWith('/fixture/app.git/')) {
         const url = new URL(req.url, 'https://fixture')
-        const child = spawn('git', ['http-backend'], { env: { ...process.env, GIT_PROJECT_ROOT: root, GIT_HTTP_EXPORT_ALL: '1', PATH_INFO: '/remote.git' + url.pathname.slice('/fixture/app.git'.length), QUERY_STRING: url.search.slice(1), REQUEST_METHOD: req.method, CONTENT_TYPE: req.headers['content-type'] ?? '', CONTENT_LENGTH: String(raw.length), HTTP_CONTENT_ENCODING: req.headers['content-encoding'] ?? '', REMOTE_USER: 'fixture' } })
+        const child = spawn('git', ['http-backend'], { stdio: [raw.length ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_PROJECT_ROOT: root, GIT_HTTP_EXPORT_ALL: '1', PATH_INFO: '/remote.git' + url.pathname.slice('/fixture/app.git'.length), QUERY_STRING: url.search.slice(1), REQUEST_METHOD: req.method, CONTENT_TYPE: req.headers['content-type'] ?? '', CONTENT_LENGTH: String(raw.length), HTTP_CONTENT_ENCODING: req.headers['content-encoding'] ?? '', REMOTE_USER: 'fixture' } })
         const output = []; let stderr = ''
         child.stdout.on('data', chunk => output.push(chunk)); child.stderr.on('data', chunk => { stderr += chunk })
-        const ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', code => code ? reject(new Error(stderr)) : resolve()) })
-        child.stdin.end(raw); await ended
+        const ended = new Promise((resolve, reject) => { child.once('error', reject); child.stdin?.once('error', reject); child.once('close', code => code ? reject(new Error(stderr)) : resolve()) })
+        child.stdin?.end(raw); await ended
         const bytes = Buffer.concat(output), split = bytes.indexOf('\r\n\r\n')
         if (split < 0) throw new Error('git http-backend omitted CGI headers')
         const headers = Object.fromEntries(bytes.subarray(0, split).toString().split('\r\n').map(line => { const colon = line.indexOf(':'); return [line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()] }))
@@ -224,9 +224,6 @@ afterEach(async () => {
 test.each([[true, false, 'npm', false], [false, false, 'npm', false], [true, true, 'npm', false], [true, true, 'pnpm', false], [true, true, 'npm', true]])('stable major candidate follows the real caller gate and PR outcome (gate accepts: %s, peer only: %s, manager: %s, already admits: %s)', async (acceptsMajor, peerOnly, manager, alreadyAdmits) => {
   const f = await fixture(acceptsMajor, peerOnly, manager, alreadyAdmits)
     const result = await f.run()
-    console.log('ADOPT_MAJOR_CLI=' + JSON.stringify(result))
-    const installed = join(f.caller, 'node_modules', name, 'package.json')
-    if (existsSync(installed)) console.log('ADOPT_MAJOR_INSTALLED=' + JSON.stringify({ peerOnly, version: JSON.parse(readFileSync(installed, 'utf8')).version }))
     expect(result.stderr).not.toContain('widen it by hand')
     if (result.code !== (acceptsMajor ? 0 : 1) || !f.state.pr) console.log('ADOPT_MAJOR_HTTP=' + JSON.stringify({requests:f.requests,comments:f.state.comments,merged:f.state.merged}))
     expect(result.code, result.stdout + result.stderr).toBe(acceptsMajor ? 0 : 1)

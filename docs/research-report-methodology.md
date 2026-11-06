@@ -75,7 +75,7 @@ Each posterior draw assigns the observed paired deltas Dirichlet(1, ..., 1) weig
 The posterior summaries apply to the **mean** delta.
 The separate frequentist bootstrap CI applies to the **median** delta because the median is more robust to heavy-tailed agent scores.
 It is descriptive spread below `BOOTSTRAP_GATE_MIN_N = 20` pairs, which the result reports as `gateEligible: false`; the exact signed-rank or sign test carries the decision there.
-See [`design/statistics-decisions.md`](./design/statistics-decisions.md) for the measured false-positive rates and the exact-versus-asymptotic policy.
+See [`design/statistics-decisions.md`](./design/statistics-decisions.md) for interval and small-sample policy; historical calibration results are in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## MDE
 

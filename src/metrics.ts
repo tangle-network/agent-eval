@@ -19,15 +19,16 @@ export const MODEL_PRICING: Record<string, TokenPrice> = {
   // $0.10 / $0.50 per Mtok. Exact, because the coarse gpt-5 family row would
   // overstate it 12x on input and 20x on output.
   'gpt-6-luna': { input: 0.0001, output: 0.0005 },
+  // Router receipts for the served id `gpt-5-mini-2025-08-07` solve exactly
+  // to $0.25 / $2 per Mtok; the gpt-5 family row is 5x too high.
+  'gpt-5-mini': { input: 0.00025, output: 0.002 },
 }
 
 /** Family-level pricing fallbacks (per-1K), matched against a normalized id
  *  after exact lookup misses. Ordered — first match wins. Covers the model
- *  ids actually used through the Tangle router + cli-bridge harnesses
- *  (`claude-code/sonnet`, `opencode/zai-coding-plan/glm-5.1`,
- *  `kimi-code/kimi-k2.6`, `deepseek-v4-pro`, `anthropic/claude-sonnet-4-6`, …),
- *  none of which appear in the exact table above — without this they priced
- *  to a silent $0, blanking every cost/Pareto axis downstream. */
+ *  ids actually used through the Tangle router + cli-bridge harnesses, none
+ *  of which appear in the exact table above — without this they priced to a
+ *  silent $0, blanking every cost/Pareto axis downstream. */
 const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
   // OpenRouter stealth previews (`stealth/union-alpha`, …) bill $0 during
   // their preview window. A real zero row lets the budget ledger admit them;
@@ -48,12 +49,12 @@ const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
   [/llama/, { input: 0.0002, output: 0.0006 }],
 ]
 
-/** Normalize a model id for pricing: drop a `@snapshot` suffix, lowercase,
- *  and return both the complete harness/provider-prefixed id and its final
- *  served-model segment (`opencode/zai-coding-plan/glm-5.3` → full id plus
- *  `glm-5.3`). Exact rows are checked against both before family fallback. */
+/** Normalize a model id for pricing: drop `@snapshot` and trailing
+ *  `-YYYY-MM-DD` dated-snapshot suffixes, lowercase, and return the complete
+ *  id plus its final served-model segment for exact-row lookup. */
 function normalizedModelIds(model: string): string[] {
-  const id = (model.split('@')[0] ?? model).trim().toLowerCase()
+  const stripped = (model.split('@')[0] ?? model).trim().toLowerCase()
+  const id = stripped.replace(/-(?:19|20)\d{2}-\d{2}-\d{2}$/, '')
   const finalSegment = id.slice(id.lastIndexOf('/') + 1)
   return finalSegment === id ? [id] : [id, finalSegment]
 }
@@ -73,8 +74,7 @@ export function resolveModelPricing(model: string): TokenPrice | null {
   return null
 }
 
-/** True when `model` has known pricing (exact or family). Lets cost-aware
- *  callers distinguish a real $0 from an unpriced model. */
+/** True when `model` has known pricing: distinguishes a real $0 from unpriced. */
 export function isModelPriced(model: string): boolean {
   return resolveModelPricing(model) !== null
 }
@@ -86,18 +86,14 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-/** Calculate cost in USD from token counts and model. Unknown models warn
- *  once (not a silent zero) and return 0 so callers that ignore pricing keep
- *  working; cost-sensitive callers should gate on {@link isModelPriced}. */
+/** Calculate cost in USD from token counts and model. Unknown models warn once
+ *  (not a silent zero) and return 0; cost-sensitive callers gate on {@link isModelPriced}. */
 export function estimateCost(inputTokens: number, outputTokens: number, model: string): number {
   const pricing = resolveModelPricing(model)
   if (!pricing) {
     if (!warnedUnpricedModels.has(model)) {
       warnedUnpricedModels.add(model)
-      console.warn(
-        `estimateCost: no pricing for model "${model}" — returning 0; add it to ` +
-          'MODEL_PRICING/FAMILY_PRICING (cost/Pareto axes will be blank until then)',
-      )
+      console.warn(`estimateCost: no pricing for "${model}" — returning 0; add it to MODEL_PRICING`)
     }
     return 0
   }

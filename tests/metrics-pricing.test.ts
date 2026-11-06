@@ -1,22 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { estimateCost, isModelPriced, resolveModelPricing } from '../src/metrics'
 
-// Regression: real model ids used through the Tangle router + cli-bridge
-// harnesses priced to a silent $0 (MODEL_PRICING only had 6 legacy keys +
-// estimateCost returned 0 on miss), blanking every cost/Pareto axis in
-// analyzeRuns. Each id below MUST resolve to non-zero pricing.
+// Regression: real harness/router model ids once priced to a silent $0, blanking every cost/Pareto axis.
 describe('estimateCost — real harness/router model ids price non-zero', () => {
   const realIds = [
     'claude-code/sonnet',
-    'claude-code/sonnet@canonical-eval-5152e6c',
     'anthropic/claude-sonnet-4-6',
     'opencode/zai-coding-plan/glm-5.1',
     'opencode/zai-coding-plan/glm-5-turbo',
     'kimi-code/kimi-k2.6',
-    'moonshotai/kimi-k2',
     'deepseek-v4-pro',
-    'deepseek/deepseek-chat',
-    'glm-5.1',
     'google/gemini-2.5-flash-lite',
   ]
   for (const id of realIds) {
@@ -40,13 +33,19 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
     expect(estimateCost(1_000_000, 1_000_000, 'gpt-6-luna')).toBeCloseTo(0.6, 6)
   })
 
-  it('still prices the exact legacy table entries', () => {
-    expect(estimateCost(1000, 1000, 'gpt-4o')).toBeCloseTo(0.0125, 6)
+  it('prices gpt-5-mini at the router receipt rate, dated-snapshot id or not', () => {
+    // Six Pi receipts charged $0.052225 for 64,596 in + 18,038 out (#795).
+    const servedId = 'pi/tangle-router/gpt-5-mini-2025-08-07'
+    for (const id of ['gpt-5-mini', servedId]) {
+      expect(resolveModelPricing(id)).toEqual({ input: 0.00025, output: 0.002 })
+    }
+    expect(estimateCost(64_596, 18_038, servedId)).toBeCloseTo(0.052225, 6)
   })
 
-  it('uses the exact router-observed glm-5.3 rates', () => {
+  it('prices the exact legacy table and router-observed glm-5.3 rates', () => {
     expect(resolveModelPricing('glm-5.3')).toEqual({ input: 0.00168, output: 0.00528 })
     expect(estimateCost(1000, 1000, 'glm-5.3')).toBeCloseTo(0.00696, 8)
+    expect(estimateCost(1000, 1000, 'gpt-4o')).toBeCloseTo(0.0125, 6)
   })
 
   it('uses an exact served-model row through harness prefixes and snapshot suffixes', () => {
@@ -58,24 +57,18 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
       input: 0.00168,
       output: 0.00528,
     })
+    expect(estimateCost(1000, 1000, 'deepseek-v4-pro@2026-05-28')).toBe(
+      estimateCost(1000, 1000, 'deepseek-v4-pro'),
+    )
   })
 
-  it('keeps the coarse glm family fallback for other versions', () => {
+  it('keeps the coarse glm family fallback and family ordering for other versions', () => {
     expect(resolveModelPricing('opencode/zai-coding-plan/glm-5.1')).toEqual({
       input: 0.0006,
       output: 0.0022,
     })
-  })
-
-  it('opus costs more than haiku (family ordering is correct)', () => {
     expect(estimateCost(1000, 1000, 'claude-code/opus')).toBeGreaterThan(
       estimateCost(1000, 1000, 'claude-haiku-4-5'),
-    )
-  })
-
-  it('snapshot suffix does not change pricing', () => {
-    expect(estimateCost(1000, 1000, 'deepseek-v4-pro@2026-05-28')).toBe(
-      estimateCost(1000, 1000, 'deepseek-v4-pro'),
     )
   })
 

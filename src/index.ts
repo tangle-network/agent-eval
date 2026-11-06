@@ -136,7 +136,11 @@ export {
 
 export { buildReflectionPrompt, parseReflectionResponse } from './reflective-mutation'
 export { mintRolloutRows } from './rollout/index'
-export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequential'
+export {
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+  sequentialCrossingHorizon,
+} from './sequential'
 export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
 export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'

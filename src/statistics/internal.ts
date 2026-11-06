@@ -137,7 +137,7 @@ export function makeRng(
 }
 
 /** FNV-1a over the IEEE-754 bytes of every observation. */
-function seedFromData(series: readonly (readonly number[])[]): number {
+export function seedFromData(series: readonly (readonly number[])[]): number {
   const view = new DataView(new ArrayBuffer(8))
   // 32-bit FNV-1a over the IEEE-754 BYTES of each observation, not over a
   // string. Frozen: it seeds the unseeded bootstrap from the data itself, so a
@@ -166,35 +166,4 @@ export function symmetricTwoSampleSeed(a: readonly number[], b: readonly number[
   return Math.min(forward, reversed)
 }
 
-export const DEFAULT_BOOTSTRAP_SEED = 0xc0ffee
-export type BootstrapInterval = { low: number; high: number; resamples: number; clusters: number }
-
-/** Seeded percentile bootstrap over clusters: each resample redraws whole clusters with replacement, so
- * observations sharing a source move together. Non-finite statistics are dropped; none left gives NaN bounds. */
-export function clusterBootstrap<T>(
-  items: readonly T[],
-  cluster: (item: T, index: number) => string,
-  statistic: (sample: T[]) => number,
-  { resamples = 2000, seed = DEFAULT_BOOTSTRAP_SEED, level = 0.95 } = {},
-): BootstrapInterval {
-  const groups = new Map<string, T[]>()
-  items.forEach((item, index) => {
-    const key = cluster(item, index)
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(item)
-  })
-  const clusters = [...groups.values()]
-  const rng = mulberry32(seed)
-  const values: number[] = []
-  for (let b = 0; b < resamples; b++) {
-    const draw = () => clusters[Math.floor(rng() * clusters.length)]!
-    const value = statistic(Array.from({ length: clusters.length }, draw).flat())
-    if (Number.isFinite(value)) values.push(value)
-  }
-  const q = (p: number) =>
-    interpolatedQuantile(
-      values.sort((a, b) => a - b),
-      p,
-    )
-  return { low: q((1 - level) / 2), high: q((1 + level) / 2), resamples, clusters: clusters.length }
-}
+export { clusterBootstrap, DEFAULT_BOOTSTRAP_SEED, type BootstrapInterval } from './cluster'
