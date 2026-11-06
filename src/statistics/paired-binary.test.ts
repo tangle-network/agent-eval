@@ -6,72 +6,7 @@ import {
   pairedRiskDifferenceExact,
   pairedRiskDifferenceScore,
   passAtK,
-  wilson,
 } from './index'
-
-describe('wilson — binomial proportion CI', () => {
-  it('matches the textbook interval for 8/10 at 95%', () => {
-    const { estimate, lower, upper } = wilson(8, 10)
-    expect(estimate).toBeCloseTo(0.8, 10)
-    expect(lower).toBeCloseTo(0.4901, 3) // canonical Wilson value
-    expect(upper).toBeCloseTo(0.9433, 3)
-  })
-
-  it('never escapes [0,1] at the boundary (10/10 upper clamps to 1)', () => {
-    const { estimate, lower, upper } = wilson(10, 10)
-    expect(estimate).toBe(1)
-    expect(upper).toBe(1) // Wald would give >1
-    expect(lower).toBeGreaterThan(0)
-    expect(lower).toBeLessThan(1)
-  })
-
-  it('0/n is a one-sided interval anchored at 0', () => {
-    const { estimate, lower, upper } = wilson(0, 10)
-    expect(estimate).toBe(0)
-    expect(lower).toBe(0)
-    expect(upper).toBeGreaterThan(0)
-    expect(upper).toBeLessThan(1)
-  })
-
-  it('cannot separate an arm with no fair attempts from an observed arm', () => {
-    const empty = wilson(0, 0)
-    expect(empty).toEqual({ estimate: 0, lower: 0, upper: 1 })
-    // #758: a quarantined arm has no evidence, even against one successful trial.
-    for (const observed of [wilson(1, 1), wilson(0, 1), wilson(8, 10)]) {
-      const separable = empty.upper < observed.lower || observed.upper < empty.lower
-      expect(separable).toBe(false)
-    }
-    expect(wilson(0, 10).upper).toBeLessThan(empty.upper)
-  })
-
-  it('refuses invalid counts before returning an empty interval', () => {
-    for (const n of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(() => wilson(0, n)).toThrow(/finite nonnegative integer/)
-    }
-    for (const successes of [-1, NaN, Infinity, 1.5, 11]) {
-      expect(() => wilson(successes, 10)).toThrow(/must be in/)
-    }
-    expect(() => wilson(1, 0)).toThrow(/must be in/)
-  })
-  it('validates confidence even when no observations exist', () => {
-    for (const confidence of [0, 1, -0.5, NaN, Infinity]) {
-      expect(() => wilson(0, 0, confidence)).toThrow(/confidence/)
-      expect(() => wilson(8, 10, confidence)).toThrow(/confidence/)
-    }
-    expect(wilson(0, 0, 0.8)).toEqual({ estimate: 0, lower: 0, upper: 1 })
-  })
-  it('a wider interval at smaller n for the same proportion', () => {
-    const small = wilson(4, 5)
-    const large = wilson(80, 100)
-    expect(small.estimate).toBeCloseTo(large.estimate, 10)
-    expect(small.upper - small.lower).toBeGreaterThan(large.upper - large.lower)
-  })
-
-  it('throws when successes is out of range', () => {
-    expect(() => wilson(11, 10)).toThrow(/must be in/)
-    expect(() => wilson(-1, 10)).toThrow(/must be in/)
-  })
-})
 
 describe('mcnemar — paired-binary significance (exact)', () => {
   // control first; entries are 0/1 (or boolean).
@@ -270,17 +205,6 @@ describe('passAtK — unbiased coding-eval estimator', () => {
   })
 })
 
-
-
-/**
- * The DISCRIMINATOR a gate actually needs. `isBinaryOutcomeVector` answers
- * "is this literally {0,1}", which is a strictly narrower question than "can
- * the median see this data" — and every gap between the two was a measured
- * fail-open: a 0-100 pass/fail dimension, one partial-credit score in an
- * otherwise pass/fail vector, block scores averaged from pass/fail leaves, and
- * a pass/fail baseline against a partial-credit candidate all read
- * "not binary" and fell back to the blind median.
- */
 describe('pairedBinaryScale — two-point outcomes on ANY encoding', () => {
   it('returns the common positive level, whatever the encoding', () => {
     expect(pairedBinaryScale([0, 1, 1], [1, 1, 0])).toBe(1)

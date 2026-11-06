@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { clusterBootstrap, placeboBand, sampleMedian } from '../src/statistics/index'
+import {
+  clusterBootstrap,
+  independentRiskDifference,
+  placeboBand,
+  sampleMedian,
+} from '../src/statistics/index'
 import { clusterBootstrapMean } from '../src/meta-eval/index'
 import recorded from './fixtures/cluster-recorded.json'
 
@@ -104,5 +109,75 @@ describe('recorded create statistics public contract', () => {
     })
     expect(overlapping.boundaries).toEqual([])
     expect(() => placeboBand(replay, { ...options, boundaries: [0, 1] })).toThrow(/hour apart/)
+  })
+  it('compares independent recorded success counts without matching or discarding failed creates', () => {
+    const selected = recorded.filter(
+      (row) => row.cell === 'us1' && !row.outcome.startsWith('idempotent_'),
+    )
+    const before = selected.filter((row) => row.ts < 1793956897166),
+      after = selected.filter((row) => row.ts >= 1793956897166)
+    const successes = (arm: typeof recorded) => arm.filter((row) => row.outcome === 'ok').length
+    const result = independentRiskDifference(
+      successes(before),
+      before.length,
+      successes(after),
+      after.length,
+    )
+    expect(result.before).toMatchObject({ successes: 20, n: 50 })
+    expect(result.after).toMatchObject({ successes: 84, n: 192 })
+    expect(result.delta).toBeCloseTo(0.0375, 12)
+    expect(result.lower).toBeCloseTo(-0.11662676063921706, 7)
+    expect(result.upper).toBeCloseTo(0.18017357821348098, 7)
+    const swapped = independentRiskDifference(84, 192, 20, 50)
+    expect(swapped.delta).toBeCloseTo(-result.delta!, 12)
+    expect(swapped.lower).toBeCloseTo(-result.upper, 12)
+    expect(swapped.upper).toBeCloseTo(-result.lower, 12)
+    const guardExample = independentRiskDifference(972, 1000, 923, 1000)
+    expect(guardExample.delta).toBeCloseTo(-0.049, 12)
+    expect(guardExample.upper).toBeLessThan(-0.02)
+  })
+
+  it('matches Newcombe Table II method 10 and keeps empty or invalid arms explicit', () => {
+    // Primary paper, pp876–877, Table II; table gives after minus before.
+    for (const [after, afterN, before, beforeN, lower, upper] of [
+      [56, 70, 48, 80, 0.0524, 0.3339],
+      [9, 10, 3, 10, 0.1705, 0.809],
+      [6, 7, 2, 7, 0.0582, 0.8062],
+      [5, 56, 0, 29, -0.0381, 0.1926],
+      [0, 10, 0, 20, -0.1611, 0.2775],
+      [0, 10, 0, 10, -0.2775, 0.2775],
+      [10, 10, 0, 20, 0.6791, 1],
+      [10, 10, 0, 10, 0.6075, 1],
+    ]) {
+      const result = independentRiskDifference(before!, beforeN!, after!, afterN!)
+      expect(result.lower).toBeCloseTo(lower!, 4)
+      expect(result.upper).toBeCloseTo(upper!, 4)
+    }
+    for (const [before, beforeN, after, afterN] of [
+      [0, 0, 0, 0],
+      [0, 0, 1, 1],
+      [1, 1, 0, 0],
+    ]) {
+      expect(independentRiskDifference(before!, beforeN!, after!, afterN!)).toMatchObject({
+        delta: null,
+        lower: -1,
+        upper: 1,
+      })
+    }
+    for (const [successes, n] of [
+      [-1, 10],
+      [11, 10],
+      [1, 0],
+      [NaN, 10],
+      [1, 1.5],
+      [0, Infinity],
+      [0, Number.MAX_SAFE_INTEGER + 1],
+    ]) {
+      expect(() => independentRiskDifference(successes!, n!, 0, 0)).toThrow()
+      expect(() => independentRiskDifference(0, 0, successes!, n!)).toThrow()
+    }
+    for (const confidence of [0, 1, NaN, Infinity]) {
+      expect(() => independentRiskDifference(0, 0, 0, 0, confidence)).toThrow(/confidence/)
+    }
   })
 })
