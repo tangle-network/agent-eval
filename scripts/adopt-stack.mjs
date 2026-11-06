@@ -196,12 +196,7 @@ const newestIn = (doc, ranges) => Object.keys(doc.versions)
 
 const PROTOCOL = /^(workspace|catalog|npm|file|link|git|github|https?):/
 
-/**
- * What a dependency spec becomes for `target` (`to`, null when it stays as
- * written) and the version the lockfile then holds (`holds`, null when
- * unknown). A range that admits `target` stays and the lock moves; one that
- * excludes it moves for a newer stable major or a forced cohort adjustment.
- */
+// Admitting ranges stay; excluded targets widen for a stable major or forced cohort.
 function respec(spec, target, locked, force = false) {
   if (EXACT.test(spec)) return { to: spec === target ? null : target, holds: target }
   // Protocols, git shorthands and dist-tags are the caller's choice, not a version.
@@ -443,12 +438,7 @@ export async function plan(dir, requested = []) {
   }
 }
 
-/**
- * Move each release/cohort.json entry (agent-runtime's record of the exact
- * first-party versions and source commits it releases with) to the version the
- * lockfile will hold for a planned package, with that version's source commit.
- * An entry whose lock does not move stays as written.
- */
+// Cohort entries follow changed lock versions and their published source commits.
 async function cohortEdits(dir, plannedVersion) {
   const path = join(dir, COHORT)
   if (!existsSync(path)) return { edits: [] }
@@ -466,10 +456,7 @@ async function cohortEdits(dir, plannedVersion) {
   return { edits, text: `${JSON.stringify(cohort, null, indent)}\n` }
 }
 
-/**
- * The commit a release was published from: npm's gitHead, else the release tag
- * (`<name>@<version>` or `v<version>`) in `repository` (owner/name on GitHub).
- */
+// Source identity comes from npm gitHead or the owner release tag.
 async function sourceRef(name, version, repository) {
   const url = `${REGISTRY}/${name.replace('/', '%2f')}/${version}`
   const response = await fetch(url)
@@ -485,10 +472,7 @@ async function sourceRef(name, version, repository) {
   return ref
 }
 
-/**
- * The pull request title, a label only: `chore(deps): adopt <package> <version>`
- * for one package; several share one pull request. planHash is its identity.
- */
+// The title labels a plan; planHash identifies it.
 export function titleOf(edits) {
   if (!edits.length) return 'chore(deps): verify the existing adoption'
   const names = [...new Set(edits.map((edit) => edit.name))]
@@ -497,10 +481,7 @@ export function titleOf(edits) {
   return `chore(deps): adopt ${pin.name} ${pin.version}`
 }
 
-/**
- * A digest of the edits and the post-pin command, so the same plan always
- * hashes the same. Without a post-pin command the hash is the edits' alone.
- */
+
 export function planHash(edits, postPin = '') {
   const rows = edits.map(({ file, section, name, from, to }) => [file, section, name, from, to]).map((row) => JSON.stringify(row)).sort()
   if (postPin) rows.push(JSON.stringify(['post-pin', postPin]))
@@ -521,41 +502,39 @@ export function writePlan(dir, result, restore = false) {
       if (restore) writeFileSync(join(dir, member.file), member.text)
       continue
     }
+    const pkg = JSON.parse(member.text)
     for (const edit of edits) {
       const path = edit.path ?? [edit.section, edit.name]
-      const parent = path.slice(0, -1).reduce((obj, key) => obj[key], member.pkg)
+      const parent = path.slice(0, -1).reduce((obj, key) => obj[key], pkg)
       parent[path.at(-1)] = edit.to
     }
     const indent = /^([ \t]+)"/m.exec(member.text)?.[1] ?? '  '
-    writeFileSync(join(dir, member.file), `${JSON.stringify(member.pkg, null, indent)}\n`)
+    writeFileSync(join(dir, member.file), `${JSON.stringify(pkg, null, indent)}\n`)
   }
   if (result.edits.some((edit) => edit.file === 'pnpm-workspace.yaml')) writeFileSync(join(dir, 'pnpm-workspace.yaml'), workspaceText)
   if (result.edits.some((edit) => edit.file === COHORT)) writeFileSync(join(dir, COHORT), cohortText)
 }
 
-/**
- * Lock the planned versions without moving a range that admits them. Each pnpm importer
- * updates only its own registry pins, so a `workspace:` link elsewhere is never re-resolved.
- * npm cannot lock without saving, so its ranges are written back and the lock re-derived.
- */
+// Preserve planned ranges while installing only unresolved targets with exact temporary specs.
 export function install(dir, result) {
   const expected = new Map(result.expected)
-  const targets = new Map()
-  for (const { file, name, spec } of dependencies(result.files.members, true)) {
-    if (expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:'))) targets.set(file, [...new Set([...(targets.get(file) ?? []), `${name}@${expected.get(name)}`])])
-  }
+  const pins = dependencies(result.files.members, true).filter(({ name, spec }) => expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:')))
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
     if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
-    const peerOnly = dependencies(result.files.members, true).filter(pin => pin.section === 'peerDependencies' && expected.has(pin.name) && !PROTOCOL.test(pin.spec) && !dependencies(result.files.members).some(direct => direct.file === pin.file && direct.name === pin.name))
+    let locks = readLocks(dir)
+    const peerOnly = pins.filter(pin => pin.section === 'peerDependencies' && !PROTOCOL.test(pin.spec) && lockedVersion(locks, pin.file, pin.section, pin.name) !== expected.get(pin.name) && !dependencies(result.files.members).some(direct => direct.file === pin.file && direct.name === pin.name))
     for (const { file, name } of peerOnly) if (!run('pnpm', ['add', '--save-peer', `${name}@${expected.get(name)}`], join(dir, dirname(file)))) throw new Error(`pnpm could not install peer candidate ${name} in ${file}`)
-    for (const [file, names] of targets) if (!run('pnpm', ['update', '--no-save', ...names], join(dir, dirname(file)))) throw new Error(`pnpm could not lock ${names.join(' ')} in ${file}`)
-    // A transitive copy keeps the version locked before its dependents moved (agent-core 1.0.0 beside 1.0.1 in every app on 10-27); collapse it in the same refresh.
-    if (!run('pnpm', ['dedupe'], dir)) throw new Error('pnpm dedupe failed')
-    if (peerOnly.length) {
-      writePlan(dir, result, true)
-      if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm could not restore the caller peer declarations')
+    locks = readLocks(dir)
+    const forced = pins.filter(({ file, section, name }) => lockedVersion(locks, file, section, name) !== expected.get(name)).map(pin => ({ ...pin, to: expected.get(pin.name) }))
+    if (forced.length) {
+      writePlan(dir, { ...result, edits: [...result.edits, ...forced] })
+      if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm could not install the selected candidates')
     }
+    if (peerOnly.length || forced.length) writePlan(dir, result, true)
+    if (!run('pnpm', ['dedupe'], dir)) throw new Error('pnpm dedupe failed')
   } else if (existsSync(join(dir, 'package-lock.json'))) {
+    const targets = new Map()
+    for (const { file, name } of pins) targets.set(file, [...new Set([...(targets.get(file) ?? []), `${name}@${expected.get(name)}`])])
     if (!run('npm', ['install', '--prefer-online', ...[...targets.values()].flat()], dir)) throw new Error('npm install failed for the new pins')
     writePlan(dir, result, true)
     if (!run('npm', ['install', '--package-lock-only', '--prefer-online'], dir)) throw new Error('npm could not lock the planned ranges')
@@ -584,11 +563,7 @@ function trackedDigest(dir) {
   return createHash('sha256').update(JSON.stringify(files.map((file) => [file, digest(join(dir, file))]))).digest('hex')
 }
 
-/**
- * Run the caller's post-pin command in `dir` and return the files it changed,
- * so files already dirty before it (the pins, the lockfile) count only when it
- * changed them again. A non-zero exit throws with the command's output.
- */
+// Return files changed by post-pin, including edits to already dirty pins.
 function postPin(dir, command) {
   const before = dirty(dir)
   // Everything goes to stderr, so a --json plan on stdout stays parseable.
@@ -642,13 +617,8 @@ export function isManuallyHeldDraft(open, previous) {
   return Boolean(previous?.isDraft && !(open?.isDraft && open.body.includes(UPDATER_DRAFT_MARKER) && previous.body.includes(UPDATER_DRAFT_MARKER)))
 }
 
-/**
- * Git's owned branch is authoritative after push; the PR view may settle later.
- * No metadata changes are allowed until both agree. Every attempt brackets the
- * PR read with fresh remote refs; unknown or competing refs fail immediately.
- * The final merge still requires its native expected-head and captured-base guards.
- * `readProposal` is the external HTTP read seam; production uses authenticated gh.
- */
+// Bracket HTTP PR reads with authoritative refs; never mutate an unsettled or moved proposal.
+// Merge still requires its expected head and captured default.
 export async function readPushedProposal(dir, number, expectedHead, defaultBranch, readProposal) {
   const deadline = Date.now() + SETTLE_MS
   const command = (cmd, argv) => {

@@ -1,9 +1,10 @@
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createServer as createTlsServer } from 'node:https'
 import { connect } from 'node:net'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +16,7 @@ const execute = promisify(execFile)
 const script = join(dirname(fileURLToPath(import.meta.url)), 'adopt-stack.mjs')
 const name = '@tangle-network/adopt-major-integration'
 const target = '3.2.1'
+const unselected = ['entities', 'is-unsafe', 'jose', 'minimatch', 'parse5', 'viem', 'worker-f']
 const active = []
 const identity = { GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'adopt-test', GIT_AUTHOR_EMAIL: 'adopt-test@example.invalid', GIT_COMMITTER_NAME: 'adopt-test', GIT_COMMITTER_EMAIL: 'adopt-test@example.invalid' }
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: { ...process.env, ...identity }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -81,24 +83,29 @@ async function fixture(acceptsMajor, peerOnly, manager = 'npm', alreadyAdmits = 
   mkdirSync(author)
   const cleanup = { root, servers: [], sockets: [] }; active.push(cleanup)
   const requests = [], tarballs = new Map()
-  for (const version of ['1.0.0', target]) {
-    const source = join(root, version)
-    save(source, 'package.json', { name, version, type: 'module', exports: './index.js' })
+  const siblings = manager === 'pnpm' ? unselected : []
+  for (const pkg of [name, ...siblings]) for (const version of ['1.0.0', pkg === name ? target : '1.0.1']) {
+    const source = join(root, pkg.replaceAll('/', '-'), version)
+    save(source, 'package.json', { name: pkg, version, type: 'module', exports: './index.js', ...(pkg === name ? { dependencies: Object.fromEntries(siblings.map(key => [key, '^1.0.0'])) } : {}) })
     const api = version === '1.0.0' ? "export const oldApi = () => 'old';\n" : `export const candidateApi = () => '${target}';\n`
     save(source, 'index.js', api + "export const stableApi = () => 'compatible';\n")
     const packed = JSON.parse(execFileSync('npm', ['pack', '--json'], { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))[0]
-    tarballs.set(version, readFileSync(join(source, packed.filename)))
+    tarballs.set(`${pkg}@${version}`, readFileSync(join(source, packed.filename)))
   }
-  let registryUrl
+  let registryUrl, published = false
   const registry = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://fixture').pathname)
     const tar = /^\/tar\/(.+)\.tgz$/.exec(path)
     if (tar) { requests.push({ kind: 'tarball', version: tar[1] }); res.writeHead(200).end(tarballs.get(tar[1])); return }
     if (req.method === 'POST') { res.writeHead(200, { 'content-type': 'application/json' }).end('{}'); return }
-    if (path !== `/${name}`) { res.writeHead(404).end(); return }
-    requests.push({ kind: 'registry' })
-    const versions = Object.fromEntries([...tarballs].map(([version, bytes]) => [version, { name, version, dist: { tarball: `${registryUrl}/tar/${version}.tgz`, integrity: 'sha512-' + createHash('sha512').update(bytes).digest('base64') } }]))
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ name, 'dist-tags': { latest: target }, versions }))
+    const pkg = path.slice(1)
+    if (![name, ...siblings].includes(pkg)) { res.writeHead(404).end(); return }
+    requests.push({ kind: 'registry', name: pkg })
+    const versions = Object.fromEntries([...tarballs].filter(([key]) => key.startsWith(`${pkg}@`) && (published || key.endsWith('@1.0.0'))).map(([key, bytes]) => {
+      const version = key.slice(pkg.length + 1)
+      return [version, { name: pkg, version, ...(pkg === name ? { dependencies: Object.fromEntries(siblings.map(key => [key, '^1.0.0'])) } : {}), dist: { tarball: `${registryUrl}/tar/${encodeURIComponent(key)}.tgz`, integrity: 'sha512-' + createHash('sha512').update(bytes).digest('base64') } }]
+    }))
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ name: pkg, 'dist-tags': { latest: !published ? '1.0.0' : pkg === name ? target : '1.0.1' }, versions }))
   })
   cleanup.servers.push(registry)
   await listen(registry)
@@ -109,11 +116,15 @@ async function fixture(acceptsMajor, peerOnly, manager = 'npm', alreadyAdmits = 
   git(author, 'init', '-q', '-b', 'main')
   save(author, '.npmrc', `registry=${registryUrl}\n@tangle-network:registry=${registryUrl}\naudit=false\nfund=false\n`)
   save(author, '.gitignore', 'node_modules/\ngate-receipt.json\n')
-  save(author, 'package.json', { name: 'major-caller', private: true, type: 'module', ...(!peerOnly ? { devDependencies: { [name]: '^1.0.0' } } : {}), peerDependencies: { [name]: '^1.0.0' } })
+  const range = alreadyAdmits === true ? `^1.0.0 || ^${target}` : '^1.0.0'
+  const selected = alreadyAdmits === 'catalog' ? 'catalog:' : range
+  save(author, 'package.json', { name: 'major-caller', private: true, type: 'module', ...(manager === 'pnpm' ? { packageManager: 'pnpm@10.23.0' } : {}), ...(!peerOnly ? { devDependencies: { [name]: selected } } : {}), peerDependencies: { [name]: peerOnly ? range : '^1.0.0' } })
+  if (alreadyAdmits === 'catalog') save(author, 'pnpm-workspace.yaml', `packages: []\ncatalog:\n  '${name}': 1.0.0\n`)
   save(author, 'tests/check.mjs', `import { ${peerOnly ? 'stableApi' : acceptsMajor ? 'candidateApi' : 'oldApi'} as api } from '${name}'; import { writeFileSync } from 'node:fs'; import { execFileSync } from 'node:child_process'; import assert from 'node:assert/strict'; execFileSync('git', ['diff', '--quiet', 'HEAD', '--']); const actual=api(); assert.equal(actual, '${peerOnly ? 'compatible' : target}'); writeFileSync('gate-receipt.json', JSON.stringify({ actual }));\n`)
-  save(author, 'tests/sync.mjs', "import {readFileSync,writeFileSync}from'node:fs';writeFileSync('synced.json',JSON.stringify((p=>p.devDependencies??p.peerDependencies)(JSON.parse(readFileSync('package.json','utf8')))));\n")
+  save(author, 'tests/sync.mjs', "import {readFileSync,writeFileSync}from'node:fs';writeFileSync('synced.json',JSON.stringify((p=>({...p.peerDependencies,...p.devDependencies}))(JSON.parse(readFileSync('package.json','utf8')))));\n")
+  if (manager === 'pnpm') expect((await execute(manager, ['--version'], { cwd: author })).stdout.trim()).toBe('10.23.0')
   await execute(manager, ['install', manager === 'npm' ? '--package-lock-only' : '--lockfile-only'], { cwd: author, env: { ...process.env, npm_config_registry: registryUrl, npm_config_audit: 'false', npm_config_fund: 'false' } })
-  if (alreadyAdmits) { const pkg = JSON.parse(readFileSync(join(author, 'package.json'), 'utf8')); pkg.peerDependencies[name] += ` || ^${target}`; save(author, 'package.json', pkg); await execute(manager, ['install', manager === 'npm' ? '--package-lock-only' : '--lockfile-only'], { cwd: author }) }
+  published = true
   git(author, 'add', '.')
   git(author, 'commit', '-qm', 'test: seed captured caller')
   git(author, 'remote', 'add', 'origin', remote)
@@ -210,7 +221,7 @@ async function fixture(acceptsMajor, peerOnly, manager = 'npm', alreadyAdmits = 
   // Native gh speaks the real TLS protocol; no command-response shim is involved.
   symlinkSync('/usr/bin/gh', join(bin, 'gh'))
   const env = { ...identity, PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, LANG: 'C.UTF-8', GIT_ALLOW_TEST_IDENTITY: '1', GH_CONFIG_DIR: join(root, 'gh-config'), GH_HOST: host, GH_REPO: 'fixture/app', GH_TOKEN: 'offline-not-a-secret', GH_ENTERPRISE_TOKEN: 'offline-not-a-secret', SSL_CERT_FILE: join(root, 'cert.pem'), GIT_SSL_CAINFO: join(root, 'cert.pem'), GIT_TERMINAL_PROMPT: '0', HTTPS_PROXY: proxyUrl, https_proxy: proxyUrl, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost', npm_config_registry: registryUrl, npm_config_audit: 'false', npm_config_fund: 'false', NO_COLOR: '1' }
-  return { root, caller, remote, base, state, requests, env, run: async () => execute(process.execPath, [script, '--dir', caller, '--packages', name, '--gate', 'node tests/check.mjs', '--post-pin', 'node tests/sync.mjs', '--merge'], { env, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }).then(value => ({ code: 0, ...value }), error => ({ code: error.code, stdout: error.stdout, stderr: error.stderr })) }
+  return { root, caller, remote, base, state, requests, env, siblings, run: async () => execute(process.execPath, [script, '--dir', caller, '--packages', name, '--gate', 'node tests/check.mjs', '--post-pin', 'node tests/sync.mjs', '--merge'], { env, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }).then(value => ({ code: 0, ...value }), error => ({ code: error.code, stdout: error.stdout, stderr: error.stderr })) }
 }
 
 afterEach(async () => {
@@ -221,7 +232,7 @@ afterEach(async () => {
   }
 })
 
-test.each([[true, false, 'npm', false], [false, false, 'npm', false], [true, true, 'npm', false], [true, true, 'pnpm', false], [true, true, 'npm', true]])('stable major candidate follows the real caller gate and PR outcome (gate accepts: %s, peer only: %s, manager: %s, already admits: %s)', async (acceptsMajor, peerOnly, manager, alreadyAdmits) => {
+test.each([[true, false, 'npm', false], [false, false, 'npm', false], [true, true, 'npm', false], [true, true, 'pnpm', false], [true, true, 'npm', true], [true, false, 'pnpm', false], [true, false, 'pnpm', true], [true, false, 'pnpm', 'catalog']])('stable major candidate follows the real caller gate and PR outcome (gate accepts: %s, peer only: %s, manager: %s, already admits: %s)', async (acceptsMajor, peerOnly, manager, alreadyAdmits) => {
   const f = await fixture(acceptsMajor, peerOnly, manager, alreadyAdmits)
     const result = await f.run()
     console.log('ADOPT_MAJOR_CLI=' + JSON.stringify(result))
@@ -235,12 +246,19 @@ test.each([[true, false, 'npm', false], [false, false, 'npm', false], [true, tru
     expect(f.state.pr, 'the locked candidate must reach the caller gate and owned proposal').toBeDefined()
     const proposal = f.state.mergeHead ?? git(f.remote, 'rev-parse', `refs/heads/${ADOPTION_BRANCH}`)
     const pkg = JSON.parse(git(f.remote, 'show', `${proposal}:package.json`))
-    expect(pkg.devDependencies?.[name]).toBe(peerOnly ? undefined : `^${target}`)
+    const selected = peerOnly ? undefined : alreadyAdmits === 'catalog' ? 'catalog:' : alreadyAdmits ? `^1.0.0 || ^${target}` : `^${target}`
+    expect(pkg.devDependencies?.[name]).toBe(selected)
     expect(pkg.peerDependencies[name]).toBe(`^1.0.0 || ^${target}`)
     expect(satisfies('2.0.0', pkg.peerDependencies[name])).toBe(false)
     expect(satisfies('3.0.0', pkg.peerDependencies[name])).toBe(false)
     expect(JSON.parse(readFileSync(join(f.caller, 'node_modules', name, 'package.json'), 'utf8')).version).toBe(target)
-    expect(JSON.parse(git(f.remote, 'show', `${proposal}:synced.json`))[name]).toBe(peerOnly ? `^1.0.0 || ^${target}` : `^${target}`)
+    expect(JSON.parse(git(f.remote, 'show', `${proposal}:synced.json`))[name]).toBe(peerOnly ? `^1.0.0 || ^${target}` : selected)
+    for (const key of f.siblings) {
+      expect(JSON.parse(readFileSync(join(dirname(createRequire(realpathSync(join(f.caller, 'node_modules', name, 'package.json'))).resolve(key)), 'package.json'), 'utf8')).version).toBe('1.0.0')
+      const lock = git(f.remote, 'show', `${proposal}:${manager === 'pnpm' ? 'pnpm-lock.yaml' : 'package-lock.json'}`)
+      expect(lock).not.toContain(`${key}@1.0.1`)
+      if (manager === 'npm') expect(JSON.parse(lock).packages[`node_modules/${key}`].version).toBe('1.0.0')
+    }
     expect(f.state.pr.body).toContain(acceptsMajor ? 'result=pass' : 'result=gate-fail')
     expect(f.state.pr.body).toContain(proposal.slice(0, 12))
     if (acceptsMajor) {
