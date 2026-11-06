@@ -59,6 +59,11 @@
       "import": "./dist/traces.js",
       "default": "./dist/traces.js"
     },
+    "./statistics": {
+      "types": "./dist/statistics.d.ts",
+      "import": "./dist/statistics.js",
+      "default": "./dist/statistics.js"
+    },
     "./trace-attributes": {
       "types": "./dist/trace-attributes.d.ts",
       "import": "./dist/trace-attributes.js",
