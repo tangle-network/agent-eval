@@ -138,7 +138,7 @@ describe('recorded create statistics public contract', () => {
   })
 
   it('matches Newcombe Table II method 10 and keeps empty or invalid arms explicit', () => {
-    // Primary paper, pp876–877 (PDF pages3–4); table gives after minus before.
+    // Primary paper, pp876–877, Table II; table gives after minus before.
     for (const [after, afterN, before, beforeN, lower, upper] of [
       [56, 70, 48, 80, 0.0524, 0.3339],
       [9, 10, 3, 10, 0.1705, 0.809],
