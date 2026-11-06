@@ -95,6 +95,14 @@ describe('recorded create statistics public contract', () => {
       placeboBand(replay, { ...options, boundaries: band.boundaries.slice(0, 38) }).status,
     ).toBe('uncalibrated')
     expect(placeboBand(replay, { ...options, steps: replay.map(timestamp) }).K).toBe(0)
+    const overlapping = placeboBand(replay, {
+      ...options,
+      boundaries: [40 * 3_600_000],
+      cluster: (row) => cluster(row.ts === 50 * 3_600_000 ? { ...row, ts: 40 * 3_600_000 } : row),
+      clustersPerArm: 2,
+      steps: [45 * 3_600_000],
+    })
+    expect(overlapping.boundaries).toEqual([])
     expect(() => placeboBand(replay, { ...options, boundaries: [0, 1] })).toThrow(/hour apart/)
   })
 })
