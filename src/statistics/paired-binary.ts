@@ -1,18 +1,6 @@
 import { regularizedIncompleteBeta } from '../math/special-functions'
 import { binomialSignTwoSided, zQuantile } from './internal'
 
-// ── Binomial proportion + paired-binary + coding-eval estimators ─────
-//
-// The paired family above (pairedBootstrap/pairedTTest/wilcoxonSignedRank)
-// operates on continuous scores. Pass/fail A/B comparisons — "does treatment
-// X raise the success RATE vs control" — are binary and paired, so they need
-// their own correct estimators: McNemar for significance (only the discordant
-// pairs carry signal), the paired risk difference for effect size, Wilson for
-// a single-arm proportion CI, and pass@k for the standard k-sample coding-eval
-// metric. The normal approximation is wrong for proportions near 0/1 and for
-// the small discordant counts typical of eval runs, so these are exact /
-// Wilson-based, not Wald.
-
 /** A binomial proportion estimate with a confidence interval. */
 export interface ProportionInterval {
   /** Point estimate successes / n; 0 is a compatibility placeholder when n = 0. */
@@ -57,38 +45,57 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
   }
 }
 
-/**
- * Are these per-item outcomes binary (every value exactly 0 or 1)?
- *
- * The discriminator a promotion gate needs before choosing a paired statistic.
- * On binary outcomes the paired delta vector lives in {-1, 0, +1} and is
- * normally dominated by zeros (both arms solve, or both arms miss, most items),
- * so its MEDIAN is pinned at exactly 0 no matter how large the real shift in
- * success rate is — and a bootstrap CI on that median collapses to [0, 0].
- * A gate keying on `ci.low > threshold` is then structurally unable to see
- * either a gain or a regression. Detect this shape and switch to the
- * paired-binary estimators ({@link mcnemar}, {@link pairedRiskDifference})
- * instead of silently answering "no" forever.
- *
- * Empty input is NOT binary: there is no evidence of the outcome's shape, and
- * defaulting an empty vector into the binary branch would pick a statistic on
- * no data at all.
- *
- * NOT the right discriminator for a gate. It recognises the literal {0, 1}
- * encoding and nothing else, so a pass/fail dimension emitted on 0-100 — which
- * judges in this codebase do routinely — reads as non-binary, and a single
- * partial-credit score in an otherwise pass/fail vector flips it to false while
- * leaving the median just as blind. Gates want {@link pairedBinaryScale} (any
- * two-point encoding). This predicate remains for callers that specifically
- * mean "literally 0/1".
- */
-function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
-  if (values.length === 0) return false
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i]!
-    if (v !== 0 && v !== 1) return false
+export interface IndependentRiskDifferenceResult {
+  before: ProportionInterval & { successes: number; n: number }
+  after: ProportionInterval & { successes: number; n: number }
+  /** After minus before; null if either arm has no observations. */
+  delta: number | null
+  lower: number
+  upper: number
+  confidence: number
+}
+
+/** Independent-binomial difference: Newcombe (1998), method 10 (Wilson, no CC).
+ * doi:10.1002/(SICI)1097-0258(19980430)17:8<873::AID-SIM779>3.0.CO;2-I
+ * Empty arms retain full difference support; no point difference is measured. */
+export function independentRiskDifference(
+  beforeSuccesses: number,
+  beforeN: number,
+  afterSuccesses: number,
+  afterN: number,
+  confidence = 0.95,
+): IndependentRiskDifferenceResult {
+  const before = {
+    ...wilson(beforeSuccesses, beforeN, confidence),
+    successes: beforeSuccesses,
+    n: beforeN,
   }
-  return true
+  const after = {
+    ...wilson(afterSuccesses, afterN, confidence),
+    successes: afterSuccesses,
+    n: afterN,
+  }
+  const delta = beforeN && afterN ? after.estimate - before.estimate : null
+  return {
+    before,
+    after,
+    delta,
+    confidence,
+    lower:
+      delta === null
+        ? -1
+        : Math.max(
+            -1,
+            delta - Math.hypot(after.estimate - after.lower, before.upper - before.estimate),
+          ),
+    upper:
+      delta === null
+        ? 1
+        : Math.min(
+            1,
+            delta + Math.hypot(after.upper - after.estimate, before.estimate - before.lower),
+          ),
+  }
 }
 
 /** Result of a McNemar paired-binary significance test. */
@@ -483,25 +490,8 @@ export function pairedRiskDifferenceScore(
   }
 }
 
-/**
- * The common positive level `s` such that EVERY value across both paired arms is
- * exactly 0 or `s` — i.e. the outcome is pass/fail, whatever encoding it arrived
- * in. Returns null when the outcomes are not two-point, when the two arms use
- * different levels, or when no positive value was observed at all (all-zero
- * arms: the level is not identified, and there is nothing to decide anyway).
- *
- * This is the scale-aware successor to {@link isBinaryOutcomeVector}, which only
- * recognises literal {0, 1}. Judges in this codebase emit dimensions on 0-100 as
- * well as [0,1] (see `detectScale` in `campaign/gates/statistical-heldout.ts`),
- * so a pass/fail dimension routinely arrives as {0, 100} and a {0,1}-only test
- * silently sends it down the median path that cannot see it. Any positive level
- * is accepted, not just 1 and 100: for a two-point {0, s} outcome the mean paired
- * delta is exactly s·(b − c)/n, so the binary estimators apply after dividing by
- * s and rescaling the result back into the caller's native units.
- *
- * Non-finite values ⇒ null: an unusable outcome must not be classified as a
- * clean pass/fail shape.
- */
+/** Common positive level of paired {0, s} outcomes; divide by s before binary tests.
+ * Returns null for non-finite, negative, mixed-scale or all-zero data. */
 export function pairedBinaryScale(
   before: ArrayLike<number>,
   after: ArrayLike<number>,
