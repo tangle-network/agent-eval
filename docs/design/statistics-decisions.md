@@ -38,3 +38,10 @@ including winsorization and failure scoring. Hourly windows exclude sealed steps
 72 hours or 39 eligible boundaries yields `uncalibrated` with null bounds. It returns K, n,
 boundaries and deltas; bounds invert as `[delta - q975, delta - q025]`.
 The [recorded contract](../../tests/cluster-recorded.integration.test.ts) labels constructed replay; callers validate cadence, cell, coverage, clusters and estimator.
+
+`independentRiskDifference(beforeSuccesses, beforeN, afterSuccesses, afterN, confidence)`
+combines the existing Wilson limits with Newcombe's method 10 (no continuity correction).
+It returns after-minus-before `delta`, `lower`, `upper`, confidence and both counted arms;
+either empty arm gives a null delta and full difference support. This interval assumes
+independent binomial observations; repeated attempts do not become independent trials.
+Reference: [Newcombe (1998), method 10 and Table II](https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I).
