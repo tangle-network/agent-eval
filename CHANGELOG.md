@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.20] — 2026-11-06
+
+- docs(statistics): trim whitespace in interval guidance
+- fix(verification): retain valid replay baselines and current release evidence
+- chore(analyst): refresh manifest for shared statistics owner
+- fix(statistics): preserve degenerate bootstrap results and mean seed
+- feat(statistics): share stratified cluster resampling and calibrated placebo bands
+- fix(exports): ship ./statistics subpath, gpt-5-mini pricing, sequentialCrossingHorizon
+- fix(adopt-stack): qualify the committed caller tree
+- fix(adopt-stack): read large tracked path inventories
+- fix(adoption): read a Runtime release's evidence from its Publish run, and raise pins below a dependency floor (#1211)
+- fix(adoption): hold a Runtime release whose tag evidence failed or never ran
+- fix(adoption): gate stable-major candidates against installed versions
+- feat(app-grade): probes take a method and JSON body (#1208)
+
 ## [1.0.19] — 2026-11-04
 
 - perf(lock): owner records skip fsync; a torn record born before this boot is stale (#1206)
@@ -39,28 +54,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - feat(supervisor-run): write a run's sessions as OTLP spans (#1186)
 - fix(supervisor-run): read whole Discovery episodes and screen rows on calibration (#1185)
 - feat(calibration): precision, recall, AUC and a cluster-bootstrap CI on every calibration row
-- chore(release): 1.0.12
 - fix(statistics): exact retired-contract compat for summarizeDistribution
-- chore(release): 1.0.11
 - fix(statistics): export summarizeDistribution from the package root
-- chore(release): 1.0.10
-- chore(release): 1.0.9
 - feat(statistics): summarizeDistribution + percentileNearestRank (consolidation home)
-- chore(release): 1.0.8
 - chore(analyst): re-pin the implementation manifest on merged main
 - feat(statistics,harness): two-sample Welch evidence + lifted sandbox assertion library
-- chore(release): 1.0.7 (#1172)
 - docs(statistics): keep inference policy and exports readable (#1173)
 - feat(statistics): own independent effect summaries and ROC area (#1171)
-- chore(release): 1.0.6 (#1170)
 - refactor(reporting): share text table layout and simplify summaries (#1169)
 - refactor(harness): retain unavailable verdicts through cleanup (#1168)
-- chore(release): 1.0.5 (#1167)
 - refactor(harness): normalize compact named expectations (#1166)
-- chore(release): 1.0.4 (#1165)
 - refactor(harness): own resource acquisition and readiness cleanup (#1164)
-- chore(release): 1.0.3 (#1163)
-- chore(release): declare the existing deployment runner for workflow lint
 - fix(release): bind bootstrap to the existing qualified action revision
 - fix(release): use the qualified pnpm bootstrap in publication workflows
 - Refactor sandbox integration scenarios into the eval harness (#1161)
@@ -68,26 +72,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ## [1.0.12] — 2026-10-31
 
 - fix(statistics): exact retired-contract compat for summarizeDistribution
-- chore(release): 1.0.11
 - fix(statistics): export summarizeDistribution from the package root
-- chore(release): 1.0.10
-- chore(release): 1.0.9
 - feat(statistics): summarizeDistribution + percentileNearestRank (consolidation home)
-- chore(release): 1.0.8
 - chore(analyst): re-pin the implementation manifest on merged main
 - feat(statistics,harness): two-sample Welch evidence + lifted sandbox assertion library
-- chore(release): 1.0.7 (#1172)
 - docs(statistics): keep inference policy and exports readable (#1173)
 - feat(statistics): own independent effect summaries and ROC area (#1171)
-- chore(release): 1.0.6 (#1170)
 - refactor(reporting): share text table layout and simplify summaries (#1169)
 - refactor(harness): retain unavailable verdicts through cleanup (#1168)
-- chore(release): 1.0.5 (#1167)
 - refactor(harness): normalize compact named expectations (#1166)
-- chore(release): 1.0.4 (#1165)
 - refactor(harness): own resource acquisition and readiness cleanup (#1164)
-- chore(release): 1.0.3 (#1163)
-- chore(release): declare the existing deployment runner for workflow lint
 - fix(release): bind bootstrap to the existing qualified action revision
 - fix(release): use the qualified pnpm bootstrap in publication workflows
 - Refactor sandbox integration scenarios into the eval harness (#1161)
