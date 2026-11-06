@@ -135,6 +135,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/metrics.ts',
   'src/record-id.ts',
   'src/statistics/agreement-irr.ts',
+  'src/statistics/cluster.ts',
   'src/statistics/comparison-effects.ts',
   'src/statistics/descriptive.ts',
   'src/statistics/distribution-summary.ts',
@@ -174,7 +175,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'f1657598c35aeb802d58da9d54fb493a3f58e9c4347688fbd5e500c7acb38440'
+  '10b351923c83b37c229e2ec5c782f85dede01556708b0a6b2c9d72825be6c5ae'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

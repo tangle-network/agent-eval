@@ -48,4 +48,3 @@ reads, cluster identity and their selected statistic before claiming a calibrate
 ## Reproducibility
 
 Use `makeRng` from `src/statistics/internal.ts` or the shared cluster bootstrap seed.
-No result-bearing draw uses `Math.random`; caller seeds and source define reproducibility.
