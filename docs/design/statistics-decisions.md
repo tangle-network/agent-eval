@@ -38,7 +38,7 @@ credit, including baseline winsorization and failure scoring. It selects the nea
 number of clusters on each side of hourly boundaries, excluding windows crossing sealed
 steps. At least 72 hours and 39 eligible boundaries are required; otherwise bounds remain
 null with `status: 'uncalibrated'`. It reports K, n, boundaries and drift deltas, and inverts
-empirical quantiles as `[delta - q975, delta - q025]`. 
+empirical quantiles as `[delta - q975, delta - q025]`.
 `tests/cluster-recorded.integration.test.ts` exercises the public APIs on a numeric projection
 of recorded create rows. Its long replay is explicitly constructed; short measured history
 must remain uncalibrated. Product owners still validate cadence, cell membership, complete
