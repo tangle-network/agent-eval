@@ -26,6 +26,7 @@ jobs:
     uses: tangle-network/agent-eval/.github/workflows/dispatch-publication.yml@d1e0b6ced9543ac287e7f9cc457920439363c638
 
   verify:
+    permissions: {contents: read, actions: read}
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on:
       group: public-app-production
@@ -86,6 +87,7 @@ jobs:
         run: pnpm build
 
       - name: Test JS
+        env: {GH_TOKEN: '${{ github.token }}'}
         run: pnpm test
 
       - name: Verify packed package exports
@@ -192,9 +194,7 @@ jobs:
         with:
           name: python-source
           path: clients/python
-          # No job downloads this. It only shows why a publish failed, and the
-          # tagged commit makes the same tree again. One day is sufficient to
-          # examine a failed release.
+          # Debug-only tagged source, retained one day for failed-release diagnosis.
           retention-days: 1
 
       - name: Check whether npm publication is needed
