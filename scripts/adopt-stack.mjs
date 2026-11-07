@@ -524,7 +524,7 @@ export function writePlan(dir, result, restore = false) {
     const pkg = JSON.parse(member.text)
     for (const edit of edits) {
       const path = edit.path ?? [edit.section, edit.name]
-      const parent = path.slice(0, -1).reduce((obj, key) => obj[key], pkg)
+      const parent = path.slice(0, -1).reduce((obj, key) => obj[key] ??= {}, pkg)
       parent[path.at(-1)] = edit.to
     }
     const indent = /^([ \t]+)"/m.exec(member.text)?.[1] ?? '  '
@@ -539,17 +539,16 @@ export function install(dir, result) {
   const expected = new Map(result.expected)
   const pins = dependencies(result.files.members, true).filter(({ name, spec }) => expected.has(name) && (!PROTOCOL.test(spec) || spec.startsWith('catalog:')))
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
-    if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm install failed for the new pins')
-    let locks = readLocks(dir)
-    const peerOnly = pins.filter(pin => pin.section === 'peerDependencies' && !PROTOCOL.test(pin.spec) && lockedVersion(locks, pin.file, pin.section, pin.name) !== expected.get(pin.name) && !dependencies(result.files.members).some(direct => direct.file === pin.file && direct.name === pin.name))
-    for (const { file, name } of peerOnly) if (!run('pnpm', ['add', '--save-peer', `${name}@${expected.get(name)}`], join(dir, dirname(file)))) throw new Error(`pnpm could not install peer candidate ${name} in ${file}`)
-    locks = readLocks(dir)
+    const locks = readLocks(dir)
     const forced = pins.filter(({ file, section, name }) => lockedVersion(locks, file, section, name) !== expected.get(name)).map(pin => ({ ...pin, to: expected.get(pin.name) }))
-    if (forced.length) {
-      writePlan(dir, { ...result, edits: [...result.edits, ...forced] })
+    const peerOnly = forced.filter(pin => pin.section === 'peerDependencies' && !PROTOCOL.test(pin.spec) && !dependencies(result.files.members).some(direct => direct.file === pin.file && direct.name === pin.name))
+    // Like --save-peer, stage a development pin for peer-only candidates, then restore every caller range.
+    if (forced.length) writePlan(dir, { ...result, edits: [...result.edits, ...forced, ...peerOnly.map(pin => ({ ...pin, section: 'devDependencies' }))] })
+    try {
       if (!run('pnpm', ['install', '--no-frozen-lockfile'], dir)) throw new Error('pnpm could not install the selected candidates')
+    } finally {
+      if (forced.length) writePlan(dir, result, true)
     }
-    if (peerOnly.length || forced.length) writePlan(dir, result, true)
     if (!run('pnpm', ['dedupe'], dir)) throw new Error('pnpm dedupe failed')
   } else if (existsSync(join(dir, 'package-lock.json'))) {
     const targets = new Map()

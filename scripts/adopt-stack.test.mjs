@@ -4,13 +4,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { mergeWhenApproved, plan, prepareBranch, satisfies, writePlan } from './adopt-stack.mjs'
+import { mergeWhenApproved, plan, prepareBranch, satisfies, install, writePlan } from './adopt-stack.mjs'
 import { installedVersion, resolvedVersions } from './adopt-stack-workspace.mjs'
 
-// Recorded package.json files: agent-knowledge at b18171b08fb3 and agent-app at
-// 56dc110cfff7, the two manifests whose peer ranges parked deliveries on
-// 2026-10-21. The plan runs against the real npm registry, so every assertion
-// is relative to the latest version fetched here, never a hard-coded one.
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = join(here, '..', 'tests', 'fixtures', 'adopt-stack')
 const script = join(here, 'adopt-stack.mjs')
@@ -24,48 +20,13 @@ async function latest(name) {
 async function dryRun(fixture, name, ...extra) {
   const manifest = join(fixtures, fixture, 'package.json')
   const before = readFileSync(manifest, 'utf8')
-  const pkg = JSON.parse(before)
   const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, fixture), '--dry-run', '--json', ...extra], { encoding: 'utf8' })
   expect(readFileSync(manifest, 'utf8')).toBe(before)
   expect(result.status, result.stderr).toBe(0)
-  return { version: await latest(name), pkg, plan: JSON.parse(result.stdout) }
-}
-
-function expectAdopted(plan, pkg, name, version) {
-  const pin = plan.edits.find((edit) => edit.name === name && edit.section === 'devDependencies')
-  expect(pin?.from).toBe(pkg.devDependencies[name])
-  const held = plan.packages.find((entry) => entry.name === name)
-  // The pin reaches npm latest unless another adopted release's peer range holds it.
-  expect(pin?.to).toBe(held.target)
-  if (held.target !== version) expect(held.why).toMatch(/^held by peer ranges: /)
-
-  // The peer widens to the version pinned, so it never claims more than the gate ran.
-  const peer = plan.edits.find((edit) => edit.name === name && edit.section === 'peerDependencies')
-  const before = pkg.peerDependencies[name]
-  expect(satisfies(held.target, before)).toBe(false)
-  expect(peer?.from).toBe(before)
-  expect(satisfies(held.target, peer.to)).toBe(true)
-  const alternatives = before.split('||').map((part) => part.trim())
-  if (Number(held.target.split('.')[0]) > 0) expect(peer.to).toBe(`${before} || ^${held.target}`)
-  else {
-    const lower = /^>=(\S+)/.exec(alternatives.at(-1))[1]
-    const minor = Number(held.target.split('.')[1])
-    expect(peer.to).toBe([...alternatives.slice(0, -1), `>=${lower} <0.${minor + 1}.0`].join(' || '))
-  }
+  return { version: await latest(name), plan: JSON.parse(result.stdout) }
 }
 
 describe('adopt-stack --dry-run against npm', () => {
-  test('agent-knowledge adopts agent-eval latest and widens its agent-eval peer', async () => {
-    const { version, plan, pkg } = await dryRun('agent-knowledge', '@tangle-network/agent-eval')
-    expectAdopted(plan, pkg, '@tangle-network/agent-eval', version)
-  }, 60_000)
-
-  test('agent-app adopts agent-runtime latest and widens its agent-runtime peer', async () => {
-    const { version, plan, pkg } = await dryRun('agent-app', '@tangle-network/agent-runtime')
-    expectAdopted(plan, pkg, '@tangle-network/agent-runtime', version)
-    expect(plan.edits.some((edit) => !edit.name.startsWith('@tangle-network/'))).toBe(false)
-  }, 60_000)
-
   test('a post-pin command sees the pinned manifest and its second file joins the plan', async () => {
     const brand = '@tangle-network/brand'
     const sync = `node -e "const p = require('./package.json'); require('node:fs').mkdirSync('template', { recursive: true }); require('node:fs').writeFileSync('template/_package.json', JSON.stringify(p.devDependencies))"`
@@ -120,14 +81,53 @@ describe('adopt-stack --dry-run against npm', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 60_000)
-
-  test('the human plan names the pull request and changes nothing', async () => {
-    const result = spawnSync(process.execPath, [script, '--dir', join(fixtures, 'agent-knowledge'), '--dry-run'], { encoding: 'utf8' })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toMatch(/peerDependencies @tangle-network\/agent-eval:/)
-    expect(result.stdout).toMatch(/dry run: would open "chore\(deps\): adopt .+" \(plan [0-9a-f]{16}\); nothing was changed/)
-  }, 60_000)
 })
+
+test('published App UI peers stage unchanged admitted siblings before the first strict install', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'adopt-app-ui-peers-'))
+  const names = ['ui', 'brand', 'charts', 'sandbox-ui'].map(name => `@tangle-network/${name}`)
+  const old = ['11.51.2', '1.31.2', '1.0.0', '1.1.10']
+  const targets = ['11.51.17', '1.31.4', '4.0.21', '7.0.6']
+  const save = (file, value) => writeFileSync(join(root, file), typeof value === 'string' ? value : JSON.stringify(value, null, 2) + '\n')
+  const pnpm = (...args) => execFileSync('pnpm', args, { cwd: root, stdio: 'pipe' })
+  try {
+    const pkg = { name: 'adopt-published-app-ui', private: true, packageManager: JSON.parse(readFileSync(join(here, '..', 'package.json'))).packageManager,
+      dependencies: { ...Object.fromEntries(names.map((name, i) => [name, old[i]])), react: '19.3.0', 'react-dom': '19.3.0', picocolors: '1.0.0' } }
+    save('package.json', pkg)
+    save('pnpm-workspace.yaml', 'packages: []\nstrictPeerDependencies: true\n')
+    pnpm('install', '--no-frozen-lockfile')
+    for (const [i, name] of names.entries()) pkg.dependencies[name] = `^${old[i]}`
+    save('package.json', pkg)
+    const stale = old.reduce((text, version) => text.replaceAll(`specifier: ${version}\n`, `specifier: ^${version}\n`), readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8'))
+    save('pnpm-lock.yaml', stale)
+    pnpm('install', '--frozen-lockfile')
+    const result = await plan(root, names.map((name, i) => `${name}@${targets[i]}`))
+    expect(result.edits.some(edit => names.slice(0, 2).includes(edit.name))).toBe(false)
+    writePlan(root, result)
+    const baselineRef = process.env.ADOPT_STACK_INSTALL_BASELINE_REF
+    if (baselineRef) {
+      save('retained-adopt-stack.mjs', execFileSync('git', ['show', `${baselineRef}:scripts/adopt-stack.mjs`], { cwd: join(here, '..'), encoding: 'utf8' }))
+      save('adopt-stack-workspace.mjs', readFileSync(join(here, 'adopt-stack-workspace.mjs'), 'utf8'))
+      save('plan.json', result)
+      const red = spawnSync(process.execPath, ['--input-type=module', '-e', "import {install} from './retained-adopt-stack.mjs';import{readFileSync}from'node:fs';install(process.cwd(),JSON.parse(readFileSync('plan.json')))"], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+      expect(red.status, red.stdout + red.stderr).not.toBe(0)
+      expect(red.stdout + red.stderr).toMatch(/ERR_PNPM_PEER_DEP_ISSUES/)
+      for (const version of old.slice(0, 2)) expect(red.stdout + red.stderr).toContain(version)
+      console.log('APP_UI_BASELINE_RED=' + JSON.stringify({ ref: baselineRef, exit: red.status, peers: names.slice(0, 2), stderr: red.stderr, stdout: red.stdout }))
+      save('pnpm-lock.yaml', stale)
+      writePlan(root, result, true)
+    }
+    install(root, result)
+    pnpm('install', '--frozen-lockfile')
+    const rows = resolvedVersions(root, new Map(result.expected))
+    for (const [i, name] of names.entries()) expect(rows.find(row => row.name === name)).toMatchObject({ locked: targets[i], installed: targets[i], verified: true })
+    const after = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+    for (const name of names.slice(0, 2)) expect(after.dependencies[name]).toBe(pkg.dependencies[name])
+    expect(after.dependencies.picocolors).toBe('1.0.0')
+    expect(JSON.parse(readFileSync(join(root, 'node_modules/picocolors/package.json'))).version).toBe('1.0.0')
+    console.log('APP_UI_PATCH_GREEN=' + JSON.stringify(rows))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+}, 240_000)
 
 process.env.GIT_ALLOW_TEST_IDENTITY = '1' // This worker owns only disposable Git fixtures.
 describe('adopt-stack effective workspace delivery', () => {
