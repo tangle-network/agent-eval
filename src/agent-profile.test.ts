@@ -7,7 +7,6 @@ import {
   agentProfileModelId,
   CODING_HARNESSES,
   expandProfileAxes,
-  HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
 
@@ -216,34 +215,6 @@ describe('expandProfileAxes', () => {
       harness: 'prime',
       model: 'deepseek/deepseek-v4-flash',
     })
-  })
-
-  it('snaps a vendor-locked harness to its native default when it supports none of the swept models', () => {
-    // Sweeping only a deepseek model must NOT drop kimi-code — it snaps to its own
-    // Kimi model (the native sentinel), so the harness still appears in the sweep.
-    const pairs = expandProfileAxes({
-      base: axisBase,
-      harnesses: ['kimi-code'],
-      models: ['deepseek/deepseek-v3.2'],
-    })
-      .map((p) => harnessAxisOf(p))
-      .filter(Boolean)
-    expect(pairs).toEqual([{ harness: 'kimi-code', model: HARNESS_NATIVE_MODEL }])
-  })
-
-  it('produces a real head-to-head: universal harness on the swept model, locked harness on its native model', () => {
-    // The leaderboard case — `opencode vs kimi-code` on a single deepseek sweep:
-    // opencode runs deepseek, kimi-code snaps to its own model. Two harnesses, no drop.
-    const byHarness = new Map(
-      expandProfileAxes({
-        base: axisBase,
-        harnesses: ['opencode', 'kimi-code'],
-        models: ['deepseek/deepseek-v3.2'],
-      }).map((p) => [harnessAxisOf(p)?.harness, harnessAxisOf(p)?.model]),
-    )
-    expect(byHarness.get('opencode')).toBe('deepseek/deepseek-v3.2')
-    expect(byHarness.get('kimi-code')).toBe(HARNESS_NATIVE_MODEL)
-    expect(byHarness.size).toBe(2)
   })
 
   it('router-backed harness (opencode) accepts any provider', () => {

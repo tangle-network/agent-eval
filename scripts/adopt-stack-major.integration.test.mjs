@@ -14,6 +14,7 @@ import { ADOPTION_BRANCH, satisfies, UPDATER_DRAFT_MARKER } from './adopt-stack.
 
 const execute = promisify(execFile)
 const script = join(dirname(fileURLToPath(import.meta.url)), 'adopt-stack.mjs')
+const packageManager = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).packageManager
 const name = '@tangle-network/adopt-major-integration'
 const target = '3.2.1'
 const unselected = ['entities', 'is-unsafe', 'jose', 'minimatch', 'parse5', 'viem', 'worker-f']
@@ -118,11 +119,11 @@ async function fixture(acceptsMajor, peerOnly, manager = 'npm', alreadyAdmits = 
   save(author, '.gitignore', 'node_modules/\ngate-receipt.json\n')
   const range = alreadyAdmits === true ? `^1.0.0 || ^${target}` : '^1.0.0'
   const selected = alreadyAdmits === 'catalog' ? 'catalog:' : range
-  save(author, 'package.json', { name: 'major-caller', private: true, type: 'module', ...(manager === 'pnpm' ? { packageManager: 'pnpm@10.23.0' } : {}), ...(!peerOnly ? { devDependencies: { [name]: selected } } : {}), peerDependencies: { [name]: peerOnly ? range : '^1.0.0' } })
+  save(author, 'package.json', { name: 'major-caller', private: true, type: 'module', ...(manager === 'pnpm' ? { packageManager } : {}), ...(!peerOnly ? { devDependencies: { [name]: selected } } : {}), peerDependencies: { [name]: peerOnly ? range : '^1.0.0' } })
   if (alreadyAdmits === 'catalog') save(author, 'pnpm-workspace.yaml', `packages: []\ncatalog:\n  '${name}': 1.0.0\n`)
   save(author, 'tests/check.mjs', `import { ${peerOnly ? 'stableApi' : acceptsMajor ? 'candidateApi' : 'oldApi'} as api } from '${name}'; import { writeFileSync } from 'node:fs'; import { execFileSync } from 'node:child_process'; import assert from 'node:assert/strict'; execFileSync('git', ['diff', '--quiet', 'HEAD', '--']); const actual=api(); assert.equal(actual, '${peerOnly ? 'compatible' : target}'); writeFileSync('gate-receipt.json', JSON.stringify({ actual }));\n`)
   save(author, 'tests/sync.mjs', "import {readFileSync,writeFileSync}from'node:fs';writeFileSync('synced.json',JSON.stringify((p=>({...p.peerDependencies,...p.devDependencies}))(JSON.parse(readFileSync('package.json','utf8')))));\n")
-  if (manager === 'pnpm') expect((await execute(manager, ['--version'], { cwd: author })).stdout.trim()).toBe('10.23.0')
+  if (manager === 'pnpm') expect((await execute(manager, ['--version'], { cwd: author })).stdout.trim()).toBe(packageManager.slice('pnpm@'.length).split('+')[0])
   await execute(manager, ['install', manager === 'npm' ? '--package-lock-only' : '--lockfile-only'], { cwd: author, env: { ...process.env, npm_config_registry: registryUrl, npm_config_audit: 'false', npm_config_fund: 'false' } })
   published = true
   git(author, 'add', '.')
