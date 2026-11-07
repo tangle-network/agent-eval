@@ -4,6 +4,34 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.22] — 2026-11-07
+
+- chore(deps): refresh first-party library dependencies (#1221)
+- docs(release): describe independent interval API and drop duplicate bumps
+- chore(release): 1.0.21
+- docs(test): cite printed Newcombe table pages
+- feat(statistics): add independent risk differences from Wilson limits
+- fix(test): mark disposable identities for host Git hooks
+- fix(test): declare identity in disposable integration repositories
+- fix(release): authenticate public evidence reads in verification
+- fix(statistics): exclude steps through every selected cluster extent
+- test(statistics): retain overlapping-cluster sealed-step regression
+- docs(release): remove redundant release commit entries
+- chore(release): 1.0.20
+- docs(statistics): trim whitespace in interval guidance
+- fix(verification): retain valid replay baselines and current release evidence
+- chore(analyst): refresh manifest for shared statistics owner
+- fix(statistics): preserve degenerate bootstrap results and mean seed
+- feat(statistics): share stratified cluster resampling and calibrated placebo bands
+- fix(adoption): retain unselected pnpm resolutions
+- fix(exports): ship ./statistics subpath, gpt-5-mini pricing, sequentialCrossingHorizon
+- fix(adopt-stack): qualify the committed caller tree
+- fix(adopt-stack): read large tracked path inventories
+- fix(adoption): read a Runtime release's evidence from its Publish run, and raise pins below a dependency floor (#1211)
+- fix(adoption): hold a Runtime release whose tag evidence failed or never ran
+- fix(adoption): gate stable-major candidates against installed versions
+- feat(app-grade): probes take a method and JSON body (#1208)
+
 ## [1.0.21] — 2026-11-06
 
 - Add `independentRiskDifference`: Newcombe/Wilson intervals for independent before/after counts, with explicit uncertainty for empty arms.
