@@ -2,7 +2,7 @@
 // No dependency is installed to plan: pnpm itself enumerates its workspaces.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const SCOPE = '@tangle-network/'
 const SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
@@ -28,6 +28,18 @@ export function manifests(dir) {
     const text = readFileSync(join(dir, file), 'utf8')
     return { file, text, pkg: JSON.parse(text) }
   })
+}
+
+/** Select one real workspace member without replacing its owning workspace. */
+export function consumerMembers(dir, members, consumer) {
+  if (consumer === undefined) return members
+  if (typeof consumer !== 'string' || !consumer || isAbsolute(consumer)) throw new Error('consumer must be a directory relative to the workspace root')
+  const path = relative(resolve(dir), resolve(dir, consumer))
+  const member = members.find(({ file }) => file === join(path, 'package.json'))
+  if (!member || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`unknown workspace consumer: ${consumer}`)
+  const actual = relative(realpathSync(dir), realpathSync(join(dir, dirname(member.file))))
+  if (isAbsolute(actual) || actual === '..' || actual.startsWith(`..${sep}`)) throw new Error(`consumer is outside the workspace: ${consumer}`)
+  return [member]
 }
 
 export function dependencies(members, includePeers = false) {
@@ -98,7 +110,7 @@ export function lockedVersion(locks, file, section, name) {
 const packageOf = (key) => /^(@tangle-network\/[\w.-]+)$/.exec(key)?.[1]
 
 /** Rewrite existing pins only. Qualified/nested override selectors refuse safely. */
-export function constraints(members, workspaceText, targets, edit) {
+export function constraints(members, workspaceText, targets, edit, acceptsReference) {
   const edits = []
   const change = (file, section, name, spec, path) => {
     const target = targets.get(name)
@@ -110,7 +122,12 @@ export function constraints(members, workspaceText, targets, edit) {
     // pnpm's $ references follow an existing direct spec, including parent>child selectors.
     if (typeof value === 'string' && value.startsWith('$')) {
       const reference = value.slice(1)
-      if (!SECTIONS.some((section) => Object.hasOwn(members.find(({ file }) => file === 'package.json').pkg[section] ?? {}, reference))) throw new Error(`${file} ${section}: override ${key} references missing root direct dependency ${reference}`)
+      const root = members.find(({ file }) => file === 'package.json').pkg
+      const specs = SECTIONS.filter(section => Object.hasOwn(root[section] ?? {}, reference))
+      if (!specs.length) throw new Error(`${file} ${section}: override ${key} references missing root direct dependency ${reference}`)
+      if (acceptsReference && [...targets.keys()].some(name => key.includes(name) && specs.some(section => !acceptsReference(name, reference, section, root[section][reference])))) {
+        throw new Error(`${file} ${section}: override ${key} root reference ${value} does not admit the selected target; reconcile the root policy explicitly`)
+      }
       return null
     }
     const name = packageOf(key)
@@ -226,10 +243,10 @@ export function preparePlaywrightBrowsers(dir) {
 }
 
 /** Compare the actual post-install/post-sync boundary to the plan, not its labels. */
-export function resolvedVersions(dir, expected) {
+export function resolvedVersions(dir, expected, { consumer } = {}) {
   const locks = readLocks(dir)
   const rows = []
-  for (const { file, section, name, spec } of dependencies(manifests(dir), true)) {
+  for (const { file, section, name, spec } of dependencies(consumerMembers(dir, manifests(dir), consumer), true)) {
     if (!expected.has(name)) continue
     if (protocol.test(spec) && !spec.startsWith('catalog:')) {
       rows.push({ file, name, source: spec, verified: false, reason: 'caller-owned protocol retained' })

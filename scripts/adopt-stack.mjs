@@ -22,7 +22,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync,
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { constraints, dependencies, lockedVersion, manifests, readLocks, resolvedVersions, preparePlaywrightBrowsers } from './adopt-stack-workspace.mjs'
+import { constraints, consumerMembers, dependencies, lockedVersion, manifests, readLocks, resolvedVersions, preparePlaywrightBrowsers } from './adopt-stack-workspace.mjs'
 
 const SCOPE = '@tangle-network/'
 export const ADOPTION_BRANCH = 'chore/adopt-stack'
@@ -231,15 +231,17 @@ function catalogLines(text, edit) {
   }).join('\n')
 }
 
-export async function plan(dir, requested = []) {
-  const members = manifests(dir)
-  const root = members.find((member) => member.file === 'package.json')
+export async function plan(dir, requested = [], { consumer } = {}) {
+  const allMembers = manifests(dir)
+  const root = allMembers.find((member) => member.file === 'package.json')
+  const members = consumerMembers(dir, allMembers, consumer)
   const { text: manifestText, pkg } = root
   const pins = dependencies(members)
   const found = new Set([...pins.map(({ name }) => name), ...members.flatMap(({ pkg }) => Object.keys(pkg.peerDependencies ?? {}).filter((name) => name.startsWith(SCOPE) && name !== pkg.name))])
   const callerOwned = new Set(pins.filter(({ spec }) => PROTOCOL.test(spec) && !spec.startsWith('catalog:')).map(({ name }) => name).filter((name) => !pins.some((pin) => pin.name === name && (!PROTOCOL.test(pin.spec) || pin.spec.startsWith('catalog:')))))
   // `name@1.2.3` asks for that release instead of npm latest.
   const asked = new Map(requested.map((entry) => /^(.+?)(?:@([^@]+))?$/.exec(entry).slice(1)))
+  if (consumer !== undefined) for (const name of asked.keys()) if (!found.has(name)) throw new Error(`${name} is not declared by consumer ${consumer}`)
   const names = (asked.size ? [...asked.keys()] : [...found].sort()).filter((name) => !callerOwned.has(name))
   for (const name of names) if (!name.startsWith(SCOPE)) throw new Error(`${name} is not a ${SCOPE}* package`)
 
@@ -266,7 +268,19 @@ export async function plan(dir, requested = []) {
   const catalogSpecs = new Map()
   if (workspaceText !== null) catalogLines(workspaceText, (name, spec) => void (catalogSpecs.has(name) || catalogSpecs.set(name, spec)))
   const locks = readLocks(dir)
-  for (const versions of locks.importers.values()) for (const [name, version] of versions) if (!locks.importer.has(name)) locks.importer.set(name, version)
+  if (consumer === undefined) {
+    for (const versions of locks.importers.values()) for (const [name, version] of versions) if (!locks.importer.has(name)) locks.importer.set(name, version)
+  } else {
+    if (!locks.format || locks.unread) throw new Error('consumer adoption requires a readable owning root lockfile')
+    const context = new Map()
+    for (const { file, section, name, spec } of dependencies(members, true)) {
+      if (PROTOCOL.test(spec) && !spec.startsWith('catalog:')) continue
+      const version = lockedVersion(locks, file, section, name)
+      if (!version || !EXACT.test(version)) throw new Error(`${file} ${name}: selected consumer lock version is unknown`)
+      context.set(name, version)
+    }
+    locks.importer = context
+  }
   // Every hold, raise and cohort edit reads the lock; guessing it would publish edits no install backs.
   if (locks.unread && pinned.size) throw new Error(`${locks.unread}, so the versions it holds are unknown and no plan is made`)
   const warnings = []
@@ -414,7 +428,12 @@ export async function plan(dir, requested = []) {
   }
   edits.push(...workspace.edits)
   const expected = new Map([...targets.keys()].map((name) => [name, planned(name)]).filter(([, version]) => version))
-  const policy = constraints(members, workspace.text ?? workspaceText, expected, (name, spec) => respec(spec, expected.get(name), locks.importer.get(name), true).to)
+  const acceptsReference = consumer === undefined ? undefined : (name, reference, section, spec) => {
+    const effective = edits.find(edit => edit.file === 'package.json' && edit.section === section && edit.name === reference)?.to ?? spec
+    const range = effective === 'catalog:' ? workspace.edits.find(edit => edit.name === reference)?.to ?? catalogSpecs.get(reference) : effective
+    return typeof range === 'string' && parses(range) && satisfies(expected.get(name), range)
+  }
+  const policy = constraints(members.includes(root) ? members : [root, ...members], workspace.text ?? workspaceText, expected, (name, spec) => respec(spec, expected.get(name), locks.importer.get(name), true).to, acceptsReference)
   edits.push(...policy.edits)
   const installRequired = dependencies(members, true).some(({ file, section, name, spec }) => {
     if (!expected.has(name) || PROTOCOL.test(spec) && !spec.startsWith('catalog:')) return false
@@ -495,8 +514,8 @@ const run = (cmd, argv, cwd, env = {}) => spawnSync(cmd, argv, { cwd, stdio: 'in
 const log = (line) => console.log(`adopt-stack: ${line}`)
 
 export function writePlan(dir, result, restore = false) {
-  const { members, workspaceText, cohortText } = result.files
-  for (const member of members) {
+  const { members, manifestText, workspaceText, cohortText } = result.files
+  for (const member of members.some(({ file }) => file === 'package.json') ? members : [{ file: 'package.json', text: manifestText }, ...members]) {
     const edits = result.edits.filter((edit) => edit.file === member.file)
     if (!edits.length) {
       if (restore) writeFileSync(join(dir, member.file), member.text)
