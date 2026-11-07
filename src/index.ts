@@ -140,6 +140,7 @@ export {
   evaluateInterimReleaseConfidence,
   pairedEvalueSequence,
   sequentialCrossingHorizon,
+  sequentialPairedPower,
 } from './sequential'
 export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
