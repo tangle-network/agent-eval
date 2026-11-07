@@ -98,7 +98,7 @@ test('published App UI peers stage unchanged admitted siblings before the first 
     pnpm('install', '--no-frozen-lockfile')
     for (const [i, name] of names.entries()) pkg.dependencies[name] = `^${old[i]}`
     save('package.json', pkg)
-    const stale = old.reduce((text, version) => text.replaceAll(`specifier: ${version}\n`, `specifier: ^${version}\n`), readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8'))
+    const stale = old.reduce((text, version, i) => text.replace(`'${names[i]}':\n        specifier: ${version}\n`, `'${names[i]}':\n        specifier: ^${version}\n`), readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8'))
     save('pnpm-lock.yaml', stale)
     pnpm('install', '--frozen-lockfile')
     const result = await plan(root, names.map((name, i) => `${name}@${targets[i]}`))
