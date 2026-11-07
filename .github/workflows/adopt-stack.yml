@@ -40,6 +40,10 @@ on:
         description: '@tangle-network/* names to adopt, comma or space separated (default: all declared workspace manifests)'
         type: string
         default: ''
+      consumer:
+        description: 'One workspace member directory relative to the caller root (blank: all members)'
+        type: string
+        default: ''
       gate:
         description: "The caller's acceptance command, run from its checkout after the install"
         type: string
@@ -125,6 +129,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.token || github.token }}
           PACKAGES: ${{ inputs.packages }}
+          CONSUMER: ${{ inputs.consumer }}
           GATE: ${{ inputs.gate }}
           POST_PIN: ${{ inputs.post-pin }}
           DEPLOY_WORKFLOW: ${{ inputs.deploy-workflow }}
@@ -133,6 +138,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
         run: |
           args=(--packages "$PACKAGES" --gate "$GATE" --post-pin "$POST_PIN" --deploy-workflow "$DEPLOY_WORKFLOW" --default-branch "$DEFAULT_BRANCH")
+          if [[ -n "$CONSUMER" ]]; then args+=(--consumer "$CONSUMER"); fi
           if [[ -n "$MERGE" ]]; then args+=("$MERGE"); fi
           if [[ -n "$DRY_RUN" ]]; then args+=("$DRY_RUN"); fi
           node ../adopt-stack/scripts/adopt-stack.mjs "${args[@]}"

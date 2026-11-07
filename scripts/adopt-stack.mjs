@@ -11,7 +11,7 @@
 // prevent promotion or merge. Post-pin changes join the commit and plan hash. Cohort sources
 // follow actual lock versions. No dependencies are installed to plan.
 //
-// usage: node scripts/adopt-stack.mjs [--dir PATH] [--packages a,b@1.2.3] [--gate CMD]
+// usage: node scripts/adopt-stack.mjs [--dir PATH] [--consumer MEMBER] [--packages a,b@1.2.3] [--gate CMD]
 //          [--post-pin CMD] [--deploy-workflow NAME] [--default-branch main]
 //          [--merge] [--dry-run] [--json]
 // Non-dry-run needs git, authenticated gh and the caller's package manager; deploy dispatch
@@ -699,7 +699,7 @@ export function prepareBranch(dir, defaultBranch, proposalOpen = true) {
   return { base, proposal: Boolean(out('git', ['diff', '--name-only', base], dir)), replaces: merged ? '' : existing }
 }
 
-async function deliver(dir, result, { gate, postPin: command, defaultBranch, merge, base, deployWorkflow, replaces }) {
+async function deliver(dir, result, { consumer, gate, postPin: command, defaultBranch, merge, base, deployWorkflow, replaces }) {
   const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
   const gh = (argv) => out('gh', argv, dir)
@@ -708,7 +708,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   writePlan(dir, result)
   install(dir, result)
   const synced = { command, files: command ? postPin(dir, command) : [] }
-  result.resolved = resolvedVersions(dir, new Map(result.expected))
+  result.resolved = resolvedVersions(dir, new Map(result.expected), { consumer })
   for (const row of result.resolved) log(`resolved ${row.file} ${row.name}: ${row.verified ? `lock=${row.locked} installed=${row.installed}` : row.reason}`)
   preparePlaywrightBrowsers(dir)
   const files = [...result.files.members.map(({ file }) => file), 'pnpm-workspace.yaml', COHORT, 'pnpm-lock.yaml', 'package-lock.json'].filter((file) => existsSync(join(dir, file)))
@@ -721,7 +721,7 @@ async function deliver(dir, result, { gate, postPin: command, defaultBranch, mer
   log(`gate: ${gate}`)
   const gated = run('bash', ['-c', gate], dir)
   if (out('git', ['status', '--porcelain', '--untracked-files=no'], dir) || trackedDigest(dir) !== committedTree || out('git', ['rev-parse', 'HEAD'], dir) !== head) throw new Error('gate changed the committed head or tree; retained locally, no push or merge was attempted')
-  if (gated) result.resolved = resolvedVersions(dir, new Map(result.expected))
+  if (gated) result.resolved = resolvedVersions(dir, new Map(result.expected), { consumer })
   // Refused release evidence holds a passing candidate as a draft, like a failed gate.
   const refused = result.evidence.filter((entry) => entry.refused)
   const green = gated && !refused.length
@@ -821,9 +821,16 @@ function reviewDecision(dir, number) {
 }
 
 function options(argv) {
-  const value = (flag, fallback) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] ?? '' : fallback)
+  const value = (flag, fallback) => {
+    const indices = argv.flatMap((arg, index) => arg === flag || arg.startsWith(`${flag}=`) ? [index] : [])
+    if (indices.length > 1) throw new Error(`${flag} must be supplied only once`)
+    if (!indices.length) return fallback
+    const index = indices[0]
+    return argv[index] === flag ? (argv[index + 1]?.startsWith('--') ? '' : argv[index + 1] ?? '') : argv[index].slice(flag.length + 1)
+  }
   return {
     dir: resolve(value('--dir', '.')),
+    consumer: value('--consumer', undefined),
     packages: value('--packages', '').split(/[\s,]+/).filter(Boolean),
     gate: value('--gate', '').trim(),
     postPin: value('--post-pin', '').trim(),
@@ -842,7 +849,7 @@ async function main() {
     const open = JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--limit', '1', '--json', 'number'], opts.dir)).length > 0
     Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
   }
-  const result = await plan(opts.dir, opts.packages)
+  const result = await plan(opts.dir, opts.packages, { consumer: opts.consumer })
   if (opts.dryRun && opts.postPin && (result.edits.length || result.installRequired)) {
     result.postPin = { command: opts.postPin, changed: previewPostPin(opts.dir, result, opts.postPin) }
   }
