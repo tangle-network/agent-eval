@@ -3,6 +3,7 @@ import {
   evaluateInterimReleaseConfidence,
   pairedEvalueSequence,
   sequentialCrossingHorizon,
+  sequentialPairedPower,
 } from '../src/sequential'
 
 function deltasUnderNull(n: number, seed = 1, c = 0.1): number[] {
@@ -191,5 +192,40 @@ describe('evaluateInterimReleaseConfidence', () => {
     expect(c.finalEvalue).toBeGreaterThan(0)
     expect(c.finalPValue).toBeGreaterThan(0)
     expect(c.finalPValue).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('sequentialPairedPower', () => {
+  it('returns the all-at-bound horizon when every draw is the bound', () => {
+    const horizon = sequentialCrossingHorizon({ bound: 1, alpha: 0.05 })
+    expect(horizon.decisionPairs).not.toBeNull()
+    const cap = horizon.decisionPairs as number
+    const result = sequentialPairedPower({
+      bound: 1,
+      alpha: 0.05,
+      power: 0.8,
+      alternative: { kind: 'point', value: 1 },
+      maxPairs: cap,
+      trials: 40,
+      seed: 1,
+    })
+    expect(result.capForPower).toBe(cap)
+    expect(result.realized).toEqual({ mean: 1, sd: 0 })
+    expect(result.decisionRateByCap[cap - 1]).toMatchObject({ cap, rate: 1 })
+    expect(result.decisionRateByCap[cap - 1]!.lower95).toBeGreaterThanOrEqual(0.8)
+  })
+
+  it('returns no cap for a tie', () => {
+    const result = sequentialPairedPower({
+      bound: 1,
+      power: 0.8,
+      alternative: { kind: 'point', value: 0 },
+      maxPairs: 24,
+      trials: 20,
+      seed: 2,
+    })
+    expect(result.capForPower).toBeNull()
+    expect(result.decisionRateByCap.every((row) => row.rate === 0)).toBe(true)
+    expect(result.realized).toEqual({ mean: 0, sd: 0 })
   })
 })

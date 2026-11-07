@@ -383,7 +383,7 @@ function drawCell(
   return cells[cells.length - 1]!
 }
 
-function drawValue(law: PairedValueLaw, rng: () => number): number {
+export function drawValue(law: PairedValueLaw, rng: () => number): number {
   switch (law.kind) {
     case 'point':
       return law.value
@@ -397,7 +397,6 @@ function drawValue(law: PairedValueLaw, rng: () => number): number {
       return law.atoms[law.atoms.length - 1]!.value
     }
     case 'normal': {
-      // Box-Muller; one normal per call keeps the stream simple and seeded.
       const u1 = 1 - rng()
       const u2 = rng()
       return law.mean + law.sd * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
