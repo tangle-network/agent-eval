@@ -200,6 +200,7 @@ metaSearch.bestPolicyConfiguration: unknown — no configuration of vb/coder · 
 ```
 
 Every signal reports honestly rather than guessing: at 2 nodes and 1 shared unit, this real climb is below every lens's `insufficient`/`none` threshold, so `operatorYield`, `front`, `taskMatrix`, `editCredit`, `landscape` and `skillManifold` all say so instead of printing a number.
+The objective key is `subject · metric (direction) · judge revision`. The transcript above was recorded before the revision was part of the key.
 The two `--wired` behaviors above (`incumbentWithOperatorBandit`, `draftOnPlateau`, `nextUnitExtension`) fall back to their base policy's own behavior on exactly this "insufficient" case — the same code path a synthetic ledger with real signal values exercises, proved in each lens's own PR.
 
 

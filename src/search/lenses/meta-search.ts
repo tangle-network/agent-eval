@@ -31,11 +31,9 @@
  * the outer node's lineage is the configuration's lineage.
  *
  * Configurations group searches with one genome and one objective (subject,
- * metric, direction). A configuration's lift per dollar summarizes its scored
- * searches as independent units with `summarizeSamples` (a percentile
- * bootstrap of the mean); a configuration with one scored search carries that
- * search's own paired interval, whose units are its test units. The signal
- * names the configuration with the largest estimate within one objective.
+ * metric, direction, judge revision). Lift per dollar summarizes scored
+ * searches with `summarizeSamples`; one scored search keeps its own paired
+ * interval. The signal names the largest estimate within one objective.
  */
 
 import { estimateNode, seedFromDigest } from '../../campaign/estimate-node'
@@ -53,7 +51,7 @@ import type {
 import type { SearchStateView } from '../../campaign/search-state'
 import { compareCodeUnits, hashCanonical } from '../../ledger-core/canonical'
 import { roundDecimal as round } from '../../math/round-decimal'
-import { type LensResult, rankingSplit, type LensSampleSummary, summarizeSamples } from './shared'
+import { type LensResult, type LensSampleSummary, rankingSplit, summarizeSamples } from './shared'
 
 /** The configuration that ran a search, as its ledger records it. */
 export interface SearchPolicyGenome {
@@ -815,9 +813,11 @@ function entry(
   }
 }
 
-/** `subject · metric (direction)`: the key searches are compared within. */
+/** `subject · metric (direction) · judge revision`: searches compare within one key. */
 export function objectiveKey(header: NonNullable<SearchStateView['header']>): string {
-  return `${header.subject} · ${header.objective.metric} (${header.objective.direction})`
+  const judge = header.objective.judge
+  const revision = 'revision' in judge ? judge.revision : judge.unknown
+  return `${header.subject} · ${header.objective.metric} (${header.objective.direction}) · ${revision}`
 }
 
 function parentOf(
