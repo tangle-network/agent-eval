@@ -282,7 +282,7 @@ describe('supervisor-run rollouts', () => {
     expect(steps.flatMap((s) => s.tool_calls ?? []).map((c) => c.function_name)).toEqual(['bash'])
   })
 
-  it('imports a Runtime run, harness sessions and gate receipts into one screened ledger', async () => {
+  it('imports screened Runtime, harness and gate evidence and refuses private injected context', async () => {
     const out = join(dir, 'ledger.jsonl')
     const otlp = join(dir, 'spans.otlp.jsonl')
     const stdout: string[] = []
@@ -310,6 +310,9 @@ describe('supervisor-run rollouts', () => {
     expect(code).toBe(0)
     const summary = JSON.parse(stdout.join(''))
     expect(summary.dropped['api-key']).toBe(1)
+    expect(summary.dropped.email).toBe(1)
+    expect(summary.sources.find((source: { kind: string }) => source.kind === 'sessions:claude-code'))
+      .toMatchObject({ read: 1, written: 0, errors: [] })
     expect(summary.sources[0]).toMatchObject({ kind: 'run-dir', read: 2, written: 2 })
 
     const lines = await readRolloutJournal(out)
@@ -352,14 +355,11 @@ describe('supervisor-run rollouts', () => {
 
     const sessions = lines.filter((line) => line.task.suite.startsWith('harness/'))
     const harnesses = new Set(sessions.map((line) => line.policy.harness))
-    expect(harnesses).toEqual(new Set(['claude-code', 'opencode', 'kimi-code']))
+    expect(harnesses).toEqual(new Set(['opencode', 'kimi-code']))
     for (const line of sessions) {
       expect(line.messages.length).toBeGreaterThan(0)
       expect(line.outcome.reward).toBeNull()
     }
-    expect(sessions.find((l) => l.policy.harness === 'claude-code')!.policy.license_class).toBe(
-      'restricted',
-    )
     expect(sessions.find((l) => l.policy.harness === 'kimi-code')!.policy.license_class).toBe(
       'open-weight-api',
     )

@@ -39,9 +39,9 @@ export interface ProfileAxisSpec {
 
 /** Model sentinel for a vendor-locked harness that supports none of the swept models:
  *  it carries no provider prefix, so `harnessSupportsModel` accepts it and the harness
- *  resolves it to its own native default model at runtime (e.g. kimi-code → its Kimi
- *  model). Lets `expandProfileAxes` snap-instead-of-drop without a per-harness flagship
- *  table that would rot as router catalogs change. */
+ *  resolves it to its own native default model at runtime. Lets `expandProfileAxes`
+ *  snap-instead-of-drop without a per-harness flagship table that would rot as router
+ *  catalogs change. */
 export const HARNESS_NATIVE_MODEL = 'default'
 
 /**
@@ -75,13 +75,7 @@ export function expandProfileAxes(spec: ProfileAxisSpec): AgentProfile[] {
   const out: AgentProfile[] = []
   const seen = new Set<string>()
   for (const harness of harnesses) {
-    // A universal (router-backed) harness — opencode/pi/claudish, and claude-code/codex
-    // since agent-interface 5.6.0 — runs every swept model. A vendor-locked harness
-    // (kimi-code) runs only the swept models in its own family; when it supports NONE
-    // of them it snaps to its native default (the `HARNESS_NATIVE_MODEL` sentinel it
-    // resolves at runtime) rather than being dropped, so every requested harness still appears in the
-    // sweep on a model it can actually run — e.g. sweeping `deepseek/x` puts opencode
-    // on deepseek and kimi-code on its own Kimi model, a real head-to-head.
+    // Keep each requested harness on supported models, or its native default when none fit.
     // `keepIncompatible` forces every (harness, model) pair verbatim (failure-mode runs).
     const supported = spec.keepIncompatible
       ? models

@@ -33,7 +33,9 @@ afterEach(async () => {
 describe('readClaudeTranscript', () => {
   it('reads a real transcript: one message per response, usage counted once per response', async () => {
     const transcript = await readClaudeTranscript(FIXTURE)
-    expect(transcript.messages.map((m) => m.role)).toEqual([
+    const conversation = transcript.messages.filter((m) => m.role !== 'system')
+    expect(transcript.messages.some((m) => m.role === 'system')).toBe(true)
+    expect(conversation.map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'tool',
@@ -41,8 +43,8 @@ describe('readClaudeTranscript', () => {
       'tool',
       'assistant',
     ])
-    expect(transcript.messages[1]!.tool_calls?.map((c) => c.function.name)).toEqual(['Bash'])
-    expect(transcript.messages[2]!.content).toContain('TRACEPROOF-WORKER-REAP-TOOL-OUTPUT')
+    expect(conversation[1]!.tool_calls?.map((c) => c.function.name)).toEqual(['Bash'])
+    expect(conversation[2]!.content).toContain('TRACEPROOF-WORKER-REAP-TOOL-OUTPUT')
     expect(transcript.usage).toEqual({ tokensIn: 300, tokensOut: 60, cacheRead: 0, cacheWrite: 0 })
     expect(transcript.model).toBe('traceproof-scripted-model')
     expect(transcript.gaps).toEqual([])
