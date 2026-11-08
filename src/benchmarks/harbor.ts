@@ -16,12 +16,13 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { promisify, stripVTControlCharacters } from 'node:util'
 
-import { parse as parseToml } from 'smol-toml'
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 
 import type { RunSplitTag } from '../run-record'
+import { preparedImage } from './harbor-environment'
 import type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
@@ -228,7 +229,9 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
 /**
  * Defaults: `retries` 2 (extra runs after one with no reward), `maxDetailChars` 2000 (bounds
  * `JSON.stringify(detail).length`), `keepImage` true: `--no-delete` keeps the image after a run,
- * yet a later run builds it again unless `task.toml` names a prebuilt `docker_image`.
+ * yet a later run builds it again unless `task.toml` names a prebuilt `docker_image`, as it does
+ * for a case `prepareCaseEnvironment` prepared. `host` (an ssh target, by default the host the case
+ * was prepared on) runs Harbor there.
  */
 export interface HarborPatchGradeOptions {
   harborBin?: string
@@ -238,6 +241,7 @@ export interface HarborPatchGradeOptions {
   timeoutMs?: number
   env?: Record<string, string>
   keepImage?: boolean
+  host?: string
 }
 
 const SOLVE_SH =
@@ -249,6 +253,29 @@ function detailTail(text: string, max: number): string {
   let tail = stripVTControlCharacters(text).slice(-max)
   while (tail && JSON.stringify(tail).length > max) tail = tail.slice(1)
   return tail
+}
+
+/**
+ * Harbor on ssh host `host`: the task is mirrored under `~/agent-eval-harbor` at its local path,
+ * and the job's directory comes back to the local jobs dir and leaves the host.
+ */
+async function remoteHarbor(host: string, args: string[], run: object) {
+  const [task, jobsDir, job] = [args[2], args[6], args.at(-1)] as [string, string, string]
+  const q = (text: string) => `'${text.replaceAll("'", "'\\''")}'`
+  const at = (path: string) => `~/${q(`agent-eval-harbor${path}`)}`
+  const remote = args.map((arg) => (arg === task || arg === jobsDir ? at(arg) : q(arg)))
+  await execute('ssh', [host, `mkdir -p ${at(task)} ${at(jobsDir)}`])
+  await execute('rsync', ['-a', '--delete', `${task}/`, `${host}:agent-eval-harbor${task}/`])
+  const harbor = `cd /tmp && env -u DOCKER_HOST PATH="$HOME/.local/bin:$PATH" harbor`
+  try {
+    await execute('ssh', [host, `${harbor} ${remote.join(' ')}`], run)
+  } finally {
+    await mkdir(jobsDir, { recursive: true })
+    const back = [`${host}:agent-eval-harbor${jobsDir}/${job}/`, `${jobsDir}/${job}/`]
+    await execute('rsync', ['-a', ...back]).catch(() => undefined)
+    const clean = `rm -rf ${at(dirname(task))} ${at(`${jobsDir}/${job}`)}`
+    await execute('ssh', [host, clean]).catch(() => undefined)
+  }
 }
 
 /**
@@ -272,13 +299,23 @@ export function gradeHarborPatch(
       await mkdir(join(task, 'solution'))
       await writeFile(join(task, 'solution/patch.diff'), artifact.patch)
       await writeFile(join(task, 'solution/solve.sh'), SOLVE_SH, { mode: 0o755 })
+      const prepared = preparedImage(item)
+      if (prepared) {
+        const config = parseToml(await readFile(join(task, 'task.toml'), 'utf8'))
+        config.environment = { ...table(config.environment), docker_image: await prepared.image }
+        await writeFile(join(task, 'task.toml'), stringifyToml(config))
+      }
+      const host = options.host ?? prepared?.host
       const jobsDir = resolve(options.jobsDir ?? join(work, 'jobs'))
       const errors: string[] = []
       const keep = keepImage ? '--no-delete' : '--delete'
       const args = ['run', '-p', task, '-a', 'oracle', '-o', jobsDir, '-q', keep, '--job-name']
       for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
         const job = `${item.payload.dir}-${randomUUID()}`
-        const failure = await execute(harborBin, [...args, job], run).then(
+        const harbor = host
+          ? remoteHarbor(host, [...args, job], run)
+          : execute(harborBin, [...args, job], run)
+        const failure = await harbor.then(
           () => null,
           (error: Error) => detailTail(error.message, 500),
         )

@@ -39,6 +39,12 @@ export {
   type HarborTaskItem,
   type HarborTaskPayload,
 } from './harbor'
+export {
+  type CaseEnvironmentOptions,
+  dockerHostEnv,
+  prepareCaseEnvironment,
+  releaseCaseEnvironment,
+} from './harbor-environment'
 export * as routing from './routing/index'
 export {
   type BenchmarkDistribution,
