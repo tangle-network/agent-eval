@@ -32,7 +32,7 @@ Use an endpoint that accepts this example's request fields and returns model ide
 |---|---|
 | `LLM_BASE_URL` | Chat Completions API prefix, such as `https://your-endpoint.example/v1`. |
 | `LLM_API_KEY` | Key for the endpoint. |
-| `LLM_MODEL` | Worker model served by the endpoint; defaults to `deepseek-v4-flash`. |
+| `LLM_MODEL` | Worker model served by the endpoint; defaults to `deepseek/deepseek-v4.1-flash`. |
 | `PRICE_IN_PER_M`, `PRICE_OUT_PER_M` | Worker USD rates per million tokens; supply both together. |
 | `GEPA_PRICE_IN_PER_M`, `GEPA_PRICE_OUT_PER_M` | Reflection rates when GEPA uses different prices; otherwise inherit `PRICE_*`. |
 | `SKILLOPT_PRICE_IN_PER_M`, `SKILLOPT_PRICE_OUT_PER_M` | Reflection/editing rates when SkillOpt uses different prices; otherwise inherit `PRICE_*`. |
@@ -102,7 +102,7 @@ The [implementation](./index.ts) records the selected recipe and limits with the
 | `GEPA_MAX_MODEL_REQUESTS`, `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | Maximum model requests per optimizer. |
 | `MAX_TOTAL_COST_USD` | `20` | Shared ledger ceiling for search and final evaluation across all methods. |
 | `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to search concurrently. |
-| `LLM_MAX_TOKENS` | `400` | Worker output cap; allow extra headroom for reasoning models. |
+| `LLM_MAX_TOKENS` | `1000` | Worker output cap; allow extra headroom for reasoning models. |
 | `CALL_TIMEOUT_MS` | `30000` | Worker timeout per call. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
 

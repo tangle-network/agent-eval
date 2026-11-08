@@ -8,8 +8,8 @@
 import { estimateMultishotCost } from './cost'
 import type { MultishotToolDefinition, MultishotToolExecutor } from './types'
 
-const DEFAULT_RESEARCHER_MODEL = 'openai/gpt-4o-mini'
-export const DEFAULT_CODER_MODEL = 'openai/gpt-4o-mini'
+const DEFAULT_RESEARCHER_MODEL = 'openai/gpt-6-luna'
+export const DEFAULT_CODER_MODEL = 'openai/gpt-6-luna'
 
 export interface DefaultResearcherConfig {
   /** Replace the system prompt to bias the researcher toward a domain's

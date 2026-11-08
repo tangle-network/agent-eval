@@ -16,7 +16,7 @@ export function estimateMultishotCost(
   const outputTok = usage.completion_tokens ?? 0
   let inPer1k = 0.003
   let outPer1k = 0.015
-  if (model.includes('gpt-4o-mini')) {
+  if (model.includes('gpt-4o-mini') || model.includes('gpt-6-luna')) {
     inPer1k = 0.00015
     outPer1k = 0.0006
   } else if (model.includes('gpt-5.4') || model.includes('claude-sonnet')) {

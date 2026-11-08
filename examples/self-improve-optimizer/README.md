@@ -35,12 +35,12 @@ Select a model your endpoint serves; the script's default is listed below.
 |---|---|---|
 | `LLM_BASE_URL` | required | Endpoint used by worker and reflection calls. |
 | `LLM_API_KEY` | required | Key for that endpoint. |
-| `LLM_MODEL` | `deepseek-v4-flash` | Worker model. |
+| `LLM_MODEL` | `deepseek/deepseek-v4.1-flash` | Worker model. |
 | `GEPA_MODEL` | `LLM_MODEL` | Reflection model. |
 | `PRICE_IN_PER_M`, `PRICE_OUT_PER_M` | package pricing | Worker input/output USD rates per million tokens; set both for an unlisted model or endpoint-specific prices. |
 | `PRICE_CACHED_IN_PER_M`, `PRICE_CACHE_WRITE_IN_PER_M` | worker input rate | Optional worker cache-read and cache-write rates; require both worker input/output rates. |
 | `GEPA_PRICE_IN_PER_M`, `GEPA_PRICE_OUT_PER_M` | required | Current reflection input/output USD rates per million tokens. |
-| `LLM_MAX_TOKENS` | `400` | Output limit per worker call. |
+| `LLM_MAX_TOKENS` | `1000` | Output limit per worker call. |
 | `CALL_TIMEOUT_MS` | `30000` | Worker and reflection owner timeout per call. |
 | `GEPA_MAX_EVALUATIONS` | `12` | Maximum candidate-case evaluations during search. |
 | `GEPA_MAX_PROPOSER_COST_USD` | `2` | Reflection spend limit for the GEPA stage. |
