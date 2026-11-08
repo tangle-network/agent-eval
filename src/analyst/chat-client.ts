@@ -51,8 +51,8 @@ export interface ChatClient {
   chat(req: ChatRequest, opts?: ChatCallOpts): Promise<ChatResponse>
 }
 
-/** Judge model when neither caller nor client names one: the Router's newest cheap tier. */
-export const DEFAULT_JUDGE_MODEL = 'gpt-6-luna'
+/** Judge model when neither caller nor client names one: one every model-restricted Router key may call. */
+export const DEFAULT_JUDGE_MODEL = 'zai/glm-5.3'
 
 export type ChatTransport =
   | 'sandbox-sdk' // box.streamPrompt() — chat completion via sandbox SDK
