@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.29] — 2026-11-08
+
+- feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
+
 ## [1.0.28] — 2026-11-08
 
 - fix(model-seats): an economy preset that passes assertModelsServed
