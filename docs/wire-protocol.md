@@ -54,7 +54,7 @@ POST /v1/judge
   "wins": ["specific-component", "earned-detail"],
   "rationale": "Specific architectural detail, no AI cadence, technical voice.",
   "rubricVersion": "anti-slop@sha256-rfc8785:2307e4f3f0948d20275a1521515c36635b37ba848149d3f603b6dfde07f7ea1c",
-  "model": "gpt-6-luna",
+  "model": "zai/glm-5.3",
   "durationMs": 1840
 }
 ```

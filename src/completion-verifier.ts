@@ -483,7 +483,7 @@ export async function verifyCompletion(
 }
 
 export interface LlmCorrectnessCheckerOpts {
-  /** Judge model. Default `DEFAULT_JUDGE_MODEL`, never the client's default, which may be the agent under test. */
+  /** Judge model. Default `DEFAULT_JUDGE_MODEL`, never the client's default, which may be the user simulator or the agent under test. */
   model?: string
   /** Optional ledger for direct use. */
   costLedger?: CostLedgerHandle
