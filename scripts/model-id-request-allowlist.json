@@ -8,7 +8,7 @@
     },
     {
       "file": "src/model-seats.ts",
-      "literal": "zai/glm-5.2",
+      "literal": "zai/glm-5.3",
       "reason": "seatPresets is a data table of REQUESTED ids and makes no call. Its doc requires assertModelsServed({ probe: true }) before a run, which is where the served id is proven."
     },
     {
@@ -18,7 +18,7 @@
     },
     {
       "file": "src/model-seats.ts",
-      "literal": "google/gemini-2.5-flash",
+      "literal": "google/gemini-3.8-flash",
       "reason": "seatPresets is a data table of REQUESTED ids and makes no call. Its doc requires assertModelsServed({ probe: true }) before a run, which is where the served id is proven."
     },
     {

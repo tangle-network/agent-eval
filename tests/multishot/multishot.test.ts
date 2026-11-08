@@ -464,7 +464,7 @@ describe('runMultishot cost metering', () => {
 
     expect(agentTransport).toHaveBeenCalledTimes(3)
     expect(executor).toHaveBeenCalledOnce()
-    expect(driverTransport.mock.calls[0][0].model).toBe('openai/gpt-4o-mini')
+    expect(driverTransport.mock.calls[0][0].model).toBe('openai/gpt-6-luna')
     expect(result.artifacts).toHaveLength(1)
     expect(result.transcript.some((m) => m.content === 'driver pushback')).toBe(true)
     // 3 agent calls at 0.01, one tool executor at 0.002, one driver call at 0.005.

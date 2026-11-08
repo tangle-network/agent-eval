@@ -121,7 +121,7 @@ function openConversation<TPersona extends MultishotPersona>(
   const maxTurns = opts.maxTurns ?? 10
   const maxToolDispatches = opts.maxToolDispatches ?? 4
   const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
-  const driverModel = opts.driverModel ?? 'openai/gpt-4o-mini'
+  const driverModel = opts.driverModel ?? 'openai/gpt-6-luna'
   const driverModels = [driverModel, ...(opts.driverFallbackModels ?? [])]
   const agentMaxTokens = opts.agentMaxTokens ?? 2500
   const toolFollowupMaxTokens = opts.toolFollowupMaxTokens ?? 2000

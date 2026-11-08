@@ -48,7 +48,7 @@ import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
 const BASE_URL = (process.env.LLM_BASE_URL || process.env.TANGLE_ROUTER_URL || '').trim()
-const MODEL = process.env.LLM_MODEL || 'deepseek-v4-flash'
+const MODEL = process.env.LLM_MODEL || 'deepseek/deepseek-v4.1-flash'
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
@@ -56,7 +56,7 @@ const customTokenPricing = tokenPricingFromEnv()
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
 // Reasoning models spend thinking tokens against this cap; raise it for
 // families that reason, or the worker returns truncated JSON.
-const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 400)
+const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 1000)
 const MAX_OPTIMIZER_MODEL_COST_USD = positiveNumberEnv('MAX_OPTIMIZER_MODEL_COST_USD', 5)
 const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 20)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv(

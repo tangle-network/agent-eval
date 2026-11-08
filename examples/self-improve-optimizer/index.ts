@@ -47,13 +47,13 @@ const BASE_URL = (process.env.LLM_BASE_URL || process.env.TANGLE_ROUTER_URL || '
 if (!BASE_URL) {
   throw new Error('Set LLM_BASE_URL (or TANGLE_ROUTER_URL) to an OpenAI-compatible endpoint.')
 }
-const MODEL = process.env.LLM_MODEL || 'deepseek-v4-flash'
+const MODEL = process.env.LLM_MODEL || 'deepseek/deepseek-v4.1-flash'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
 // Reasoning models spend thinking tokens against this cap; raise it for
 // families that reason, or the worker returns truncated JSON.
-const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 400)
+const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 1000)
 // Keep this at or above the train partition size. One aggregate evaluation
 // registers the whole train set, so a smaller budget scores -inf.
 const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 12)
