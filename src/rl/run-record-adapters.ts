@@ -20,7 +20,7 @@ import type { RunRecord, RunSplitTag } from '../run-record'
 export interface AdapterContext {
   /** Logical experiment id — typically the campaign or sweep identifier. */
   experimentId: string
-  /** Snapshot model id (e.g. `claude-sonnet-4-6@2025-04-15`). */
+  /** Snapshot model id (e.g. `claude-sonnet-5-5` or `gpt-4o-2024-11-20`). */
   model: string
   /** Git SHA the harness was run from. */
   commitSha: string

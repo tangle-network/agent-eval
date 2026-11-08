@@ -1,5 +1,6 @@
 // Multishot substrate — re-exports for `@tangle-network/agent-eval/multishot`.
 
+export { DEFAULT_JUDGE_MODEL } from '../analyst/chat-client'
 export {
   type MultishotConversation,
   type MultishotConversationDriver,
@@ -19,7 +20,6 @@ export {
 } from './default-tools'
 
 export {
-  DEFAULT_JUDGE_MODEL,
   type JudgeDimension,
   type JudgeRunResult,
   type JudgeScore,

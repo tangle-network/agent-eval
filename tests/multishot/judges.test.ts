@@ -54,7 +54,7 @@ describe('runJudge', () => {
     expect(score.notes).toBe('good but vague at the end')
     expect(score.llmCall).toMatchObject({
       costUsd: 0.0123,
-      model: 'openai/gpt-4o-mini',
+      model: 'gpt-6-luna',
       usage: {
         promptTokens: 100,
         completionTokens: 50,
@@ -97,7 +97,7 @@ describe('runJudge', () => {
     })
     expect(score.llmCall?.costUsd).toBeNull()
     expect(cost.kind).toBe('estimated')
-    expect(cost.usd).toBeCloseTo(0.000045, 10)
+    expect(cost.usd).toBeCloseTo(0.000035, 10)
   })
 
   it('reports uncaptured usage and unknown cost instead of a zero', async () => {

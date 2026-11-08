@@ -91,8 +91,8 @@ describe('runMultishotMatrix transport seam', () => {
       expect(judgeTransport).toHaveBeenCalledTimes(1)
       // Transport costUsd (0.2*2 + 0.1) plus the judge's estimated usage cost
       // flows into the cell and matrix totals.
-      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.5000075, 10)
-      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.5000075, 10)
+      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.500006, 10)
+      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.500006, 10)
 
       const transcript = JSON.parse(
         readFileSync(join(runDir, 'p1', 'alice', 'rep-0', 'transcript.json'), 'utf8'),
@@ -202,9 +202,9 @@ describe('runMultishotMatrix transport seam', () => {
       })
 
       // Simulation: 2 agent calls + 2 tools = $0.50.
-      // Judges: 3 * (100 input + 100 output tokens on gpt-4o-mini) = $0.000225.
-      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.500225, 10)
-      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.500225, 10)
+      // Judges: 3 * (100 input + 100 output tokens on gpt-6-luna) = $0.00018.
+      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.50018, 10)
+      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.50018, 10)
       expect(judgeTransport).toHaveBeenCalledTimes(3)
 
       const scores = JSON.parse(
@@ -264,14 +264,14 @@ describe('runMultishotMatrix transport seam', () => {
         runDir,
         maxTurns: 1,
         maxConcurrency: 1,
-        costCeiling: 0.000007,
+        costCeiling: 0.000005,
         agentTransport,
         driverTransport: unreachedTransport('driver'),
       })
 
       expect(matrix.summary.runsExecuted).toBe(1)
       expect(matrix.summary.cellsSkipped).toBe(2)
-      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.0000075, 10)
+      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.000006, 10)
       expect(agentTransport).toHaveBeenCalledOnce()
       expect(judgeTransport).toHaveBeenCalledOnce()
       expect(warn).toHaveBeenCalledWith('[matrix] cost ceiling reached')
