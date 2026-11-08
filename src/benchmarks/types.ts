@@ -145,7 +145,8 @@ export const BENCHMARK_SPLIT_SEED = 'agent-eval-v1'
 
 /**
  * Assign an item id to one of `'search' | 'dev' | 'holdout'` using a
- * stable 32-bit hash of `${seed}::${id}`. Default proportions:
+ * stable 32-bit hash of `${seed}::${id}`. `cuts` [a, b] with 0 < a < b < 1 put
+ * positions below a in search, below b in dev, the rest in holdout. Default [0.6, 0.8]:
  *
  *   search: 60%   (optimization-readable)
  *   dev:    20%   (held-out for tuning, leak-on-purpose during dev)
@@ -154,10 +155,13 @@ export const BENCHMARK_SPLIT_SEED = 'agent-eval-v1'
 export function deterministicSplit(
   itemId: string,
   seed: string = BENCHMARK_SPLIT_SEED,
+  cuts: readonly [number, number] = [0.6, 0.8],
 ): RunSplitTag {
-  const h = fnv1a32(`${seed}::${itemId}`)
-  const pos = h / 0x100000000
-  if (pos < 0.6) return 'search'
-  if (pos < 0.8) return 'dev'
+  const [a, b] = cuts
+  if (!(a > 0 && a < b && b < 1))
+    throw new RangeError(`split cuts need 0 < a < b < 1, got [${a}, ${b}]`)
+  const pos = fnv1a32(`${seed}::${itemId}`) / 0x100000000
+  if (pos < a) return 'search'
+  if (pos < b) return 'dev'
   return 'holdout'
 }

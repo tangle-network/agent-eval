@@ -93,8 +93,8 @@ export async function runBenchmarkAdapter<TPayload = unknown, TArtifact = string
 ): Promise<BenchmarkRunResult<TPayload, TArtifact>> {
   const storage = options.storage ?? fsCampaignStorage()
   const benchmarkId = benchmarkIdFor(options.adapter)
-  const scenarios = await loadBenchmarkScenarios(options.adapter, options.splits)
-  const judge = benchmarkAdapterJudge(options.adapter)
+  const scenarios = await benchmarkScenarios(options.adapter, options.splits)
+  const judge = benchmarkJudge(options.adapter)
   const dispatch: DispatchFn<BenchmarkScenario<TPayload>, TArtifact> = async (
     scenario,
     context,
@@ -132,7 +132,7 @@ export async function runBenchmarkAdapter<TPayload = unknown, TArtifact = string
   return { scenarios, campaign, report, reportJsonPath, reportMarkdownPath }
 }
 
-async function loadBenchmarkScenarios<TPayload>(
+export async function benchmarkScenarios<TPayload>(
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, unknown>,
   splits: readonly RunSplitTag[] = ['search', 'dev', 'holdout'],
 ): Promise<Array<BenchmarkScenario<TPayload>>> {
@@ -164,7 +164,7 @@ async function loadBenchmarkScenarios<TPayload>(
   return out
 }
 
-function benchmarkAdapterJudge<TPayload, TArtifact>(
+export function benchmarkJudge<TPayload, TArtifact>(
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, TArtifact>,
 ): JudgeConfig<TArtifact, BenchmarkScenario<TPayload>> {
   const benchmarkId = benchmarkIdFor(adapter)

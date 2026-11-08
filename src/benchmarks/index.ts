@@ -7,7 +7,8 @@
  *   - `calibrateBenchmarkMetric` for weak/strong metric checks.
  *   - Standard retrieval parsers for BEIR/MTEB/MS MARCO/TREC/MIRACL-style files.
  *   - `createHarborBenchmarkAdapter` — a Harbor dataset checkout (Terminal-Bench and others)
- *     as an adapter whose scorer is the dataset's own verifier, run by the caller.
+ *     as an adapter whose scorer is the dataset's own verifier; `gradeHarborPatch` runs
+ *     it on a code patch through the Harbor CLI's oracle agent.
  *   - `deterministicSplit` + `BENCHMARK_SPLIT_SEED` for split assignment.
  *   - `routing` — synthetic 16-task router benchmark. The only novel
  *     benchmark we built; ships in the package.
@@ -30,9 +31,11 @@ export {
 } from './calibration'
 export {
   createHarborBenchmarkAdapter,
+  gradeHarborPatch,
   type HarborBenchmarkAdapter,
   type HarborBenchmarkOptions,
   type HarborGradeOutcome,
+  type HarborPatchGradeOptions,
   type HarborTaskItem,
   type HarborTaskPayload,
 } from './harbor'
@@ -43,9 +46,27 @@ export {
   type BenchmarkRunOptions,
   type BenchmarkRunResult,
   type BenchmarkSliceSummary,
+  benchmarkJudge,
+  benchmarkScenarios,
   runBenchmarkAdapter,
 } from './runner'
-export { type BuildStandardRetrievalItemsOptions, buildStandardRetrievalItems, createRetrievalIdBenchmarkAdapter, evaluateStandardRetrieval, parseBeirCorpusJsonl, parseBeirQueriesJsonl, parseQrels, type RetrievalIdAdapterOptions, type StandardRetrievalArtifact, type StandardRetrievalDocument, type StandardRetrievalEvaluationOptions, type StandardRetrievalPayload, type StandardRetrievalQrel, type StandardRetrievalQuery, type StandardRetrievalResult } from './standard-formats'
+export {
+  type BuildStandardRetrievalItemsOptions,
+  buildStandardRetrievalItems,
+  createRetrievalIdBenchmarkAdapter,
+  evaluateStandardRetrieval,
+  parseBeirCorpusJsonl,
+  parseBeirQueriesJsonl,
+  parseQrels,
+  type RetrievalIdAdapterOptions,
+  type StandardRetrievalArtifact,
+  type StandardRetrievalDocument,
+  type StandardRetrievalEvaluationOptions,
+  type StandardRetrievalPayload,
+  type StandardRetrievalQrel,
+  type StandardRetrievalQuery,
+  type StandardRetrievalResult,
+} from './standard-formats'
 export type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
