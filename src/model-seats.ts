@@ -66,11 +66,11 @@ type SeatName = keyof ModelSeats
  */
 export const seatPresets: Record<'economy' | 'frontier', ModelSeats> = {
   economy: {
-    worker: 'zai/glm-5.3',
-    judges: ['deepseek-v4-pro', 'zai/glm-5.3', 'google/gemini-3.8-flash'],
-    analyst: 'zai/glm-5.3',
-    reflection: 'zai/glm-5.3',
-    verifier: 'deepseek-v4-pro',
+    worker: 'glm-5.3',
+    judges: ['deepseek/deepseek-v4.1-flash', 'glm-5.3', 'gemini-3.7-flash'],
+    analyst: 'glm-5.3',
+    reflection: 'glm-5.3',
+    verifier: 'deepseek/deepseek-v4.1-flash',
   },
   frontier: {},
 }
