@@ -226,9 +226,9 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
 }
 
 /**
- * `retries` counts extra runs after one with no reward (default 2); `maxDetailChars` bounds
- * `JSON.stringify(detail).length` (default 2000); `timeoutMs` bounds one `harbor run`; `keepImage`
- * (default true) passes `--no-delete` so the next grade reuses the built task image.
+ * Defaults: `retries` 2 (extra runs after one with no reward), `maxDetailChars` 2000 (bounds
+ * `JSON.stringify(detail).length`), `keepImage` true: `--no-delete` keeps the image after a run,
+ * yet a later run builds it again unless `task.toml` names a prebuilt `docker_image`.
  */
 export interface HarborPatchGradeOptions {
   harborBin?: string
@@ -247,7 +247,7 @@ const SOLVE_SH =
 /** The last characters of `text` without ANSI codes, so that its JSON string fits in `max`. */
 function detailTail(text: string, max: number): string {
   let tail = stripVTControlCharacters(text).slice(-max)
-  while (JSON.stringify(tail).length > max) tail = tail.slice(JSON.stringify(tail).length - max)
+  while (tail && JSON.stringify(tail).length > max) tail = tail.slice(1)
   return tail
 }
 
