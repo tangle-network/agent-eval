@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.28] — 2026-11-08
+
+- fix(model-seats): an economy preset that passes assertModelsServed
+
 ## [1.0.27] — 2026-11-08
 
 - fix(models): default to the newest served model in each tier
