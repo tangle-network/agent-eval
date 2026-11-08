@@ -128,8 +128,3 @@ export async function runReviews(input: {
     }),
   )
 }
-
-/** Offline re-score: same frozen review, same raw answer, no inference. */
-export function rescore(entry: Pick<StoredReview, 'review' | 'raw'>): SystemOneReviewReport {
-  return assessSystemOneReview(entry.review, entry.raw)
-}

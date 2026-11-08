@@ -282,7 +282,8 @@ async function remoteHarbor(host: string, args: string[], run: object) {
  * A `grade` callback that scores `{ patch }` with the task's own verifier: Harbor's oracle agent
  * runs a `solution/solve.sh` that applies the patch (`git apply --binary`) in the environment's
  * working directory, on a copy of the task. An empty patch changes nothing. A run with no reward
- * is retried, then reported as `succeeded: false`, never as a reward of 0.
+ * is retried, then reported as `succeeded: false`, never as a reward of 0; so is a patch that does
+ * not apply, without a retry.
  */
 export function gradeHarborPatch(
   options: HarborPatchGradeOptions = {},
@@ -327,6 +328,11 @@ export function gradeHarborPatch(
           trial === undefined ? {} : JSON.parse((await read('result.json')) || '{}'),
         )
         const reward = numberOrNull(table(table(result.verifier_result).rewards).reward)
+        // A patch the oracle could not apply scores nothing: Harbor still verified the base tree.
+        const solve = (await read('agent/exit-code.txt')).trim()
+        const oracle = await read('agent/oracle.txt')
+        const error = `solve.sh exited ${solve || 0}: ${detailTail(oracle, 500)}`
+        if (solve || /^error:/mu.test(oracle)) return { succeeded: false, error }
         if (reward !== null) {
           const detail = detailTail(await read('verifier/test-stdout.txt'), maxDetailChars)
           return { succeeded: true, value: { reward, detail } }

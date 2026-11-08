@@ -90,6 +90,13 @@ describe.skipIf(!harborAndDocker)('gradeHarborPatch through real Harbor and Dock
     expect(empty).toMatchObject({ composite: 0, dimensions: { score: 0, passed: 0 } })
     expect(empty.notes).toContain('greeting: hello')
 
+    // A patch that does not apply is no score, never the base tree's 0, and is not retried.
+    const corrupt = PASSING_PATCH.replace('+world\n', '')
+    await expect(adapter.evaluate(greet!, { patch: corrupt })).rejects.toThrow(
+      /did not score this artifact: solve.sh exited \d+: .*(corrupt patch|patch failed)/s,
+    )
+    expect((await readdir(jobsDir)).filter((job) => job.startsWith('greet-'))).toHaveLength(3)
+
     await expect(adapter.evaluate(broken!, { patch: PASSING_PATCH })).rejects.toThrow(
       /did not score this artifact: attempt 1: .*; attempt 3: No reward file/,
     )

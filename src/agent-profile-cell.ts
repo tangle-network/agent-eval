@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from './errors'
 import { canonicalString, jsonDocument } from './ledger-core/canonical'
 import { hashJson } from './pre-registration'
@@ -136,8 +135,6 @@ export function agentProfileCellKey(record: {
 }): string {
   return requireAgentProfileCell(record).cellId
 }
-
-
 
 export function groupRunsByAgentProfileCell<
   T extends { runId: string; agentProfile?: AgentProfileCell },
@@ -366,8 +363,6 @@ export const AGENT_PROFILE_KINDS = {
   AGENT_INTERFACE_PROFILE: 'agent-interface-profile',
 } as const
 
-export type AgentProfileKind = (typeof AGENT_PROFILE_KINDS)[keyof typeof AGENT_PROFILE_KINDS]
-
 /** Convert a profile's JSON document form using the shared canonical encoder.
  *  Undefined object properties are absent from the document; other values with
  *  no faithful JSON representation are rejected before hashing. */
@@ -381,8 +376,3 @@ export function toAgentProfileJson(value: unknown): AgentProfileJson {
     )
   }
 }
-
-/** Canonical AgentProfile shape required when deriving a stable cell id. */
-export type AgentInterfaceProfileLike = AgentProfile & { name: string; version: string }
-
-
