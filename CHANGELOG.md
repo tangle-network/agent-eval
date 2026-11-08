@@ -4,6 +4,51 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.26] — 2026-11-08
+
+- feat(benchmarks): grade a code patch with a Harbor task's own verifier
+- chore(release): 1.0.25
+- fix(judges): default to zai/glm-5.3, which every restricted Router key may call
+- chore(release): 1.0.24
+- test(multishot): judge default model and its price in runJudge
+- test(multishot): price judge calls at the new default judge model
+- fix(judges): one judge default, gpt-6-luna, which the Router serves
+- chore(release): 1.0.23
+- fix(run-record): a Claude id from 4.6 on is a pinned snapshot
+- feat(adopt): expose scoped consumer in managed adoption
+- fix(adopt): stage selected peer cohort before install
+- feat(search): an objective key names the judge revision
+- feat(adopt): scope programmatic adoption to one consumer
+- feat: size a sequential pair cap under a registered law (#1223)
+- fix(test): bound shared release verification workers (#1225)
+- fix(test): qualify refreshed harness contracts with maintained pnpm (#1224)
+- chore(release): 1.0.22 (#1222)
+- chore(deps): refresh first-party library dependencies (#1221)
+- docs(release): describe independent interval API and drop duplicate bumps
+- chore(release): 1.0.21
+- docs(test): cite printed Newcombe table pages
+- feat(statistics): add independent risk differences from Wilson limits
+- fix(test): mark disposable identities for host Git hooks
+- fix(test): declare identity in disposable integration repositories
+- fix(release): authenticate public evidence reads in verification
+- fix(statistics): exclude steps through every selected cluster extent
+- test(statistics): retain overlapping-cluster sealed-step regression
+- docs(release): remove redundant release commit entries
+- chore(release): 1.0.20
+- docs(statistics): trim whitespace in interval guidance
+- fix(verification): retain valid replay baselines and current release evidence
+- chore(analyst): refresh manifest for shared statistics owner
+- fix(statistics): preserve degenerate bootstrap results and mean seed
+- feat(statistics): share stratified cluster resampling and calibrated placebo bands
+- fix(adoption): retain unselected pnpm resolutions
+- fix(exports): ship ./statistics subpath, gpt-5-mini pricing, sequentialCrossingHorizon
+- fix(adopt-stack): qualify the committed caller tree
+- fix(adopt-stack): read large tracked path inventories
+- fix(adoption): read a Runtime release's evidence from its Publish run, and raise pins below a dependency floor (#1211)
+- fix(adoption): hold a Runtime release whose tag evidence failed or never ran
+- fix(adoption): gate stable-major candidates against installed versions
+- feat(app-grade): probes take a method and JSON body (#1208)
+
 ## [1.0.25] — 2026-11-08
 
 - fix(judges): default to zai/glm-5.3, which every restricted Router key may call
