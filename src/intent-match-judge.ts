@@ -23,7 +23,7 @@
  * treat failure as "judge skipped."
  */
 
-import type { ChatClient } from './analyst/chat-client'
+import { type ChatClient, DEFAULT_JUDGE_MODEL } from './analyst/chat-client'
 import { paidJsonChat } from './chat-json-call'
 import {
   CostLedger,
@@ -77,7 +77,6 @@ export interface IntentMatchOptions {
   signal?: AbortSignal
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const DEFAULT_TIMEOUT = 300_000
 const DEFAULT_MAX_TOKENS = 800
 const DEFAULT_MAX_SOURCE = 25_000
@@ -156,7 +155,7 @@ export async function runIntentMatchJudge(
   const start = Date.now()
   const opts = {
     chat: options.chat,
-    model: options.model ?? options.chat.defaultModel ?? DEFAULT_MODEL,
+    model: options.model ?? options.chat.defaultModel ?? DEFAULT_JUDGE_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,

@@ -10,7 +10,7 @@
  *   - Lets unexpected errors bubble — the transport maps them to 500.
  */
 
-import type { ChatClient } from '../analyst/chat-client'
+import { type ChatClient, DEFAULT_JUDGE_MODEL } from '../analyst/chat-client'
 import { paidJsonChat } from '../chat-json-call'
 import { CostLedger, type CostLedgerHandle, type CustomTokenPricing } from '../cost-ledger'
 import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
@@ -180,8 +180,6 @@ function buildJudgePrompt(content: string, context: unknown): string {
     .filter(Boolean)
     .join('\n')
 }
-
-const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6'
 
 export interface HandleJudgeOptions {
   costLedger?: CostLedgerHandle

@@ -8,6 +8,7 @@
 // But the runJudge primitive is fully generic: any input maps to a score plus
 // explicit observed, estimated, or uncaptured cost.
 
+import { DEFAULT_JUDGE_MODEL } from '../analyst/chat-client'
 import type { JudgeDimension, JudgeScore } from '../campaign/types'
 import type { CostProvenance } from '../cost-ledger'
 import type { LlmCallMetadata, LlmUsage } from '../llm-client'
@@ -17,8 +18,6 @@ import type { MultishotTransport, MultishotTransportResponse } from './types'
 // Canonical declaration lives in campaign/types.ts. Multishot emits the same
 // shape on its producer-defined 0-10 scale.
 export type { JudgeDimension, JudgeScore } from '../campaign/types'
-
-export const DEFAULT_JUDGE_MODEL = 'openai/gpt-4o-mini'
 
 export interface MultishotJudgeConfig<TInput> {
   /** Display name (for trace + log). */

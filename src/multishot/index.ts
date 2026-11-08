@@ -18,8 +18,8 @@ export {
   defaultDelegationTools,
 } from './default-tools'
 
+export { DEFAULT_JUDGE_MODEL } from '../analyst/chat-client'
 export {
-  DEFAULT_JUDGE_MODEL,
   type JudgeDimension,
   type JudgeRunResult,
   type JudgeScore,

@@ -22,7 +22,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { ChatClient, ChatRequest } from './analyst/chat-client'
+import { type ChatClient, type ChatRequest, DEFAULT_JUDGE_MODEL } from './analyst/chat-client'
 import type { ValidatedArtifact } from './artifact-validator'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { assertServedModel, ModelSubstitutionError } from './integrity/served-model'
@@ -483,6 +483,7 @@ export async function verifyCompletion(
 }
 
 export interface LlmCorrectnessCheckerOpts {
+  /** Judge model. Default `DEFAULT_JUDGE_MODEL`, never the client's default, which may be the agent under test. */
   model?: string
   /** Optional ledger for direct use. */
   costLedger?: CostLedgerHandle
@@ -549,7 +550,7 @@ export function createLlmCorrectnessChecker(
   chat: ChatClient,
   opts: LlmCorrectnessCheckerOpts = {},
 ): CorrectnessChecker {
-  const model = opts.model ?? 'claude-sonnet-4-6'
+  const model = opts.model ?? DEFAULT_JUDGE_MODEL
   const maxContentChars = opts.maxContentChars ?? 8000
   const maxAttempts = opts.maxAttempts ?? 2
   const costLedger = opts.costLedger ?? new CostLedger()

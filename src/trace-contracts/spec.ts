@@ -19,7 +19,7 @@
  *     "reads": ["lookup_order"],
  *     "writes": [{ "tool": "issue_refund", "idempotencyKey": "/idempotency_key" }]
  *   },
- *   "llm": { "maxCalls": 10, "maxTotalTokens": 50000, "allowedModels": ["claude-sonnet-4-5"] },
+ *   "llm": { "maxCalls": 10, "maxTotalTokens": 50000, "allowedModels": ["claude-sonnet-5-5"] },
  *   "alternatives": { "anyOf": [{ "id": "cache-hit", "tools": { "required": ["read_cache"] } }] }
  * }
  * ```

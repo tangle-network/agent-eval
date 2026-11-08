@@ -19,7 +19,7 @@
  * rather than "layer failed" in a multi-layer pipeline.
  */
 
-import type { ChatClient } from './analyst/chat-client'
+import { type ChatClient, DEFAULT_JUDGE_MODEL } from './analyst/chat-client'
 import { paidJsonChat } from './chat-json-call'
 import {
   CostLedger,
@@ -119,7 +119,7 @@ const DEFAULT_COMPLEXITY_WEIGHTS: Record<ConceptComplexity, number> = {
 }
 
 export interface SemanticConceptJudgeOptions {
-  /** Model id to call. Default 'claude-sonnet-4-6' via agent-eval defaults. */
+  /** Model id to call. Default: the client's `defaultModel`, then `DEFAULT_JUDGE_MODEL`. */
   model?: string
   /** Per-call timeout. Default 300s. */
   timeoutMs?: number
@@ -158,7 +158,6 @@ const DEFAULT_MAX_HTML = 30_000
 const DEFAULT_MAX_PER_FILE = 20_000
 const DEFAULT_TIMEOUT = 300_000
 const DEFAULT_MAX_TOKENS = 16_000
-const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 const SEMANTIC_SCHEMA = {
   type: 'object',
@@ -274,7 +273,7 @@ export async function runSemanticConceptJudge(
 
   const opts = {
     chat: options.chat,
-    model: options.model ?? options.chat.defaultModel ?? DEFAULT_MODEL,
+    model: options.model ?? options.chat.defaultModel ?? DEFAULT_JUDGE_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,

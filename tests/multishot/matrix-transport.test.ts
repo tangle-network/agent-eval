@@ -202,9 +202,9 @@ describe('runMultishotMatrix transport seam', () => {
       })
 
       // Simulation: 2 agent calls + 2 tools = $0.50.
-      // Judges: 3 * (100 input + 100 output tokens on gpt-4o-mini) = $0.000225.
-      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.500225, 10)
-      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.500225, 10)
+      // Judges: 3 * (100 input + 100 output tokens on gpt-6-luna) = $0.00018.
+      expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.50018, 10)
+      expect(matrix.summary.totalCostUsd).toBeCloseTo(0.50018, 10)
       expect(judgeTransport).toHaveBeenCalledTimes(3)
 
       const scores = JSON.parse(
