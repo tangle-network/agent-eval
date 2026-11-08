@@ -7,13 +7,17 @@
  * revision the caller pins in `source`, into `BenchmarkDatasetItem`s.
  *
  * Scoring stays Harbor's. `evaluate` hands the task and the agent's artifact to the caller's
- * `grade` callback, which runs the task's own verifier (for example `harbor run -p <taskDir>`
- * with an agent that installs the collected artifacts) and reports its reward. This package does
- * not start containers. A verifier that did not run is an error, never a score of zero.
+ * `grade` callback, which runs the task's own verifier and reports its reward. `gradeHarborPatch`
+ * is that callback for a code patch: it spawns the Harbor CLI, which starts the containers; this
+ * package starts none itself. A verifier that did not run is an error, never a score of zero.
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { promisify, stripVTControlCharacters } from 'node:util'
 
 import { parse as parseToml } from 'smol-toml'
 
@@ -25,6 +29,8 @@ import type {
   BenchmarkSource,
 } from './types'
 import { deterministicSplit } from './types'
+
+const execute = promisify(execFile)
 
 /** One Harbor task, as its `task.toml` and `instruction.md` state it. */
 export interface HarborTaskPayload {
@@ -212,8 +218,88 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
         score: reward,
         passed: reward === 1,
         raw: { reward, ...(detail === undefined ? {} : { detail }) },
+        ...(detail === undefined ? {} : { notes: detail }),
       }
     },
     assignSplit: split,
+  }
+}
+
+/**
+ * `retries` counts extra runs after one with no reward (default 2); `maxDetailChars` bounds
+ * `JSON.stringify(detail).length` (default 2000); `timeoutMs` bounds one `harbor run`; `keepImage`
+ * (default true) passes `--no-delete` so the next grade reuses the built task image.
+ */
+export interface HarborPatchGradeOptions {
+  harborBin?: string
+  jobsDir?: string
+  retries?: number
+  maxDetailChars?: number
+  timeoutMs?: number
+  env?: Record<string, string>
+  keepImage?: boolean
+}
+
+const SOLVE_SH =
+  '#!/bin/bash\nset -euo pipefail\npatch="$(dirname "$0")/patch.diff"\n' +
+  'if [ -s "$patch" ]; then git apply --binary "$patch"; fi\n'
+
+/** The last characters of `text` without ANSI codes, so that its JSON string fits in `max`. */
+function detailTail(text: string, max: number): string {
+  let tail = stripVTControlCharacters(text).slice(-max)
+  while (JSON.stringify(tail).length > max) tail = tail.slice(JSON.stringify(tail).length - max)
+  return tail
+}
+
+/**
+ * A `grade` callback that scores `{ patch }` with the task's own verifier: Harbor's oracle agent
+ * runs a `solution/solve.sh` that applies the patch (`git apply --binary`) in the environment's
+ * working directory, on a copy of the task. An empty patch changes nothing. A run with no reward
+ * is retried, then reported as `succeeded: false`, never as a reward of 0.
+ */
+export function gradeHarborPatch(
+  options: HarborPatchGradeOptions = {},
+): (item: HarborTaskItem, artifact: { patch: string }) => Promise<HarborGradeOutcome> {
+  const { harborBin = 'harbor', retries = 2, maxDetailChars = 2000, keepImage = true } = options
+  const { timeoutMs: timeout, env: extra } = options
+  const run = { env: { ...process.env, ...extra }, timeout, maxBuffer: 1 << 26 }
+  return async (item, artifact) => {
+    const work = await mkdtemp(join(tmpdir(), 'harbor-grade-'))
+    try {
+      const task = join(work, item.payload.dir)
+      await cp(item.payload.taskDir, task, { recursive: true })
+      await rm(join(task, 'solution'), { recursive: true, force: true })
+      await mkdir(join(task, 'solution'))
+      await writeFile(join(task, 'solution/patch.diff'), artifact.patch)
+      await writeFile(join(task, 'solution/solve.sh'), SOLVE_SH, { mode: 0o755 })
+      const jobsDir = resolve(options.jobsDir ?? join(work, 'jobs'))
+      const errors: string[] = []
+      const keep = keepImage ? '--no-delete' : '--delete'
+      const args = ['run', '-p', task, '-a', 'oracle', '-o', jobsDir, '-q', keep, '--job-name']
+      for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+        const job = `${item.payload.dir}-${randomUUID()}`
+        const failure = await execute(harborBin, [...args, job], run).then(
+          () => null,
+          (error: Error) => detailTail(error.message, 500),
+        )
+        const trial = (await readdir(join(jobsDir, job), { withFileTypes: true }).catch(() => []))
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(jobsDir, job, entry.name, '/'))[0]
+        const read = (path: string) => readFile(`${trial}${path}`, 'utf8').catch(() => '')
+        const result = table(
+          trial === undefined ? {} : JSON.parse((await read('result.json')) || '{}'),
+        )
+        const reward = numberOrNull(table(table(result.verifier_result).rewards).reward)
+        if (reward !== null) {
+          const detail = detailTail(await read('verifier/test-stdout.txt'), maxDetailChars)
+          return { succeeded: true, value: { reward, detail } }
+        }
+        const exception = textOrNull(table(result.exception_info).exception_message)
+        errors.push(`attempt ${attempt}: ${failure ?? exception ?? 'harbor recorded no reward'}`)
+      }
+      return { succeeded: false, error: errors.join('; ') }
+    } finally {
+      await rm(work, { recursive: true, force: true })
+    }
   }
 }
