@@ -56,7 +56,7 @@ Use `validation: 'none'` for prompt-only corpora.
 ```ts
 const scenarios = loadEvalFixtureScenarios('evals', {
   fingerprintConfig: {
-    model: 'claude-sonnet-4-6@2026-06-01',
+    model: 'claude-sonnet-5-5',
     tools: ['shell', 'edit'],
   },
 })
@@ -66,7 +66,7 @@ const plan = planEvalFixtureRun({
   runDir: '.agent-eval/runs/coding',
   dispatchRef: 'codex/sandbox/v1',
   fingerprintConfig: {
-    model: 'claude-sonnet-4-6@2026-06-01',
+    model: 'claude-sonnet-5-5',
     tools: ['shell', 'edit'],
   },
 })

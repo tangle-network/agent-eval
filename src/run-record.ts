@@ -198,9 +198,9 @@ export interface RunOutcome {
  *     configHash) uniquely identifies an experiment cell.
  *
  * Model snapshot discipline:
- *   - successful rows MUST encode a snapshot version. Bare aliases like
- *     `claude-sonnet-4` or `gpt-4o` are banned — they remap silently.
- *     Use `claude-sonnet-4-6@2025-04-15` or `gpt-4o-2024-11-20`.
+ *   - successful rows MUST encode a snapshot version. Moving aliases like `claude-sonnet-4-5`
+ *     or `gpt-4o` remap silently; use `claude-sonnet-4-5-20250929` or `gpt-4o-2024-11-20`.
+ *     A Claude id from 4.6 on (`claude-sonnet-5-5`) has no dated form and is the snapshot.
  *   - a failed, cancelled, incomplete, or otherwise unknown row may use
  *     `UNKNOWN_MODEL` when no served model was observed. This is an explicit
  *     absence marker, not a fabricated snapshot.
@@ -744,10 +744,10 @@ function validateJudgeScores(value: unknown, path: string): void {
 }
 
 /**
- * Snapshot check for provider model identifiers. Accepts ISO and compact
- * dates, Router's `-MMDD` snapshots, one opaque `@token`, and Vertex-style
- * `:date-token` suffixes. Routing selectors such as `@preset/name` are not
- * immutable model identities.
+ * Snapshot check for provider model identifiers. Accepts ISO and compact dates, Router's `-MMDD`
+ * snapshots, one opaque `@token`, Vertex-style `:date-token` suffixes, and Claude ids from 4.6 on,
+ * which Anthropic serves under one fixed id with no dated form (`claude-sonnet-5-5`). Routing
+ * selectors such as `@preset/name` and older Claude aliases (`claude-sonnet-4-5`) are not pinned.
  */
 export function modelHasSnapshot(model: string): boolean {
   if (model.length === 0 || model.trim() !== model) return false
@@ -772,6 +772,8 @@ export function modelHasSnapshot(model: string): boolean {
   const routerDate = model.match(/-(\d{2})(\d{2})$/u)
   if (routerDate && validSnapshotDate(undefined, routerDate[1]!, routerDate[2]!)) return true
 
+  const claude = /(?:^|\/)claude-[a-z]+-(\d{1,2})(?:-(\d{1,2}))?$/u.exec(model)
+  if (claude && Number(claude[1]) * 100 + Number(claude[2] ?? 0) >= 406) return true
   return /:date-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(model)
 }
 
