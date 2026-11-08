@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { summarizeSessionInput } from '@tangle-network/harness-sessions'
+import { modelHasSnapshot } from '../../run-record'
 import { record, stringField } from './code-agent-fields'
 import type { CodeAgentSessionSource } from './code-agent-observation'
 
@@ -90,10 +91,7 @@ export function fallbackSessionId(
 
 export function withSnapshot(model: string): string {
   const trimmed = model.trim() || 'unknown'
-  if (trimmed.includes('@') || /-\d{8}$/.test(trimmed) || /-\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed
-  }
-  return `${trimmed}@observed-local`
+  return modelHasSnapshot(trimmed) ? trimmed : `${trimmed}@observed-local`
 }
 
 export function hashString(value: string): string {

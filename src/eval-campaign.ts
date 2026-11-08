@@ -128,7 +128,7 @@ interface CampaignRunOutcomeFields {
   /** Source of the cost amount. */
   costProvenance: RunCostProvenance
   tokenUsage: RunTokenUsage
-  /** Snapshot model id (e.g. `claude-sonnet-4-6@2025-04-15`). */
+  /** Snapshot model id (e.g. `claude-sonnet-5-5` or `gpt-4o-2024-11-20`). */
   model: string
   /** sha256 of the effective prompt sent to the model. */
   promptHash: string

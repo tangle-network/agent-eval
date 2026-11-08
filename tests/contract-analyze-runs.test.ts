@@ -816,7 +816,7 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         'tangle.runId': 'run-A',
         attributes: {
           'openinference.span.kind': 'LLM',
-          'tangle.model': 'gpt-4o@2025-04-15',
+          'tangle.model': 'claude-sonnet-4-5-20250929',
           'tangle.cost.usd': 0.42,
           'gen_ai.usage.input_tokens': 1200,
           'gen_ai.usage.output_tokens': 350,
@@ -850,7 +850,8 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
         'tangle.runId': 'run-B',
         attributes: {
           'openinference.span.kind': 'LLM',
-          'tangle.model': 'gpt-4o@2025-04-15',
+          // The served id runtime-run-r1-no-winner recorded: Claude 4.6+ ids have no dated form.
+          'tangle.model': 'claude-code/anthropic/claude-sonnet-5',
           'tangle.cost.usd': 0.31,
         },
         status: { code: 'OK' },
@@ -873,6 +874,10 @@ describe('fromOtelSpans → analyzeRuns: OTel observability corpus', () => {
 
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(2)
+    for (const alias of ['claude-sonnet-4-5', 'claude-sonnet-latest', 'claude-3-5-sonnet-latest']) {
+      const moving = runs.map((r) => ({ ...r, model: alias }))
+      await expect(analyzeRuns({ runs: moving })).rejects.toThrow(/lacks a snapshot version/)
+    }
     expect(report.composite.n).toBe(2)
     expect(report.costQuality.cost.mean).toBeGreaterThan(0)
     expect(report.execution.executionErrors).toMatchObject({

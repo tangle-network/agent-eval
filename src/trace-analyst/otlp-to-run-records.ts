@@ -614,13 +614,7 @@ function firstModelAttr(spans: ProjectedOtlpSpan[]): string | null {
   return null
 }
 
-/**
- * `validateRunRecord` rejects bare model aliases (`gpt-4o`) that remap
- * silently. AppWorld/HALO traces frequently carry such bare ids (or a null
- * model). When the model already encodes a snapshot we keep it; otherwise we
- * append the fallback snapshot token so the row is admissible without lying
- * about the model — the bare base name is preserved verbatim before `@`.
- */
+/** Keep a pinned model; give a moving alias (`gpt-4o`) the fallback's `@` token after its name. */
 function ensureSnapshot(model: string, fallbackModel: string): string {
   if (modelHasSnapshot(model)) return model
   const fallbackTag = fallbackModel.includes('@')
