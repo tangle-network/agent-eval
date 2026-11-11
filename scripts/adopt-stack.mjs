@@ -38,6 +38,7 @@ const EXACT = /^\d+\.\d+\.\d+$/
 const POLICY = /base branch policy prohibits the merge/
 const POLL_MS = Number(process.env.ADOPT_STACK_POLL_MS || 20_000)
 const WAIT_MS = Number(process.env.ADOPT_STACK_WAIT_MS || 15 * 60_000)
+const GH = process.env.ADOPT_STACK_GH || 'gh'
 
 // ---- semver: release versions and the range grammar package.json uses ----
 
@@ -150,19 +151,13 @@ export function raiseFloor(range, version) {
  * The newest Publish run of tag v`version` (its push, or a retry titled `Publish v<version>`) that ran
  * `evidence` jobs; every one must have succeeded. A tag published before that job existed needs its
  * own upstream-evidence.yml push run to have succeeded. Refused when absent (never started or deleted),
- * unfinished or unsuccessful; null when the producer runs none. A token only lifts the rate limit.
+ * unfinished or unsuccessful; null when the producer runs none. The GitHub CLI owns authentication.
  */
 export async function releaseEvidence(name, version) {
   const source = RELEASE_EVIDENCE.get(name)
   if (!source) return null
   const tag = `v${version}`
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-  const get = async (path) => {
-    const url = `https://api.github.com/repos/${source.repo}/actions/${path}`
-    const response = await fetch(url, { headers: { accept: 'application/vnd.github+json', ...(token ? { authorization: `Bearer ${token}` } : {}) } })
-    if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
-    return response.json()
-  }
+  const get = async (path) => JSON.parse(out(GH, ['api', `repos/${source.repo}/actions/${path}`]))
   const runs = async (workflow, query) => (await get(`workflows/${workflow}/runs?${query}&per_page=100`)).workflow_runs
   const published = (await Promise.all([`branch=${tag}`, 'event=workflow_dispatch'].map((query) => runs(source.publish, query)))).flat()
     .filter((run) => run.head_branch === tag || run.display_title === `Publish ${tag}`).sort((a, b) => b.id - a.id)
@@ -649,7 +644,7 @@ export async function readPushedProposal(dir, number, expectedHead, defaultBranc
     if (!/^[0-9a-f]{40}$/.test(actual)) throw new Error(`#${number} authoritative proposal ref is unknown (expected ${expectedHead}, observed ${actual || 'empty'}); no metadata or merge attempted`)
     if (actual !== expectedHead) throw new Error(`#${number} moved after the gate: authoritative branch expected ${expectedHead}, observed ${actual}; no metadata or merge attempted`)
   }
-  const read = readProposal ?? (() => JSON.parse(command('gh', ['api', `repos/{owner}/{repo}/pulls/${number}`])))
+  const read = readProposal ?? (() => JSON.parse(command(GH, ['api', `repos/{owner}/{repo}/pulls/${number}`])))
   let observed = 'unknown'
   for (let attempt = 1; attempt <= MAX_READS; attempt += 1) {
     remoteHead()
@@ -702,7 +697,7 @@ export function prepareBranch(dir, defaultBranch, proposalOpen = true) {
 async function deliver(dir, result, { consumer, gate, postPin: command, defaultBranch, merge, base, deployWorkflow, replaces }) {
   const title = titleOf(result.edits)
   const hash = planHash(result.edits, command)
-  const gh = (argv) => out('gh', argv, dir)
+  const gh = (argv) => out(GH, argv, dir)
   const open = JSON.parse(gh(['pr', 'list', '--head', BRANCH, '--base', defaultBranch, '--state', 'open', '--json', 'number,body,isDraft']))[0]
 
   writePlan(dir, result)
@@ -784,7 +779,7 @@ async function deliver(dir, result, { consumer, gate, postPin: command, defaultB
   if (!state.mergedAt || !/^[0-9a-f]{40}$/.test(state.mergeCommit?.oid ?? '')) throw new Error(`merge command returned success but #${number} has no confirmed merge commit`)
   log(`merged #${number} as ${state.mergeCommit.oid}`)
   if (deployWorkflow) {
-    if (!run('gh', ['workflow', 'run', deployWorkflow, '--ref', defaultBranch], dir)) throw new Error(`#${number} merged as ${state.mergeCommit.oid}, but deploy dispatch ${deployWorkflow} failed; source merge succeeded, deployment is unconfirmed`)
+    if (!run(GH, ['workflow', 'run', deployWorkflow, '--ref', defaultBranch], dir)) throw new Error(`#${number} merged as ${state.mergeCommit.oid}, but deploy dispatch ${deployWorkflow} failed; source merge succeeded, deployment is unconfirmed`)
     log(`dispatched existing deploy workflow ${deployWorkflow} on ${defaultBranch} after merge ${state.mergeCommit.oid}; served revision remains the deploy workflow's proof`)
   }
 }
@@ -800,7 +795,7 @@ export async function mergeWhenApproved(dir, number, head, base, defaultBranch) 
   for (;;) {
     const remote = out('git', ['ls-remote', 'origin', `refs/heads/${defaultBranch}`], dir).split(/\s/)[0]
     if (remote !== base) return { moved: remote }
-    const merged = spawnSync('gh', ['pr', 'merge', String(number), '--squash', '--delete-branch', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
+    const merged = spawnSync(GH, ['pr', 'merge', String(number), '--squash', '--delete-branch', '--match-head-commit', head], { cwd: dir, encoding: 'utf8' })
     if (merged.status === 0) return {}
     const refusal = (merged.stderr || merged.stdout).trim()
     if (!POLICY.test(refusal) || reviewDecision(dir, number) !== 'REVIEW_REQUIRED') return { refusal, why: 'the merge was refused' }
@@ -812,7 +807,7 @@ export async function mergeWhenApproved(dir, number, head, base, defaultBranch) 
 
 /** The pull request's review decision, or null when gh cannot read it. */
 function reviewDecision(dir, number) {
-  const viewed = spawnSync('gh', ['pr', 'view', String(number), '--json', 'reviewDecision'], { cwd: dir, encoding: 'utf8' })
+  const viewed = spawnSync(GH, ['pr', 'view', String(number), '--json', 'reviewDecision'], { cwd: dir, encoding: 'utf8' })
   try {
     return viewed.status === 0 ? JSON.parse(viewed.stdout).reviewDecision : null
   } catch {
@@ -846,7 +841,7 @@ async function main() {
   const opts = options(process.argv.slice(2))
   if (!opts.dryRun && !opts.gate) throw new Error('--gate is required without --dry-run')
   if (!opts.dryRun) {
-    const open = JSON.parse(out('gh', ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--limit', '1', '--json', 'number'], opts.dir)).length > 0
+    const open = JSON.parse(out(GH, ['pr', 'list', '--head', BRANCH, '--base', opts.defaultBranch, '--state', 'open', '--limit', '1', '--json', 'number'], opts.dir)).length > 0
     Object.assign(opts, prepareBranch(opts.dir, opts.defaultBranch, open))
   }
   const result = await plan(opts.dir, opts.packages, { consumer: opts.consumer })
