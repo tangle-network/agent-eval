@@ -25,7 +25,8 @@ const groupsOf = <T>(items: readonly T[], cluster: (item: T, index: number) => s
   const groups = new Map<string, T[]>()
   items.forEach((item, index) => {
     const key = cluster(item, index)
-    if (typeof key !== 'string' || !key) throw new ValidationError('clustered statistics require a string cluster id')
+    if (typeof key !== 'string' || !key)
+      throw new ValidationError('clustered statistics require a string cluster id')
     groups.set(key, [...(groups.get(key) ?? []), item])
   })
   return [...groups.values()]
@@ -41,15 +42,21 @@ export function clusterJackknife<T>(
   statistic: (sample: T[]) => number,
   { level = 0.95 }: { level?: number } = {},
 ): JackknifeInterval {
-  if (!(level > 0 && level < 1)) throw new ValidationError('clusterJackknife: level must be in (0,1)')
+  if (!(level > 0 && level < 1))
+    throw new ValidationError('clusterJackknife: level must be in (0,1)')
   const groups = groupsOf(items, cluster)
   const theta = statistic([...items])
   const estimate = Number.isFinite(theta) ? theta : null
-  if (groups.length < 2 || estimate === null) return { estimate, low: null, high: null, clusters: groups.length }
-  const leave = groups.map((_, g) => statistic(groups.flatMap((rows, h) => (h === g ? [] : rows)))).filter(Number.isFinite)
+  if (groups.length < 2 || estimate === null)
+    return { estimate, low: null, high: null, clusters: groups.length }
+  const leave = groups
+    .map((_, g) => statistic(groups.flatMap((rows, h) => (h === g ? [] : rows))))
+    .filter(Number.isFinite)
   const mean = leave.reduce((sum, value) => sum + value, 0) / leave.length
   const g = groups.length
-  const half = studentTQuantile((1 + level) / 2, g - 1) * Math.sqrt(((g - 1) / g) * leave.reduce((sum, value) => sum + (value - mean) ** 2, 0))
+  const half =
+    studentTQuantile((1 + level) / 2, g - 1) *
+    Math.sqrt(((g - 1) / g) * leave.reduce((sum, value) => sum + (value - mean) ** 2, 0))
   return { estimate, low: estimate - half, high: estimate + half, clusters: g }
 }
 
@@ -62,8 +69,11 @@ export function clusterSignFlipTest(
   pairs: readonly ClusteredPair[],
   { resamples = 4999, seed = 1 }: { resamples?: number; seed?: number } = {},
 ): number | null {
-  if (!Number.isSafeInteger(resamples) || resamples < 1) throw new ValidationError('clusterSignFlipTest: resamples must be a positive integer')
-  const sums = groupsOf(pairs, (pair) => pair.cluster).map((rows) => rows.reduce((sum, pair) => sum + pair.delta, 0))
+  if (!Number.isSafeInteger(resamples) || resamples < 1)
+    throw new ValidationError('clusterSignFlipTest: resamples must be a positive integer')
+  const sums = groupsOf(pairs, (pair) => pair.cluster).map((rows) =>
+    rows.reduce((sum, pair) => sum + pair.delta, 0),
+  )
   if (sums.length < 2) return null
   const observed = Math.abs(sums.reduce((sum, value) => sum + value, 0) / pairs.length)
   const rng = mulberry32(seed)
@@ -81,8 +91,13 @@ export function clusteredPairedContrast(
   pairs: readonly ClusteredPair[],
   { level = 0.95, resamples, seed }: { level?: number; resamples?: number; seed?: number } = {},
 ): ClusteredPairedContrast {
-  const mean = (sample: ClusteredPair[]) => (sample.length ? sample.reduce((sum, pair) => sum + pair.delta, 0) / sample.length : Number.NaN)
-  return { pairs: pairs.length, ...clusterJackknife(pairs, (pair) => pair.cluster, mean, { level }), pValue: clusterSignFlipTest(pairs, { resamples, seed }) }
+  const mean = (sample: ClusteredPair[]) =>
+    sample.length ? sample.reduce((sum, pair) => sum + pair.delta, 0) / sample.length : Number.NaN
+  return {
+    pairs: pairs.length,
+    ...clusterJackknife(pairs, (pair) => pair.cluster, mean, { level }),
+    pValue: clusterSignFlipTest(pairs, { resamples, seed }),
+  }
 }
 
 export interface ClusteredBinaryDesign {
@@ -101,8 +116,18 @@ export interface ClusteredBinaryDesign {
  * delta = (t_{1-alpha/2, G-1} + t_{power, G-1}) * sqrt((p(1-p) + (p+delta)(1-p-delta)) * (1 + (m-1) icc) / n),
  * n pairs in G clusters of m = n / G. Conservative: no within-pair correlation, arm-specific cluster effects.
  */
-export function clusteredBinaryMde({ pairs, clusters, controlRate, icc, alpha, power = 0.8 }: ClusteredBinaryDesign) {
-  if (!(clusters >= 2 && pairs >= clusters)) throw new ValidationError('clusteredBinaryMde: needs at least two clusters and one pair per cluster')
+export function clusteredBinaryMde({
+  pairs,
+  clusters,
+  controlRate,
+  icc,
+  alpha,
+  power = 0.8,
+}: ClusteredBinaryDesign) {
+  if (!(clusters >= 2 && pairs >= clusters))
+    throw new ValidationError(
+      'clusteredBinaryMde: needs at least two clusters and one pair per cluster',
+    )
   const design = 1 + (pairs / clusters - 1) * icc
   const z = studentTQuantile(1 - alpha / 2, clusters - 1) + studentTQuantile(power, clusters - 1)
   let delta = z * Math.sqrt((2 * controlRate * (1 - controlRate) * design) / pairs)
@@ -114,12 +139,21 @@ export function clusteredBinaryMde({ pairs, clusters, controlRate, icc, alpha, p
 }
 
 /** Paired binary outcomes with arm-specific cluster effects N(0, icc p(1-p)) on the success probability and a planted effect. */
-function simulatedPairs({ pairs, clusters, controlRate, icc }: ClusteredBinaryDesign, effect: number, rng: () => number): ClusteredPair[] {
+function simulatedPairs(
+  { pairs, clusters, controlRate, icc }: ClusteredBinaryDesign,
+  effect: number,
+  rng: () => number,
+): ClusteredPair[] {
   const normal = () => Math.sqrt(-2 * Math.log(1 - rng())) * Math.cos(2 * Math.PI * rng())
   const sd = Math.sqrt(icc * controlRate * (1 - controlRate))
   const shift = [0, 1].map(() => Array.from({ length: clusters }, () => sd * normal()))
   return Array.from({ length: pairs }, (_, i) => {
-    const [control, treatment] = [0, 1].map((arm) => Number(rng() < Math.min(1, Math.max(0, controlRate + (arm ? effect : 0) + shift[arm]![i % clusters]!))))
+    const [control, treatment] = [0, 1].map((arm) =>
+      Number(
+        rng() <
+          Math.min(1, Math.max(0, controlRate + (arm ? effect : 0) + shift[arm]![i % clusters]!)),
+      ),
+    )
     return { cluster: `c${i % clusters}`, delta: treatment! - control! }
   })
 }
@@ -129,7 +163,9 @@ function simulatedPairs({ pairs, clusters, controlRate, icc }: ClusteredBinaryDe
  * 0 and the power at `effect`, with Monte Carlo standard errors. Without an effect it measures the test's own detectable
  * effect by bisecting simulated power over [mde, 1.5 mde] on reps/4 draws per step.
  */
-export function simulateClusteredBinaryContrast(design: ClusteredBinaryDesign & { reps: number; effect?: number; seed?: number }) {
+export function simulateClusteredBinaryContrast(
+  design: ClusteredBinaryDesign & { reps: number; effect?: number; seed?: number },
+) {
   const { reps, seed = 1, alpha, power = 0.8 } = design
   const { mde } = clusteredBinaryMde(design)
   const rate = (effect: number, offset: number, n = reps) => {
@@ -152,5 +188,14 @@ export function simulateClusteredBinaryContrast(design: ClusteredBinaryDesign & 
   }
   const falsePositive = rate(0, 0)
   const detected = rate(effect, 1_000_003)
-  return { ...design, power, mde, effect, falsePositiveRate: falsePositive.rate, falsePositiveSe: falsePositive.se, simulatedPower: detected.rate, simulatedPowerSe: detected.se }
+  return {
+    ...design,
+    power,
+    mde,
+    effect,
+    falsePositiveRate: falsePositive.rate,
+    falsePositiveSe: falsePositive.se,
+    simulatedPower: detected.rate,
+    simulatedPowerSe: detected.se,
+  }
 }
