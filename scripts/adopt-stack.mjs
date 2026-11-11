@@ -157,7 +157,7 @@ export async function releaseEvidence(name, version) {
   const source = RELEASE_EVIDENCE.get(name)
   if (!source) return null
   const tag = `v${version}`
-  const get = async (path) => JSON.parse(out(GH, ['api', `repos/${source.repo}/actions/${path}`]))
+  const get = async (path) => JSON.parse(out(GH, ['api', '--hostname', 'github.com', `repos/${source.repo}/actions/${path}`]))
   const runs = async (workflow, query) => (await get(`workflows/${workflow}/runs?${query}&per_page=100`)).workflow_runs
   const published = (await Promise.all([`branch=${tag}`, 'event=workflow_dispatch'].map((query) => runs(source.publish, query)))).flat()
     .filter((run) => run.head_branch === tag || run.display_title === `Publish ${tag}`).sort((a, b) => b.id - a.id)
