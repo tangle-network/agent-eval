@@ -6,11 +6,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+- feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
+- fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
 - fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
 - fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
 - feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
 - fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
 - feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
 
 ## [1.0.30] — 2026-11-12
 

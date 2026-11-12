@@ -10,7 +10,7 @@ import {
   searchClaimReserveUsd,
 } from './search-claim'
 import { isTerminal } from './search-kernel-close'
-import type { SearchExecutor, SearchLane } from './search-kernel-contract'
+import type { RunSearchOptions, SearchExecutor, SearchLane } from './search-kernel-contract'
 import { CLAIM_OPERATION, USD_TOLERANCE } from './search-kernel-contract'
 import type { SearchRecorder } from './search-ledger-recording'
 import type { SearchCloseReason, SearchReservation } from './search-ledger-types'
@@ -24,6 +24,7 @@ interface SearchClaimHost {
     readonly allocation: SearchAllocator
     readonly executor: Pick<SearchExecutor<unknown>, 'place'>
     readonly proposer: { readonly childrenPerProposal?: number }
+    readonly beforeClaim?: RunSearchOptions<unknown>['beforeClaim']
   }
   readonly lanes: ReadonlyMap<string, SearchLane>
   refresh(): Promise<void>
@@ -164,6 +165,17 @@ export class SearchKernelClaim {
     }
     await this.host.refresh()
     if (plan.test !== 'run') return
+    await this.host.options.beforeClaim?.(
+      structuredClone({
+        searchId: this.host.recorder.searchId,
+        claim: this.host.state.header!.objective.claim,
+        plan,
+        candidateDigests: [root, ...plan.finalists.map((finalist) => finalist.nodeId)].map(
+          (nodeId) => this.host.state.node(nodeId)!.artifactDigest,
+        ),
+        tasks: this.host.state.header!.splits.test.tasks,
+      }),
+    )
     const missing = this.claimCells(plan.finalists.length, root, plan)
       .map((cell) => ({
         ...cell,

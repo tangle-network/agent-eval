@@ -378,7 +378,13 @@ schema is inferred from a tool name or arguments. Imitation admission refuses a
 tool-calling conversation unless every called tool has a matching captured
 parameter schema, including when the copied call itself has weight 0. Native
 formats without tool schemas stay auditable and require a source-backed schema
-join before SFT; the exporter never fills this gap with a placeholder. Tokenization and loss-mask
+join before SFT; the exporter never fills this gap with a placeholder. Native
+intake projects a static inventory only when every assistant response names a
+complete, identical recorded inventory. Later snapshots never supply earlier
+responses, and changing inventories are not combined. `provenance.tool_definitions_gap`
+preserves the reason a static imitation row cannot represent that conditioning.
+Direct native intake also preserves parser gaps and truncation, so adding a
+task label cannot turn partial capture into training evidence. Tokenization and loss-mask
 application remain the trainer's responsibility. A trainer that ignores weights
 cannot safely consume copied-context rows.
 

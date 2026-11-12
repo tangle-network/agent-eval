@@ -1,8 +1,14 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { openFinalEvidenceLedger } from '../experiment/final-evidence'
 import { hashCanonical } from '../ledger-core/canonical'
 import { uniform } from './allocation'
+import { prepareSearchFinalEvidence } from './final-evidence'
 import { searchClaimDecision, verifySearchClaim } from './search-claim'
 import {
+  type RunSearchOptions,
   runSearch,
   type SearchArtifactCodec,
   type SearchExecutor,
@@ -24,7 +30,9 @@ const tasks = (prefix: string, count: number) =>
 /** A search whose one child beats the root by about 0.5 on every unit, with a
  * different per-unit spread on each, so the paired deltas vary and the claim
  * uses its continuous estimator. */
-async function closedSearch(direction: 'maximize' | 'minimize') {
+async function searchOptions(
+  direction: 'maximize' | 'minimize',
+): Promise<RunSearchOptions<string>> {
   const storage = inMemoryCampaignStorage()
   let clock = Date.parse('2026-10-06T00:00:00Z')
   const recorder = await SearchRecorder.open(
@@ -122,7 +130,7 @@ async function closedSearch(direction: 'maximize' | 'minimize') {
       }
     },
   }
-  return runSearch({
+  return {
     recorder,
     root: 'baseline',
     codec,
@@ -131,8 +139,11 @@ async function closedSearch(direction: 'maximize' | 'minimize') {
     proposer,
     executor,
     maxExpansions: 1,
-  })
+  }
 }
+
+const closedSearch = async (direction: 'maximize' | 'minimize') =>
+  runSearch(await searchOptions(direction))
 
 describe('searchClaimDecision', () => {
   it.each(['maximize', 'minimize'] as const)(
@@ -159,5 +170,69 @@ describe('searchClaimDecision', () => {
   it('returns null for a node the claim did not test', async () => {
     const { state } = await closedSearch('maximize')
     expect(searchClaimDecision(state, state.rootNodeId!)).toBeNull()
+  })
+
+  it('records durable final exposure before dispatch and preserves its sealed roster on resume', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'search-final-exposure-'))
+    try {
+      const ledger = openFinalEvidenceLedger({ path: join(directory, 'exposure.jsonl') })
+      const options = await searchOptions('maximize')
+      const header = (await options.recorder.state()).header!
+      const evidenceInput = {
+        policy: { ledger, requestId: options.recorder.searchId, evaluatorDigest: SOURCE.revision },
+        recorder: options.recorder,
+        claim: header.objective.claim,
+        finalScenarios: header.splits.test.tasks.map((task) => ({ id: task.taskId, kind: 'test' })),
+        developmentScenarios: [...header.splits.train.tasks, ...header.splits.selection.tasks].map(
+          (task) => ({ id: task.taskId, kind: 'test' }),
+        ),
+      }
+      let evidence = await prepareSearchFinalEvidence(evidenceInput)
+      let attempts = 0
+      const rosters: string[][] = []
+      options.beforeClaim = async (input) => {
+        rosters.push([...input.candidateDigests])
+        await expect(
+          evidence.beforeClaim({
+            ...input,
+            candidateDigests: [hashCanonical('another-candidate')],
+          }),
+        ).rejects.toThrow('does not match the sealed search claim')
+        await evidence.beforeClaim(input)
+        if (++attempts === 1) throw new Error('process stopped after exposure')
+        // The callback owns a detached descriptor, not the kernel's persisted plan.
+        input.plan.finalists.splice(0)
+      }
+      await expect(runSearch(options)).rejects.toThrow('process stopped after exposure')
+      expect(
+        (await options.recorder.state()).cells().filter((cell) => cell.split === 'test'),
+      ).toHaveLength(0)
+      const fresh = await searchOptions('maximize')
+      await expect(
+        prepareSearchFinalEvidence({ ...evidenceInput, recorder: fresh.recorder }),
+      ).rejects.toThrow('requires the same sealed search')
+      expect((await fresh.recorder.state()).cells()).toHaveLength(0)
+      evidence = await prepareSearchFinalEvidence(evidenceInput)
+      const result = await runSearch(options)
+      expect(result.claim?.decision).toBe('ship')
+      expect(rosters).toHaveLength(2)
+      expect(rosters[1]).toEqual(rosters[0])
+      const retained = await ledger.read()
+      expect(retained.succeeded).toBe(true)
+      if (!retained.succeeded) throw new Error(retained.error.message)
+      expect(retained.value).toHaveLength(1)
+      expect(retained.value[0]!.exposure?.measurement.candidateDigests).toHaveLength(2)
+      expect(evidence.receipt().record).toEqual(retained.value[0])
+      const reused = await ledger.reserve({
+        ...retained.value[0]!.reservation,
+        requestId: 'another-campaign',
+      })
+      expect(reused.succeeded).toBe(false)
+      evidence = await prepareSearchFinalEvidence(evidenceInput)
+      await runSearch(options)
+      expect(attempts).toBe(2)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

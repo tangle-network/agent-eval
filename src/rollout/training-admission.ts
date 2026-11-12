@@ -85,19 +85,20 @@ export function trainingAdmission(
   else if (purpose === 'imitation' && reward <= floor) reason = 'quality'
   else if (
     purpose === 'imitation' &&
-    line.messages.some((message) =>
-      message.tool_calls?.some(
-        (call) =>
-          !line.tool_defs.some(
-            (definition) =>
-              definition.type === 'function' &&
-              definition.function.name === call.function.name &&
-              typeof definition.function.parameters === 'object' &&
-              definition.function.parameters !== null &&
-              !Array.isArray(definition.function.parameters),
-          ),
-      ),
-    )
+    (line.provenance.tool_definitions_gap !== undefined ||
+      line.messages.some((message) =>
+        message.tool_calls?.some(
+          (call) =>
+            !line.tool_defs.some(
+              (definition) =>
+                definition.type === 'function' &&
+                definition.function.name === call.function.name &&
+                typeof definition.function.parameters === 'object' &&
+                definition.function.parameters !== null &&
+                !Array.isArray(definition.function.parameters),
+            ),
+        ),
+      ))
   )
     reason = 'missing-tool-definitions'
   else if (!isLicenseEligible(line, options.allowLicenseClasses)) reason = 'license'

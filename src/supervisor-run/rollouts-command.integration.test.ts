@@ -418,16 +418,11 @@ describe('supervisor-run rollouts', () => {
       return {
         succeeded: true,
         value: {
-          sessions: artifact.files.map((file: {
-            content: string
-            session?: Parameters<typeof readSessionInput>[2]
-          }) =>
-            readSessionInput(
-              artifact.harness,
-              { text: file.content },
-              file.session ?? {},
-              { corruption: 'strict' },
-            ),
+          sessions: artifact.files.map(
+            (file: { content: string; session?: Parameters<typeof readSessionInput>[2] }) =>
+              readSessionInput(artifact.harness, { text: file.content }, file.session ?? {}, {
+                corruption: 'strict',
+              }),
           ),
         },
       }
@@ -437,6 +432,7 @@ describe('supervisor-run rollouts', () => {
       (line) => line.rollout_id === WORKER,
     )!
     expect(first.provenance.lossy_projection).toBeUndefined()
+    expect(first.provenance.tool_definitions_gap).toContain('no complete recorded tool inventory')
     expect(first.provenance.native_captures).toMatchObject([
       { attempt_id: 'attempt-1', verified: true, native_session_ids: [session.nativeSessionId] },
     ])
@@ -482,9 +478,9 @@ describe('supervisor-run rollouts', () => {
     for (const raw of [null, 'not JSON', JSON.stringify({ kind: 'changed-evidence' })]) {
       if (raw === null) await rm(auditPath)
       else await writeFile(auditPath, raw)
-      const unreadable = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
-        (line) => line.rollout_id === WORKER,
-      )!
+      const unreadable = (
+        await runtimeRunRolloutLines(runDir, { readNativeTranscript })
+      ).lines.find((line) => line.rollout_id === WORKER)!
       expect(unreadable.messages).toEqual(first.messages)
       expect(unreadable.provenance.lossy_projection).toBe(true)
       expect(unreadable.provenance.native_captures?.at(-1)).toMatchObject({
@@ -501,6 +497,29 @@ describe('supervisor-run rollouts', () => {
     }
     await writeFile(auditPath, JSON.stringify(auditValue))
     const completeRows = [...rows]
+    const backfilledRows = nativeText
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    const capturedTools = backfilledRows.find((row) => Array.isArray(row.attachment?.tools))!
+      .attachment.tools
+    backfilledRows.find((row) => row.attachment?.type === 'prompt_snapshot')!.attachment.tools =
+      capturedTools
+    const backfilledText = jsonl(backfilledRows)
+    const backfilledRef = await put({
+      ...native,
+      files: [
+        { ...native.files[0], bytes: Buffer.byteLength(backfilledText), content: backfilledText },
+      ],
+    })
+    await appendAttempt('backfilled-tool-exposure', true, { transcriptRef: backfilledRef })
+    const backfilled = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(backfilled.messages).toEqual(first.messages)
+    expect(backfilled.provenance.gap).toContain('cumulative snapshot conflicts')
+    expect(backfilled.provenance.native_captures?.at(-1)?.verified).toBe(false)
+    rows.splice(0, rows.length, ...completeRows)
     await appendAttempt('forged-root', true, { rootId: 'another-run-root' })
     const forged = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
       (line) => line.rollout_id === WORKER,
@@ -642,11 +661,13 @@ describe('supervisor-run rollouts', () => {
     await appendAttempt('claude-family', true, { transcriptRef: familyRef })
     await appendAttempt('pi-family', true, { transcriptRef: piRef, harness: 'pi' })
     const hierarchy = await runtimeRunRolloutLines(runDir, { readNativeTranscript })
-    expect(hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.lossy_projection)
-      .toBeUndefined()
     expect(
-      hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.native_captures
-        ?.find((capture) => capture.attempt_id === 'pi-family'),
+      hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.lossy_projection,
+    ).toBeUndefined()
+    expect(
+      hierarchy.lines
+        .find((line) => line.rollout_id === WORKER)
+        ?.provenance.native_captures?.find((capture) => capture.attempt_id === 'pi-family'),
     ).toMatchObject({ verified: true, native_session_ids: ['shared-native-id'] })
     expect(
       hierarchy.lines.find((line) => line.rollout_id === `${WORKER}:native:claude-code:grandchild`),

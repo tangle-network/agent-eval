@@ -51,6 +51,7 @@ import { isRecord } from '../llm-client/json'
 import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 import { LICENSE_CLASSES, type LicenseClass } from './license'
 import { type RolloutNativeCapture, validateNativeCaptures } from './transcript'
+
 export type { RolloutNativeCapture } from './transcript'
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 
@@ -325,6 +326,8 @@ export interface RolloutProvenance {
   workspace_captures?: readonly RolloutWorkspaceCapture[] | null
   /** Native receipt verification for each captured execution attempt. */
   native_captures?: readonly RolloutNativeCapture[]
+  /** Why the captured response inventories cannot become one complete static trainer inventory. */
+  tool_definitions_gap?: string
   /** A known lossy semantic projection. Training sinks refuse this line. */
   lossy_projection?: true
   /**
@@ -831,9 +834,9 @@ function validateRolloutProvenance(value: Record<string, unknown>, errors: strin
   validateWorkspaceCaptures(provenance.workspace_captures, errors)
   validateProvenanceAttempts(provenance.attempts, errors)
   validateNativeCaptures(provenance.native_captures, errors)
-  if (provenance.gap !== undefined && typeof provenance.gap !== 'string') {
-    errors.push('provenance.gap: must be string when present')
-  }
+  for (const field of ['gap', 'tool_definitions_gap'])
+    if (provenance[field] !== undefined && typeof provenance[field] !== 'string')
+      errors.push(`provenance.${field}: must be string when present`)
   const evidence = provenance.gated_evidence
   if (evidence !== undefined) {
     if (!isRecord(evidence)) {

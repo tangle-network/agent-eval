@@ -1,7 +1,8 @@
 /** Canonical capture -> durable journal -> the public training formats and their admission receipt. */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { readSessionInput } from '@tangle-network/harness-sessions'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { compareCodeUnits, hashCanonical, jsonDocument } from '../src/ledger-core/canonical'
 import {
@@ -15,12 +16,14 @@ import {
   admitRolloutBatch,
   assertMinted,
   type ChatMessage,
+  harnessSessionRolloutLine,
   mintRolloutRows,
   type RolloutLine,
   readRolloutJournal,
   readRolloutLedger,
   type TrainingAdmission,
   toSftRows,
+  trainingAdmission,
 } from '../src/rollout'
 import { fixtureRolloutLine } from '../src/rollout/fixtures'
 import type { RunRecord } from '../src/run-record'
@@ -29,6 +32,84 @@ import { InMemoryTraceStore } from '../src/trace/store'
 let directory: string
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'training-contract-'))
+})
+
+it('projects source-recorded tool exposure into SFT without backfilling or merging changed inventories', async () => {
+  const source = await readFile(
+    join(import.meta.dirname, 'fixtures/harness-sessions/claude-code.jsonl'),
+    'utf8',
+  )
+  const original = source
+    .trim()
+    .split('\n')
+    .map((row) => JSON.parse(row))
+  const recorded = original.find((row) => Array.isArray(row.attachment?.tools))!
+  const initial = original.find((row) => row.attachment?.type === 'prompt_snapshot')!
+  // Perturb inventory timing on the retained native conversation; every variant goes through the real parser.
+  const complete = original.map((row) =>
+    row === initial
+      ? { ...row, attachment: { ...row.attachment, tools: recorded.attachment.tools } }
+      : row,
+  )
+  const lineOf = (rows: unknown[]) => {
+    const session = readSessionInput('claude-code', {
+      text: `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`,
+    })
+    const line = harnessSessionRolloutLine(session, {
+      harness: session.harness,
+      format: session.format,
+      nativeSessionId: session.nativeSessionId,
+      parentNativeSessionId: null,
+      path: 'retained-native.jsonl',
+      files: [],
+      home: null,
+      cwd: session.cwd,
+      mtimeMs: 0,
+      truncated: false,
+    })
+    return assertMinted({
+      ...line,
+      outcome: { ...line.outcome, reward: 1, realness_screened: true },
+    })
+  }
+  const late = lineOf(original)
+  expect(late.provenance.tool_definitions_gap).toContain('no complete recorded tool inventory')
+  expect(toSftRows([late])).toEqual([])
+  const captured = lineOf(complete)
+  const [sft] = toSftRows([captured])
+  expect(sft!.tools).toEqual(
+    recorded.attachment.tools.map(
+      (tool: { schema: { name: string; description: string; input_schema: unknown } }) => ({
+        type: 'function',
+        function: {
+          name: tool.schema.name,
+          description: tool.schema.description,
+          parameters: tool.schema.input_schema,
+        },
+      }),
+    ),
+  )
+  expect(sft!.messages).toHaveLength(captured.messages.length)
+  const changed = structuredClone(recorded)
+  changed.attachment.tools[0].schema.input_schema.description = 'Changed after the first response'
+  const variable = lineOf(complete.map((row) => (row === recorded ? changed : row)))
+  expect(variable.provenance.tool_definitions_gap).toContain('changes within the conversation')
+  expect(toSftRows([variable])).toEqual([])
+
+  const damaged = readSessionInput('claude-code', { text: `${source}{bad record}\n` })
+  const damagedLine = harnessSessionRolloutLine(damaged, {
+    harness: damaged.harness,
+    format: damaged.format,
+    nativeSessionId: damaged.nativeSessionId,
+    parentNativeSessionId: null,
+    path: 'damaged.jsonl',
+    files: [],
+    home: null,
+    cwd: damaged.cwd,
+    mtimeMs: 0,
+    truncated: false,
+  })
+  expect(trainingAdmission(damagedLine, 'reward').reason).toBe('lossy-capture')
 })
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true })

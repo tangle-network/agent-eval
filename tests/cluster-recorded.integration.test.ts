@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { clusterBootstrapMean } from '../src/meta-eval/index'
 import {
   clusterBootstrap,
+  clusteredBinaryMde,
+  clusteredPairedContrast,
+  clusterJackknife,
   independentRiskDifference,
   placeboBand,
   sampleMedian,
+  simulateClusteredBinaryContrast,
 } from '../src/statistics/index'
-import { clusterBootstrapMean } from '../src/meta-eval/index'
 import recorded from './fixtures/cluster-recorded.json'
 
 // Numeric projection of wf-{stages,wall}-fresh.jsonl; original timestamps retained.
@@ -27,6 +31,90 @@ const statistic = (before: typeof rows, after: typeof rows) => {
 }
 
 describe('recorded create statistics public contract', () => {
+  it('keeps unsupported deletion estimates and invalid paired evidence out of inference', () => {
+    const success = recorded.find((row) => row.outcome === 'ok' && row.value !== null)!
+    const failure = recorded.find((row) => row.outcome !== 'ok')!
+    // Two observed outcomes, deliberately separated into one cluster each: the
+    // successful-latency ratio loses its denominator when that cluster is removed.
+    const sample = [success, failure].map((row, index) => ({ ...row, cluster: String(index) }))
+    const result = clusterJackknife(
+      sample,
+      (row) => row.cluster,
+      (items) => {
+        const successful = items.filter((row) => row.outcome === 'ok')
+        return successful.reduce((sum, row) => sum + (row.value ?? 0), 0) / successful.length
+      },
+    )
+    expect(result).toEqual({ estimate: success.value, low: null, high: null, clusters: 2 })
+    expect(
+      clusteredPairedContrast(sample.map((row) => ({ cluster: row.cluster, delta: 0 }))),
+    ).toMatchObject({ estimate: 0, low: 0, high: 0, pValue: 1 })
+    expect(() =>
+      clusteredPairedContrast([
+        { cluster: 'a', delta: 1e308 },
+        { cluster: 'b', delta: 1e308 },
+      ]),
+    ).toThrow(/total must be finite/)
+    expect(
+      clusterJackknife([0, 1], String, (items) =>
+        items.length === 2 ? 0 : items[0] === 0 ? 1e308 : -1e308,
+      ),
+    ).toMatchObject({ estimate: 0, low: null, high: null })
+    const design = { pairs: 20, clusters: 2, controlRate: 0.5, icc: 0.1, alpha: 0.05 }
+    for (const invalid of [
+      { pairs: 2.5 },
+      { clusters: Infinity },
+      { controlRate: 2 },
+      { icc: -1 },
+      { alpha: 0 },
+      { power: 1 },
+    ])
+      expect(() => clusteredBinaryMde({ ...design, ...invalid })).toThrow()
+    expect(() => simulateClusteredBinaryContrast({ ...design, reps: 0 })).toThrow(/reps/)
+    for (const invalid of [NaN, Infinity, -Infinity]) {
+      expect(() =>
+        clusteredPairedContrast([
+          { cluster: 'observed', delta: 0 },
+          { cluster: 'missing', delta: invalid },
+        ]),
+      ).toThrow(/paired differences must be finite/)
+    }
+  })
+
+  it('keeps unattainable planning and unbracketed power separate from measured diagnostics', () => {
+    const design = { pairs: 200, clusters: 50, controlRate: 0.25, icc: 0.05, alpha: 0.05 / 7 }
+    const interior = clusteredBinaryMde(design)
+    expect(interior.detectable).toBe(true)
+    expect(interior.mde).toBeGreaterThan(0)
+    expect(interior.mde).toBeLessThanOrEqual(1 - design.controlRate)
+    const ceiling = { ...design, controlRate: 1, alpha: 0.05, reps: 8, seed: 77 }
+    expect(clusteredBinaryMde(ceiling)).toMatchObject({ mde: null, detectable: false })
+    expect(() => simulateClusteredBinaryContrast(ceiling)).toThrow(/positive attainable/)
+    expect(simulateClusteredBinaryContrast({ ...ceiling, effect: -0.2 })).toMatchObject({
+      mde: null,
+      effect: -0.2,
+      falsePositiveRate: 0,
+    })
+    const floor = clusteredBinaryMde({ ...design, controlRate: 0 })
+    expect(floor.detectable).toBe(true)
+    expect(floor.mde).toBeGreaterThan(0)
+    expect(floor.mde).toBeLessThan(1)
+    for (const unbracketed of [{ alpha: 0.0001 }, { clusters: 2, alpha: 0.05 }])
+      expect(() =>
+        simulateClusteredBinaryContrast({ ...design, ...unbracketed, reps: 8, seed: 77 }),
+      ).toThrow(/not bracketed/)
+    const bounded = simulateClusteredBinaryContrast({
+      ...design,
+      controlRate: 0.9,
+      icc: 0,
+      alpha: 0.05,
+      reps: 8,
+      seed: 77,
+    })
+    expect(bounded.effect).toBeGreaterThan(0)
+    expect(bounded.effect).toBeLessThanOrEqual(1 - bounded.controlRate)
+  })
+
   it('retains whole clusters and strata through the public percentile and mean APIs', () => {
     const counts = new Map<string, number>()
     for (const row of rows) counts.set(cluster(row), (counts.get(cluster(row)) ?? 0) + 1)

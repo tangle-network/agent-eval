@@ -10,7 +10,10 @@ import type { HarnessSession } from '@tangle-network/harness-sessions'
 import { sandboxEventsSession, toChatMessages, toOtlpSpans } from '@tangle-network/harness-sessions'
 import { hashCanonical, jsonDocument } from '../ledger-core/canonical'
 import { licenseClassOfName } from '../rollout/license'
-import { harnessSessionRolloutLine } from '../rollout/readers/harness-session-lines'
+import {
+  harnessSessionRolloutLine,
+  harnessSessionToolInventory,
+} from '../rollout/readers/harness-session-lines'
 import { screenedRewardFields, unscreenedRewardFields } from '../rollout/reward'
 import type { RolloutLine, RolloutNativeCapture, RolloutSplit } from '../rollout/schema'
 import { sameNativeCaptureIdentity, unresolvedNativeCaptures } from '../rollout/transcript'
@@ -184,10 +187,37 @@ function extendsSession(previous: HarnessSession, next: HarnessSession): boolean
   if (previous.parentNativeSessionId !== next.parentNativeSessionId) return false
   const before = toChatMessages(previous)
   const after = toChatMessages(next)
+  const calls = new Map(next.modelCalls.map((call) => [call.id, call]))
+  const snapshots = new Map((next.toolDefinitionSnapshots ?? []).map((item) => [item.id, item]))
+  if (
+    calls.size !== next.modelCalls.length ||
+    snapshots.size !== (next.toolDefinitionSnapshots?.length ?? 0) ||
+    new Set(next.messages.map((message) => message.id)).size !== next.messages.length
+  )
+    return false
   return (
     after.length >= before.length &&
     hashCanonical(jsonDocument(before)) ===
       hashCanonical(jsonDocument(after.slice(0, before.length))) &&
+    previous.messages.every(
+      (message, index) =>
+        next.messages[index]?.id === message.id &&
+        next.messages[index]?.modelCallId === message.modelCallId,
+    ) &&
+    previous.modelCalls.every(
+      (call) =>
+        calls.has(call.id) &&
+        calls.get(call.id)!.toolDefinitionSnapshotId === call.toolDefinitionSnapshotId &&
+        calls.get(call.id)!.provider === call.provider &&
+        calls.get(call.id)!.servedModel === call.servedModel &&
+        calls.get(call.id)!.requestedModel === call.requestedModel,
+    ) &&
+    (previous.toolDefinitionSnapshots ?? []).every(
+      (snapshot) =>
+        snapshots.has(snapshot.id) &&
+        hashCanonical(jsonDocument(snapshots.get(snapshot.id))) ===
+          hashCanonical(jsonDocument(snapshot)),
+    ) &&
     previous.children.every((child) =>
       next.children.some(
         (item) =>
@@ -469,6 +499,7 @@ export async function runtimeRunRolloutLines(
     )
       episode.gaps.push('supervision journal has unreadable execution evidence')
     const sessions = episode.sessions
+    const inventory = harnessSessionToolInventory(sessions)
     for (const message of episode.gaps)
       captureGaps.push({ code: 'transcript-capture-incomplete', nodeId: node.rollout_id, message })
     const messages = sessions.flatMap((session) => toChatMessages(session))
@@ -497,6 +528,7 @@ export async function runtimeRunRolloutLines(
         ...(license === null ? {} : { license_class: license }),
       },
       messages: sessions.length === 0 ? node.messages : messages,
+      tool_defs: inventory.tools,
       provenance: {
         ...(episode.gaps.length === 0
           ? wholeEpisode(node.provenance)
@@ -506,6 +538,7 @@ export async function runtimeRunRolloutLines(
               gap: [node.provenance.gap, ...episode.gaps].filter(Boolean).join('; '),
             }),
         native_captures: episode.captures,
+        ...(inventory.gap === undefined ? {} : { tool_definitions_gap: inventory.gap }),
       },
       outcome: judged(node, verdict, fact.unansweredSince),
     })
