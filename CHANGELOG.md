@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
+
 ## [1.0.30] — 2026-11-12
 
 - chore(analyst): retain qualified DSPy implementation identity
