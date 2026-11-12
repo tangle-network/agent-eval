@@ -43,8 +43,12 @@ def _fake_dspy(
     answer: str = "Step 2 wrote the wrong path.",
 ) -> Any:
     class FakePythonInterpreter:
-        def __init__(self, *, deno_command: list[str]) -> None:
+        def __init__(self) -> None:
             calls["interpreter"] = self
+            self.deno_command = DENO_COMMAND
+
+        def provide_dspy(self) -> None:
+            pass
 
         def execute(self, code: str) -> str:
             return "2\n"
@@ -137,11 +141,6 @@ def _run_bridge(
     calls: dict[str, Any] = {}
     fake = _fake_dspy(calls, repairs=repairs)
     monkeypatch.setattr(dspy_rlm_bridge, "_load_dspy", lambda: fake)
-    monkeypatch.setattr(
-        dspy_rlm_bridge,
-        "_build_deno_command",
-        lambda _dspy, _import_map: DENO_COMMAND,
-    )
     monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
     inputs = task_inputs
     if inputs is None:
