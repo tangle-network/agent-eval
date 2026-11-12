@@ -38,12 +38,12 @@
  */
 
 import {
-  isSplitEligible,
   isTrainingLineEligible,
   type TrainingExportOptions,
   toSftRows as toCanonicalSftRows,
 } from '../rollout/exporters'
 import { assertRewardGate, type ChatMessage, type MintedRolloutLine } from '../rollout/schema'
+import { trainingAdmission } from '../rollout/training-admission'
 import type { PreferenceTriple } from './preferences'
 import type { PrmTrainingTriple, StepReward } from './process-reward'
 import {
@@ -153,8 +153,13 @@ export function toDpoJsonl(rows: DpoExportRow[]): string {
 export type TrainingLineSelectionOptions = TrainingExportOptions
 
 export interface GrpoLookups
-  extends Pick<TrainingLineSelectionOptions, 'allowHeldOutTrainingData' | 'splitFilter'> {
-  /** Resolve the prompt text for a rollout, keyed by `line.run_id`. */
+  extends Pick<
+    TrainingLineSelectionOptions,
+    'allowHeldOutTrainingData' | 'splitFilter' | 'allowLicenseClasses' | 'onAdmission'
+  > {
+  /** Use rollout ids for episodes containing multiple agent invocations. Default 'run'. */
+  lookupBy?: 'run' | 'rollout'
+  /** Resolve the prompt text by the selected canonical identity. */
   promptOf: (runId: string) => string | Promise<string>
   /** Resolve the assistant completion text for a rollout. */
   completionOf: (runId: string) => string | Promise<string>
@@ -197,9 +202,20 @@ async function grpoRowsFromLines(
   lines: MintedRolloutLine[],
   lookups: GrpoLookups,
 ): Promise<GrpoExportRow[]> {
+  const runCounts = new Map<string, number>()
+  for (const line of lines) runCounts.set(line.run_id, (runCounts.get(line.run_id) ?? 0) + 1)
   const grouped = new Map<string, MintedRolloutLine[]>()
   for (const line of lines) {
-    if (!isSplitEligible(line, lookups)) continue
+    const admission = trainingAdmission(line, 'reward', lookups)
+    if (admission.reason !== null) {
+      if (!lookups.onAdmission)
+        console.warn(`[GRPO export] excluded ${line.rollout_id} (${admission.reason})`)
+      continue
+    }
+    if (lookups.lookupBy !== 'rollout' && (runCounts.get(line.run_id) ?? 0) > 1)
+      throw new Error(
+        `GRPO export: run ${line.run_id} names multiple invocations; use lookupBy: 'rollout'`,
+      )
     const arr = grouped.get(line.task.instance_id) ?? []
     arr.push(line)
     grouped.set(line.task.instance_id, arr)
@@ -218,7 +234,11 @@ async function grpoRowsFromLines(
     // has no baseline.
     if (scored.length < 2) continue
     const prompts = await Promise.all(
-      scored.map(({ line }) => Promise.resolve(lookups.promptOf(line.run_id))),
+      scored.map(({ line }) =>
+        Promise.resolve(
+          lookups.promptOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
+        ),
+      ),
     )
     const prompt = prompts[0]!
     if (prompts.some((value) => value !== prompt)) {
@@ -227,7 +247,11 @@ async function grpoRowsFromLines(
       )
     }
     const completions = await Promise.all(
-      scored.map(({ line }) => Promise.resolve(lookups.completionOf(line.run_id))),
+      scored.map(({ line }) =>
+        Promise.resolve(
+          lookups.completionOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
+        ),
+      ),
     )
     const rewards = scored.map(({ reward }) => reward)
     const runIds = scored.map(({ line }) => line.run_id)
@@ -238,6 +262,7 @@ async function grpoRowsFromLines(
       runIds,
       meta: {
         scenarioId,
+        rolloutIds: scored.map(({ line }) => line.rollout_id),
         n: completions.length,
         meanReward: rewards.reduce((s, x) => s + x, 0) / rewards.length,
       },
@@ -253,6 +278,8 @@ export function toGrpoJsonl(rows: GrpoExportRow[]): string {
 // ── SFT ──────────────────────────────────────────────────────────────────
 
 export interface SftLookups extends TrainingLineSelectionOptions {
+  /** Resolve gap transcripts by invocation identity when one run has several nodes. */
+  lookupBy?: 'run' | 'rollout'
   /**
    * Resolve the prompt text for a GAP line (one minted without a transcript),
    * keyed by `line.run_id`. A line with a captured transcript never consults it.
@@ -268,7 +295,8 @@ export interface SftLookups extends TrainingLineSelectionOptions {
 
 export interface SftExportRow {
   /** The canonical chat transcript, tool turns and nullable content included. */
-  messages: ChatMessage[]
+  messages: Array<ChatMessage & { weight?: 0 | 1 }>
+  tools: import('../rollout/schema').ToolDef[]
   meta?: Record<string, unknown>
 }
 
@@ -282,7 +310,7 @@ export interface SftExportRow {
  * `rollout/exporters.toSftRows`: same fail-closed policy (realness-gated lines
  * are dropped, not zeroed; `search` ships by default, held-out needs
  * `allowHeldOutTrainingData`, `splitFilter` names an explicit slice) and the
- * same copied-context drop. This adapter adds only the legacy text lookups: a
+ * same copied-context loss mask. This adapter adds only the legacy text lookups: a
  * line whose transcript was captured is exported as captured, tool turns
  * included, and a gap line (empty `messages`, `provenance.gap` set) is
  * recovered from `promptOf` / `completionOf` / `systemOf`. `meta.transcriptSource`
@@ -301,11 +329,23 @@ export async function toSftRowsWithLookups(
   for (const line of lines) {
     if (!isTrainingLineEligible(line, lookups) || !include(line)) continue
     const captured = line.messages.length > 0
+    if (
+      !captured &&
+      lookups.lookupBy !== 'rollout' &&
+      lines.filter((item) => item.run_id === line.run_id).length > 1
+    )
+      throw new Error(
+        `SFT export: run ${line.run_id} names multiple invocations; use lookupBy: 'rollout'`,
+      )
     const messages = captured ? line.messages : await recoveredTranscript(line, lookups)
-    const [row] = toCanonicalSftRows([{ ...line, messages }], lookups)
+    const [row] = toCanonicalSftRows([{ ...line, messages }], {
+      ...lookups,
+      onAdmission: undefined,
+    })
     if (row === undefined) continue
     rows.push({
       messages: row.messages,
+      tools: row.tools,
       meta: {
         runId: line.run_id,
         rolloutId: line.rollout_id,
@@ -330,8 +370,12 @@ async function recoveredTranscript(
 ): Promise<ChatMessage[]> {
   const system = lookups.systemOf?.(line)
   const [prompt, completion] = await Promise.all([
-    Promise.resolve(lookups.promptOf(line.run_id)),
-    Promise.resolve(lookups.completionOf(line.run_id)),
+    Promise.resolve(
+      lookups.promptOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
+    ),
+    Promise.resolve(
+      lookups.completionOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
+    ),
   ])
   if (
     typeof prompt !== 'string' ||

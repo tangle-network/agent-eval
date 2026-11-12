@@ -50,6 +50,8 @@
 import { isRecord } from '../llm-client/json'
 import { declaredSteps, GATE_POLICIES, gatedEvidenceOf, gateErrors } from './gate-checks'
 import { LICENSE_CLASSES, type LicenseClass } from './license'
+import { type RolloutNativeCapture, validateNativeCaptures } from './transcript'
+export type { RolloutNativeCapture } from './transcript'
 export const ROLLOUT_SCHEMA = 'tangle.rollout.v1'
 
 /** `agent` = a solo evaluation run (no multi-agent topology). */
@@ -106,9 +108,9 @@ export interface ChatMessage {
   /**
    * Harbor ATIF `is_copied_context` (RFC 0001 rule 7): this turn was COPIED IN
    * from another trajectory's context, not produced by the agent on this line.
-   * The RFC makes excluding it from SFT a MUST, and `toSftRows` does — training
-   * on it teaches the model to author text it never authored, and credits this
-   * run for another one's work. Absent = false (authored here).
+   * SFT preserves this conditioning but assigns copied assistant turns zero
+   * training weight; removing them can destroy tool linkage and answer context.
+   * Absent = false (authored here).
    */
   is_copied_context?: boolean
 }
@@ -321,6 +323,8 @@ export interface RolloutProvenance {
   attempts?: RolloutEvidenceAttempt[]
   /** Exact per-result receipts in source order. Null means Runtime had no result evidence. */
   workspace_captures?: readonly RolloutWorkspaceCapture[] | null
+  /** Native receipt verification for each captured execution attempt. */
+  native_captures?: readonly RolloutNativeCapture[]
   /** A known lossy semantic projection. Training sinks refuse this line. */
   lossy_projection?: true
   /**
@@ -826,6 +830,7 @@ function validateRolloutProvenance(value: Record<string, unknown>, errors: strin
   validateProvenanceSearch(provenance.search, errors)
   validateWorkspaceCaptures(provenance.workspace_captures, errors)
   validateProvenanceAttempts(provenance.attempts, errors)
+  validateNativeCaptures(provenance.native_captures, errors)
   if (provenance.gap !== undefined && typeof provenance.gap !== 'string') {
     errors.push('provenance.gap: must be string when present')
   }

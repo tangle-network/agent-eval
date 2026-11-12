@@ -247,7 +247,7 @@ describe('toSftRowsWithLookups', () => {
     expect(rows[0]?.messages).toEqual([
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: 'user-prompt-a' },
-      { role: 'assistant', content: 'assistant-a' },
+      { role: 'assistant', content: 'assistant-a', weight: 1 },
     ])
   })
 

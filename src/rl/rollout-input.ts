@@ -6,6 +6,7 @@
  */
 
 import { assertRewardGate, type MintedRolloutLine } from '../rollout/schema'
+import { type TrainingExportOptions, trainingAdmission } from '../rollout/training-admission'
 
 /**
  * The line's reward, with `null` meaning "no verdict exists" and never "scored
@@ -38,7 +39,11 @@ function isLineRealnessGated(line: MintedRolloutLine): boolean {
  * happily emit the gaming trajectory as the preferred one. Supplying the lines
  * is what gives it eyes.
  */
-export interface RolloutLineContext {
+export interface RolloutLineContext
+  extends Pick<
+    TrainingExportOptions,
+    'allowHeldOutTrainingData' | 'splitFilter' | 'allowLicenseClasses' | 'onAdmission'
+  > {
   /**
    * Minted lines for every INVOCATION the artifacts reference.
    *
@@ -188,7 +193,7 @@ interface AdmissionAudit<T> {
  * rules). It runs on every resolved line before any item is admitted, so the
  * whole batch fails before a single row is built.
  *
- * Pure: it reports what it dropped and prints nothing.
+ * Resolved invocation decisions reach `onAdmission`; exclusions are announced when no observer is supplied.
  */
 function auditInvocationAdmission<T>(
   items: readonly T[],
@@ -237,7 +242,18 @@ function auditInvocationAdmission<T>(
       continue
     }
     if (lines.some(isLineRealnessGated)) {
+      for (const line of lines) trainingAdmission(line, 'preference', context)
       audit.gatedDrops++
+      continue
+    }
+    const excluded = lines
+      .map((line) => trainingAdmission(line, 'preference', context))
+      .filter((decision) => decision.reason !== null)
+    if (excluded.length > 0) {
+      if (!context.onAdmission)
+        console.warn(
+          `[${requirement.exporter}] excluded item: ${excluded.map((d) => `${d.rollout_id} (${d.reason})`).join(', ')}`,
+        )
       continue
     }
     audit.admitted.push(item)

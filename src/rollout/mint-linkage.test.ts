@@ -178,12 +178,6 @@ describe('canonical capture linkage', () => {
         messages[4]!.tool_call_id = 'call-a'
       },
     ],
-    [
-      'copied call with retained result',
-      (messages: ChatMessage[]) => {
-        messages[1]!.is_copied_context = true
-      },
-    ],
   ] as const) {
     it(`refuses ${name} rather than reconstructing provenance from a tool span`, async () => {
       const messages = capture()

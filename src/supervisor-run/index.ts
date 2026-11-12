@@ -47,6 +47,8 @@ export {
   readRuntimeSupervisorRun,
 } from './runtime-reader'
 export {
+  type RuntimeNativeTranscriptRequest,
+  type RuntimeRunRolloutOptions,
   type RuntimeRunRollouts,
   type RunVerdict,
   runtimeRunRolloutLines,
