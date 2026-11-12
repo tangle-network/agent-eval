@@ -14,12 +14,27 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
     const requests: unknown[] = []
     const authorizations: string[] = []
     const responses: string[] = []
+    let batchArrivals = 0
+    let batchActive = 0
+    let maximumBatchActive = 0
+    let releaseBatch: () => void = () => {}
+    const batchReady = new Promise<void>((resolve) => { releaseBatch = resolve })
     let code = ''
     const provider = createServer(async (request, response) => {
       let body = ''
       for await (const chunk of request) body += chunk
       requests.push(JSON.parse(body))
       authorizations.push(request.headers.authorization ?? '')
+      let batchAnswer: string | undefined
+      if (body.includes('subquery-alpha') || body.includes('subquery-beta')) {
+        batchAnswer = body.includes('subquery-alpha') ? 'alpha' : 'beta'
+        batchArrivals++
+        batchActive++
+        maximumBatchActive = Math.max(maximumBatchActive, batchActive)
+        if (batchArrivals === 2) releaseBatch()
+        await batchReady
+        batchActive--
+      }
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(
         JSON.stringify({
@@ -32,7 +47,9 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
               finish_reason: 'stop',
               message: {
                 role: 'assistant',
-                content: responses.shift() ?? `[[ ## plan ## ]]\nInspect the supplied evidence.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
+                content:
+                  batchAnswer ?? responses.shift() ??
+                  `[[ ## plan ## ]]\nInspect the supplied evidence.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
               },
             },
           ],
@@ -121,11 +138,17 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(observations).toHaveLength(1)
       expect(JSON.stringify(result)).not.toContain('must-not-reach-python')
       expect(JSON.stringify(result)).not.toContain('owner-only-secret')
-      expect(result.runtime.sandbox).toMatchObject({ permissions: {
-        'allow-read': { scoped: true },
-      } })
+      expect(result.runtime.sandbox).toMatchObject({
+        permissions: {
+          'allow-read': { scoped: true },
+        },
+      })
       for (const permission of ['allow-all', 'allow-net', 'allow-env', 'allow-write']) {
-        expect((result.runtime.sandbox as {permissions:Record<string,unknown>}).permissions[permission]).toBeUndefined()
+        expect(
+          (result.runtime.sandbox as { permissions: Record<string, unknown> }).permissions[
+            permission
+          ],
+        ).toBeUndefined()
       }
 
       code =
@@ -189,20 +212,53 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       code = 'SUBMIT(answer="Failure at trace://run/span/broken.", findings_json="not JSON")'
       responses.push(
         `[[ ## plan ## ]]\nReport the failure.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
-        JSON.stringify([{severity:'high',claim:'Observed failure.',confidence:0.9,
-          evidence:[{uri:'trace://run/span/broken'}]}]),
+        JSON.stringify([
+          {
+            severity: 'high',
+            claim: 'Observed failure.',
+            confidence: 0.9,
+            evidence: [{ uri: 'trace://run/span/broken' }],
+          },
+        ]),
       )
       const repairLedger = new CostLedger()
-      const recovered = await createDspyRlmTraceEngine({...options,maxModelRequests:2}).analyze({
-        analystId:'format-repair',question:'Report the failure.',instructions:'Cite only observed facts.',
-        tools:[],limits,costLedger:repairLedger,costPhase:'format-repair',
+      const recovered = await createDspyRlmTraceEngine({ ...options, maxModelRequests: 2 }).analyze(
+        {
+          analystId: 'format-repair',
+          question: 'Report the failure.',
+          instructions: 'Cite only observed facts.',
+          tools: [],
+          limits,
+          costLedger: repairLedger,
+          costPhase: 'format-repair',
+        },
+      )
+      expect(recovered).toMatchObject({
+        modelCalls: 2,
+        findings: [{ claim: 'Observed failure.' }],
+        runtime: { format_repair_used: true, modelSuccessfulCompletions: 2 },
       })
-      expect(recovered).toMatchObject({modelCalls:2,findings:[{claim:'Observed failure.'}],
-        runtime:{format_repair_used:true,modelSuccessfulCompletions:2}})
       expect(repairLedger.list()).toHaveLength(2)
       expect(requests).toHaveLength(5)
       expect(observations).toHaveLength(5)
+
+      code = 'values = llm_query_batched(["subquery-alpha", "subquery-beta"])\n' +
+        'SUBMIT(answer="|".join(values), findings_json="[]")'
+      const batchLedger = new CostLedger()
+      const batched = await createDspyRlmTraceEngine({ ...options, maxModelRequests: 3,
+        modelRequestTimeoutMs: 5000 }).analyze({
+        analystId: 'parallel-rlm', question: 'Exercise two bounded parallel subqueries.',
+        instructions: 'Return the results in input order.', tools: [], limits,
+        costLedger: batchLedger, costPhase: 'parallel-subqueries',
+      })
+      expect(batched).toMatchObject({ answer: 'alpha|beta', modelCalls: 3,
+        runtime: { modelSuccessfulCompletions: 3, format_repair_used: false } })
+      expect(maximumBatchActive).toBe(2)
+      expect(batchLedger.list()).toHaveLength(3)
+      expect(requests).toHaveLength(8)
+      expect(observations).toHaveLength(8)
     } finally {
+      releaseBatch()
       await new Promise<void>((resolve, reject) =>
         provider.close((error) => (error ? reject(error) : resolve())),
       )

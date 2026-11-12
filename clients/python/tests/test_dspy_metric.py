@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +15,6 @@ import pytest
 from agent_eval_rpc import DspyJudgeMetric, JudgeResult
 
 dspy = pytest.importorskip("dspy")
-DummyLM = pytest.importorskip("dspy.utils").DummyLM
-dotdict = pytest.importorskip("dspy.utils.dummies").dotdict
 
 _DSPY_CACHE_ENV = ("DSPY_CACHEDIR", "DSPY_CACHE_LIMIT")
 _UNSAFE_CACHE_MESSAGE = r"dspy\.configure_cache\(restrict_pickle=True\)"
@@ -88,29 +87,40 @@ class _BlockingJudgeClient(_JudgeClient):
         return super().judge(**kwargs)
 
 
-class _InstructionAwareLM(DummyLM):
-    def __init__(self) -> None:
-        super().__init__([{"answer": "BAD"}])
+@contextmanager
+def _instruction_aware_model() -> Iterator[Any]:
+    """Real DSPy native HTTP/adapter execution; only the provider is scripted."""
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            messages = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            answer = "READY" if "Return READY" in json.dumps(messages) else "BAD"
+            payload = json.dumps({
+                "model": "fixture-model",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {
+                    "role": "assistant", "content": f"<answer>{answer}</answer>",
+                }}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
-    def forward(
-        self,
-        prompt: str | None = None,
-        messages: list[dict[str, Any]] | None = None,
-        **_kwargs: Any,
-    ) -> Any:
-        messages = messages or [{"role": "user", "content": prompt or ""}]
-        answer = "READY" if "Return READY" in json.dumps(messages) else "BAD"
-        content = self._format_answer_fields({"answer": answer})
-        return dotdict(
-            choices=[
-                dotdict(
-                    message=dotdict(content=content, tool_calls=None),
-                    finish_reason="stop",
-                )
-            ],
-            usage=dotdict(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-            model="dummy",
-        )
+        def log_message(self, _format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield dspy.LM("openai/fixture-model", engine="lm15", model_type="chat",
+                      api_base=f"http://127.0.0.1:{server.server_port}/v1", api_key="local-test",
+                      num_retries=0, cache=False, timeout=5)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 class _OutcomeJudgeClient:
@@ -145,8 +155,10 @@ class _PicklePayload:
         return _write_marker, (str(self.marker),)
 
 
-def test_unsafe_default_disk_cache_is_rejected(tmp_path: Path) -> None:
-    with _configured_dspy_cache(tmp_path / "unsafe-default", enable_disk_cache=True):
+def test_explicitly_unrestricted_disk_cache_is_rejected(tmp_path: Path) -> None:
+    with _configured_dspy_cache(
+        tmp_path / "unsafe-explicit", enable_disk_cache=True, restrict_pickle=False
+    ):
         with pytest.raises(RuntimeError, match=_UNSAFE_CACHE_MESSAGE) as error:
             DspyJudgeMetric(rubric_name="answer-quality", client=_JudgeClient())
 
@@ -178,7 +190,9 @@ def test_metric_rechecks_global_cache_before_use(tmp_path: Path) -> None:
     client = _JudgeClient()
     metric = DspyJudgeMetric(rubric_name="answer-quality", client=client)
 
-    with _configured_dspy_cache(tmp_path / "unsafe-after-construction", enable_disk_cache=True):
+    with _configured_dspy_cache(
+        tmp_path / "unsafe-after-construction", enable_disk_cache=True, restrict_pickle=False
+    ):
         with pytest.raises(RuntimeError, match=_UNSAFE_CACHE_MESSAGE):
             metric(dspy.Example(answer="Denver"), dspy.Prediction(answer="Denver"))
 
@@ -395,7 +409,7 @@ def test_metric_drives_an_official_dspy_gepa_compile() -> None:
     train = [dspy.Example(question="Say ready.", answer="READY").with_inputs("question")]
     selection = [dspy.Example(question="Also say ready.", answer="READY").with_inputs("question")]
 
-    with dspy.context(lm=_InstructionAwareLM()):
+    with _instruction_aware_model() as lm, dspy.context(lm=lm):
         optimized = optimizer.compile(Program(), trainset=train, valset=selection)
         assert optimized(question="Fresh input.").answer == "READY"
 
