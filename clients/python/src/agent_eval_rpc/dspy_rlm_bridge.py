@@ -11,8 +11,6 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-from agent_eval_rpc.optimizer_bridge_common import module_source_sha256
-
 # Preserve the original bridge import surface while each responsibility has one owner.
 from agent_eval_rpc.dspy_rlm_codetrace import (  # noqa: F401
     _CODETRACE_ANALYSIS_PROMPT,
@@ -79,8 +77,8 @@ from agent_eval_rpc.dspy_rlm_repair import (  # noqa: F401
     _validate_repair_trajectory,
 )
 from agent_eval_rpc.dspy_rlm_sandbox import (  # noqa: F401
-    _pyodide_version,
     _probed_interpreter,
+    _pyodide_version,
     _sandbox_attestation,
 )
 from agent_eval_rpc.dspy_rlm_tools import (  # noqa: F401
@@ -113,7 +111,7 @@ from agent_eval_rpc.dspy_rlm_validation import (  # noqa: F401
     _require_positive_integer,
 )
 from agent_eval_rpc.finding_codec import RejectedFindingRow, describe_rejected_rows
-from agent_eval_rpc.optimizer_bridge_common import atomic_write_json
+from agent_eval_rpc.optimizer_bridge_common import atomic_write_json, module_source_sha256
 
 _DEFAULT_MAX_INPUT_BYTES = 4 * 1024 * 1024
 
