@@ -1,8 +1,7 @@
 /**
  * Project retained Runtime records to canonical rollout rows without changing source files.
- * Preserve structured inputs and child lineage; native capture joins are attempt-bound.
- * The execution owner verifies transcript archives and complete session families.
- * Unreadable execution-evidence references remain gaps beside successful native captures.
+ * Preserve structured inputs, harness-scoped child lineage and attempt-bound native capture.
+ * The owner verifies complete transcript families; unreadable evidence references remain gaps.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -533,6 +532,7 @@ export async function runtimeRunRolloutLines(
         `${node.rollout_id}:native:${session.harness}:${nativeId}`
       const parentIsRoot = episode.native.some(
         (parent) =>
+          parent.harness === session.harness &&
           parent.nativeSessionId === session.parentNativeSessionId &&
           parent.parentNativeSessionId === null,
       )

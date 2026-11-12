@@ -354,7 +354,12 @@ describe('supervisor-run rollouts', () => {
     const appendAttempt = async (
       attemptId: string,
       available: boolean,
-      overrides: { rootId?: string; transcriptRef?: string; resultRef?: string | null } = {},
+      overrides: {
+        rootId?: string
+        transcriptRef?: string
+        resultRef?: string | null
+        harness?: string
+      } = {},
     ) => {
       const wrapper = {
         kind: 'harness-transcript',
@@ -372,7 +377,7 @@ describe('supervisor-run rollouts', () => {
           ? {
               status: 'available',
               transcriptRef: overrides.transcriptRef ?? transcriptRef,
-              harness: 'claude-code',
+              harness: overrides.harness ?? 'claude-code',
               coverageComplete: true,
               fileCount: 1,
               totalBytes: Buffer.byteLength(nativeText),
@@ -413,14 +418,17 @@ describe('supervisor-run rollouts', () => {
       return {
         succeeded: true,
         value: {
-          sessions: [
+          sessions: artifact.files.map((file: {
+            content: string
+            session?: Parameters<typeof readSessionInput>[2]
+          }) =>
             readSessionInput(
               artifact.harness,
-              { text: artifact.files[0].content },
-              {},
+              { text: file.content },
+              file.session ?? {},
               { corruption: 'strict' },
             ),
-          ],
+          ),
         },
       }
     }
@@ -610,6 +618,42 @@ describe('supervisor-run rollouts', () => {
         'imitation',
       ).reason,
     ).toBe('unscored')
+
+    // The source inventory supplies native child identities; messages still come from native parsers.
+    const familyRef = await put({
+      ...native,
+      files: [
+        native.files[0],
+        ...[
+          { nativeSessionId: 'shared-native-id', parentNativeSessionId: session.nativeSessionId },
+          { nativeSessionId: 'grandchild', parentNativeSessionId: 'shared-native-id' },
+        ].map((identity) => ({ ...native.files[0], session: identity })),
+      ],
+    })
+    const piText = (await readFile(join(FIXTURES, 'pi.jsonl'), 'utf8')).replace(
+      /"id":"[^"]+"/u,
+      '"id":"shared-native-id"',
+    )
+    const piRef = await put({
+      ...native,
+      harness: 'pi',
+      files: [{ path: 'pi.jsonl', bytes: Buffer.byteLength(piText), content: piText }],
+    })
+    await appendAttempt('claude-family', true, { transcriptRef: familyRef })
+    await appendAttempt('pi-family', true, { transcriptRef: piRef, harness: 'pi' })
+    const hierarchy = await runtimeRunRolloutLines(runDir, { readNativeTranscript })
+    expect(hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.lossy_projection)
+      .toBeUndefined()
+    expect(
+      hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.native_captures
+        ?.find((capture) => capture.attempt_id === 'pi-family'),
+    ).toMatchObject({ verified: true, native_session_ids: ['shared-native-id'] })
+    expect(
+      hierarchy.lines.find((line) => line.rollout_id === `${WORKER}:native:claude-code:grandchild`),
+    ).toMatchObject({
+      parent_rollout_id: `${WORKER}:native:claude-code:shared-native-id`,
+      outcome: { reward: null },
+    })
   })
 
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
