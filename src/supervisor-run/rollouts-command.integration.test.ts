@@ -437,6 +437,61 @@ describe('supervisor-run rollouts', () => {
         message.content?.includes('TRACEPROOF-WORKER-REAP-FINAL-ANSWER'),
       ),
     ).toBe(true)
+    for (const [index, value] of [null, 'readable generic evidence', ['audit']].entries()) {
+      const ref = await put(value)
+      rows.push({
+        kind: 'event',
+        root: ROOT,
+        event: {
+          kind: 'execution-evidence',
+          id: WORKER,
+          outRef: ref,
+          seq: 5 + index,
+          at: '2026-10-25T04:01:00Z',
+        },
+      })
+    }
+    const auditValue = { kind: 'capture-audit', detail: 'known non-native evidence' }
+    const auditRef = await put(auditValue)
+    const auditPath = join(runDir, 'blobs', `${auditRef.replace(':', '-')}.json`)
+    rows.push({
+      kind: 'event',
+      root: ROOT,
+      event: {
+        kind: 'execution-evidence',
+        id: WORKER,
+        outRef: auditRef,
+        seq: 8,
+        at: '2026-10-25T04:01:00Z',
+      },
+    })
+    await writeFile(path, jsonl(rows))
+    const mixed = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(mixed.provenance.lossy_projection).toBeUndefined()
+    expect(mixed.provenance.native_captures).toHaveLength(1)
+    for (const raw of [null, 'not JSON', JSON.stringify({ kind: 'changed-evidence' })]) {
+      if (raw === null) await rm(auditPath)
+      else await writeFile(auditPath, raw)
+      const unreadable = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+        (line) => line.rollout_id === WORKER,
+      )!
+      expect(unreadable.messages).toEqual(first.messages)
+      expect(unreadable.provenance.lossy_projection).toBe(true)
+      expect(unreadable.provenance.native_captures?.at(-1)).toMatchObject({
+        evidence_ref: auditRef,
+        verified: false,
+        gap: 'execution evidence blob unavailable, malformed or failed content verification',
+      })
+      expect(
+        trainingAdmission(
+          { ...unreadable, outcome: { ...unreadable.outcome, reward: null } },
+          'imitation',
+        ).reason,
+      ).toBe('lossy-capture')
+    }
+    await writeFile(auditPath, JSON.stringify(auditValue))
     const completeRows = [...rows]
     await appendAttempt('forged-root', true, { rootId: 'another-run-root' })
     const forged = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(

@@ -1,21 +1,8 @@
 /**
- * A Runtime run directory as `tangle.rollout.v1` rows: the supervision tree
- * `supervisorRunRolloutLines` mints, with each node's whole episode.
- *
- *   - Producer: each node's `materialized` receipt names the model it ran on
- *     (`opencode/zai-coding-plan/glm-5.3` → harness, provider, model), and the
- *     root's `root-segment` names the root's. The license class follows.
- *   - Episode: each execution's input (`execution-input.taskRef`) and result
- *     (`execution-result.outRef`, a `{content, events}` blob), read as Sandbox
- *     sessions in order, so a node steered twice keeps both turns and every tool
- *     call. Event-only projections remain lossy; complete native capture is
- *     joined through the execution owner's injected verifier for every attempt.
- *   - A node respawned under the same id (a reopened run) is one row.
- *   - Reward: the caller's `RunVerdict` on the root row. The caller owns what
- *     its check means; this reader owns how a reward is screened and when a
- *     stopped episode is whole.
- *
- * Every read is of files Runtime already wrote; nothing in the run dir is changed.
+ * Project retained Runtime records to canonical rollout rows without changing source files.
+ * Preserve structured inputs and child lineage; native capture joins are attempt-bound.
+ * The execution owner verifies transcript archives and complete session families.
+ * Unreadable execution-evidence references remain gaps beside successful native captures.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -170,6 +157,16 @@ async function blobValue(runDir: string, ref: string | undefined): Promise<unkno
   return readJson(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`))
 }
 
+/** Verify generic evidence before classifying it; unreadable bytes cannot identify their kind. */
+async function executionEvidenceValue(runDir: string, ref: string): Promise<unknown> {
+  const value = await blobValue(runDir, ref)
+  try {
+    return value !== undefined && hashCanonical(jsonDocument(value)) === ref ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Keep a structured task whole. Picking only `instruction` would discard its conditioning. */
 function taskText(input: unknown): string | undefined {
   if (typeof input === 'string') return input
@@ -224,18 +221,21 @@ async function nodeSessions(
     let hasNativeMessages = false
     let foundCapture = false
     for (const capture of execution.captures) {
-      const wrapper = record(await blobValue(runDir, capture.ref))
-      if (wrapper?.kind !== 'harness-transcript') continue
+      const value = await executionEvidenceValue(runDir, capture.ref)
+      const wrapper = record(value)
+      if (value !== undefined && wrapper?.kind !== 'harness-transcript') continue
       foundCapture = true
-      const binding = record(wrapper.node)
+      const binding = record(wrapper?.node)
       const rootId = text(binding?.rootId)
       const attemptId = text(binding?.attemptId)
-      const receipt = record(wrapper.harnessTranscript)
-      const taskRef = text(wrapper.taskRef)
-      const resultRef = text(wrapper.outRef)
+      const receipt = record(wrapper?.harnessTranscript)
+      const taskRef = text(wrapper?.taskRef)
+      const resultRef = text(wrapper?.outRef)
       let reason: string | null = null
       let read: readonly HarnessSession[] = []
-      if (hashCanonical(jsonDocument(wrapper)) !== capture.ref || wrapper.schemaVersion !== 1)
+      if (value === undefined)
+        reason = 'execution evidence blob unavailable, malformed or failed content verification'
+      else if (wrapper?.schemaVersion !== 1)
         reason = 'native evidence wrapper failed content verification'
       else if (
         !rootId ||
