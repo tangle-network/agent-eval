@@ -18,7 +18,9 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
     let batchActive = 0
     let maximumBatchActive = 0
     let releaseBatch: () => void = () => {}
-    const batchReady = new Promise<void>((resolve) => { releaseBatch = resolve })
+    const batchReady = new Promise<void>((resolve) => {
+      releaseBatch = resolve
+    })
     let code = ''
     const provider = createServer(async (request, response) => {
       let body = ''
@@ -48,7 +50,8 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
               message: {
                 role: 'assistant',
                 content:
-                  batchAnswer ?? responses.shift() ??
+                  batchAnswer ??
+                  responses.shift() ??
                   `[[ ## plan ## ]]\nInspect the supplied evidence.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
               },
             },
@@ -246,23 +249,35 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(requests).toHaveLength(5)
       expect(observations).toHaveLength(5)
 
-      code = 'values = llm_query_batched(["subquery-alpha", "subquery-beta"])\n' +
+      code =
+        'values = llm_query_batched(["subquery-alpha", "subquery-beta"])\n' +
         'SUBMIT(answer="|".join(values), findings_json="[]")'
       const batchLedger = new CostLedger()
-      const batched = await createDspyRlmTraceEngine({ ...options, maxModelRequests: 3,
-        modelRequestTimeoutMs: 5000 }).analyze({
-        analystId: 'parallel-rlm', question: 'Exercise two bounded parallel subqueries.',
-        instructions: 'Return the results in input order.', tools: [], limits,
-        costLedger: batchLedger, costPhase: 'parallel-subqueries',
+      const batched = await createDspyRlmTraceEngine({
+        ...options,
+        maxModelRequests: 3,
+        modelRequestTimeoutMs: 5000,
+      }).analyze({
+        analystId: 'parallel-rlm',
+        question: 'Exercise two bounded parallel subqueries.',
+        instructions: 'Return the results in input order.',
+        tools: [],
+        limits,
+        costLedger: batchLedger,
+        costPhase: 'parallel-subqueries',
       })
-      expect(batched).toMatchObject({ answer: 'alpha|beta', modelCalls: 3,
-        runtime: { modelSuccessfulCompletions: 3, format_repair_used: false } })
+      expect(batched).toMatchObject({
+        answer: 'alpha|beta',
+        modelCalls: 3,
+        runtime: { modelSuccessfulCompletions: 3, format_repair_used: false },
+      })
       expect(maximumBatchActive).toBe(2)
       expect(batchLedger.list()).toHaveLength(3)
       expect(requests).toHaveLength(8)
       expect(observations).toHaveLength(8)
 
-      code = 'import dspy\nouter_marker = "parent-only"\n' +
+      code =
+        'import dspy\nouter_marker = "parent-only"\n' +
         'child = dspy.RLM("question -> answer", max_iters=1, max_llm_calls=1)\n' +
         'reply = child(question="Check isolated child state.")\n' +
         'SUBMIT(answer=reply.answer, findings_json="[]")'
@@ -272,12 +287,16 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
           'assert "outer_marker" not in globals()\nSUBMIT(answer="isolated child")\n[[ ## completed ## ]]',
       )
       const nested = await createDspyRlmTraceEngine({ ...options, maxModelRequests: 2 }).analyze({
-        analystId: 'nested-rlm', question: 'Exercise a nested code interpreter.',
-        instructions: 'Return the isolated child answer.', tools: [], limits,
-        costLedger: new CostLedger(), costPhase: 'nested-interpreter',
+        analystId: 'nested-rlm',
+        question: 'Exercise a nested code interpreter.',
+        instructions: 'Return the isolated child answer.',
+        tools: [],
+        limits,
+        costLedger: new CostLedger(),
+        costPhase: 'nested-interpreter',
       })
       expect(nested).toMatchObject({ answer: 'isolated child', modelCalls: 2 })
-      expect((nested.runtime.sandbox as {interpreters:unknown[]}).interpreters).toHaveLength(2)
+      expect((nested.runtime.sandbox as { interpreters: unknown[] }).interpreters).toHaveLength(2)
       expect(requests).toHaveLength(10)
       expect(observations).toHaveLength(10)
     } finally {
