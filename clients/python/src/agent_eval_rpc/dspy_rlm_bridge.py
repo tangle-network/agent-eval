@@ -7,8 +7,10 @@ import hashlib
 import os
 import platform
 import sys
+from contextlib import ExitStack
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 # Preserve the original bridge import surface while each responsibility has one owner.
@@ -204,7 +206,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 f"taskInputs.taskStatement must be a string, got {type(statement).__name__}"
             )
-    with _probed_interpreter(dspy) as (interpreter, deno_command):
+    with _probed_interpreter(dspy) as (interpreter, deno_command), ExitStack() as children:
         runtime = _runtime_identity(deno_command)
         lm = dspy.LM(
             f"openai/{model_proxy['model']}",
@@ -221,8 +223,20 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
 
+        interpreters = [interpreter]
+        factory_lock = Lock()
+        claimed_probe = False
+
         def interpreter_factory() -> Any:
-            return interpreter
+            nonlocal claimed_probe
+            with factory_lock:
+                if not claimed_probe:
+                    claimed_probe = True
+                    return interpreter
+                child = dspy.PythonInterpreter()
+                children.callback(child.shutdown)
+                interpreters.append(child)
+                return child
 
         interpreter_factory.execution_instructions = getattr(
             dspy.PythonInterpreter, "execution_instructions", ""
@@ -234,9 +248,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             max_output_chars=limits["maxOutputChars"],
             tools=tools,
             sub_lm=lm,
-            # This program runs once: hand DSPy the same per-analysis sandbox
-            # that passed the startup probe. The outer context also cleans up
-            # if construction fails before DSPy takes ownership.
+            # The main call uses its probed sandbox once. Nested RLM/Flex
+            # modules require fresh interpreters, including concurrent creates.
+            # Both DSPy and the outer context own idempotent cleanup.
             interpreter_factory=interpreter_factory,
         )
 
@@ -282,6 +296,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                     prediction,
                     task_inputs["trajectory"],
                 )
+    runtime["sandbox"]["interpreters"] = [
+        _sandbox_attestation(instance.deno_command) for instance in interpreters
+    ]
     answer = _prediction_string(prediction, "answer")
     findings_salvage: str | None = None
     findings_parse_error: str | None = None

@@ -42,7 +42,9 @@ The Python extra pins the tested stable DSPy and Deno versions.
 The bridge uses DSPy's default restricted interpreter and probes its real DSPy
 bundle before any model call. DSPy owns the pinned Pyodide runtime and startup
 snapshots. The bridge retains the actual command's permission attestation and
-hands the same per-analysis interpreter to RLM, then closes it after the call.
+hands the probed interpreter to the main RLM call. Nested code-executing modules
+get fresh restricted interpreters, whose actual permissions are also recorded.
+Every interpreter closes after its invocation, including failed invocations.
 The controller explicitly uses DSPy's native LM engine and Chat Completions
 through the caller-owned loopback proxy. Its selected Chat or tolerant adapter
 remains explicit, so the upstream XML default does not silently change this

@@ -261,6 +261,25 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(batchLedger.list()).toHaveLength(3)
       expect(requests).toHaveLength(8)
       expect(observations).toHaveLength(8)
+
+      code = 'import dspy\nouter_marker = "parent-only"\n' +
+        'child = dspy.RLM("question -> answer", max_iters=1, max_llm_calls=1)\n' +
+        'reply = child(question="Check isolated child state.")\n' +
+        'SUBMIT(answer=reply.answer, findings_json="[]")'
+      responses.push(
+        `[[ ## plan ## ]]\nRun an isolated child.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
+        '[[ ## plan ## ]]\nCheck isolation.\n[[ ## code ## ]]\n' +
+          'assert "outer_marker" not in globals()\nSUBMIT(answer="isolated child")\n[[ ## completed ## ]]',
+      )
+      const nested = await createDspyRlmTraceEngine({ ...options, maxModelRequests: 2 }).analyze({
+        analystId: 'nested-rlm', question: 'Exercise a nested code interpreter.',
+        instructions: 'Return the isolated child answer.', tools: [], limits,
+        costLedger: new CostLedger(), costPhase: 'nested-interpreter',
+      })
+      expect(nested).toMatchObject({ answer: 'isolated child', modelCalls: 2 })
+      expect((nested.runtime.sandbox as {interpreters:unknown[]}).interpreters).toHaveLength(2)
+      expect(requests).toHaveLength(10)
+      expect(observations).toHaveLength(10)
     } finally {
       releaseBatch()
       await new Promise<void>((resolve, reject) =>
