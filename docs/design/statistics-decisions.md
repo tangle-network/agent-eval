@@ -33,6 +33,23 @@ The mean wrapper keeps its data-derived seed; its bounds now use the shared inte
 quantiles, so previously recorded endpoints may differ. One cluster carries no between-cluster
 information even if its interval collapses.
 
+`clusteredPairedContrast` tests a mean paired difference whose pairs share clusters. Its
+interval is a leave-one-cluster-out jackknife with a t quantile on G-1 degrees of freedom; its
+test of zero is a cluster sign-flip randomization (`clusterSignFlipTest`), whose level is exact
+under a symmetric null. On clustered binary pairs at alpha 0.05/7 the t interval alone rejected
+too often (0.0076 at 0.00714, 12,000 seeded cohorts), the sign-flip test did not (0.00475).
+`clusteredBinaryMde` solves its planning variance equation as a quadratic with the design
+effect 1 + (m-1)·ICC. No finite positive attainable solution gives null MDE and `detectable:false`.
+`simulateClusteredBinaryContrast` measures false-positive rate and power for a supplied effect.
+Without one, it searches within attainable success rates using common seeded draws and refuses
+an unbracketed target. The selected endpoint meets the empirical search threshold; neither global
+minimality nor true population power is certified. Its separate reporting cohort and standard
+errors retain Monte Carlo uncertainty, including a reported power below the requested target.
+Paired deltas must be finite; invalid evidence is refused before a p-value is computed.
+If any required cluster deletion makes the statistic undefined, the jackknife keeps the
+full-sample estimate but returns null bounds. It never discards that cluster and reports
+artificially narrow uncertainty.
+
 `placeboBand` takes same-cell history, a sealed cluster count and the exact credit estimator,
 including winsorization and failure scoring. Hourly windows exclude sealed steps; fewer than
 72 hours or 39 eligible boundaries yields `uncalibrated` with null bounds. It returns K, n,

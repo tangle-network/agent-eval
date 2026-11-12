@@ -11,6 +11,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
 - fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
 - feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
+
+## [1.0.30] — 2026-11-12
+
+- chore(analyst): retain qualified DSPy implementation identity
+- fix(analyst): isolate nested DSPy interpreter instances
+- test(analyst): replace redundant bridge stand-ins with native proof
+- test(analyst): qualify DSPy native model and parallel subqueries
+- style(analyst): keep bridge imports canonical
+- test(analyst): retain native RLM receipts and freeze DSPy cohort
+- feat(analyst): adopt native DSPy 3.5 RLM execution
+- test(analyst): qualify official DSPy RLM over real Python and HTTP
+- fix(adoption): keep evidence authentication in the GitHub CLI (#1248)
+- fix(benchmarks): a patch the Harbor oracle could not apply is no score, never a 0 (#1246)
+- chore(release): 1.0.29
+- feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
 
 ## [1.0.29] — 2026-11-08
 
