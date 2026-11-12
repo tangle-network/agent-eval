@@ -337,7 +337,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                     findings, findings_salvage = salvaged
                     rejected_rows = []
                     break
-        if not findings and findings_salvage is None and answer_text:
+        if (
+            not findings
+            and findings_salvage is None
+            and answer_text
+            and (findings_parse_error is not None or rejected_rows)
+        ):
             # EXACTLY one repair turn on the same LM handle, carrying the exact
             # row defects. A valid submission never reaches here. The call is
             # visible in modelCalls (counted below) and flagged in the runtime
