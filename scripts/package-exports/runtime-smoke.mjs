@@ -12,6 +12,25 @@ function verifyCoreImports(appDir) {
         const profileCell = await import('@tangle-network/agent-eval/profile-cell')
         const analyst = await import('@tangle-network/agent-eval/analyst')
         const traces = await import('@tangle-network/agent-eval/traces')
+        const dataset = new root.Dataset({
+          name: 'packed-scenarios',
+          provenance: { version: 'fixture', createdAt: '2026-11-12T00:00:00Z' },
+          scenarios: [
+            { id: 'development', payload: { request: 'visible' }, split: 'train' },
+            { id: 'assessment', payload: { request: 'held' }, split: 'holdout' },
+          ],
+        })
+        const manifest = await dataset.manifest()
+        if (manifest.scenarioCount !== 2 || manifest.splitCounts.holdout !== 1 || dataset.slice().length !== 1) {
+          throw new Error('packed Dataset lost manifest or holdout isolation')
+        }
+        const restored = root.Dataset.fromJsonl(dataset.toJsonl(), {
+          name: dataset.name,
+          provenance: dataset.provenance,
+        })
+        if ((await restored.manifest()).contentHash !== manifest.contentHash) {
+          throw new Error('packed Dataset round-trip changed the scenario identity')
+        }
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
         if (!('attest' in root)) throw new Error('missing root export attest')
         if (!('verifyAttestation' in root)) throw new Error('missing root export verifyAttestation')
