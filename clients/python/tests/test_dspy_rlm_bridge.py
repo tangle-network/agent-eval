@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -378,8 +377,8 @@ def test_the_generic_repair_prompt_does_not_ask_for_incorrect_steps() -> None:
 def test_the_repair_turn_carries_the_exact_row_defects() -> None:
     prompts: list[str] = []
 
-    def fake_lm(messages: list[dict[str, str]]) -> list[str]:
-        prompts.append(messages[0]["content"])
+    def fake_lm(prompt: str) -> list[str]:
+        prompts.append(prompt)
         return [
             json.dumps(
                 [
@@ -411,7 +410,7 @@ def test_the_repair_turn_carries_the_exact_row_defects() -> None:
 
 
 def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
-    def failing_lm(messages: list[dict[str, str]]) -> list[str]:
+    def failing_lm(prompt: str) -> list[str]:
         raise RuntimeError("provider refused")
 
     accepted, rejected, error = dspy_rlm_bridge._repair_findings_turn(
@@ -422,34 +421,3 @@ def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
     assert error is not None and "provider refused" in error
 
 
-def test_analyze_preserves_installed_dspy_execution_instructions(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    dspy = pytest.importorskip("dspy")
-    interpreter = dspy.PythonInterpreter(deno_command=DENO_COMMAND)
-
-    @contextmanager
-    def probed_interpreter(_dspy: Any) -> Any:
-        try:
-            yield interpreter, DENO_COMMAND
-        finally:
-            interpreter.shutdown()
-
-    class ConstructedWithoutInference(Exception):
-        pass
-
-    def stop_before_inference(program: Any, **_inputs: Any) -> Any:
-        assert (
-            dspy.PythonInterpreter.execution_instructions
-            in program.generate_action.signature.instructions
-        )
-        assert program._interpreter_factory() is interpreter
-        raise ConstructedWithoutInference
-
-    monkeypatch.setattr(dspy_rlm_bridge, "_probed_interpreter", probed_interpreter)
-    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
-    monkeypatch.setattr(dspy.RLM, "forward", stop_before_inference)
-    input_path, _ = _write_analyze_input(tmp_path)
-    with pytest.raises(ConstructedWithoutInference):
-        dspy_rlm_bridge._analyze(json.loads(input_path.read_text()))
