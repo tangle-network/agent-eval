@@ -646,6 +646,7 @@ export type SupervisorRunTreeGapCode =
   | 'workspace-capture-unavailable'
   | 'workspace-capture-incomplete'
   | 'node-schema-invalid'
+  | 'transcript-capture-incomplete'
 
 export interface SupervisorRunTreeGap {
   readonly code: SupervisorRunTreeGapCode

@@ -17,7 +17,15 @@
  * verbatim into training data.
  */
 
-import { isLicenseEligible, type LicenseClass } from './license'
+import {
+  isSplitEligible,
+  type TrainingExportOptions,
+  trainingAdmission,
+} from './training-admission'
+import { requireToolLinkage } from './transcript'
+
+export { isSplitEligible, type TrainingExportOptions } from './training-admission'
+
 import type {
   ChatMessage,
   MintedRolloutLine,
@@ -73,21 +81,6 @@ function realnessLabels(line: MintedRolloutLine): RealnessLabels {
 // (a) SFT chat JSONL
 // ---------------------------------------------------------------------------
 
-export interface TrainingExportOptions {
-  /** Include held-out evaluation data in training output. Default false. */
-  allowHeldOutTrainingData?: boolean
-  /** Require reward to be strictly greater than this value. Default 0. */
-  minimumQualityExclusive?: number
-  /**
-   * Explicit split selection, replacing the default trainable-split rule.
-   * Use this only when producing a deliberately named non-training slice
-   * (e.g. `['holdout']` for a holdout-only evaluation bundle).
-   */
-  splitFilter?: RolloutSplit[]
-  /** Re-cut by license class: only these classes export. Default: every class. */
-  allowLicenseClasses?: readonly LicenseClass[]
-}
-
 /**
  * What a signed-signal exporter (verifiers, RFT) does with lines that are not
  * clean trainable successes — realness-gated lines above all.
@@ -118,7 +111,9 @@ interface SignedSignalExportOptions extends TrainingExportOptions {
 export type SftExportOptions = TrainingExportOptions
 
 export interface SftRow {
-  messages: ChatMessage[]
+  /** Assistant weight 0 preserves conditioning without assigning imitation loss. */
+  messages: Array<ChatMessage & { weight?: 0 | 1 }>
+  tools: ToolDef[]
   metadata: {
     rollout_id: string
     run_id: string
@@ -134,8 +129,7 @@ export interface SftRow {
  * an explicit `splitFilter` names a non-training slice),
  * reward strictly above `minimumQualityExclusive` (default 0), realness-gated
  * lines never qualify, gap lines carry no trainable content, and
- * copied-context turns are dropped from the transcript (Harbor ATIF RFC 0001
- * rule 7 — see `ChatMessage.is_copied_context`).
+ * copied assistant turns remain conditioning with weight 0 (see `ChatMessage.is_copied_context`).
  *
  * `realness_gated` is therefore always `false` on an emitted row. It is carried
  * anyway: an SFT row is a pure imitation target, so the row states its realness
@@ -148,21 +142,29 @@ export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions 
   for (const line of lines) assertRewardGate(line, 'SFT export')
   return lines
     .filter((line) => isTrainingLineEligible(line, options) && line.messages.length > 0)
-    .map((line) => ({
-      // Dropped, not kept-and-masked: a copied-context turn was authored by
-      // another agent, and an SFT trainer has no notion of "present but not a
-      // target" — every message it is handed is something to imitate.
-      messages: line.messages.filter((message) => message.is_copied_context !== true),
-      metadata: {
-        rollout_id: line.rollout_id,
-        run_id: line.run_id,
-        candidate_id: line.candidate_id ?? null,
-        instance_id: line.task.instance_id,
-        reward: line.outcome.reward as number,
-        ...realnessLabels(line),
-      },
-    }))
-    .filter((row) => row.messages.length > 0)
+    .map((line) => {
+      requireToolLinkage(line.messages, `SFT export ${line.rollout_id}`)
+      return {
+        messages: line.messages.map((message): SftRow['messages'][number] => {
+          const { is_copied_context, ...turn } = message
+          return message.role === 'assistant'
+            ? { ...turn, weight: is_copied_context === true ? 0 : 1 }
+            : turn
+        }),
+        tools: line.tool_defs,
+        metadata: {
+          rollout_id: line.rollout_id,
+          run_id: line.run_id,
+          candidate_id: line.candidate_id ?? null,
+          instance_id: line.task.instance_id,
+          reward: line.outcome.reward as number,
+          ...realnessLabels(line),
+        },
+      }
+    })
+    .filter((row) =>
+      row.messages.some((message) => message.role === 'assistant' && message.weight === 1),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -393,26 +395,6 @@ export function toJsonl(rows: ReadonlyArray<unknown>): string {
 }
 
 /**
- * The split half of the training policy alone: `search` is trainable, held-out
- * needs the named opt-in, `dev` and `canary` never ship. This is the ONE check
- * `'zero-and-flag'` does not relax — a gated line is shipped as a labeled
- * negative, not as a licence to train on evaluation data. An explicit
- * `splitFilter` names a non-training slice instead of the default rule.
- *
- * Exported as the single implementation of that rule: `rl/exporters` applies
- * it on its line paths too, so the two waists cannot drift on which splits are
- * trainable.
- */
-export function isSplitEligible(
-  line: RolloutLine,
-  options: Pick<TrainingExportOptions, 'allowHeldOutTrainingData' | 'splitFilter'>,
-): boolean {
-  if (options.splitFilter !== undefined) return options.splitFilter.includes(line.task.split)
-  if (line.task.split === 'search') return true
-  return line.task.split === 'holdout' && options.allowHeldOutTrainingData === true
-}
-
-/**
  * The whole fail-closed training policy for one line: scored, positive above
  * the floor, completed, not gated, in the requested license classes, on an eligible split. Shared with
  * `rl/exporters` so its text-lookup adapter cannot drift from this rule.
@@ -421,22 +403,5 @@ export function isTrainingLineEligible(
   line: RolloutLine,
   options: TrainingExportOptions,
 ): line is RolloutLine & { outcome: RolloutLine['outcome'] & { reward: number } } {
-  const minimumQualityExclusive = options.minimumQualityExclusive ?? 0
-  if (!Number.isFinite(minimumQualityExclusive)) {
-    throw new Error('minimumQualityExclusive must be finite')
-  }
-
-  const reward = line.outcome.reward
-  if (reward === null) return false
-  if (!Number.isFinite(reward)) {
-    throw new Error(`training reward for rollout "${line.rollout_id}" must be finite`)
-  }
-  if (reward <= minimumQualityExclusive) return false
-  if (!line.outcome.is_completed || line.outcome.is_truncated || line.outcome.error !== null) {
-    return false
-  }
-  if (line.outcome.realness_gated === true) return false
-  if (line.provenance.lossy_projection === true) return false
-  if (!isLicenseEligible(line, options.allowLicenseClasses)) return false
-  return isSplitEligible(line, options)
+  return trainingAdmission(line, 'imitation', options).reason === null
 }

@@ -324,6 +324,12 @@ describe('runRLCampaign', () => {
     }
 
     const result = await runRLCampaign<VariantPayload>({
+      rollout: {
+        messagesOf: (runId) => [
+          { role: 'user', content: `prompt-${runId}` },
+          { role: 'assistant', content: `completion-${runId}` },
+        ],
+      },
       campaignId: 'rl-export-unscored',
       commitSha: 'b'.repeat(40),
       variants: [

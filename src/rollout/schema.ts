@@ -106,9 +106,9 @@ export interface ChatMessage {
   /**
    * Harbor ATIF `is_copied_context` (RFC 0001 rule 7): this turn was COPIED IN
    * from another trajectory's context, not produced by the agent on this line.
-   * The RFC makes excluding it from SFT a MUST, and `toSftRows` does — training
-   * on it teaches the model to author text it never authored, and credits this
-   * run for another one's work. Absent = false (authored here).
+   * SFT preserves this conditioning but assigns copied assistant turns zero
+   * training weight; removing them can destroy tool linkage and answer context.
+   * Absent = false (authored here).
    */
   is_copied_context?: boolean
 }
@@ -312,6 +312,22 @@ export interface RolloutWorkspaceCapture {
   readonly projectionGap: string | null
 }
 
+/** Attempt-bound native transcript verification, with its retained source references. */
+export interface RolloutNativeCapture {
+  execution_index: number
+  /** A later verified receipt repaired this explicitly unavailable capture, preserving its audit record. */
+  resolved_by?: string
+  evidence_ref: string
+  root_id: string | null
+  attempt_id: string | null
+  task_ref: string | null
+  result_ref: string | null
+  transcript_ref: string | null
+  verified: boolean
+  gap: string | null
+  native_session_ids: string[]
+}
+
 export interface RolloutProvenance {
   captured_at: string
   capture: RolloutCapture
@@ -321,6 +337,8 @@ export interface RolloutProvenance {
   attempts?: RolloutEvidenceAttempt[]
   /** Exact per-result receipts in source order. Null means Runtime had no result evidence. */
   workspace_captures?: readonly RolloutWorkspaceCapture[] | null
+  /** Native receipt verification for each captured execution attempt. */
+  native_captures?: readonly RolloutNativeCapture[]
   /** A known lossy semantic projection. Training sinks refuse this line. */
   lossy_projection?: true
   /**
@@ -790,6 +808,31 @@ function validateProvenanceAttempts(attempts: unknown, errors: string[]): void {
   }
 }
 
+function validateNativeCaptures(value: unknown, errors: string[]): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) {
+    errors.push('provenance.native_captures: expected array')
+    return
+  }
+  for (const [index, capture] of value.entries()) {
+    if (
+      !isRecord(capture) ||
+      typeof capture.evidence_ref !== 'string' ||
+      !Number.isSafeInteger(capture.execution_index) ||
+      (capture.execution_index as number) < 0 ||
+      (capture.resolved_by !== undefined && typeof capture.resolved_by !== 'string') ||
+      !['root_id', 'attempt_id', 'task_ref', 'result_ref', 'transcript_ref', 'gap'].every((field) =>
+        isStringOrNull(capture[field]),
+      ) ||
+      typeof capture.verified !== 'boolean' ||
+      capture.verified !== (capture.gap === null) ||
+      !Array.isArray(capture.native_session_ids) ||
+      !capture.native_session_ids.every((id) => typeof id === 'string')
+    )
+      errors.push(`provenance.native_captures[${index}]: invalid native transcript evidence`)
+  }
+}
+
 /** Check the artifacts and provenance sections. */
 function validateRolloutProvenance(value: Record<string, unknown>, errors: string[]): void {
   validateSection(
@@ -826,6 +869,7 @@ function validateRolloutProvenance(value: Record<string, unknown>, errors: strin
   validateProvenanceSearch(provenance.search, errors)
   validateWorkspaceCaptures(provenance.workspace_captures, errors)
   validateProvenanceAttempts(provenance.attempts, errors)
+  validateNativeCaptures(provenance.native_captures, errors)
   if (provenance.gap !== undefined && typeof provenance.gap !== 'string') {
     errors.push('provenance.gap: must be string when present')
   }

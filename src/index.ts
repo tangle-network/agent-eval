@@ -35,6 +35,7 @@ export {
   toAgentProfileJson,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
+export { Dataset } from './dataset'
 export { analyzeRuns } from './contract/analyze-runs'
 export { defineAgentEval } from './contract/define-agent-eval'
 export { selfImprove } from './contract/self-improve'

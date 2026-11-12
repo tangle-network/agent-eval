@@ -64,7 +64,10 @@ export {
 } from './interchange/harbor'
 
 export {
+  admitRolloutBatch,
   appendRolloutLines,
+  type RolloutBatchIdentity,
+  type RolloutBatchReceipt,
   readRolloutJournal,
   readRolloutLedger,
   writeRolloutLedger,
@@ -158,6 +161,7 @@ export {
   type RolloutCostBlock,
   type RolloutEvidenceAttempt,
   type RolloutLine,
+  type RolloutNativeCapture,
   type RolloutOutcome,
   type RolloutPolicy,
   type RolloutProvenance,
@@ -176,3 +180,10 @@ export {
   type TinkerExportOptions,
   toTinkerDatumRows,
 } from './tinker'
+export {
+  type TrainingAdmission,
+  type TrainingExclusionReason,
+  type TrainingExportOptions,
+  type TrainingPurpose,
+  trainingAdmission,
+} from './training-admission'

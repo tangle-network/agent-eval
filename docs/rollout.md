@@ -109,7 +109,7 @@ Where each invariant lives:
 | never-screened ≠ screened-clean | `assertMinted` + `RealnessLabels` on every emitted row | `realness_gated: false` is the screen's VERDICT, so a producer with no screen was claiming "we looked and nothing fired". `realness_screened` separates the claims (`true` ran / `false` declared absent / `null` not stated) and travels beside `realness_gated` on every exported row shape. `assertMinted` refuses a positive reward carrying `realness_screened: false`; supervision-journal rows stay writable and readable, only promotion into training is closed |
 | a line-less artifact names ONE invocation | `admitUngatedByInvocation` | `PreferenceTriple` / `PrmTrainingTriple` / `StepReward` carry run ids, and many invocations share a `run_id`. References resolve against `rollout_id` first and fall back to `run_id` only when that run holds exactly one invocation; an ambiguous reference DROPS the item and announces the count, a missing one throws. Keying on `run_id` alone was last-wins, which made the gate depend on array order |
 | no hand-rolled score derivation | `src/rollout/score-derivation-guard.ts`, asserted by `reward-invariant.test.ts` | an AST walk over `src/**` flags every READ of `outcome.holdoutScore` / `outcome.searchScore` outside a counted allowlist. It replaced a line regex that seven ordinary reformattings walked past |
-| split fail-closed | `isTrainableSplit` at every training sink | only `search` ships by default; held-out data requires explicit consent, while `dev` and `canary` never train |
+| split fail-closed | `isSplitEligible` / `trainingAdmission` at training exporters | only `search` ships by default. `allowHeldOutTrainingData` explicitly includes holdout; `splitFilter` explicitly selects a named slice. DPO supplied triples go through the same policy. |
 | unlabeled ≠ zero | schema | `outcome.reward: null` is a labeled gap; reward-row and SFT exporters drop null, they never coerce it to 0 |
 | unmeasured ≠ zero, at the record door | mint | `mintRolloutRows` throws a `ValidationError` naming the run and EVERY field the line is built from that the record does not carry: `costProvenance`, `tokenUsage` (+ `.input` / `.output`), `outcome` (+ `.raw`), `terminalOutcome`, `scenarioId`. The first, third and fifth were OPTIONAL through 0.125, so a ledger written then is full of records the TYPE calls complete. Absent provenance used to mint `cost.usd: 0` — the documented uncaptured sentinel published as a measurement — and an absent `terminalOutcome` or `outcome.raw` still minted a claim about a run nobody observed. The door refuses rather than normalising, because `is_completed` has no null to fall back to and only the producer knows whether `costUsd: 0` meant free or unbilled. `unmintableReasons(record)` reports the same list without throwing |
 | capture gap is a finding | mint and exporters | A missing trace, last-LLM-context projection, capped middle steps, or incomplete provider attempt sets `provenance.gap`. Known lossy projections also set `provenance.lossy_projection: true`, which training sinks exclude. A gap line may still be reconstructed by a separate explicit source lookup. The canonical ledger keeps them for audit. |
@@ -164,7 +164,7 @@ Validation preserves source order and rejects duplicate pairs or missing ordinal
 | --- | --- | --- |
 | schema + validation | `src/rollout/schema.ts` | `RolloutLine`, `validateRolloutLine`, `assertRolloutLine`, `isTrainableSplit` |
 | the gate checks themselves | `src/rollout/gate-checks.ts` | `GATE_CHECK_IDS`, `GATE_CHECKS`, `GATE_POLICIES`, `gateErrors(subject, policy)` — the one list every entry point draws from. The subject is the LINE (`{outcome, steps}`), not the outcome alone: a per-step reward is training signal and lives outside `outcome`. `readReward` / `payloadIsPopulated` are the total readers every check narrows through, so a value the gate cannot classify is refused rather than read as clean |
-| ledger file API | `src/rollout/ledger.ts` | `writeRolloutLedger`, `appendRolloutLines`, `readRolloutLedger` |
+| ledger file API | `src/rollout/ledger.ts` | `writeRolloutLedger`, `appendRolloutLines`, `admitRolloutBatch`, `readRolloutLedger`, `readRolloutJournal` |
 | minting from records | `src/rollout/mint.ts` | `mintRolloutRows(records, traceStore)`: RunRecord joined to trace via shared `runId`. `unmintableReasons(record)`: the same door's refusals, reported without throwing |
 | harness-store intake | `src/rollout/readers/` | `openOpencodeDb` + `readOpencodeSessionMessages` (opencode sqlite), `findClaudeTranscripts` + `readClaudeTranscript` (Claude Code project JSONL), `parseClaudeTranscript` (retained JSONL text), `readCodexRollout` / `parseCodexRollout` (resolved Codex native file / retained text) |
 | interchange | `src/rollout/interchange/harbor.ts` | `toHarborTrajectory` / `toHarborTrajectories` / `fromHarborTrajectory` / `relabelImportedSplit` (Harbor ATIF-v1.7); all root-exported as well as on the `/rollout` subpath |
@@ -236,7 +236,7 @@ Everything else follows from that one fact.
 | `policy.model` | `agent.model_name` + `step.model_name` | |
 | `tool_defs` | `agent.tool_definitions` | byte-identical OpenAI function schema, zero transform |
 | `messages[]` | `steps[]` | coalescing fold: ATIF has no `tool` source, so a tool result becomes an `observation.results[]` entry on the step that DECLARED its `tool_call_id` (RFC MUST rule 2), never on whichever step happened to precede it |
-| `ChatMessage.is_copied_context` | `step.is_copied_context` | RFC rule 7: a turn copied in from another trajectory. Native field both ways, and `toSftRows` drops those turns |
+| `ChatMessage.is_copied_context` | `step.is_copied_context` | RFC rule 7: a turn copied in from another trajectory. Native field both ways; SFT retains conditioning and assigns copied assistant turns weight 0 |
 | `ChatToolCall.function.arguments` (string) | `tool_calls[].arguments` (object) | the raw string is kept in the call's `extra` so a malformed argument blob round-trips verbatim instead of being normalized |
 | `cost.usd` / `tokens_in` / `tokens_out` / `cache_read` | `final_metrics.total_*` | omitted, never 0, when not captured |
 | `cost.tokens_reasoning` / `cache_write` / `wall_s` / `llm_call_count` | `final_metrics.extra.*` | no ATIF field; `reasoning_tokens` is the key the RFC's own example uses |
@@ -265,7 +265,7 @@ All are optional and never back-filled, so every ledger written before they exis
 | `completion_token_ids` | `RolloutStep` | exact completion tokenization; removes the ambiguity of re-tokenizing text at train time |
 | `prompt_token_ids` | `RolloutStep` | exact prompt tokenization |
 | `llm_call_count` | `RolloutStep` and `RolloutCostBlock` | inferences per span and per invocation; `0` means deterministic dispatch with no model call |
-| `is_copied_context` | `ChatMessage` | RFC 0001 rule 7 makes excluding these turns from SFT a MUST — they were authored by another agent, so training on them credits this run for another's work |
+| `is_copied_context` | `ChatMessage` | Copied assistant turns are conditioning with weight 0 in SFT; newly authored assistant turns have weight 1. Removing copied turns can orphan tool results or change the task. The trainer must honor this loss mask. |
 
 The per-step four (`logprobs`, `completion_token_ids`, `prompt_token_ids`, `llm_call_count`) are wired through the interchange in BOTH directions on ATIF's own `step.metrics` / `step.llm_call_count`, not only in our escrow.
 Export matches the k-th `llm` span to the k-th agent step; import prefers the escrow when it exists and falls back to the native channel, which is the only thing a Harbor-native producer writes.
@@ -343,3 +343,99 @@ paid Tinker qualification or an executed20-environment campaign.
 
 See Tinker's official [loss layout](https://tinker-docs.thinkingmachines.ai/tinker/losses/)
 and [Datum API](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/datum/).
+
+
+## Training admission and conditioning
+
+`trainingAdmission(line, purpose, options)` owns split and capture eligibility for
+SFT (`imitation`), DPO/PRM (`preference`), and offline GRPO (`reward`). Every mode
+excludes known lossy capture, unfinished or truncated execution, missing reward,
+and disallowed license classes. Imitation requires a clean positive result and a
+new assistant target; preferences may compare completed honest failures; reward
+training retains screened gaming at its cleared nonpositive reward. A claimed
+positive score alongside an executor error is excluded in every mode. These are
+format eligibility rules, not approval to run a trainer or an on-policy guarantee.
+
+Pass `onAdmission` to observe each considered invocation and its exclusion reason.
+`buildRlDataset` writes `admission.jsonl`, per-format unique-invocation counts and
+reasons, and `sourceSha256` binding the entire canonical input. The digest hashes
+the sorted canonical row digests, retaining per-row event order
+while remaining independent of corpus order. Duplicate rollout IDs are refused
+before accounting or export, so conflicting aliases cannot hide an exclusion. DPO considers the
+invocations referenced by its supplied triples; other formats consider all input
+lines. Eligible invocation counts differ from emitted row counts: DPO needs both
+sides, GRPO needs at least two comparable completions, and an SFT adapter may apply
+an additional caller filter. The source journal remains the owner of excluded
+trajectories; the bundle does not make a second raw evidence store.
+
+SFT retains the complete ordered conditioning, including copied user/tool turns
+and assistant tool invocations. Copied assistant turns carry `weight: 0`; newly
+authored assistant turns carry `weight: 1`. Tool calls and results are validated
+on this complete conversation, and `tools` carries canonical `tool_defs` on both
+SFT exporter paths. `mintRolloutRows` accepts `toolDefsOf(runId)` for schemas
+captured by the execution owner; missing declared schemas are refused, and no
+schema is inferred from a tool name or arguments. Imitation admission refuses a
+tool-calling conversation unless every called tool has a matching captured
+parameter schema, including when the copied call itself has weight 0. Native
+formats without tool schemas stay auditable and require a source-backed schema
+join before SFT; the exporter never fills this gap with a placeholder. Tokenization and loss-mask
+application remain the trainer's responsibility. A trainer that ignores weights
+cannot safely consume copied-context rows.
+
+GRPO and SFT gap lookups default to run identity for solo episodes. When a run
+contains multiple invocations, use `lookupBy: 'rollout'` and resolve the exact
+`rollout_id`; ambiguous run-only lookups are refused. GRPO retains rollout IDs
+beside its run IDs. Equal flat prompt text is checked before preference/group
+export; callers still select comparable task and policy populations.
+
+## Attempt-bound Runtime projection
+
+`runtimeRunRolloutLines(runDir, options)` accepts declared `suite`, `instanceId`
+and `split` metadata. Use the benchmark's stable case identity and partition;
+the reader does not infer a training partition from an outcome. Missing or
+structured execution inputs are retained explicitly: object inputs stay complete
+JSON instead of losing every field except `instruction` or `prompt`.
+
+Execution event streams are audit projections and remain lossy even when they
+contain tool calls. A full native join uses `readNativeTranscript(request)`,
+injected by the execution owner. Eval reads each content-addressed
+`execution-evidence` wrapper, checks node/task/result, the enclosing spawn root or its declared `ownedTreeRoot`,
+and `execution-bound` attempt identity, then asks the loader to verify the receipt, archive bytes,
+exact native family and binding. Runtime's verified reader can implement this
+callback without an Eval dependency on Runtime. No loader or an unavailable
+receipt remains an explicit gap. A later missing attempt cannot be discharged by
+an earlier complete one. A later verified receipt can repair an earlier explicitly
+unavailable receipt only for the same execution index, root, attempt, task and
+result identity. The original record and gap stay visible with `resolved_by`;
+binding/integrity failures and conflicting snapshots are never repaired this way. Normalized native parse gaps, unfinished sessions and
+missing child sessions also prevent a complete projection.
+
+`provenance.native_captures` retains each attempt's source references and
+verification result. Repeated cumulative snapshots replace the same native
+session prefix only after proving conversation and parent/child identity continuity.
+Shorter or conflicting snapshots leave the prior content intact, retain both source
+references, and mark the projection lossy. Native child sessions become separate rows with parent links and
+no invented task reward. The receipt establishes capture integrity, not task
+success, policy licensing, tool definitions absent from the native format, or
+provider response log probabilities. Those remain separate source contracts.
+
+## Idempotent settlement admission
+
+`admitRolloutBatch(directory, {key, sourceDigest, projection}, lines)` retains a
+canonical journal batch and returns `{disposition, receipt}` with its digest and
+rows path. Use a stable source snapshot identity and projection version, and a
+stable capture timestamp. Repeating an identical key/content returns `existing`;
+a different source, projection or content under that key is refused. The
+existing ledger lock and atomic fsynced writer publish rows before their commit
+receipt, so an interrupted identical admission can finish without duplicate
+rows. Retained rows are verified before an existing receipt is acknowledged.
+Only receipt-bearing batches are committed; incomplete staging is not a dataset
+seal. The receipt binds rows and source/projection identity, and does not confer
+training eligibility. Read retained rows with `readRolloutJournal`; mint or screen
+then use the training exporters for algorithm-specific selection.
+
+
+The maintained `Dataset` scenario collection is also available as a value export
+from the package root, alongside its existing manifest/scenario types. Its
+content-hashed partitions can reference these retained rollout batches; this
+module does not introduce another scenario collection implementation.

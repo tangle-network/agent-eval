@@ -23,7 +23,9 @@
  * gated input as the exporters is what guarantees that.
  */
 
+import { compareCodeUnits, hashCanonical, jsonDocument } from '../ledger-core/canonical'
 import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
+import type { TrainingAdmission, TrainingExclusionReason } from '../rollout/training-admission'
 import {
   type DpoLookups,
   type GrpoLookups,
@@ -132,6 +134,20 @@ export interface RlDatasetManifest extends RlDatasetConfig {
   formats: DatasetFormat[]
   rowCounts: Partial<Record<DatasetFormat, number>>
   stats: RlDatasetStats
+  /** Hash of sorted canonical row digests, including excluded invocations. */
+  sourceSha256?: string
+  /** Invocation counts, distinct from the format's emitted row/group count. */
+  admission?: Partial<
+    Record<
+      DatasetFormat,
+      {
+        considered: number
+        eligible: number
+        excluded: number
+        reasons: Partial<Record<TrainingExclusionReason, number>>
+      }
+    >
+  >
 }
 
 export interface RlDatasetBundle {
@@ -204,18 +220,31 @@ export async function buildRlDataset(
   if (lines.length === 0) {
     throw new Error('buildRlDataset: no rollout lines — refusing to package an empty dataset')
   }
+  const ids = new Set<string>()
+  for (const line of lines) {
+    if (ids.has(line.rollout_id))
+      throw new Error(
+        `buildRlDataset: duplicate rollout_id ${line.rollout_id}; each invocation must have one canonical row`,
+      )
+    ids.add(line.rollout_id)
+  }
   const formats = validateDatasetFormats(config.formats === undefined ? ['sft'] : config.formats)
   const files: Record<string, string> = {}
   const rowCounts: Partial<Record<DatasetFormat, number>> = {}
+  const decisions = new Map<string, TrainingAdmission & { format: DatasetFormat }>()
+  const report = (format: DatasetFormat) => (decision: TrainingAdmission) => {
+    decisions.set(`${format}:${decision.rollout_id}`, { ...decision, format })
+    lookups.onAdmission?.(decision)
+  }
 
   if (formats.includes('grpo')) {
-    const rows = await toGrpoRows(lines, lookups)
+    const rows = await toGrpoRows(lines, { ...lookups, onAdmission: report('grpo') })
     requireRows('grpo', rows.length)
     files['train.grpo.jsonl'] = toGrpoJsonl(rows)
     rowCounts.grpo = rows.length
   }
   if (formats.includes('sft')) {
-    const rows = await toSftRowsWithLookups(lines, lookups)
+    const rows = await toSftRowsWithLookups(lines, { ...lookups, onAdmission: report('sft') })
     requireRows('sft', rows.length)
     files['train.sft.jsonl'] = toSftJsonl(rows)
     rowCounts.sft = rows.length
@@ -224,7 +253,13 @@ export async function buildRlDataset(
     if (!preferences) {
       throw new Error("buildRlDataset: format 'dpo' requires `preferences` (triples + lookups)")
     }
-    const rows = await toDpoRows(preferences.triples, preferences.lookups, { lines })
+    const rows = await toDpoRows(preferences.triples, preferences.lookups, {
+      lines,
+      allowHeldOutTrainingData: lookups.allowHeldOutTrainingData,
+      splitFilter: lookups.splitFilter,
+      allowLicenseClasses: lookups.allowLicenseClasses,
+      onAdmission: report('dpo'),
+    })
     requireRows('dpo', rows.length)
     files['train.dpo.jsonl'] = toDpoJsonl(rows)
     rowCounts.dpo = rows.length
@@ -238,7 +273,27 @@ export async function buildRlDataset(
     formats,
     rowCounts,
     stats: computeStatsFromLines(lines),
+    sourceSha256: hashCanonical(
+      lines.map((line) => hashCanonical(jsonDocument(line))).sort(compareCodeUnits),
+    ),
+    admission: Object.fromEntries(
+      formats.map((format) => {
+        const selected = [...decisions.values()].filter((decision) => decision.format === format)
+        const reasons: Partial<Record<TrainingExclusionReason, number>> = {}
+        for (const decision of selected) {
+          if (decision.reason !== null)
+            reasons[decision.reason] = (reasons[decision.reason] ?? 0) + 1
+        }
+        const eligible = selected.filter((decision) => decision.reason === null).length
+        return [
+          format,
+          { considered: selected.length, eligible, excluded: selected.length - eligible, reasons },
+        ]
+      }),
+    ),
   }
+  files['admission.jsonl'] =
+    `${[...decisions.values()].map((decision) => JSON.stringify(decision)).join('\n')}\n`
   files['manifest.json'] = `${JSON.stringify(manifest, null, 2)}\n`
   files['DATASHEET.md'] = datasheetToMarkdown(manifest)
   return { manifest, files }

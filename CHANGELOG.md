@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+- fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
+- fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
+- feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
+- fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
+- feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
+
 ## [1.0.29] — 2026-11-08
 
 - feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
