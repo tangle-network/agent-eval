@@ -14,6 +14,7 @@ interface PaidPairedMeasurementResult<T> {
 }
 
 interface RunPaidPairedMeasurementOptions<T> {
+  allowIncomplete?: boolean
   count: number
   maxConcurrency: number
   label: string
@@ -40,9 +41,11 @@ interface RunPaidPairedMeasurementOptions<T> {
  * batch reservation prevents a complete comparison from turning into a partial
  * one after earlier analysis or search has used the remaining budget.
  */
+export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete: true }): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }>
+export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T>): Promise<PaidPairedMeasurementResult<T>>
 export async function runPaidPairedMeasurement<T>(
   options: RunPaidPairedMeasurementOptions<T>,
-): Promise<PaidPairedMeasurementResult<T>> {
+): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }> {
   assertNonNegativeFinite(options.maximumCostUsd, 'maximumCostUsd')
   const costLedger = resolveCostLedger(options)
   const startedAt = performance.now()
@@ -67,13 +70,13 @@ export async function runPaidPairedMeasurement<T>(
   })
   const wallDurationMs = performance.now() - startedAt
   if (!paid.succeeded) throw paid.error
-  if (paid.receipt.costUnknown) {
+  if (paid.receipt.costUnknown && !options.allowIncomplete) {
     throw new Error(`${options.label} did not capture the complete measurement cost`)
   }
   return {
     measurements: paid.value,
     wallDurationMs,
-    cost:
+    cost: paid.receipt.costUnknown ? { kind: "uncaptured", usd: null } :
       paid.receipt.actualCostUsd === undefined
         ? { kind: 'estimated', usd: paid.receipt.costUsd }
         : { kind: 'observed', usd: paid.receipt.costUsd },
