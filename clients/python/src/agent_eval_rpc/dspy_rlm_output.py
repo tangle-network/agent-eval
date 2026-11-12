@@ -151,7 +151,7 @@ def _repair_findings_turn(
     if defects:
         instruction = f"{instruction}\n\nThe previous submission was refused:\n{defects}"
     try:
-        completions = lm(messages=[{"role": "user", "content": instruction}])
+        completions = lm(instruction)
     except Exception as error:  # noqa: BLE001 — recorded in runtime, never silent
         summary = " ".join(str(error).split())[:200]
         return [], [], f"{type(error).__name__}: {summary}"

@@ -148,9 +148,9 @@ function validateBinaryDesign({
 }
 
 /**
- * Minimum detectable paired difference in success rate, the fixed point of
- * delta = (t_{1-alpha/2, G-1} + t_{power, G-1}) * sqrt((p(1-p) + (p+delta)(1-p-delta)) * (1 + (m-1) icc) / n),
- * n pairs in G clusters of m = n / G. Conservative: no within-pair correlation, arm-specific cluster effects.
+ * Planning paired success-rate difference with arm-specific cluster effects and no within-pair correlation.
+ * delta = z * sqrt((p*(1-p) + (p+delta)*(1-p-delta)) * design / pairs).
+ * Solves the variance fixed point; null means no finite positive solution in the attainable interval.
  */
 export function clusteredBinaryMde({
   pairs,
@@ -163,12 +163,13 @@ export function clusteredBinaryMde({
   validateBinaryDesign({ pairs, clusters, controlRate, icc, alpha, power })
   const design = 1 + (pairs / clusters - 1) * icc
   const z = studentTQuantile(1 - alpha / 2, clusters - 1) + studentTQuantile(power, clusters - 1)
-  let delta = z * Math.sqrt((2 * controlRate * (1 - controlRate) * design) / pairs)
-  for (let i = 0; i < 50; i++) {
-    const p = Math.min(1, controlRate + delta)
-    delta = z * Math.sqrt(((controlRate * (1 - controlRate) + p * (1 - p)) * design) / pairs)
-  }
-  return { designEffect: design, mde: delta, detectable: delta <= 1 - controlRate }
+  const a = 1 + pairs / (z * z * design)
+  const b = 1 - 2 * controlRate
+  const pq = controlRate * (1 - controlRate)
+  const d = Math.hypot(b, Math.sqrt(8 * a * pq))
+  const delta = b >= 0 ? (b + d) / (2 * a) : (4 * pq) / (d - b)
+  const detectable = Number.isFinite(z) && z > 0 && delta > 0 && delta <= 1 - controlRate
+  return { designEffect: design, mde: detectable ? delta : null, detectable }
 }
 
 /** Paired binary outcomes with arm-specific cluster effects N(0, icc p(1-p)) on the success probability and a planted effect. */
@@ -192,9 +193,8 @@ function simulatedPairs(
 }
 
 /**
- * Seeded simulation of the cluster sign-flip test on clustered paired binary outcomes: the false-positive rate at effect
- * 0 and the power at `effect`, with Monte Carlo standard errors. Without an effect it measures the test's own detectable
- * effect by bisecting simulated power over [mde, 1.5 mde] on reps/4 draws per step.
+ * Seeded false-positive rate and power, with Monte Carlo standard errors. Without an effect, searches an attainable
+ * candidate using common random draws; its independent reporting cohort does not guarantee the requested true power.
  */
 export function simulateClusteredBinaryContrast(
   design: ClusteredBinaryDesign & { reps: number; effect?: number; seed?: number },
@@ -222,10 +222,24 @@ export function simulateClusteredBinaryContrast(
   }
   let effect = design.effect
   if (effect === undefined) {
-    let [low, high] = [mde, 1.5 * mde]
+    const maximum = 1 - design.controlRate
+    let [low, high] = [mde ?? 0, Math.min(maximum, mde === null ? maximum : 1.5 * mde)]
+    const searchPower = (delta: number) => rate(delta, 2_000_003, Math.ceil(reps / 4)).rate
+    if (!(high > 0))
+      throw new ValidationError('simulateClusteredBinaryContrast: no positive attainable effect')
+    if (searchPower(high) < power) high = maximum
+    if (searchPower(high) < power)
+      throw new ValidationError('simulateClusteredBinaryContrast: requested power is not bracketed')
+    if (searchPower(low) >= power) {
+      low = 0
+      if (searchPower(low) >= power)
+        throw new ValidationError(
+          'simulateClusteredBinaryContrast: requested power is not bracketed',
+        )
+    }
     for (let step = 0; step < 6; step++) {
       const middle = (low + high) / 2
-      if (rate(middle, 2_000_003 + step * reps, Math.ceil(reps / 4)).rate >= power) high = middle
+      if (searchPower(middle) >= power) high = middle
       else low = middle
     }
     effect = high

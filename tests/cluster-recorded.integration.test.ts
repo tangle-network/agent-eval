@@ -81,6 +81,40 @@ describe('recorded create statistics public contract', () => {
     }
   })
 
+  it('keeps unattainable planning and unbracketed power separate from measured diagnostics', () => {
+    const design = { pairs: 200, clusters: 50, controlRate: 0.25, icc: 0.05, alpha: 0.05 / 7 }
+    const interior = clusteredBinaryMde(design)
+    expect(interior.detectable).toBe(true)
+    expect(interior.mde).toBeGreaterThan(0)
+    expect(interior.mde).toBeLessThanOrEqual(1 - design.controlRate)
+    const ceiling = { ...design, controlRate: 1, alpha: 0.05, reps: 8, seed: 77 }
+    expect(clusteredBinaryMde(ceiling)).toMatchObject({ mde: null, detectable: false })
+    expect(() => simulateClusteredBinaryContrast(ceiling)).toThrow(/positive attainable/)
+    expect(simulateClusteredBinaryContrast({ ...ceiling, effect: -0.2 })).toMatchObject({
+      mde: null,
+      effect: -0.2,
+      falsePositiveRate: 0,
+    })
+    const floor = clusteredBinaryMde({ ...design, controlRate: 0 })
+    expect(floor.detectable).toBe(true)
+    expect(floor.mde).toBeGreaterThan(0)
+    expect(floor.mde).toBeLessThan(1)
+    for (const unbracketed of [{ alpha: 0.0001 }, { clusters: 2, alpha: 0.05 }])
+      expect(() =>
+        simulateClusteredBinaryContrast({ ...design, ...unbracketed, reps: 8, seed: 77 }),
+      ).toThrow(/not bracketed/)
+    const bounded = simulateClusteredBinaryContrast({
+      ...design,
+      controlRate: 0.9,
+      icc: 0,
+      alpha: 0.05,
+      reps: 8,
+      seed: 77,
+    })
+    expect(bounded.effect).toBeGreaterThan(0)
+    expect(bounded.effect).toBeLessThanOrEqual(1 - bounded.controlRate)
+  })
+
   it('retains whole clusters and strata through the public percentile and mean APIs', () => {
     const counts = new Map<string, number>()
     for (const row of rows) counts.set(cluster(row), (counts.get(cluster(row)) ?? 0) + 1)

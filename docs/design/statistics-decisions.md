@@ -38,9 +38,13 @@ interval is a leave-one-cluster-out jackknife with a t quantile on G-1 degrees o
 test of zero is a cluster sign-flip randomization (`clusterSignFlipTest`), whose level is exact
 under a symmetric null. On clustered binary pairs at alpha 0.05/7 the t interval alone rejected
 too often (0.0076 at 0.00714, 12,000 seeded cohorts), the sign-flip test did not (0.00475).
-`clusteredBinaryMde` is the planning formula with the design effect 1 + (m-1)·ICC;
-`simulateClusteredBinaryContrast` measures the test's false-positive rate, and its own
-detectable effect when no effect is planted.
+`clusteredBinaryMde` solves its planning variance equation as a quadratic with the design
+effect 1 + (m-1)·ICC. No finite positive attainable solution gives null MDE and `detectable:false`.
+`simulateClusteredBinaryContrast` measures false-positive rate and power for a supplied effect.
+Without one, it searches within attainable success rates using common seeded draws and refuses
+an unbracketed target. The selected endpoint meets the empirical search threshold; neither global
+minimality nor true population power is certified. Its separate reporting cohort and standard
+errors retain Monte Carlo uncertainty, including a reported power below the requested target.
 Paired deltas must be finite; invalid evidence is refused before a p-value is computed.
 If any required cluster deletion makes the statistic undefined, the jackknife keeps the
 full-sample estimate but returns null bounds. It never discards that cluster and reports

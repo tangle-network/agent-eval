@@ -1,25 +1,25 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version < '3.12' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version < '3.12' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
@@ -37,7 +37,7 @@ conflicts = [[
 
 [[package]]
 name = "agent-eval-rpc"
-version = "1.0.29"
+version = "1.0.30"
 source = { editable = "." }
 dependencies = [
     { name = "filelock" },
@@ -89,7 +89,7 @@ skillopt-source = [
 [package.metadata]
 requires-dist = [
     { name = "deno", marker = "extra == 'dspy'", specifier = "==2.9.8" },
-    { name = "dspy", marker = "extra == 'dspy'", specifier = "==3.4.1" },
+    { name = "dspy", marker = "extra == 'dspy'", specifier = "==3.5.0" },
     { name = "filelock", specifier = ">=4.2.4" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pydantic", specifier = ">=2.6" },
@@ -330,7 +330,7 @@ version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.15' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc37b1db102b386ba719b66e95b0f0d751f556b387e6d2/anyio-4.15.1.tar.gz", hash = "sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94", size = 276966, upload-time = "2026-09-05T10:42:39.44Z" }
 wheels = [
@@ -426,7 +426,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -698,7 +698,7 @@ name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9d/af/182eb91b0df3fe75c4d9f26fe70684569566745f6ba7e5c9c73a862c5252/cryptography-50.0.2.tar.gz", hash = "sha256:7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5", size = 880623, upload-time = "2026-09-30T15:30:04.884Z" }
 wheels = [
@@ -786,11 +786,11 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
     { name = "filelock" },
-    { name = "fsspec", extra = ["http"], marker = "extra == 'group-14-agent-eval-rpc-gepa-release' or extra == 'group-14-agent-eval-rpc-gepa-source' or extra != 'extra-14-agent-eval-rpc-dspy'" },
+    { name = "fsspec", extra = ["http"], marker = "extra != 'extra-14-agent-eval-rpc-dspy' or extra == 'group-14-agent-eval-rpc-gepa-release' or extra == 'group-14-agent-eval-rpc-gepa-source'" },
     { name = "huggingface-hub" },
     { name = "multiprocess" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
     { name = "packaging" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -845,29 +845,27 @@ wheels = [
 
 [[package]]
 name = "dspy"
-version = "3.4.1"
+version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "cachetools" },
+    { name = "certifi" },
     { name = "cloudpickle" },
     { name = "diskcache" },
-    { name = "gepa", version = "0.1.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.15' and extra == 'extra-14-agent-eval-rpc-dspy') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "gepa", version = "0.1.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
     { name = "json-repair" },
     { name = "jsonschema" },
-    { name = "litellm", marker = "python_full_version < '3.15'" },
-    { name = "openai" },
     { name = "orjson" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "regex" },
     { name = "requests" },
-    { name = "tenacity" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/00/5c/260210d87e0604b9086735a8dc1ef8ca4edd61bc9e8042a013ca36cf8b7e/dspy-3.4.1.tar.gz", hash = "sha256:6803449c11818efd10537da22e509a87af1bd30796053d1a6c82421f2afaa461", size = 926321, upload-time = "2026-10-12T23:07:25.395Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/02/61d7b473b32d304900f504c8d3321583265585a793a7d7cd28e11f4e4375/dspy-3.5.0.tar.gz", hash = "sha256:1ffb057e45ea5e0e16217680fd48794164c7eac6119bb9b1bc9a122c1d658036", size = 1070847, upload-time = "2026-11-10T16:24:10.63Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/2f/656f16206c9ba4e359b639e2605cf196a4e5c678c6d9aed0fae537701ec2/dspy-3.4.1-py3-none-any.whl", hash = "sha256:afda9e7f8b3d46be0829af19ac1153a6feaa6db5923f2b1011eef547fb15ce2d", size = 1027332, upload-time = "2026-10-12T23:07:23.761Z" },
+    { url = "https://files.pythonhosted.org/packages/67/ab/0104d0ffed26493858758f378777747bb8e205b339443dbc6f7a636e0d48/dspy-3.5.0-py3-none-any.whl", hash = "sha256:4e7b7eb62058b614f8debcbd907aa4252b539fccd555b077068b050141ab6fdd", size = 1188661, upload-time = "2026-11-10T16:24:08.845Z" },
 ]
 
 [[package]]
@@ -1065,14 +1063,14 @@ version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version < '3.12' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version < '3.12' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
@@ -1183,8 +1181,8 @@ name = "httpcore2"
 version = "2.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "sys_platform != 'emscripten' or extra == 'extra-14-agent-eval-rpc-dspy' or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
-    { name = "truststore", marker = "sys_platform != 'emscripten' or extra == 'extra-14-agent-eval-rpc-dspy' or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "h11", marker = "sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
 wheels = [
@@ -1476,7 +1474,7 @@ dependencies = [
     { name = "certifi" },
     { name = "click" },
     { name = "fastuuid" },
-    { name = "httpx", extra = ["http2"] },
+    { name = "httpx", extra = ["http2"], marker = "extra != 'extra-14-agent-eval-rpc-dspy' or extra == 'group-14-agent-eval-rpc-gepa-release' or extra == 'group-14-agent-eval-rpc-gepa-source'" },
     { name = "importlib-metadata" },
     { name = "jinja2" },
     { name = "jsonschema" },
@@ -1926,14 +1924,14 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-release' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-14-agent-eval-rpc-dspy' and extra != 'group-14-agent-eval-rpc-gepa-source'",
@@ -2098,7 +2096,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-http-transport", extra = ["requests"], marker = "extra == 'group-14-agent-eval-rpc-gepa-release' or extra == 'group-14-agent-eval-rpc-gepa-source' or extra != 'extra-14-agent-eval-rpc-dspy'" },
+    { name = "opentelemetry-exporter-http-transport", extra = ["requests"], marker = "extra != 'extra-14-agent-eval-rpc-dspy' or extra == 'group-14-agent-eval-rpc-gepa-release' or extra == 'group-14-agent-eval-rpc-gepa-source'" },
     { name = "opentelemetry-exporter-otlp-common" },
     { name = "opentelemetry-exporter-otlp-proto-common" },
     { name = "opentelemetry-proto" },
@@ -2223,7 +2221,7 @@ version = "3.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra != 'extra-14-agent-eval-rpc-dspy') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
     { name = "python-dateutil" },
     { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
 ]
@@ -2706,7 +2704,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -2723,7 +2721,7 @@ version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f8/9a/887535e477847f5159377ab35303923644840b13c0ca03c0a467f84d4680/pytest_asyncio-1.4.1.tar.gz", hash = "sha256:e8266eb094e5ee9ffdb2068c9836f33e209ea77a970eb846933d416b5602669b", size = 145237, upload-time = "2026-10-25T21:05:37.135Z" }
 wheels = [
@@ -3144,8 +3142,8 @@ dependencies = [
     { name = "azure-core" },
     { name = "azure-identity" },
     { name = "httpx" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "openai" },
     { name = "openpyxl" },
     { name = "pyyaml" },
@@ -3158,15 +3156,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
-]
-
-[[package]]
-name = "tenacity"
-version = "9.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/9e/497c1c8ebe5a5b5d1d4a7511aea22c0bb1a97e3170d98abdef0e1b34265a/tenacity-9.2.1.tar.gz", hash = "sha256:a606b5c808d0cded4a359d5b9932d867ff2a6a6b64d37350260fd01bbdf83839", size = 58261, upload-time = "2026-10-07T12:13:01.633Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/26/1ff2b0721ac66a3ec5b1402b333110b352ab0a8724052ac279a7b82d40c4/tenacity-9.2.1-py3-none-any.whl", hash = "sha256:9e56f17539296baab7beabb08b92f6ee3d7be92d8be72d763360677c2ad6580e", size = 32310, upload-time = "2026-10-07T12:13:00.102Z" },
 ]
 
 [[package]]
@@ -3269,7 +3258,7 @@ name = "tqdm"
 version = "4.70.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-release') or (extra == 'extra-14-agent-eval-rpc-dspy' and extra == 'group-14-agent-eval-rpc-gepa-source') or (extra == 'group-14-agent-eval-rpc-gepa-release' and extra == 'group-14-agent-eval-rpc-gepa-source')" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
 wheels = [

@@ -7,11 +7,11 @@ import hashlib
 import os
 import platform
 import sys
+from contextlib import ExitStack
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from threading import Lock
 from typing import Any
-
-from agent_eval_rpc.optimizer_bridge_common import module_source_sha256
 
 # Preserve the original bridge import surface while each responsibility has one owner.
 from agent_eval_rpc.dspy_rlm_codetrace import (  # noqa: F401
@@ -79,14 +79,8 @@ from agent_eval_rpc.dspy_rlm_repair import (  # noqa: F401
     _validate_repair_trajectory,
 )
 from agent_eval_rpc.dspy_rlm_sandbox import (  # noqa: F401
-    _PYODIDE_IMPORT_MAP,
-    _PYODIDE_VERSION,
-    _build_deno_command,
-    _deno_cache_dir,
-    _dspy_runner_path,
-    _find_deno_executable,
     _probed_interpreter,
-    _run_probed_interpreter,
+    _pyodide_version,
     _sandbox_attestation,
 )
 from agent_eval_rpc.dspy_rlm_tools import (  # noqa: F401
@@ -119,7 +113,7 @@ from agent_eval_rpc.dspy_rlm_validation import (  # noqa: F401
     _require_positive_integer,
 )
 from agent_eval_rpc.finding_codec import RejectedFindingRow, describe_rejected_rows
-from agent_eval_rpc.optimizer_bridge_common import atomic_write_json
+from agent_eval_rpc.optimizer_bridge_common import atomic_write_json, module_source_sha256
 
 _DEFAULT_MAX_INPUT_BYTES = 4 * 1024 * 1024
 
@@ -212,26 +206,37 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 f"taskInputs.taskStatement must be a string, got {type(statement).__name__}"
             )
-    with _probed_interpreter(dspy) as (interpreter, deno_command):
+    with _probed_interpreter(dspy) as (interpreter, deno_command), ExitStack() as children:
         runtime = _runtime_identity(deno_command)
         lm = dspy.LM(
             f"openai/{model_proxy['model']}",
+            model_type="chat",
+            engine="lm15",
             api_base=model_proxy["baseUrl"],
             api_key=model_proxy["apiKey"],
             cache=False,
             num_retries=0,
             max_tokens=model_proxy["maxOutputTokens"],
-            # The controller writes code, not extended reasoning; a reasoning
-            # model left to think spends its whole completion budget thinking
-            # and returns empty text, so the control turn parses to nothing.
-            # Disabling thinking makes it emit the action directly. Providers
-            # that do not recognise the field ignore it.
-            extra_body={"thinking": {"type": "disabled"}},
+            # The owner supplies the model execution policy. Pin the bridge's
+            # Chat-only wire and native engine; no provider-specific options or
+            # implicit backend/API-family fallback may change that contract.
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
 
+        interpreters = [interpreter]
+        factory_lock = Lock()
+        claimed_probe = False
+
         def interpreter_factory() -> Any:
-            return interpreter
+            nonlocal claimed_probe
+            with factory_lock:
+                if not claimed_probe:
+                    claimed_probe = True
+                    return interpreter
+                child = dspy.PythonInterpreter()
+                children.callback(child.shutdown)
+                interpreters.append(child)
+                return child
 
         interpreter_factory.execution_instructions = getattr(
             dspy.PythonInterpreter, "execution_instructions", ""
@@ -243,9 +248,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             max_output_chars=limits["maxOutputChars"],
             tools=tools,
             sub_lm=lm,
-            # This program runs once: hand DSPy the same per-analysis sandbox
-            # that passed the startup probe. The outer context also cleans up
-            # if construction fails before DSPy takes ownership.
+            # The main call uses its probed sandbox once. Nested RLM/Flex
+            # modules require fresh interpreters, including concurrent creates.
+            # Both DSPy and the outer context own idempotent cleanup.
             interpreter_factory=interpreter_factory,
         )
 
@@ -291,6 +296,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                     prediction,
                     task_inputs["trajectory"],
                 )
+    runtime["sandbox"]["interpreters"] = [
+        _sandbox_attestation(instance.deno_command) for instance in interpreters
+    ]
     answer = _prediction_string(prediction, "answer")
     findings_salvage: str | None = None
     findings_parse_error: str | None = None
@@ -344,7 +352,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                     findings, findings_salvage = salvaged
                     rejected_rows = []
                     break
-        if not findings and findings_salvage is None and answer_text:
+        if (
+            not findings
+            and findings_salvage is None
+            and answer_text
+            and (findings_parse_error is not None or rejected_rows)
+        ):
             # EXACTLY one repair turn on the same LM handle, carrying the exact
             # row defects. A valid submission never reaches here. The call is
             # visible in modelCalls (counted below) and flagged in the runtime
@@ -569,7 +582,7 @@ def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
             "agent-eval-rpc": _package_version("agent-eval-rpc"),
             "dspy": _package_version("dspy"),
             "deno": _package_version("deno"),
-            "pyodide": _PYODIDE_VERSION,
+            "pyodide": _pyodide_version(),
         },
         "python": {
             "implementation": sys_implementation_name(),
