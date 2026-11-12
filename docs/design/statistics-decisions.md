@@ -41,6 +41,10 @@ too often (0.0076 at 0.00714, 12,000 seeded cohorts), the sign-flip test did not
 `clusteredBinaryMde` is the planning formula with the design effect 1 + (m-1)·ICC;
 `simulateClusteredBinaryContrast` measures the test's false-positive rate, and its own
 detectable effect when no effect is planted.
+Paired deltas must be finite; invalid evidence is refused before a p-value is computed.
+If any required cluster deletion makes the statistic undefined, the jackknife keeps the
+full-sample estimate but returns null bounds. It never discards that cluster and reports
+artificially narrow uncertainty.
 
 `placeboBand` takes same-cell history, a sealed cluster count and the exact credit estimator,
 including winsorization and failure scoring. Hourly windows exclude sealed steps; fewer than

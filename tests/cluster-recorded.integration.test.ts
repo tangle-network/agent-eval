@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { clusterBootstrapMean } from '../src/meta-eval/index'
 import {
   clusterBootstrap,
+  clusteredBinaryMde,
+  clusteredPairedContrast,
+  clusterJackknife,
   independentRiskDifference,
   placeboBand,
   sampleMedian,
+  simulateClusteredBinaryContrast,
 } from '../src/statistics/index'
-import { clusterBootstrapMean } from '../src/meta-eval/index'
 import recorded from './fixtures/cluster-recorded.json'
 
 // Numeric projection of wf-{stages,wall}-fresh.jsonl; original timestamps retained.
@@ -27,6 +31,56 @@ const statistic = (before: typeof rows, after: typeof rows) => {
 }
 
 describe('recorded create statistics public contract', () => {
+  it('keeps unsupported deletion estimates and invalid paired evidence out of inference', () => {
+    const success = recorded.find((row) => row.outcome === 'ok' && row.value !== null)!
+    const failure = recorded.find((row) => row.outcome !== 'ok')!
+    // Two observed outcomes, deliberately separated into one cluster each: the
+    // successful-latency ratio loses its denominator when that cluster is removed.
+    const sample = [success, failure].map((row, index) => ({ ...row, cluster: String(index) }))
+    const result = clusterJackknife(
+      sample,
+      (row) => row.cluster,
+      (items) => {
+        const successful = items.filter((row) => row.outcome === 'ok')
+        return successful.reduce((sum, row) => sum + (row.value ?? 0), 0) / successful.length
+      },
+    )
+    expect(result).toEqual({ estimate: success.value, low: null, high: null, clusters: 2 })
+    expect(
+      clusteredPairedContrast(sample.map((row) => ({ cluster: row.cluster, delta: 0 }))),
+    ).toMatchObject({ estimate: 0, low: 0, high: 0, pValue: 1 })
+    expect(() =>
+      clusteredPairedContrast([
+        { cluster: 'a', delta: 1e308 },
+        { cluster: 'b', delta: 1e308 },
+      ]),
+    ).toThrow(/total must be finite/)
+    expect(
+      clusterJackknife([0, 1], String, (items) =>
+        items.length === 2 ? 0 : items[0] === 0 ? 1e308 : -1e308,
+      ),
+    ).toMatchObject({ estimate: 0, low: null, high: null })
+    const design = { pairs: 20, clusters: 2, controlRate: 0.5, icc: 0.1, alpha: 0.05 }
+    for (const invalid of [
+      { pairs: 2.5 },
+      { clusters: Infinity },
+      { controlRate: 2 },
+      { icc: -1 },
+      { alpha: 0 },
+      { power: 1 },
+    ])
+      expect(() => clusteredBinaryMde({ ...design, ...invalid })).toThrow()
+    expect(() => simulateClusteredBinaryContrast({ ...design, reps: 0 })).toThrow(/reps/)
+    for (const invalid of [NaN, Infinity, -Infinity]) {
+      expect(() =>
+        clusteredPairedContrast([
+          { cluster: 'observed', delta: 0 },
+          { cluster: 'missing', delta: invalid },
+        ]),
+      ).toThrow(/paired differences must be finite/)
+    }
+  })
+
   it('retains whole clusters and strata through the public percentile and mean APIs', () => {
     const counts = new Map<string, number>()
     for (const row of rows) counts.set(cluster(row), (counts.get(cluster(row)) ?? 0) + 1)

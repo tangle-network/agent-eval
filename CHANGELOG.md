@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+
 ## [1.0.29] — 2026-11-08
 
 - feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)

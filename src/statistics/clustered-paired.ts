@@ -34,7 +34,7 @@ const groupsOf = <T>(items: readonly T[], cluster: (item: T, index: number) => s
 
 /**
  * Leave-one-cluster-out jackknife: theta +- t_{(1+level)/2, G-1} * sqrt((G-1)/G * sum_g (theta_(g) - mean)^2).
- * Deterministic, so its tails carry no resampling noise; null bounds below two clusters or for a non-finite statistic.
+ * Deterministic, so its tails carry no resampling noise; null bounds below two clusters or when the full statistic or any required deletion is non-finite.
  */
 export function clusterJackknife<T>(
   items: readonly T[],
@@ -49,15 +49,22 @@ export function clusterJackknife<T>(
   const estimate = Number.isFinite(theta) ? theta : null
   if (groups.length < 2 || estimate === null)
     return { estimate, low: null, high: null, clusters: groups.length }
-  const leave = groups
-    .map((_, g) => statistic(groups.flatMap((rows, h) => (h === g ? [] : rows))))
-    .filter(Number.isFinite)
+  const leave = groups.map((_, g) => statistic(groups.flatMap((rows, h) => (h === g ? [] : rows))))
+  if (leave.some((value) => !Number.isFinite(value)))
+    return { estimate, low: null, high: null, clusters: groups.length }
   const mean = leave.reduce((sum, value) => sum + value, 0) / leave.length
   const g = groups.length
   const half =
     studentTQuantile((1 + level) / 2, g - 1) *
     Math.sqrt(((g - 1) / g) * leave.reduce((sum, value) => sum + (value - mean) ** 2, 0))
-  return { estimate, low: estimate - half, high: estimate + half, clusters: g }
+  const low = estimate - half
+  const high = estimate + half
+  return Number.isFinite(mean) &&
+    Number.isFinite(half) &&
+    Number.isFinite(low) &&
+    Number.isFinite(high)
+    ? { estimate, low, high, clusters: g }
+    : { estimate, low: null, high: null, clusters: g }
 }
 
 /**
@@ -71,16 +78,24 @@ export function clusterSignFlipTest(
 ): number | null {
   if (!Number.isSafeInteger(resamples) || resamples < 1)
     throw new ValidationError('clusterSignFlipTest: resamples must be a positive integer')
+  if (pairs.some((pair) => !Number.isFinite(pair.delta)))
+    throw new ValidationError('clusterSignFlipTest: paired differences must be finite')
   const sums = groupsOf(pairs, (pair) => pair.cluster).map((rows) =>
     rows.reduce((sum, pair) => sum + pair.delta, 0),
   )
+  if (sums.some((sum) => !Number.isFinite(sum)))
+    throw new ValidationError('clusterSignFlipTest: clustered sums must be finite')
   if (sums.length < 2) return null
   const observed = Math.abs(sums.reduce((sum, value) => sum + value, 0) / pairs.length)
+  if (!Number.isFinite(observed))
+    throw new ValidationError('clusterSignFlipTest: observed total must be finite')
   const rng = mulberry32(seed)
   let extreme = 0
   for (let b = 0; b < resamples; b++) {
     let total = 0
     for (const sum of sums) total += rng() < 0.5 ? -sum : sum
+    if (!Number.isFinite(total))
+      throw new ValidationError('clusterSignFlipTest: permutation total must be finite')
     if (Math.abs(total / pairs.length) >= observed - 1e-12) extreme++
   }
   return (1 + extreme) / (1 + resamples)
@@ -111,6 +126,27 @@ export interface ClusteredBinaryDesign {
   power?: number
 }
 
+function validateBinaryDesign({
+  pairs,
+  clusters,
+  controlRate,
+  icc,
+  alpha,
+  power = 0.8,
+}: ClusteredBinaryDesign): void {
+  if (
+    !Number.isSafeInteger(pairs) ||
+    !Number.isSafeInteger(clusters) ||
+    clusters < 2 ||
+    pairs < clusters
+  )
+    throw new ValidationError('clustered binary design requires integer pairs >= clusters >= 2')
+  if (!(controlRate >= 0 && controlRate <= 1 && icc >= 0 && icc <= 1))
+    throw new ValidationError('clustered binary design controlRate and icc must be in [0,1]')
+  if (!(alpha > 0 && alpha < 1 && power > 0 && power < 1))
+    throw new ValidationError('clustered binary design alpha and power must be in (0,1)')
+}
+
 /**
  * Minimum detectable paired difference in success rate, the fixed point of
  * delta = (t_{1-alpha/2, G-1} + t_{power, G-1}) * sqrt((p(1-p) + (p+delta)(1-p-delta)) * (1 + (m-1) icc) / n),
@@ -124,10 +160,7 @@ export function clusteredBinaryMde({
   alpha,
   power = 0.8,
 }: ClusteredBinaryDesign) {
-  if (!(clusters >= 2 && pairs >= clusters))
-    throw new ValidationError(
-      'clusteredBinaryMde: needs at least two clusters and one pair per cluster',
-    )
+  validateBinaryDesign({ pairs, clusters, controlRate, icc, alpha, power })
   const design = 1 + (pairs / clusters - 1) * icc
   const z = studentTQuantile(1 - alpha / 2, clusters - 1) + studentTQuantile(power, clusters - 1)
   let delta = z * Math.sqrt((2 * controlRate * (1 - controlRate) * design) / pairs)
@@ -167,6 +200,17 @@ export function simulateClusteredBinaryContrast(
   design: ClusteredBinaryDesign & { reps: number; effect?: number; seed?: number },
 ) {
   const { reps, seed = 1, alpha, power = 0.8 } = design
+  if (!Number.isSafeInteger(reps) || reps < 1)
+    throw new ValidationError('simulateClusteredBinaryContrast: reps must be a positive integer')
+  if (
+    design.effect !== undefined &&
+    (!Number.isFinite(design.effect) ||
+      design.controlRate + design.effect < 0 ||
+      design.controlRate + design.effect > 1)
+  )
+    throw new ValidationError(
+      'simulateClusteredBinaryContrast: effect must give a success rate in [0,1]',
+    )
   const { mde } = clusteredBinaryMde(design)
   const rate = (effect: number, offset: number, n = reps) => {
     let rejected = 0
