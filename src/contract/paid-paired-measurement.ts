@@ -42,7 +42,7 @@ interface RunPaidPairedMeasurementOptions<T> {
  * one after earlier analysis or search has used the remaining budget.
  */
 export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete: true }): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }>
-export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T>): Promise<PaidPairedMeasurementResult<T>>
+export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete?: false }): Promise<PaidPairedMeasurementResult<T>>
 export async function runPaidPairedMeasurement<T>(
   options: RunPaidPairedMeasurementOptions<T>,
 ): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }> {
