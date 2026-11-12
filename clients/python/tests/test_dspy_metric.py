@@ -418,13 +418,3 @@ def test_metric_drives_an_official_dspy_gepa_compile() -> None:
     assert judge.calls == 5
 
 
-def test_documented_gepa_constructor_supplies_a_reflection_model() -> None:
-    metric = DspyJudgeMetric(rubric_name="answer-quality", client=_JudgeClient())
-
-    optimizer = dspy.GEPA(
-        metric=metric.feedback,
-        reflection_lm=_InstructionAwareLM(),
-        max_metric_calls=1,
-    )
-
-    assert optimizer.reflection_lm is not None

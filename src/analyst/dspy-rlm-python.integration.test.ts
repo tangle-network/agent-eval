@@ -129,6 +129,10 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(toolCalls).toBe(1)
       expect(ledger.list()).toEqual([
         expect.objectContaining({
+          channel: 'analyst',
+          phase: 'compatibility',
+          actor: 'official-rlm',
+          model: 'model-a',
           inputTokens: 13,
           outputTokens: 7,
           usageUnknown: false,
