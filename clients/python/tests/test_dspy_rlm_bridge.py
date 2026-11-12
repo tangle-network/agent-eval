@@ -378,8 +378,8 @@ def test_the_generic_repair_prompt_does_not_ask_for_incorrect_steps() -> None:
 def test_the_repair_turn_carries_the_exact_row_defects() -> None:
     prompts: list[str] = []
 
-    def fake_lm(messages: list[dict[str, str]]) -> list[str]:
-        prompts.append(messages[0]["content"])
+    def fake_lm(prompt: str) -> list[str]:
+        prompts.append(prompt)
         return [
             json.dumps(
                 [
@@ -411,7 +411,7 @@ def test_the_repair_turn_carries_the_exact_row_defects() -> None:
 
 
 def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
-    def failing_lm(messages: list[dict[str, str]]) -> list[str]:
+    def failing_lm(prompt: str) -> list[str]:
         raise RuntimeError("provider refused")
 
     accepted, rejected, error = dspy_rlm_bridge._repair_findings_turn(

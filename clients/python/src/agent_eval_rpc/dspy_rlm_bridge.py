@@ -79,14 +79,8 @@ from agent_eval_rpc.dspy_rlm_repair import (  # noqa: F401
     _validate_repair_trajectory,
 )
 from agent_eval_rpc.dspy_rlm_sandbox import (  # noqa: F401
-    _PYODIDE_IMPORT_MAP,
-    _PYODIDE_VERSION,
-    _build_deno_command,
-    _deno_cache_dir,
-    _dspy_runner_path,
-    _find_deno_executable,
+    _pyodide_version,
     _probed_interpreter,
-    _run_probed_interpreter,
     _sandbox_attestation,
 )
 from agent_eval_rpc.dspy_rlm_tools import (  # noqa: F401
@@ -216,17 +210,16 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         runtime = _runtime_identity(deno_command)
         lm = dspy.LM(
             f"openai/{model_proxy['model']}",
+            model_type="chat",
+            engine="lm15",
             api_base=model_proxy["baseUrl"],
             api_key=model_proxy["apiKey"],
             cache=False,
             num_retries=0,
             max_tokens=model_proxy["maxOutputTokens"],
-            # The controller writes code, not extended reasoning; a reasoning
-            # model left to think spends its whole completion budget thinking
-            # and returns empty text, so the control turn parses to nothing.
-            # Disabling thinking makes it emit the action directly. Providers
-            # that do not recognise the field ignore it.
-            extra_body={"thinking": {"type": "disabled"}},
+            # The owner supplies the model execution policy. Pin the bridge's
+            # Chat-only wire and native engine; no provider-specific options or
+            # implicit backend/API-family fallback may change that contract.
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
 
@@ -569,7 +562,7 @@ def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
             "agent-eval-rpc": _package_version("agent-eval-rpc"),
             "dspy": _package_version("dspy"),
             "deno": _package_version("deno"),
-            "pyodide": _PYODIDE_VERSION,
+            "pyodide": _pyodide_version(),
         },
         "python": {
             "implementation": sys_implementation_name(),

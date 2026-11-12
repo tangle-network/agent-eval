@@ -1,6 +1,8 @@
 import { createServer } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import { CostLedger } from '../cost-ledger'
+import { toTraceJsonSchema, traceStoreInputSchemas } from '../trace-analyst/store-schemas'
+import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 import { testModelExecutionOwner } from './model-execution.test-support'
 
@@ -43,10 +45,10 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       runner: { command: python, env: { OPENAI_API_KEY: 'must-not-reach-python' } },
     })
     let toolCalls = 0
-    const tools = [{
+    const tools: TraceAnalysisToolDescriptor[] = [{
       namespace: 'traces', readOnly: true, idempotent: true,
       name: 'getDatasetOverview', description: 'Read the retained trace count.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      parameters: toTraceJsonSchema(traceStoreInputSchemas.getOverview),
       handler: async () => { toolCalls++; return { total_traces: 1 } },
     }]
     const limits = { maxIterations: 2, maxLlmCalls: 2, maxToolCalls: 1, maxOutputChars: 8000 }

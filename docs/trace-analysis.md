@@ -39,9 +39,15 @@ python -m venv .venv
 ```
 
 The Python extra pins the tested stable DSPy and Deno versions.
-The bridge passes its already-probed per-analysis sandbox through DSPy’s
-interpreter factory, retaining the PythonInterpreter execution instructions
-that describe its Pyodide environment and permission limits.
+The bridge uses DSPy's default restricted interpreter and probes its real DSPy
+bundle before any model call. DSPy owns the pinned Pyodide runtime and startup
+snapshots. The bridge retains the actual command's permission attestation and
+hands the same per-analysis interpreter to RLM, then closes it after the call.
+The controller explicitly uses DSPy's native LM engine and Chat Completions
+through the caller-owned loopback proxy. Its selected Chat or tolerant adapter
+remains explicit, so the upstream XML default does not silently change this
+protocol. Upgrading DSPy changes RLM prompts and reasoning behavior; rerun
+comparisons rather than reusing a prior engine's quality measurements.
 
 ## Build An Engine Without Python
 
