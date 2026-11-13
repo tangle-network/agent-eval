@@ -6,6 +6,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
 - feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
 - fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
 - fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
