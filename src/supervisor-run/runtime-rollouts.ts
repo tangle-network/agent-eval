@@ -9,8 +9,10 @@ import { basename, join } from 'node:path'
 import type { HarnessSession } from '@tangle-network/harness-sessions'
 import { sandboxEventsSession, toChatMessages, toOtlpSpans } from '@tangle-network/harness-sessions'
 import { hashCanonical, jsonDocument } from '../ledger-core/canonical'
+import { toJsonl } from '../rollout/exporters'
 import { licenseClassOfName } from '../rollout/license'
 import {
+  harnessSessionBindings,
   harnessSessionRolloutLine,
   harnessSessionToolInventory,
 } from '../rollout/readers/harness-session-lines'
@@ -187,14 +189,10 @@ function extendsSession(previous: HarnessSession, next: HarnessSession): boolean
   if (previous.parentNativeSessionId !== next.parentNativeSessionId) return false
   const before = toChatMessages(previous)
   const after = toChatMessages(next)
-  const calls = new Map(next.modelCalls.map((call) => [call.id, call]))
-  const snapshots = new Map((next.toolDefinitionSnapshots ?? []).map((item) => [item.id, item]))
-  if (
-    calls.size !== next.modelCalls.length ||
-    snapshots.size !== (next.toolDefinitionSnapshots?.length ?? 0) ||
-    new Set(next.messages.map((message) => message.id)).size !== next.messages.length
-  )
-    return false
+  const bindings = harnessSessionBindings(next)
+  const messageIds = new Set(next.messages.map((message) => message.id))
+  if (bindings === null || messageIds.size !== next.messages.length) return false
+  const { calls, snapshots } = bindings
   return (
     after.length >= before.length &&
     hashCanonical(jsonDocument(before)) ===
@@ -508,14 +506,15 @@ export async function runtimeRunRolloutLines(
       .map((session) => toOtlpSpans(session))
       .filter((s) => s.length > 1)
       .flat()
-    otlp.set(node.rollout_id, spans.map((span) => `${JSON.stringify(span)}\n`).join(''))
+    otlp.set(node.rollout_id, toJsonl(spans))
+    const task = {
+      ...node.task,
+      ...(options.split === undefined ? {} : { split: options.split }),
+      ...(options.instanceId === undefined ? {} : { instance_id: options.instanceId }),
+    }
     lines.push({
       ...node,
-      task: {
-        ...node.task,
-        ...(options.split === undefined ? {} : { split: options.split }),
-        ...(options.instanceId === undefined ? {} : { instance_id: options.instanceId }),
-      },
+      task,
       policy: {
         ...node.policy,
         ...(producer === null
@@ -574,11 +573,7 @@ export async function runtimeRunRolloutLines(
         rollout_id: childId(session.nativeSessionId),
         parent_rollout_id: parentIsRoot ? node.rollout_id : childId(session.parentNativeSessionId!),
         run_id: node.run_id,
-        task: {
-          ...node.task,
-          ...(options.split === undefined ? {} : { split: options.split }),
-          ...(options.instanceId === undefined ? {} : { instance_id: options.instanceId }),
-        },
+        task,
         provenance: {
           ...child.provenance,
           native_captures: episode.captures,
@@ -591,12 +586,7 @@ export async function runtimeRunRolloutLines(
         },
       }
       lines.push(line)
-      otlp.set(
-        line.rollout_id,
-        toOtlpSpans(session)
-          .map((span) => `${JSON.stringify(span)}\n`)
-          .join(''),
-      )
+      otlp.set(line.rollout_id, toJsonl(toOtlpSpans(session)))
     }
   }
   // The verdict is the root's reward, so the tree's "no judge verdict" gap no longer holds.

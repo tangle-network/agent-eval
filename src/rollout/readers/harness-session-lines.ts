@@ -83,6 +83,16 @@ function producer(session: HarnessSession): { provider: string | null; model: st
 const sum = (values: Array<number | null>): number | null =>
   values.some((v) => v !== null) ? values.reduce<number>((a, v) => a + (v ?? 0), 0) : null
 
+/** Model-call and tool-snapshot lookups; null when either identity repeats. */
+export function harnessSessionBindings(session: HarnessSession) {
+  const calls = new Map(session.modelCalls.map((call) => [call.id, call]))
+  const snapshots = new Map((session.toolDefinitionSnapshots ?? []).map((item) => [item.id, item]))
+  const unique =
+    calls.size === session.modelCalls.length &&
+    snapshots.size === (session.toolDefinitionSnapshots?.length ?? 0)
+  return unique ? { calls, snapshots } : null
+}
+
 /** A static trainer inventory must be the complete inventory seen by every response. */
 export function harnessSessionToolInventory(sessions: readonly HarnessSession[]): {
   tools: ToolDef[]
@@ -91,15 +101,10 @@ export function harnessSessionToolInventory(sessions: readonly HarnessSession[])
   let tools: ToolDef[] | undefined
   let digest: string | undefined
   for (const session of sessions) {
-    const calls = new Map(session.modelCalls.map((call) => [call.id, call]))
-    const snapshots = new Map(
-      (session.toolDefinitionSnapshots ?? []).map((item) => [item.id, item]),
-    )
-    if (
-      calls.size !== session.modelCalls.length ||
-      snapshots.size !== (session.toolDefinitionSnapshots?.length ?? 0)
-    )
+    const bindings = harnessSessionBindings(session)
+    if (bindings === null)
       return { tools: [], gap: 'native response or tool inventory identity is ambiguous' }
+    const { calls, snapshots } = bindings
     const inventories = new Map<string, { tools: ToolDef[]; digest: string }>()
     const responses = session.messages.filter((message) => message.role === 'assistant')
     for (const response of responses) {
