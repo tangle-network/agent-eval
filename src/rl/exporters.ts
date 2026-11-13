@@ -305,6 +305,8 @@ export interface SftLookups extends TrainingLineSelectionOptions {
 export interface SftExportRow {
   /** The canonical chat transcript, tool turns and nullable content included. */
   messages: Array<ChatMessage & { weight?: 0 | 1 }>
+  /** `rollout/exporters.toSftRows` mask: one 0/1 per message, 0 for copied context. */
+  message_loss_mask: Array<0 | 1>
   tools: import('../rollout/schema').ToolDef[]
   meta?: Record<string, unknown>
 }
@@ -348,6 +350,7 @@ export async function toSftRowsWithLookups(
     if (row === undefined) continue
     rows.push({
       messages: row.messages,
+      message_loss_mask: row.message_loss_mask,
       tools: row.tools,
       meta: {
         runId: line.run_id,

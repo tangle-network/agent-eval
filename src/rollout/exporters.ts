@@ -110,9 +110,14 @@ interface SignedSignalExportOptions extends TrainingExportOptions {
 
 export type SftExportOptions = TrainingExportOptions
 
+/** Copied context conditions a row but is never a target; both SFT loss fields read this. */
+const lossWeight = (copied: boolean | undefined): 0 | 1 => (copied === true ? 0 : 1)
+
 export interface SftRow {
   /** Assistant weight 0 preserves conditioning without assigning imitation loss. */
   messages: Array<ChatMessage & { weight?: 0 | 1 }>
+  /** Per-message flags from the `weight` rule: 0 is context only, 1 keeps the role mask. */
+  message_loss_mask: Array<0 | 1>
   tools: ToolDef[]
   metadata: {
     rollout_id: string
@@ -148,9 +153,10 @@ export function toSftRows(lines: MintedRolloutLine[], options: SftExportOptions 
         messages: line.messages.map((message): SftRow['messages'][number] => {
           const { is_copied_context, ...turn } = message
           return message.role === 'assistant'
-            ? { ...turn, weight: is_copied_context === true ? 0 : 1 }
+            ? { ...turn, weight: lossWeight(is_copied_context) }
             : turn
         }),
+        message_loss_mask: line.messages.map((message) => lossWeight(message.is_copied_context)),
         tools: line.tool_defs,
         metadata: {
           rollout_id: line.rollout_id,

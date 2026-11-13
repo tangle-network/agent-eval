@@ -161,6 +161,8 @@ it('retains copied tool conditioning, masks its assistant loss, and carries capt
   expect(sft!.messages[2]).toMatchObject({ weight: 0, tool_calls: messages[2]!.tool_calls })
   expect(sft!.messages[3]).toMatchObject({ role: 'tool', tool_call_id: 'call_1' })
   expect(sft!.messages[4]).toMatchObject({ weight: 1 })
+  // prime-rl and renderers read the per-message mask: copied system/user/assistant 0, authored tool/assistant 1.
+  expect(sft!.message_loss_mask).toEqual([0, 0, 0, 1, 1])
   expect(sft!.messages.every((message) => message.is_copied_context === undefined)).toBe(true)
   expect(sft!.tools).toEqual(capture.tool_defs)
   const withoutTools = assertMinted({ ...read[0]!, tool_defs: [] })

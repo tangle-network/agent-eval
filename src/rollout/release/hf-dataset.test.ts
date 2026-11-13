@@ -97,7 +97,7 @@ describe('buildHfDataset', () => {
     const sft = (await readJsonl(join(out, 'sft/train.jsonl'))) as Array<{ messages: unknown[] }>
     expect(sft).toHaveLength(2)
     for (const example of sft)
-      expect(Object.keys(example)).toEqual(['messages', 'tools', 'metadata'])
+      expect(Object.keys(example)).toEqual(['messages', 'message_loss_mask', 'tools', 'metadata'])
 
     const verifiers = (await readJsonl(join(out, 'verifiers/train.jsonl'))) as Array<{
       prompt: unknown[]

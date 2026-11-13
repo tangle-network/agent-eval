@@ -174,6 +174,16 @@ describe('ATIF is_copied_context — RFC 0001 rule 7', () => {
       'my own work',
     ])
     expect(row!.messages.some((m) => m.is_copied_context === true)).toBe(false)
+    expect(row!.message_loss_mask).toEqual([1, 0, 1])
+    const copiedAnswer = fixtureRolloutLine({
+      messages: [
+        ...withCopied.messages,
+        { role: 'assistant', content: 'answer pasted from a sibling', is_copied_context: true },
+      ],
+    })
+    const [masked] = toSftRows([copiedAnswer])
+    expect(masked!.messages.map((m) => m.weight)).toEqual([undefined, undefined, 1, 0])
+    expect(masked!.message_loss_mask).toEqual([1, 0, 1, 0])
   })
 
   it('drops a line whose transcript is nothing but copied context', () => {

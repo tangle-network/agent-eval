@@ -265,7 +265,7 @@ All are optional and never back-filled, so every ledger written before they exis
 | `completion_token_ids` | `RolloutStep` | exact completion tokenization; removes the ambiguity of re-tokenizing text at train time |
 | `prompt_token_ids` | `RolloutStep` | exact prompt tokenization |
 | `llm_call_count` | `RolloutStep` and `RolloutCostBlock` | inferences per span and per invocation; `0` means deterministic dispatch with no model call |
-| `is_copied_context` | `ChatMessage` | Copied assistant turns are conditioning with weight 0 in SFT; newly authored assistant turns have weight 1. Removing copied turns can orphan tool results or change the task. The trainer must honor this loss mask. |
+| `is_copied_context` | `ChatMessage` | SFT keeps copied turns as conditioning: copied assistant turns have `weight: 0` and authored ones `weight: 1`, and the row's `message_loss_mask` has one entry per message, 0 for every copied message. Removing copied turns can orphan tool results or change the task. A trainer that reads neither field is unsafe for copied-context rows. |
 
 The per-step four (`logprobs`, `completion_token_ids`, `prompt_token_ids`, `llm_call_count`) are wired through the interchange in BOTH directions on ATIF's own `step.metrics` / `step.llm_call_count`, not only in our escrow.
 Export matches the k-th `llm` span to the k-th agent step; import prefers the escrow when it exists and falls back to the native channel, which is the only thing a Harbor-native producer writes.
@@ -370,7 +370,9 @@ trajectories; the bundle does not make a second raw evidence store.
 
 SFT retains the complete ordered conditioning, including copied user/tool turns
 and assistant tool invocations. Copied assistant turns carry `weight: 0`; newly
-authored assistant turns carry `weight: 1`. Tool calls and results are validated
+authored assistant turns carry `weight: 1`. Every row also carries
+`message_loss_mask`, one 0/1 per message decided by the same rule: 0 for a
+copied message, 1 otherwise. Tool calls and results are validated
 on this complete conversation, and `tools` carries canonical `tool_defs` on both
 SFT exporter paths. `mintRolloutRows` accepts `toolDefsOf(runId)` for schemas
 captured by the execution owner; missing declared schemas are refused, and no
@@ -385,8 +387,24 @@ responses, and changing inventories are not combined. `provenance.tool_definitio
 preserves the reason a static imitation row cannot represent that conditioning.
 Direct native intake also preserves parser gaps and truncation, so adding a
 task label cannot turn partial capture into training evidence. Tokenization and loss-mask
-application remain the trainer's responsibility. A trainer that ignores weights
-cannot safely consume copied-context rows.
+application remain the trainer's responsibility.
+
+Which shipped consumer reads which field:
+
+- prime-rl SFT (`examples/fine-tune-with-prime-rl`) reads the `message_loss_mask`
+  column by default (`data.columns.message_loss_mask`). It needs one boolean or 0/1
+  per message; 0 removes that message from the loss and keeps it as context. A 1
+  only keeps prime-rl's role mask, so authored system, user and tool turns stay
+  untrained under its defaults. It does not read `weight`.
+- PrimeIntellect `renderers` (`examples/publish-rl-dataset`): pass the row's
+  list as `build_training_sample(..., message_loss_mask=row["message_loss_mask"])`;
+  the same per-message rule applies. It does not read `weight`.
+- `toTinkerDatumRows` does not consume SFT rows; it refuses any line with copied
+  context because the line has no captured token mask.
+- The `rollout-release` HF dataset ships both fields and names no trainer.
+
+A trainer that reads neither `weight` nor `message_loss_mask` is unsafe for
+copied-context rows: it imitates copied assistant turns as if this run wrote them.
 
 GRPO and SFT gap lookups default to run identity for solo episodes. When a run
 contains multiple invocations, use `lookupBy: 'rollout'` and resolve the exact
