@@ -24,6 +24,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+- fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
 - fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
 - feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
 - fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
