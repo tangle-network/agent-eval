@@ -198,12 +198,32 @@ export async function toGrpoRows(
   return grpoRowsFromLines(lines, lookups)
 }
 
+type LookupIdentity = Pick<GrpoLookups, 'lookupBy'>
+
+const lookupKey = (line: MintedRolloutLine, lookups: LookupIdentity): string =>
+  lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id
+
+/** Run-keyed lookups cannot tell one run's invocations apart; refuse before resolving text. */
+function runKeyedLookupGuard(
+  lines: readonly MintedRolloutLine[],
+  lookups: LookupIdentity,
+  format: string,
+): (line: MintedRolloutLine) => void {
+  const runCounts = new Map<string, number>()
+  for (const line of lines) runCounts.set(line.run_id, (runCounts.get(line.run_id) ?? 0) + 1)
+  return (line) => {
+    if (lookups.lookupBy !== 'rollout' && (runCounts.get(line.run_id) ?? 0) > 1)
+      throw new Error(
+        `${format} export: run ${line.run_id} names multiple invocations; use lookupBy: 'rollout'`,
+      )
+  }
+}
+
 async function grpoRowsFromLines(
   lines: MintedRolloutLine[],
   lookups: GrpoLookups,
 ): Promise<GrpoExportRow[]> {
-  const runCounts = new Map<string, number>()
-  for (const line of lines) runCounts.set(line.run_id, (runCounts.get(line.run_id) ?? 0) + 1)
+  const requireRunKey = runKeyedLookupGuard(lines, lookups, 'GRPO')
   const grouped = new Map<string, MintedRolloutLine[]>()
   for (const line of lines) {
     const admission = trainingAdmission(line, 'reward', lookups)
@@ -212,10 +232,7 @@ async function grpoRowsFromLines(
         console.warn(`[GRPO export] excluded ${line.rollout_id} (${admission.reason})`)
       continue
     }
-    if (lookups.lookupBy !== 'rollout' && (runCounts.get(line.run_id) ?? 0) > 1)
-      throw new Error(
-        `GRPO export: run ${line.run_id} names multiple invocations; use lookupBy: 'rollout'`,
-      )
+    requireRunKey(line)
     const arr = grouped.get(line.task.instance_id) ?? []
     arr.push(line)
     grouped.set(line.task.instance_id, arr)
@@ -234,11 +251,7 @@ async function grpoRowsFromLines(
     // has no baseline.
     if (scored.length < 2) continue
     const prompts = await Promise.all(
-      scored.map(({ line }) =>
-        Promise.resolve(
-          lookups.promptOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
-        ),
-      ),
+      scored.map(({ line }) => Promise.resolve(lookups.promptOf(lookupKey(line, lookups)))),
     )
     const prompt = prompts[0]!
     if (prompts.some((value) => value !== prompt)) {
@@ -247,11 +260,7 @@ async function grpoRowsFromLines(
       )
     }
     const completions = await Promise.all(
-      scored.map(({ line }) =>
-        Promise.resolve(
-          lookups.completionOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
-        ),
-      ),
+      scored.map(({ line }) => Promise.resolve(lookups.completionOf(lookupKey(line, lookups)))),
     )
     const rewards = scored.map(({ reward }) => reward)
     const runIds = scored.map(({ line }) => line.run_id)
@@ -325,18 +334,12 @@ export async function toSftRowsWithLookups(
   // like `rollout/exporters.toSftRows` rather than being filtered quietly.
   for (const line of lines) assertRewardGate(line, 'SFT export')
   const include = lookups.include ?? (() => true)
+  const requireRunKey = runKeyedLookupGuard(lines, lookups, 'SFT')
   const rows: SftExportRow[] = []
   for (const line of lines) {
     if (!isTrainingLineEligible(line, lookups) || !include(line)) continue
     const captured = line.messages.length > 0
-    if (
-      !captured &&
-      lookups.lookupBy !== 'rollout' &&
-      lines.filter((item) => item.run_id === line.run_id).length > 1
-    )
-      throw new Error(
-        `SFT export: run ${line.run_id} names multiple invocations; use lookupBy: 'rollout'`,
-      )
+    if (!captured) requireRunKey(line)
     const messages = captured ? line.messages : await recoveredTranscript(line, lookups)
     const [row] = toCanonicalSftRows([{ ...line, messages }], {
       ...lookups,
@@ -370,12 +373,8 @@ async function recoveredTranscript(
 ): Promise<ChatMessage[]> {
   const system = lookups.systemOf?.(line)
   const [prompt, completion] = await Promise.all([
-    Promise.resolve(
-      lookups.promptOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
-    ),
-    Promise.resolve(
-      lookups.completionOf(lookups.lookupBy === 'rollout' ? line.rollout_id : line.run_id),
-    ),
+    Promise.resolve(lookups.promptOf(lookupKey(line, lookups))),
+    Promise.resolve(lookups.completionOf(lookupKey(line, lookups))),
   ])
   if (
     typeof prompt !== 'string' ||
