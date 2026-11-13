@@ -1,17 +1,15 @@
 export const ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM = 'sha256-canonical-source-manifest'
-/** Dependency identity excludes the package's own release version. */
+/** Dependency identity is the resolved lockfile closure of what the benchmark imports. */
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM =
-  'sha256-canonical-file-manifest-without-own-version'
+  'sha256-resolved-dependency-closure'
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
-  'clients/python/pyproject.toml',
   'clients/python/uv.lock',
-  'package.json',
   'pnpm-lock.yaml',
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '5fb6b9094ead1d2709aec0f4a41c1e1cddee4503aeabbc93177acf769ef215b6'
+  '03bb05e4d16e64d47ee9be3cc1df5af2684b05d5c3148b0ad2029cd1fe12101f'
 
 export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
   '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
