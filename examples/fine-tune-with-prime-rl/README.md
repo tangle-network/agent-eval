@@ -76,8 +76,10 @@ Create the output directory first (`mkdir -p /tmp/prime-rl-demo`), or point `--o
 1. **`sft-data.jsonl`**: one row per filtered run, in the messages-list format
    prime-rl's SFT trainer consumes:
    ```json
-   {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+   {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "...", "weight": 1}], "message_loss_mask": [1, 1, 1], "tools": []}
    ```
+   prime-rl reads `message_loss_mask` under its default column name, so the config needs no line for it.
+   A 0 keeps a copied message as context and out of the loss. prime-rl ignores `weight`; without the mask it would imitate copied assistant turns.
 2. **`sft-data.prime-rl-sft.toml`**: a 15-line config pointing at the JSONL file:
    ```toml
    max_steps = 100

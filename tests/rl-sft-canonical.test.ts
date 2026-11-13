@@ -43,10 +43,10 @@ const textLookups: SftLookups = {
   systemOf: () => 'Legacy system',
 }
 
-const recoveredMessages: ChatMessage[] = [
+const recoveredMessages: Array<ChatMessage & { weight?: 0 | 1 }> = [
   { role: 'system', content: 'Legacy system' },
   { role: 'user', content: 'Legacy prompt' },
-  { role: 'assistant', content: 'Legacy completion' },
+  { role: 'assistant', content: 'Legacy completion', weight: 1 },
 ]
 
 function withOutcome(overrides: Partial<MintedRolloutLine['outcome']>): MintedRolloutLine {
@@ -68,7 +68,7 @@ function splitLine(split: RolloutSplit): MintedRolloutLine {
 }
 
 describe('rl/toSftRowsWithLookups over captured transcripts', () => {
-  it('ships a captured tool conversation to the SFT JSONL line byte-for-byte', async () => {
+  it('ships captured tool content with explicit assistant weights and tools', async () => {
     const messages: ChatMessage[] = [
       { role: 'system', content: 'You are a coding worker.' },
       { role: 'user', content: 'Fix the misleading exception in TimeSeries.' },
@@ -93,16 +93,39 @@ describe('rl/toSftRowsWithLookups over captured transcripts', () => {
       { role: 'tool', tool_call_id: 'call_edit', name: 'edit', content: null },
       { role: 'assistant', content: `Patched. ${'x'.repeat(8192)}` },
     ]
-    const line = fixtureRolloutLine({ messages })
+    const line = fixtureRolloutLine({
+      messages,
+      tool_defs: [
+        ...fixtureRolloutLine().tool_defs,
+        {
+          type: 'function',
+          function: {
+            name: 'edit',
+            parameters: {
+              type: 'object',
+              properties: { filePath: { type: 'string' }, patch: { type: 'string' } },
+              required: ['filePath', 'patch'],
+            },
+          },
+        },
+      ],
+    })
     const before = JSON.stringify(line)
 
     const bundle = await buildRlDataset([line], noLookups, config)
     const jsonl = bundle.files['train.sft.jsonl']!
 
-    // The published line carries the captured transcript verbatim: the same
-    // bytes `JSON.stringify` produces for the line's own `messages`.
-    const expectedMessages = JSON.stringify(messages)
-    expect(jsonl.startsWith(`{"messages":${expectedMessages},"meta":`)).toBe(true)
+    const expectedMessages = JSON.stringify(
+      messages.map((message) =>
+        message.role === 'assistant' ? { ...message, weight: 1 } : message,
+      ),
+    )
+    const expectedMask = JSON.stringify(messages.map(() => 1))
+    expect(
+      jsonl.startsWith(
+        `{"messages":${expectedMessages},"message_loss_mask":${expectedMask},"tools":`,
+      ),
+    ).toBe(true)
     expect(jsonl.endsWith('\n')).toBe(true)
     const row = JSON.parse(jsonl)
     expect(JSON.stringify(row.messages)).toBe(expectedMessages)
@@ -135,10 +158,12 @@ describe('rl/toSftRowsWithLookups over captured transcripts', () => {
     })
     const rows = await toSftRowsWithLookups([first, second], noLookups)
     expect(rows.map((row) => row.meta?.rolloutId)).toEqual(['worker-one', 'worker-two'])
-    expect(rows.map((row) => row.messages)).toEqual([first.messages, second.messages])
+    expect(rows.map((row) => row.messages)).toEqual(
+      canonicalSftRows([first, second]).map((row) => row.messages),
+    )
   })
 
-  it('removes copied context without replacing the captured conversation', async () => {
+  it('masks copied assistant loss while preserving the captured conditioning', async () => {
     const base = fixtureRolloutLine()
     const line = fixtureRolloutLine({
       messages: [
@@ -147,7 +172,10 @@ describe('rl/toSftRowsWithLookups over captured transcripts', () => {
       ],
     })
     const rows = await toSftRowsWithLookups([line], noLookups)
-    expect(rows[0]!.messages).toEqual(base.messages)
+    expect(rows[0]!.messages).toEqual([
+      { role: 'assistant', content: 'Another invocation wrote this', weight: 0 },
+      ...canonicalSftRows([base])[0]!.messages,
+    ])
     expect(line.messages).toHaveLength(base.messages.length + 1)
   })
 
@@ -243,10 +271,16 @@ describe('rl/toSftRowsWithLookups over captured transcripts', () => {
   })
 
   it('honors the extra filter and exclusive threshold before text recovery', async () => {
-    expect(await toSftRowsWithLookups([gapLine()], { ...noLookups, include: () => false })).toEqual([])
+    expect(await toSftRowsWithLookups([gapLine()], { ...noLookups, include: () => false })).toEqual(
+      [],
+    )
     const line = withOutcome({ reward: 0.5 })
-    expect(await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.5 })).toEqual([])
-    expect(await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.49 })).toHaveLength(1)
+    expect(
+      await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.5 }),
+    ).toEqual([])
+    expect(
+      await toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: 0.49 }),
+    ).toHaveLength(1)
     for (const threshold of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       await expect(
         toSftRowsWithLookups([line], { ...noLookups, minimumQualityExclusive: threshold }),

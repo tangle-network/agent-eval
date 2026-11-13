@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Dataset, HoldoutLockedError, hashScenarios } from '../src/dataset'
+import { HoldoutLockedError, hashScenarios } from '../src/dataset'
+import { Dataset } from '../src/index'
 
 function baseProvenance() {
   return { version: '1.0.0', createdAt: '2026-04-20T00:00:00Z' }

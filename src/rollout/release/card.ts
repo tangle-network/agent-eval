@@ -24,7 +24,9 @@ export const FORMAT_FILES: Record<ReleaseFormat, string> = {
 }
 
 const FORMAT_DESCRIPTIONS: Record<ReleaseFormat, string> = {
-  sft: 'Successful trainable-split transcripts (`reward >= 1`, never realness-gated) as `{messages, metadata}` chat JSONL.',
+  sft:
+    'Successful trainable-split transcripts (`reward >= 1`, never realness-gated) as `{messages, message_loss_mask, tools, metadata}` chat JSONL. ' +
+    'Copied assistant turns carry `weight: 0` and every copied message has mask 0; a trainer that reads neither field is unsafe for rows with copied context.',
   verifiers:
     'Prime Intellect verifiers `RolloutOutput`: prompt/completion split at the first assistant turn, plus reward, metrics, tool defs, and token usage.',
   rft: 'OpenAI RFT items: prompt turns plus `reference.*` verdict fields for a grader (completions are re-sampled during RFT).',

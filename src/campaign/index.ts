@@ -146,7 +146,12 @@ export {
   type ExternalTextOptimizerResult,
   externalTextOptimizationMethod,
 } from './external-text-optimization'
-export type { FinalEvidencePolicy, FinalEvidenceUse } from './final-evidence'
+export {
+  captureFinalEvidencePolicy,
+  type FinalEvidencePolicy,
+  type FinalEvidenceUse,
+  prepareSearchFinalEvidence,
+} from './final-evidence'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
   discoverEvalFixtures,

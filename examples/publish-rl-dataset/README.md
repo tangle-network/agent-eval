@@ -80,7 +80,9 @@ completion into a paid dataset.
 For byte-faithful RL/SFT, tokenize the emitted `messages` / `completions` with
 the per-model renderer (DeepSeek-V3 / Kimi-K2 / Qwen3) so token identity and
 per-token loss masks survive across tool-call turns: see
-[`renderers`](https://github.com/PrimeIntellect-ai/renderers). For online
+[`renderers`](https://github.com/PrimeIntellect-ai/renderers). Pass each SFT row's
+`message_loss_mask` as `build_training_sample(..., message_loss_mask=...)`: a 0 keeps
+copied context out of the loss. The renderer ignores the per-message `weight`. For online
 GRPO/GSPO rollouts against a live policy, express the scorer as a
 [`verifiers`](https://github.com/willccbb/verifiers) `Environment` instead of
 exporting offline JSONL.

@@ -205,6 +205,8 @@ export {
   type CompareAgentProfileImprovementExperimentOptions,
   measuredComparisonFromAgentProfileImprovementExperiment,
   type RunAgentProfileImprovementExperimentOptions,
+  type RecordAgentProfileImprovementExperimentOptions,
+  type AgentProfileImprovementIncompleteExperimentRun,
   runAgentProfileImprovementExperiment,
   type SealAgentProfileImprovementSuiteOptions,
   sealAgentProfileImprovementExperiment,

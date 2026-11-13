@@ -38,6 +38,7 @@ export {
 export { analyzeRuns } from './contract/analyze-runs'
 export { defineAgentEval } from './contract/define-agent-eval'
 export { selfImprove } from './contract/self-improve'
+export { Dataset } from './dataset'
 export * as profile from './profile/index'
 export { certificationEvidenceDigest, equivalenceVerdict } from './verdict'
 export {

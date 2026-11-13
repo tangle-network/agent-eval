@@ -1,7 +1,7 @@
 /** Search execution ports, persisted proposal shape, and versioned kernel rules. */
 import { hashCanonical } from '../ledger-core/canonical'
 import type { SearchAllocator, SearchCellPlan } from './allocation'
-import type { SearchClaimVerification } from './search-claim'
+import type { SearchClaimPlan, SearchClaimVerification } from './search-claim'
 import type {
   RegisterSearchNodeInput,
   SearchRecorder,
@@ -14,10 +14,13 @@ import type {
   SearchClaim,
   SearchCloseReason,
   SearchEdgeOperator,
+  SearchLedgerHash,
+  SearchOpenedEvent,
   SearchOperationRecordedEvent,
   SearchProposerKind,
   SearchSourceRef,
   SearchSplit,
+  SearchTask,
   SearchUnknown,
 } from './search-ledger-types'
 import type { SearchPolicy } from './search-policy'
@@ -48,7 +51,7 @@ const KERNEL_DEFINITION = {
   divergence:
     'a node whose train mean over shared units rises above its parent while its descriptive or bootstrap selection interval against the parent lies wholly on the worse side is decided invalid when its cells finish',
   claim:
-    'with a test split: after expansion stops, the claim plan is stored on the claim operation, the finalists are decided, the root and finalist test cells run together, and the claim decides; the kernel refuses to start a claim without a selection split, a minimumEffect, a pinned judge, or (under a cap) a claim reserve for the root and 3 finalists plus a cap for one screening round',
+    'with a test split: after expansion stops, the claim plan is stored on the claim operation, the finalists are decided, beforeClaim records or refuses exposure on the sealed roster before test allocation or resumed dispatch, the root and finalist test cells run together, and the claim decides; the kernel refuses to start a claim without a selection split, a minimumEffect, a pinned judge, or (under a cap) a claim reserve for the root and 3 finalists plus a cap for one screening round',
   close:
     'the allocator prunes the nodes left waiting on a rung, except the policy leader; then, with a test split, the claim decides; without one, the policy leader is selected when it has a scored cell; every other undecided node is rejected',
   complete:
@@ -207,6 +210,17 @@ export interface RunSearchOptions<TArtifact> {
    * recorded, the ledger stays open, and the call rejects. Run the kernel on
    * the same ledger again to continue. */
   signal?: AbortSignal
+  /** Record or refuse final-evidence exposure after the claim is sealed, before
+   * any test allocation or resumed dispatch. Receives detached values. Must be
+   * idempotent for the same durable claim when an interrupted search resumes. */
+  beforeClaim?: (input: {
+    searchId: string
+    claim: SearchOpenedEvent['objective']['claim']
+    plan: Readonly<SearchClaimPlan>
+    /** Baseline first, followed by the sealed finalist roster. */
+    candidateDigests: readonly SearchLedgerHash[]
+    tasks: readonly SearchTask[]
+  }) => Promise<void>
   /** Milliseconds since the epoch, for the deadline. Default `Date.now`. */
   now?: () => number
 }

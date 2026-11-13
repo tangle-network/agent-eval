@@ -190,6 +190,7 @@ Use `/contract` for a product integration, `/campaign` for execution controls, `
 Root `Scenario`, `JudgeScore`, and `GateDecision` are the same types as `/contract`.
 Product judging retains the explicit root names `ProductScenario` and `DimensionJudgeScore` beside its functions.
 `HeldOutGate.evaluate()` returns `HeldOutGateDecision`.
+Import `Dataset` from the package root to create versioned scenario manifests, JSONL transfers and holdout-aware slices with the maintained dataset implementation.
 
 Specialist subpaths and their examples are listed in the [surface map](./docs/eval-surface-map.md).
 Current canonical envelopes are required for seals, attestations, and profile identities.

@@ -14,8 +14,17 @@
  * rewards are writable and must stay readable).
  */
 
+import { readFileSync } from 'node:fs'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import {
+  canonicalString,
+  hashCanonical,
+  jsonDocument,
+  LEDGER_HASH_PATTERN,
+  type LedgerHash,
+} from '../ledger-core/canonical'
+import { withLedgerFileLock, writeLedgerFileAtomically } from '../ledger-core/journal-file'
 import { assertMinted, assertRolloutLine, type MintedRolloutLine, type RolloutLine } from './schema'
 
 function serialize(lines: RolloutLine[]): string {
@@ -85,4 +94,79 @@ async function readLines<T>(
     lines.push(admit(parsed, `${path}:${i + 1}`))
   }
   return lines
+}
+
+/** A caller's immutable source and projection identity; a batch key is never overwritten. */
+export interface RolloutBatchIdentity {
+  key: string
+  sourceDigest: LedgerHash
+  /** Pin the reader/projection version, such as a package version or source commit. */
+  projection: string
+}
+
+export interface RolloutBatchReceipt extends RolloutBatchIdentity {
+  digest: LedgerHash
+  rowCount: number
+  path: string
+}
+
+/**
+ * Retain one canonical journal batch exactly once. A receipt commits the fsynced
+ * rows; an interrupted write can be finished with the same content. This uses
+ * journal validation, so missing labels, explicit gaps and unscreened outcomes
+ * remain evidence without being approved for training.
+ */
+export function admitRolloutBatch(
+  directory: string,
+  identity: RolloutBatchIdentity,
+  lines: RolloutLine[],
+): { disposition: 'admitted' | 'existing'; receipt: RolloutBatchReceipt } {
+  if (
+    !identity.key.trim() ||
+    !identity.projection.trim() ||
+    !LEDGER_HASH_PATTERN.test(identity.sourceDigest)
+  )
+    throw new Error('rollout batch requires a key, projection version and canonical source digest')
+  for (const [index, line] of lines.entries()) assertRolloutLine(line, `rollout batch [${index}]`)
+  const document = jsonDocument(lines)
+  const digest = hashCanonical(document)
+  const batch = join(directory, hashCanonical(identity.key).slice('sha256:'.length))
+  const path = join(batch, 'rows.jsonl')
+  const receiptPath = join(batch, 'receipt.json')
+  const stored = { ...identity, digest, rowCount: lines.length }
+  const receipt: RolloutBatchReceipt = { ...stored, path }
+  const payload =
+    lines.map((line) => canonicalString(jsonDocument(line))).join('\n') + (lines.length ? '\n' : '')
+  const context = {
+    subject: 'rollout batch',
+    integrityError: (message: string, options?: { cause?: unknown }) => new Error(message, options),
+  }
+  const read = (file: string): string | null => {
+    try {
+      return readFileSync(file, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+  return withLedgerFileLock(receiptPath, context, () => {
+    const existing = read(receiptPath)
+    const rows = read(path)
+    if (existing !== null) {
+      if (hashCanonical(JSON.parse(existing)) !== hashCanonical(stored))
+        throw new Error(
+          `rollout batch key ${identity.key} already names different source or projection content`,
+        )
+      if (rows !== payload)
+        throw new Error(`rollout batch ${identity.key} retained rows failed integrity verification`)
+      return { disposition: 'existing', receipt }
+    }
+    if (rows !== null && rows !== payload)
+      throw new Error(
+        `rollout batch ${identity.key} has different uncommitted rows; refusing to overwrite evidence`,
+      )
+    writeLedgerFileAtomically(path, payload, context)
+    writeLedgerFileAtomically(receiptPath, `${canonicalString(stored)}\n`, context)
+    return { disposition: 'admitted', receipt }
+  })
 }

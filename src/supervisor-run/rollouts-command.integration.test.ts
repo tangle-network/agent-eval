@@ -7,12 +7,18 @@
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { readSessionInput } from '@tangle-network/harness-sessions'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { assertMintedLines } from '../rollout'
+import { hashCanonical, jsonDocument } from '../ledger-core/canonical'
+import { assertMintedLines, trainingAdmission } from '../rollout'
 import { toHarborTrajectories } from '../rollout/interchange/harbor'
 import { readRolloutJournal } from '../rollout/ledger'
 import { runSupervisorRunCommand } from './report-command'
-import { type RunVerdict, runtimeRunRolloutLines } from './runtime-rollouts'
+import {
+  type RuntimeRunRolloutOptions,
+  type RunVerdict,
+  runtimeRunRolloutLines,
+} from './runtime-rollouts'
 
 const FIXTURES = join(import.meta.dirname, '../../tests/fixtures/harness-sessions')
 const RUN = 'spec-build-20261025a'
@@ -274,6 +280,403 @@ describe('supervisor-run rollouts', () => {
     expect(await outcomeWhen(later, earlier)).toMatchObject({ is_completed: false })
   })
 
+  it('keeps structured conditioning and exposes an earlier execution without a result', async () => {
+    const runDir = await runtimeRun()
+    const input = {
+      instruction: 'Build csvstat.',
+      context: { repository: 'pinned-source', requirements: ['csv quoting'] },
+      prior: ['keep this evidence'],
+    }
+    await writeFile(join(runDir, 'blobs', `${TASK.replace(':', '-')}.json`), JSON.stringify(input))
+    const path = join(runDir, 'spawn-journal.jsonl')
+    const rows = (await readFile(path, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    rows.push(
+      ...[
+        { kind: 'execution-input', taskRef: TASK },
+        { kind: 'execution-input', taskRef: STEER },
+        { kind: 'execution-result', outRef: STEERED },
+      ].map((event, seq) => ({
+        kind: 'event',
+        root: ROOT,
+        event: { ...event, id: WORKER, seq: 10 + seq, at: '2026-10-25T04:00:00Z' },
+      })),
+    )
+    await writeFile(path, jsonl(rows))
+    const { lines } = await runtimeRunRolloutLines(runDir, {
+      split: 'holdout',
+      instanceId: 'case-1',
+    })
+    const worker = lines.find((line) => line.rollout_id === WORKER)!
+    expect(JSON.parse(worker.messages[0]!.content!)).toEqual(input)
+    expect(worker.provenance.lossy_projection).toBe(true)
+    expect(worker.provenance.gap).toContain('execution 2: execution result unavailable')
+    expect(
+      lines.every((line) => line.task.split === 'holdout' && line.task.instance_id === 'case-1'),
+    ).toBe(true)
+  })
+
+  it('joins verified native capture by execution attempt and retains a later unavailable capture', async () => {
+    const runDir = await runtimeRun()
+    const path = join(runDir, 'spawn-journal.jsonl')
+    const rows = (await readFile(path, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+      .filter((row) => !(row.event?.id === WORKER && row.event.kind.startsWith('execution-')))
+    const put = async (value: unknown) => {
+      const ref = hashCanonical(jsonDocument(value))
+      await writeFile(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`), JSON.stringify(value))
+      return ref
+    }
+    const nativeText = await readFile(join(FIXTURES, 'claude-code.jsonl'), 'utf8')
+    const session = readSessionInput(
+      'claude-code',
+      { text: nativeText },
+      {},
+      { corruption: 'strict' },
+    )
+    const native = {
+      schemaVersion: 1,
+      harness: 'claude-code',
+      files: [
+        {
+          path: `${session.nativeSessionId}.jsonl`,
+          bytes: Buffer.byteLength(nativeText),
+          content: nativeText,
+        },
+      ],
+      skipped: [],
+    }
+    const transcriptRef = await put(native)
+    const appendAttempt = async (
+      attemptId: string,
+      available: boolean,
+      overrides: {
+        rootId?: string
+        transcriptRef?: string
+        resultRef?: string | null
+        harness?: string
+      } = {},
+    ) => {
+      const wrapper = {
+        kind: 'harness-transcript',
+        schemaVersion: 1,
+        node: {
+          rootId: overrides.rootId ?? ROOT,
+          nodeId: WORKER,
+          parentId: ROOT,
+          depth: 1,
+          attemptId,
+        },
+        taskRef: TASK,
+        outRef: overrides.resultRef === null ? undefined : (overrides.resultRef ?? ANSWER),
+        harnessTranscript: available
+          ? {
+              status: 'available',
+              transcriptRef: overrides.transcriptRef ?? transcriptRef,
+              harness: overrides.harness ?? 'claude-code',
+              coverageComplete: true,
+              fileCount: 1,
+              totalBytes: Buffer.byteLength(nativeText),
+              skippedCount: 0,
+            }
+          : { status: 'unavailable', reason: 'capture interrupted' },
+      }
+      const evidenceRef = await put(wrapper)
+      rows.push(
+        ...[
+          { kind: 'execution-bound', binding: { attemptId } },
+          { kind: 'execution-input', taskRef: TASK },
+          { kind: 'execution-result', outRef: ANSWER },
+          { kind: 'execution-evidence', outRef: evidenceRef },
+        ].map((event, seq) => ({
+          kind: 'event',
+          root: ROOT,
+          event: { ...event, id: WORKER, seq, at: '2026-10-25T04:00:00Z' },
+        })),
+      )
+      await writeFile(path, jsonl(rows))
+    }
+    // A real native parser at the injected verifier boundary; no synthesized conversation.
+    const readNativeTranscript: RuntimeRunRolloutOptions['readNativeTranscript'] = async (
+      request,
+    ) => {
+      const receipt = request.receipt as { status: string; transcriptRef?: string; reason?: string }
+      if (receipt.status !== 'available')
+        return { succeeded: false, error: receipt.reason ?? 'unavailable' }
+      const artifact = JSON.parse(
+        await readFile(
+          join(runDir, 'blobs', `${receipt.transcriptRef!.replace(':', '-')}.json`),
+          'utf8',
+        ),
+      )
+      if (hashCanonical(artifact) !== receipt.transcriptRef)
+        return { succeeded: false, error: 'digest mismatch' }
+      return {
+        succeeded: true,
+        value: {
+          sessions: artifact.files.map(
+            (file: { content: string; session?: Parameters<typeof readSessionInput>[2] }) =>
+              readSessionInput(artifact.harness, { text: file.content }, file.session ?? {}, {
+                corruption: 'strict',
+              }),
+          ),
+        },
+      }
+    }
+    await appendAttempt('attempt-1', true)
+    const first = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(first.provenance.lossy_projection).toBeUndefined()
+    expect(first.provenance.tool_definitions_gap).toContain('no complete recorded tool inventory')
+    expect(first.provenance.native_captures).toMatchObject([
+      { attempt_id: 'attempt-1', verified: true, native_session_ids: [session.nativeSessionId] },
+    ])
+    expect(
+      first.messages.some((message) =>
+        message.content?.includes('TRACEPROOF-WORKER-REAP-FINAL-ANSWER'),
+      ),
+    ).toBe(true)
+    for (const [index, value] of [null, 'readable generic evidence', ['audit']].entries()) {
+      const ref = await put(value)
+      rows.push({
+        kind: 'event',
+        root: ROOT,
+        event: {
+          kind: 'execution-evidence',
+          id: WORKER,
+          outRef: ref,
+          seq: 5 + index,
+          at: '2026-10-25T04:01:00Z',
+        },
+      })
+    }
+    const auditValue = { kind: 'capture-audit', detail: 'known non-native evidence' }
+    const auditRef = await put(auditValue)
+    const auditPath = join(runDir, 'blobs', `${auditRef.replace(':', '-')}.json`)
+    rows.push({
+      kind: 'event',
+      root: ROOT,
+      event: {
+        kind: 'execution-evidence',
+        id: WORKER,
+        outRef: auditRef,
+        seq: 8,
+        at: '2026-10-25T04:01:00Z',
+      },
+    })
+    await writeFile(path, jsonl(rows))
+    const mixed = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(mixed.provenance.lossy_projection).toBeUndefined()
+    expect(mixed.provenance.native_captures).toHaveLength(1)
+    for (const raw of [null, 'not JSON', JSON.stringify({ kind: 'changed-evidence' })]) {
+      if (raw === null) await rm(auditPath)
+      else await writeFile(auditPath, raw)
+      const unreadable = (
+        await runtimeRunRolloutLines(runDir, { readNativeTranscript })
+      ).lines.find((line) => line.rollout_id === WORKER)!
+      expect(unreadable.messages).toEqual(first.messages)
+      expect(unreadable.provenance.lossy_projection).toBe(true)
+      expect(unreadable.provenance.native_captures?.at(-1)).toMatchObject({
+        evidence_ref: auditRef,
+        verified: false,
+        gap: 'execution evidence blob unavailable, malformed or failed content verification',
+      })
+      expect(
+        trainingAdmission(
+          { ...unreadable, outcome: { ...unreadable.outcome, reward: null } },
+          'imitation',
+        ).reason,
+      ).toBe('lossy-capture')
+    }
+    await writeFile(auditPath, JSON.stringify(auditValue))
+    const completeRows = [...rows]
+    const backfilledRows = nativeText
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    const capturedTools = backfilledRows.find((row) => Array.isArray(row.attachment?.tools))!
+      .attachment.tools
+    backfilledRows.find((row) => row.attachment?.type === 'prompt_snapshot')!.attachment.tools =
+      capturedTools
+    const backfilledText = jsonl(backfilledRows)
+    const backfilledRef = await put({
+      ...native,
+      files: [
+        { ...native.files[0], bytes: Buffer.byteLength(backfilledText), content: backfilledText },
+      ],
+    })
+    await appendAttempt('backfilled-tool-exposure', true, { transcriptRef: backfilledRef })
+    const backfilled = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(backfilled.messages).toEqual(first.messages)
+    expect(backfilled.provenance.gap).toContain('cumulative snapshot conflicts')
+    expect(backfilled.provenance.native_captures?.at(-1)?.verified).toBe(false)
+    rows.splice(0, rows.length, ...completeRows)
+    await appendAttempt('forged-root', true, { rootId: 'another-run-root' })
+    const forged = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(forged.provenance.lossy_projection).toBe(true)
+    expect(forged.provenance.gap).toContain('spawn root')
+    rows.splice(0, rows.length, ...completeRows)
+
+    for (const resultRef of [null, STEERED]) {
+      await appendAttempt('unbound-result', true, { resultRef })
+      const unbound = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+        (line) => line.rollout_id === WORKER,
+      )!
+      expect(unbound.provenance.lossy_projection).toBe(true)
+      expect(unbound.provenance.gap).toContain('result does not match execution output')
+      expect(unbound.provenance.native_captures?.at(-1)?.verified).toBe(false)
+      rows.splice(0, rows.length, ...completeRows)
+    }
+
+    const shorter = `${nativeText
+      .split('\n')
+      .filter((raw) => {
+        if (!raw.trim()) return false
+        const row = JSON.parse(raw)
+        if (!row.message) return true
+        if (row.type === 'user' && typeof row.message.content === 'string') return true
+        return (
+          row.type === 'assistant' &&
+          JSON.stringify(row.message.content).includes('TRACEPROOF-WORKER-REAP-FINAL-ANSWER')
+        )
+      })
+      .join('\n')}\n`
+    const shortenedRef = await put({
+      ...native,
+      files: [{ ...native.files[0], bytes: Buffer.byteLength(shorter), content: shorter }],
+    })
+    await appendAttempt('shorter-snapshot', true, { transcriptRef: shortenedRef })
+    const shortened = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(shortened.provenance.lossy_projection).toBe(true)
+    expect(shortened.provenance.gap).toContain('cumulative snapshot conflicts')
+    expect(shortened.messages).toEqual(first.messages)
+    expect(shortened.provenance.native_captures?.map((capture) => capture.transcript_ref)).toEqual([
+      transcriptRef,
+      shortenedRef,
+    ])
+    rows.splice(0, rows.length, ...completeRows)
+    await appendAttempt('attempt-2', false)
+    const second = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(second.provenance.lossy_projection).toBe(true)
+    expect(second.provenance.native_captures?.map((capture) => capture.verified)).toEqual([
+      true,
+      false,
+    ])
+    expect(second.provenance.gap).toContain('capture interrupted')
+    expect(
+      trainingAdmission(
+        {
+          ...second,
+          outcome: { ...second.outcome, reward: null },
+          provenance: { ...second.provenance, lossy_projection: undefined },
+        },
+        'imitation',
+      ).reason,
+    ).toBe('lossy-capture')
+    expect(
+      second.messages.some((message) =>
+        message.content?.includes('TRACEPROOF-WORKER-REAP-FINAL-ANSWER'),
+      ),
+    ).toBe(true)
+    // A later verified receipt for this exact invocation repairs only its unavailable capture.
+    const failedRef = second.provenance.native_captures![1]!.evidence_ref
+    const failedWrapper = JSON.parse(
+      await readFile(join(runDir, 'blobs', `${failedRef.replace(':', '-')}.json`), 'utf8'),
+    )
+    const repairedRef = await put({
+      ...failedWrapper,
+      harnessTranscript: {
+        status: 'available',
+        transcriptRef,
+        harness: 'claude-code',
+        coverageComplete: true,
+        fileCount: 1,
+        totalBytes: Buffer.byteLength(nativeText),
+        skippedCount: 0,
+      },
+    })
+    rows.push({
+      kind: 'event',
+      root: ROOT,
+      event: {
+        kind: 'execution-evidence',
+        id: WORKER,
+        outRef: repairedRef,
+        seq: 5,
+        at: '2026-10-25T04:01:00Z',
+      },
+    })
+    await writeFile(path, jsonl(rows))
+    const repaired = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(repaired.provenance.lossy_projection).toBeUndefined()
+    expect(repaired.provenance.native_captures![1]).toMatchObject({
+      verified: false,
+      gap: 'capture interrupted',
+      resolved_by: repairedRef,
+    })
+    expect(
+      trainingAdmission(
+        { ...repaired, outcome: { ...repaired.outcome, reward: null } },
+        'imitation',
+      ).reason,
+    ).toBe('unscored')
+
+    // The source inventory supplies native child identities; messages still come from native parsers.
+    const familyRef = await put({
+      ...native,
+      files: [
+        native.files[0],
+        ...[
+          { nativeSessionId: 'shared-native-id', parentNativeSessionId: session.nativeSessionId },
+          { nativeSessionId: 'grandchild', parentNativeSessionId: 'shared-native-id' },
+        ].map((identity) => ({ ...native.files[0], session: identity })),
+      ],
+    })
+    const piText = (await readFile(join(FIXTURES, 'pi.jsonl'), 'utf8')).replace(
+      /"id":"[^"]+"/u,
+      '"id":"shared-native-id"',
+    )
+    const piRef = await put({
+      ...native,
+      harness: 'pi',
+      files: [{ path: 'pi.jsonl', bytes: Buffer.byteLength(piText), content: piText }],
+    })
+    await appendAttempt('claude-family', true, { transcriptRef: familyRef })
+    await appendAttempt('pi-family', true, { transcriptRef: piRef, harness: 'pi' })
+    const hierarchy = await runtimeRunRolloutLines(runDir, { readNativeTranscript })
+    expect(
+      hierarchy.lines.find((line) => line.rollout_id === WORKER)?.provenance.lossy_projection,
+    ).toBeUndefined()
+    expect(
+      hierarchy.lines
+        .find((line) => line.rollout_id === WORKER)
+        ?.provenance.native_captures?.find((capture) => capture.attempt_id === 'pi-family'),
+    ).toMatchObject({ verified: true, native_session_ids: ['shared-native-id'] })
+    expect(
+      hierarchy.lines.find((line) => line.rollout_id === `${WORKER}:native:claude-code:grandchild`),
+    ).toMatchObject({
+      parent_rollout_id: `${WORKER}:native:claude-code:shared-native-id`,
+      outcome: { reward: null },
+    })
+  })
+
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {
     const { lines } = await runtimeRunRolloutLines(await runtimeRun())
     const steps = toHarborTrajectories(lines)
@@ -311,8 +714,9 @@ describe('supervisor-run rollouts', () => {
     const summary = JSON.parse(stdout.join(''))
     expect(summary.dropped['api-key']).toBe(1)
     expect(summary.dropped.email).toBe(1)
-    expect(summary.sources.find((source: { kind: string }) => source.kind === 'sessions:claude-code'))
-      .toMatchObject({ read: 1, written: 0, errors: [] })
+    expect(
+      summary.sources.find((source: { kind: string }) => source.kind === 'sessions:claude-code'),
+    ).toMatchObject({ read: 1, written: 0, errors: [] })
     expect(summary.sources[0]).toMatchObject({ kind: 'run-dir', read: 2, written: 2 })
 
     const lines = await readRolloutJournal(out)
@@ -348,7 +752,10 @@ describe('supervisor-run rollouts', () => {
       { role: 'user', content: 'Recheck the last case.' },
       { role: 'assistant', content: 'Still 6 of 6.' },
     ])
-    expect(worker.provenance.lossy_projection).toBeUndefined()
+    expect(worker.provenance.lossy_projection).toBe(true)
+    expect(worker.provenance.gap).toContain(
+      'execution 1: no attempt-bound native transcript evidence',
+    )
     const spans = (await readFile(otlp, 'utf8')).trim().split('\n')
     expect(spans.some((span) => JSON.parse(span).name.includes('bash'))).toBe(true)
     expect(worker.outcome.reward).toBe(1)

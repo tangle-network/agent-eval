@@ -500,6 +500,7 @@ interface ExporterProbe {
 }
 
 const LOOKUPS = {
+  lookupBy: 'rollout' as const,
   promptOf: () => 'PROMPT-TEXT',
   completionOf: () => 'COMPLETION-TEXT',
   stepTextOf: () => 'STEP-TEXT',

@@ -3,11 +3,7 @@ import { toSftRows } from '../exporters'
 import { fixtureRolloutLine, malformedRolloutLine } from '../fixtures'
 import type { RolloutLine } from '../schema'
 import { validateRolloutLine } from '../schema'
-import {
-  fromHarborTrajectory,
-  type HarborTrajectory,
-  toHarborTrajectory,
-} from './harbor'
+import { fromHarborTrajectory, type HarborTrajectory, toHarborTrajectory } from './harbor'
 
 const CAPTURED_AT = '2026-07-23T00:00:00.000Z'
 const now = () => new Date(CAPTURED_AT)
@@ -35,10 +31,6 @@ function episode(): RolloutLine[] {
   return [supervisor, workerA, workerB]
 }
 
-
-
-
-
 /**
  * RFC 0001 MUST rule 2, checked over the whole tree: every `source_call_id` in
  * an `ObservationResult` matches a `tool_call_id` in THAT step's `tool_calls`.
@@ -59,12 +51,6 @@ function ruleTwoViolations(trajectory: HarborTrajectory): string[] {
   }
   return bad
 }
-
-
-
-
-
-
 
 describe('ATIF MUST rule 2 — observations link by id, not by adjacency', () => {
   it('holds on the fixture and on the multi-agent episode', () => {
@@ -180,10 +166,24 @@ describe('ATIF is_copied_context — RFC 0001 rule 7', () => {
     expect(back!.messages).toEqual(line.messages)
   })
 
-  it('is excluded from the SFT export — the MUST the RFC actually states', () => {
+  it('preserves copied conditioning without a trainer-specific source flag', () => {
     const [row] = toSftRows([withCopied])
-    expect(row!.messages.map((m) => m.content)).toEqual(['You are a coding worker.', 'my own work'])
+    expect(row!.messages.map((m) => m.content)).toEqual([
+      'You are a coding worker.',
+      'context pasted from the supervisor',
+      'my own work',
+    ])
     expect(row!.messages.some((m) => m.is_copied_context === true)).toBe(false)
+    expect(row!.message_loss_mask).toEqual([1, 0, 1])
+    const copiedAnswer = fixtureRolloutLine({
+      messages: [
+        ...withCopied.messages,
+        { role: 'assistant', content: 'answer pasted from a sibling', is_copied_context: true },
+      ],
+    })
+    const [masked] = toSftRows([copiedAnswer])
+    expect(masked!.messages.map((m) => m.weight)).toEqual([undefined, undefined, 1, 0])
+    expect(masked!.message_loss_mask).toEqual([1, 0, 1, 0])
   })
 
   it('drops a line whose transcript is nothing but copied context', () => {
@@ -193,10 +193,6 @@ describe('ATIF is_copied_context — RFC 0001 rule 7', () => {
     expect(toSftRows([allCopied])).toEqual([])
   })
 })
-
-
-
-
 
 describe('schema back-compatibility for the ATIF-lifted optional fields', () => {
   it('validates a line that predates them', () => {
@@ -258,5 +254,3 @@ describe('schema back-compatibility for the ATIF-lifted optional fields', () => 
     ).toEqual(['messages[0].is_copied_context: must be boolean when present'])
   })
 })
-
-

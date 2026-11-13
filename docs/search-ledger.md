@@ -323,6 +323,23 @@ const { state, leader, reason, claim } = await runSearch({
 })
 ```
 
+For final data shared across campaigns, call `prepareSearchFinalEvidence({ policy,
+recorder, claim, finalScenarios, developmentScenarios })` from `/campaign` before
+starting the kernel, and pass its `beforeClaim` to `runSearch`. The policy uses
+`openFinalEvidenceLedger` from `/experiment`; keep that ledger outside individual
+campaign directories. The helper reserves the final independent units before
+development, checks the claim and task-unit identities against the search header,
+and binds the reservation to this search. `receipt()` returns the current reservation
+and exposure record.
+
+The kernel calls `beforeClaim` after persisting the finalist plan and before any
+test allocation or resumed dispatch. The helper records the baseline and finalist
+artifact digests there. An interrupted search can replay that exact durable plan;
+an already exposed request cannot start a fresh search, change its candidate roster,
+or attach exposure retrospectively to test cells that already exist. A search that
+closes without running test cells retains only its reservation. Custom callbacks
+receive detached descriptors and must be idempotent for the same sealed claim.
+
 The ports:
 
 - **Executor:** `lanes()` declares pools of slots, each `hard` (it enforces `cellUsd` per cell) or `estimate` (it cannot); `place(cell)` picks a cell's lane; `run(work)` runs one attempt and returns its outcome, accounting and identity; `adopt(work)` returns an attempt an earlier process finished, or null.
@@ -465,7 +482,7 @@ When expansion stops, the kernel:
    The plan is stored as the `claim-plan` blob on the `claim` operation before any test cell exists.
 2. **Seals the family.** Each planned finalist is decided `finalist` with its selection estimate against the root.
    From here the search only claims: no node advances to another rung.
-3. **Runs the test together.** The root's and the finalists' test cells are allocated task by task and dispatched before anything else, so drift over a long search cannot bias the pairs. They run past the deadline, on the reserve held since the start.
+3. **Runs the test together.** When provided, `beforeClaim` must complete before any test allocation or resumed dispatch. The root's and the finalists' test cells are allocated task by task and dispatched before anything else, so drift over a long search cannot bias the pairs. They run past the deadline, on the reserve held since the start.
 4. **Decides.** `decideSearchClaim` tests each finalist against the root with `decidePairedPromotion` on per-unit test means at confidence `1 - 0.05 / k`, requiring every test unit.
    The promoted finalist with the largest improvement is `selected` and the claim is `ship`; otherwise the claim is `hold` and the root is kept.
    Every other open node is `rejected` with its selection estimate against the root.

@@ -32,6 +32,7 @@
  */
 
 import { ValidationError } from '../errors'
+import { canonicalString, jsonDocument } from '../ledger-core/canonical'
 import { type RunRecord, type RunSearchCoordinates, runTaskScore } from '../run-record'
 import type { LlmSpan, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
@@ -46,7 +47,9 @@ import {
   type RolloutRole,
   type RolloutSplit,
   type RolloutStep,
+  type ToolDef,
 } from './schema'
+import { requireToolLinkage } from './transcript'
 
 /** Redactor for transcript/step payload text (secrets, PII), not opaque identity. */
 export type RolloutScrubber = (text: string) => string
@@ -75,6 +78,10 @@ export interface MintRolloutOptions {
   messagesOf?: (
     runId: string,
   ) => readonly ChatMessage[] | undefined | Promise<readonly ChatMessage[] | undefined>
+  /** Tool schemas captured at the same invocation; never reconstructed from tool calls. */
+  toolDefsOf?: (
+    runId: string,
+  ) => readonly ToolDef[] | undefined | Promise<readonly ToolDef[] | undefined>
   /** Provider attempts from a retained receipt bound to the exact run. */
   evidenceOf?: (
     runId: string,
@@ -159,55 +166,6 @@ function projectMessage(message: ChatMessage, scrub: RolloutScrubber): ChatMessa
       ? { is_copied_context: message.is_copied_context }
       : {}),
   }
-}
-
-/** Never recover missing calls from tool names, span order or argument summaries. */
-function requireToolLinkage(messages: readonly ChatMessage[], runId: string): void {
-  const seen = new Set<string>()
-  const pending = new Map<string, string>()
-  const refuse: (detail: string) => never = (detail) => {
-    throw new ValidationError(`Cannot mint rollout for run ${runId}: ${detail}`)
-  }
-  for (const message of messages) {
-    if (message.tool_calls !== undefined) {
-      if (message.role !== 'assistant' || !Array.isArray(message.tool_calls)) {
-        refuse('tool calls must be captured on an assistant message')
-      }
-      if (pending.size > 0) refuse('new tool calls precede the prior invocation results')
-      for (const call of message.tool_calls) {
-        if (
-          !call ||
-          typeof call.id !== 'string' ||
-          call.id.length === 0 ||
-          seen.has(call.id) ||
-          call.type !== 'function' ||
-          !call.function ||
-          typeof call.function.name !== 'string' ||
-          call.function.name.length === 0 ||
-          typeof call.function.arguments !== 'string'
-        ) {
-          refuse('missing, duplicate or malformed tool invocation')
-        }
-        seen.add(call.id)
-        pending.set(call.id, call.function.name)
-      }
-    }
-    if (message.role === 'tool') {
-      const id = message.tool_call_id
-      if (typeof id !== 'string' || !pending.has(id)) {
-        refuse('tool result has no captured invocation (or answers it more than once)')
-      }
-      if (message.name !== undefined && message.name !== pending.get(id)) {
-        refuse('tool result name does not match its invocation')
-      }
-      pending.delete(id)
-    } else if (message.tool_call_id !== undefined) {
-      refuse('tool_call_id is only valid on a tool result')
-    } else if (pending.size > 0 && message.tool_calls === undefined) {
-      refuse('conversation advances before all tool results were captured')
-    }
-  }
-  if (pending.size > 0) refuse('tool invocation has no captured result')
 }
 
 /** Legacy span history; callers with compacted contexts supply messagesOf instead. */
@@ -439,6 +397,7 @@ function mintLine(
   gap?: string,
   attempts?: readonly RolloutEvidenceAttempt[],
   lossyProjection = false,
+  toolDefs: ToolDef[] = [],
 ): MintedRolloutLine {
   // Field presence first, and BEFORE `requireTaskScore`: that guard reads
   // `record.outcome.searchScore` on its way to the answer, so an absent
@@ -502,7 +461,7 @@ function mintLine(
         sampling: null,
       },
       messages,
-      tool_defs: [],
+      tool_defs: toolDefs,
       ...(steps.length > 0 ? { steps } : {}),
       outcome: {
         ...rewardFields,
@@ -573,6 +532,12 @@ export async function mintRolloutRows(
   for (const record of records) {
     const trajectory = await buildTrajectory(store, record.runId)
     const captured = options.messagesOf ? await options.messagesOf(record.runId) : undefined
+    const tools = options.toolDefsOf ? await options.toolDefsOf(record.runId) : []
+    if (!Array.isArray(tools))
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: declared tool definitions are missing`,
+      )
+    const toolDefs: ToolDef[] = JSON.parse(canonicalString(jsonDocument(tools)))
     const evidence = options.evidenceOf ? await options.evidenceOf(record.runId) : undefined
     if (evidence !== undefined && evidence?.runId !== record.runId) {
       throw new ValidationError(
@@ -624,6 +589,8 @@ export async function mintRolloutRows(
           capturedAt,
           'no trace spans recorded for this runId',
           attempts,
+          false,
+          toolDefs,
         ),
       )
       continue
@@ -642,13 +609,8 @@ export async function mintRolloutRows(
     }
     const spans = trajectory.steps.map((s) => s.span)
     const messages = captured ?? finalConversation(spans)
-    requireToolLinkage(messages, record.runId)
+    requireToolLinkage(messages, `Cannot mint rollout for run ${record.runId}`)
     const conversation = messages.map((message) => projectMessage(message, scrub))
-    // SFT drops copied context. That projection must not orphan a retained result.
-    requireToolLinkage(
-      conversation.filter((message) => message.is_copied_context !== true),
-      record.runId,
-    )
     const gaps: string[] = []
     if (conversation.length === 0) gaps.push('trace has no llm spans; no conversation to inline')
     else if (!options.messagesOf) {
@@ -673,6 +635,7 @@ export async function mintRolloutRows(
         (conversation.length > 0 && !options.messagesOf) ||
           omittedSteps > 0 ||
           (attempts?.some((attempt) => attempt.missingReasons.length > 0) ?? false),
+        toolDefs,
       ),
     )
   }

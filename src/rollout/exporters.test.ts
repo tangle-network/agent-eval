@@ -63,7 +63,13 @@ describe('SFT exporter', () => {
       gap,
     ])
     expect(rows).toHaveLength(2)
-    expect(rows[0]!.messages).toEqual(keep.messages)
+    expect(rows[0]!.messages).toEqual(
+      keep.messages.map((message) =>
+        message.role === 'assistant' ? { ...message, weight: 1 } : message,
+      ),
+    )
+    expect(rows[0]!.message_loss_mask).toEqual(keep.messages.map(() => 1))
+    expect(rows[0]!.tools).toEqual(keep.tool_defs)
     expect(rows[0]!.metadata).toEqual({
       rollout_id: keep.rollout_id,
       run_id: keep.run_id,
