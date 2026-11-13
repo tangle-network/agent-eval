@@ -120,7 +120,12 @@ describe('rl/toSftRowsWithLookups over captured transcripts', () => {
         message.role === 'assistant' ? { ...message, weight: 1 } : message,
       ),
     )
-    expect(jsonl.startsWith(`{"messages":${expectedMessages},"tools":`)).toBe(true)
+    const expectedMask = JSON.stringify(messages.map(() => 1))
+    expect(
+      jsonl.startsWith(
+        `{"messages":${expectedMessages},"message_loss_mask":${expectedMask},"tools":`,
+      ),
+    ).toBe(true)
     expect(jsonl.endsWith('\n')).toBe(true)
     const row = JSON.parse(jsonl)
     expect(JSON.stringify(row.messages)).toBe(expectedMessages)
