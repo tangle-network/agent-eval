@@ -318,7 +318,8 @@ describe('supervisor-run rollouts', () => {
     ).toBe(true)
   })
 
-  it('joins verified native capture by execution attempt and retains a later unavailable capture', async () => {
+  /** A Runtime run whose worker can retain native Claude Code captures, one attempt at a time. */
+  const nativeRun = async () => {
     const runDir = await runtimeRun()
     const path = join(runDir, 'spawn-journal.jsonl')
     const rows = (await readFile(path, 'utf8'))
@@ -359,8 +360,13 @@ describe('supervisor-run rollouts', () => {
         transcriptRef?: string
         resultRef?: string | null
         harness?: string
+        /** The attempt in the record's `node`; null omits it, as Runtime 87073a4c writes. */
+        recordAttemptId?: string | null
+        /** The attempt on the `execution-evidence` row, as Runtime 87073a4c writes. */
+        rowAttemptId?: string
       } = {},
     ) => {
+      const recorded = overrides.recordAttemptId
       const wrapper = {
         kind: 'harness-transcript',
         schemaVersion: 1,
@@ -369,7 +375,7 @@ describe('supervisor-run rollouts', () => {
           nodeId: WORKER,
           parentId: ROOT,
           depth: 1,
-          attemptId,
+          attemptId: recorded === null ? undefined : (recorded ?? attemptId),
         },
         taskRef: TASK,
         outRef: overrides.resultRef === null ? undefined : (overrides.resultRef ?? ANSWER),
@@ -391,7 +397,7 @@ describe('supervisor-run rollouts', () => {
           { kind: 'execution-bound', binding: { attemptId } },
           { kind: 'execution-input', taskRef: TASK },
           { kind: 'execution-result', outRef: ANSWER },
-          { kind: 'execution-evidence', outRef: evidenceRef },
+          { kind: 'execution-evidence', attemptId: overrides.rowAttemptId, outRef: evidenceRef },
         ].map((event, seq) => ({
           kind: 'event',
           root: ROOT,
@@ -427,6 +433,33 @@ describe('supervisor-run rollouts', () => {
         },
       }
     }
+    return {
+      runDir,
+      path,
+      rows,
+      put,
+      native,
+      nativeText,
+      session,
+      transcriptRef,
+      appendAttempt,
+      readNativeTranscript,
+    }
+  }
+
+  it('joins verified native capture by execution attempt and retains a later unavailable capture', async () => {
+    const {
+      runDir,
+      path,
+      rows,
+      put,
+      native,
+      nativeText,
+      session,
+      transcriptRef,
+      appendAttempt,
+      readNativeTranscript,
+    } = await nativeRun()
     await appendAttempt('attempt-1', true)
     const first = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
       (line) => line.rollout_id === WORKER,
@@ -675,6 +708,47 @@ describe('supervisor-run rollouts', () => {
       parent_rollout_id: `${WORKER}:native:claude-code:shared-native-id`,
       outcome: { reward: null },
     })
+  })
+
+  // The journal binds attempt-1; each case places the capture's attempt as a Runtime release does.
+  it.each([
+    { shape: 'the evidence row alone', row: 'attempt-1', recorded: null, gap: null },
+    { shape: 'the record alone', row: undefined, recorded: 'attempt-1', gap: null },
+    {
+      shape: 'a row and record that disagree',
+      row: 'attempt-1',
+      recorded: 'attempt-0',
+      gap: 'native evidence attempt differs: execution-evidence row attempt-1, record attempt-0',
+    },
+    {
+      shape: 'neither row nor record',
+      row: undefined,
+      recorded: null,
+      gap: 'native evidence attempt missing from the execution-evidence row and the record',
+    },
+    {
+      shape: 'a row naming an attempt the journal never bound',
+      row: 'attempt-9',
+      recorded: null,
+      gap: 'native evidence has no matching execution-bound attempt or spawn root',
+    },
+  ])('takes the native capture attempt from $shape', async ({ row, recorded, gap }) => {
+    const { runDir, session, appendAttempt, readNativeTranscript } = await nativeRun()
+    await appendAttempt('attempt-1', true, { rowAttemptId: row, recordAttemptId: recorded })
+    const worker = (await runtimeRunRolloutLines(runDir, { readNativeTranscript })).lines.find(
+      (line) => line.rollout_id === WORKER,
+    )!
+    expect(worker.provenance.native_captures).toMatchObject([
+      gap === null
+        ? { attempt_id: 'attempt-1', verified: true, native_session_ids: [session.nativeSessionId] }
+        : { verified: false, gap, native_session_ids: [] },
+    ])
+    expect(worker.provenance.lossy_projection).toBe(gap === null ? undefined : true)
+    expect(
+      worker.messages.some((message) =>
+        message.content?.includes('TRACEPROOF-WORKER-REAP-FINAL-ANSWER'),
+      ),
+    ).toBe(gap === null)
   })
 
   it('exports a real episode as a Harbor trajectory with its tool calls', async () => {

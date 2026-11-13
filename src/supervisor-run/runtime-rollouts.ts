@@ -29,7 +29,7 @@ interface Execution {
   taskRef?: string
   outRef?: string
   at?: string
-  captures: Array<{ ref: string; attemptId?: string }>
+  captures: Array<{ ref: string; attemptId?: string; rowAttemptId?: string }>
 }
 
 interface NodeFacts {
@@ -143,7 +143,11 @@ async function journalFacts(runDir: string): Promise<Map<string, NodeFacts>> {
             item.captures.some((capture) => capture.ref === event.outRef),
           )
         ) {
-          execution.captures.push({ ref: event.outRef as string, attemptId: fact.attemptId })
+          execution.captures.push({
+            ref: event.outRef as string,
+            attemptId: fact.attemptId,
+            rowAttemptId: text(event.attemptId),
+          })
         }
       }
     }
@@ -225,6 +229,18 @@ function extendsSession(previous: HarnessSession, next: HarnessSession): boolean
   )
 }
 
+/** The evidence row names the attempt; older Runtime records carry it in the record's `node`. */
+function evidenceAttempt(row?: string, recorded?: string): { attemptId?: string; gap?: string } {
+  if (row !== undefined && recorded !== undefined && row !== recorded)
+    return {
+      gap: `native evidence attempt differs: execution-evidence row ${row}, record ${recorded}`,
+    }
+  const attemptId = row ?? recorded
+  if (attemptId === undefined)
+    return { gap: 'native evidence attempt missing from the execution-evidence row and the record' }
+  return { attemptId }
+}
+
 /** Verify every attempt, retaining partial executions as audit evidence. */
 async function nodeSessions(
   runDir: string,
@@ -254,7 +270,8 @@ async function nodeSessions(
       foundCapture = true
       const binding = record(wrapper?.node)
       const rootId = text(binding?.rootId)
-      const attemptId = text(binding?.attemptId)
+      const attempt = evidenceAttempt(capture.rowAttemptId, text(binding?.attemptId))
+      const attemptId = attempt.attemptId
       const receipt = record(wrapper?.harnessTranscript)
       const taskRef = text(wrapper?.taskRef)
       const resultRef = text(wrapper?.outRef)
@@ -264,6 +281,7 @@ async function nodeSessions(
         reason = 'execution evidence blob unavailable, malformed or failed content verification'
       else if (wrapper?.schemaVersion !== 1)
         reason = 'native evidence wrapper failed content verification'
+      else if (attempt.gap !== undefined) reason = attempt.gap
       else if (
         !rootId ||
         !attemptId ||
