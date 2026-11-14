@@ -4,6 +4,40 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.34] — 2026-11-14
+
+- fix(deps): resolve Interface 5.10.26 and repin the analyst benchmark's dependency lock
+- fix(deps): raise the Interface floor to 5.10.26 (lock pending)
+- chore(release): 1.0.33
+- fix(analyst): repin the benchmark implementation after hashCanonical's digest change
+- perf(ledger-core): hash canonical values through Interface's digest
+- fix(deps): point the @hono/node-server snapshot at the locked hono 4.13.16
+- refactor(scripts): one pnpm-lock walker for adopt-stack and the benchmark pin
+- fix(analyst): bind every Python wheel hash, not only the sdist, into the dependency pin
+- fix(analyst): pin the resolved dependency closure the benchmark imports
+- fix(analyst): repin the benchmark dependency lock digest after the hono bump (#1262)
+- chore(release): 1.0.32 (#1261)
+- chore(deps): bump hono from 4.13.14 to 4.13.16 (#1257)
+- chore(deps): bump opentelemetry-api in /clients/python (#1258)
+- fix(rollout): read the capture attempt from Runtime's evidence row (#1260)
+- chore(release): 1.0.31 (#1259)
+- chore(deps): bump @hono/node-server from 2.1.5 to 2.1.6
+- fix(eval): integrate retained training and sealed final exposure (#1254)
+- feat(statistics): clustered paired contrast — cluster jackknife interval, cluster sign-flip test, clustered binary MDE and its simulation (#1247)
+- chore(release): 1.0.30 (#1250)
+- chore(analyst): retain qualified DSPy implementation identity
+- fix(analyst): isolate nested DSPy interpreter instances
+- test(analyst): replace redundant bridge stand-ins with native proof
+- test(analyst): qualify DSPy native model and parallel subqueries
+- style(analyst): keep bridge imports canonical
+- test(analyst): retain native RLM receipts and freeze DSPy cohort
+- feat(analyst): adopt native DSPy 3.5 RLM execution
+- test(analyst): qualify official DSPy RLM over real Python and HTTP
+- fix(adoption): keep evidence authentication in the GitHub CLI (#1248)
+- fix(benchmarks): a patch the Harbor oracle could not apply is no score, never a 0 (#1246)
+- chore(release): 1.0.29
+- feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
+
 ## [1.0.33] — 2026-11-14
 
 - fix(analyst): repin the benchmark implementation after hashCanonical's digest change
