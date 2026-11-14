@@ -75,6 +75,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.26`, the first release whose `canonicalCandidateDigest` hashes in chunks; with the old floor a consumer's lock could keep 5.10.24 for Eval and its run reader would still build each blob's encoding whole.
 - perf(ledger-core): `hashCanonical` uses Interface's `canonicalCandidateDigest`, which from Interface 5.10.26 hashes the RFC 8785 encoding in chunks instead of building it whole. The run reader verifies every Runtime output blob with it; on a 101 MiB provider event stream the hash no longer raises peak memory above parsing the blob (697 MiB RSS, against 1,455 MiB). Same digest.
 - fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
 - fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
