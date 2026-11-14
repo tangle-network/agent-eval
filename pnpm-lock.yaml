@@ -171,7 +171,7 @@ importers:
         version: 9.1.0(zod@4.6.7)
       '@hono/node-server':
         specifier: ^2.1.5
-        version: 2.1.6(hono@4.13.14)
+        version: 2.1.6(hono@4.13.16)
       '@tangle-network/agent-core':
         specifier: ^1.0.3
         version: 1.0.3
@@ -1737,7 +1737,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@hono/node-server@2.1.6(hono@4.13.14)':
+  '@hono/node-server@2.1.6(hono@4.13.16)':
     dependencies:
       hono: 4.13.16
 
