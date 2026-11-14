@@ -244,7 +244,11 @@ function pythonClosure(lock) {
     for (const entry of matches) {
       const key = `${entry.name}==${entry.version}`
       if (!entries.has(key)) {
-        entries.set(key, entry.sdist?.hash ?? entry.wheels?.map((wheel) => wheel.hash).sort().join(',') ?? null)
+        // An install can take the sdist or any wheel, so every artifact hash binds the pin.
+        entries.set(key, {
+          sdist: entry.sdist?.hash ?? null,
+          wheels: (entry.wheels ?? []).map((wheel) => wheel.hash).sort(),
+        })
         pending.push(...(entry.dependencies ?? []))
       }
       for (const extra of edge.extra ?? []) {

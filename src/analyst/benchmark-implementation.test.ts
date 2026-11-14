@@ -98,6 +98,15 @@ describe('public analyst benchmark implementation digest', () => {
       const unrelated = runChecker(sourceRoot)
       expect(unrelated.status, unrelated.stderr).toBe(0)
 
+      const bumped = await readFile(uvLock, 'utf8')
+      const wheelChanged = bumped.replace(/(dspy-[^"]+\.whl", hash = "sha256:)./, '$10')
+      expect(wheelChanged).not.toBe(bumped)
+      await writeFile(uvLock, wheelChanged)
+      const wheel = runChecker(sourceRoot)
+      expect(wheel.status).toBe(1)
+      expect(wheel.stderr).toContain('dependency lock digest mismatch')
+      await writeFile(uvLock, bumped)
+
       await writeFile(
         pnpmLock,
         (await readFile(pnpmLock, 'utf8')).replace(
