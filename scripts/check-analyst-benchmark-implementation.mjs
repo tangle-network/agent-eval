@@ -5,6 +5,7 @@ import { TextDecoder } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { parse as parseToml } from 'smol-toml'
+import { pnpmLockDocuments } from './pnpm-lock-walk.mjs'
 
 const CHECKER_PATH = fileURLToPath(import.meta.url)
 const REPOSITORY_ROOT = resolve(dirname(CHECKER_PATH), '..')
@@ -151,49 +152,28 @@ async function readLockFile(root, path) {
 }
 
 /**
- * Reads the project document of a pnpm v9 lockfile: the root importer's
- * resolved versions, each snapshot's dependency edges and each package's
- * integrity. Any shape outside that refuses rather than pins a partial closure.
+ * The project document of a pnpm v9 lockfile: the root importer's resolved
+ * versions, each snapshot's dependency edges and each package's integrity.
  */
 function parsePnpmLock(text) {
-  const documents = text.split(/^---$/m).map((document) => {
-    const importer = {}
-    const snapshots = {}
-    const integrity = {}
-    let section = ''
-    let entry = ''
-    let group = ''
-    let dependency = ''
-    for (const line of document.split('\n')) {
-      const indent = line.length - line.trimStart().length
-      const trimmed = line.trim()
-      if (trimmed === '' || trimmed.startsWith('#')) continue
-      if (indent === 0) {
-        section = trimmed.replace(/:.*$/, '')
-        continue
-      }
-      const [rawKey, ...rest] = trimmed.split(/:(?: |$)/)
-      const key = rawKey.replace(/^'(.*)'$/, '$1')
-      const value = rest.join(': ').trim()
-      if (indent === 2) {
-        entry = key
-        group = ''
-      } else if (indent === 4) {
-        group = key
-        if (section === 'packages' && key === 'resolution') {
+  const project = pnpmLockDocuments(text)
+    .map((entries) => {
+      const importer = {}
+      const snapshots = {}
+      const integrity = {}
+      for (const { path, value } of entries) {
+        const [section, entry, group, name, field] = path
+        if (section === 'importers' && entry === '.' && field === 'version' && /^(optionalD|devD|d)ependencies$/.test(group)) {
+          importer[name] = value
+        } else if (section === 'snapshots' && path.length === 4 && /^(optionalD|d)ependencies$/.test(group)) {
+          ;(snapshots[entry] ??= {})[name] = value
+        } else if (section === 'packages' && path.length === 3 && group === 'resolution') {
           integrity[entry] = /integrity: ([^,}\s]+)/.exec(value)?.[1] ?? value
         }
-      } else if (section === 'snapshots' && indent === 6 && /^(optionalD|d)ependencies$/.test(group)) {
-        ;(snapshots[entry] ??= {})[key] = value
-      } else if (section === 'importers' && entry === '.' && indent === 6) {
-        dependency = /^(optionalD|devD|d)ependencies$/.test(group) ? key : ''
-      } else if (section === 'importers' && entry === '.' && indent === 8 && dependency && key === 'version') {
-        importer[dependency] = value
       }
-    }
-    return { importer, snapshots, integrity }
-  })
-  const project = documents.filter((document) => Object.keys(document.importer).length > 0)
+      return { importer, snapshots, integrity }
+    })
+    .filter((document) => Object.keys(document.importer).length > 0)
   if (project.length !== 1) {
     throw new Error('pnpm-lock.yaml must hold exactly one project document with root dependencies')
   }
@@ -232,6 +212,8 @@ function pythonClosure(lock) {
   if (!root) throw new Error('clients/python/uv.lock has no editable agent-eval-rpc package')
   const entries = new Map()
   const expandedExtras = new Set()
+  // pyproject.toml's `dspy` extra owns what the bridge files above import beyond the
+  // runtime dependencies; a bridge import from another extra must be added here.
   const pending = [...(root.dependencies ?? []), ...(root['optional-dependencies']?.dspy ?? [])]
   while (pending.length > 0) {
     const edge = pending.pop()
