@@ -12,11 +12,7 @@
  * there is a collision, not a convenience.
  */
 
-import {
-  canonicalCandidateBytes,
-  canonicalCandidateJson,
-  sha256Bytes,
-} from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest, canonicalCandidateJson } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
 export type LedgerHash = `sha256:${string}`
@@ -40,7 +36,7 @@ export function canonicalString(value: unknown): string {
 
 export function hashCanonical(value: unknown): LedgerHash {
   try {
-    return sha256Bytes(canonicalCandidateBytes(value))
+    return canonicalCandidateDigest(value)
   } catch (error) {
     throw canonicalizationError(value, error)
   }
