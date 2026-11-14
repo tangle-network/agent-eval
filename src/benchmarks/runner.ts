@@ -11,6 +11,8 @@ import { type CampaignStorage, fsCampaignStorage } from '../campaign/storage'
 import type { RunSplitTag } from '../run-record'
 import { summarizeNumberSeries } from '../statistics'
 import { mean } from '../statistics/mean'
+import { benchmarkDefinitionDigest } from './definition'
+import { defineBenchmarkResult } from './result'
 import type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
@@ -24,6 +26,8 @@ import type {
 export interface BenchmarkRunOptions<TPayload = unknown, TArtifact = string> {
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, TArtifact>
   respond: BenchmarkResponder<TPayload, TArtifact>
+  /** Pins the responder/model/prompt implementation for resumable defined benchmarks. */
+  dispatchRef?: string
   splits?: readonly RunSplitTag[]
   runDir: string
   repo?: string
@@ -51,6 +55,9 @@ export interface BenchmarkReport {
   durationMs: number
   totalItems: number
   totalCells: number
+  /** Cells with a complete score, excluding missing/failed grading. */
+  cellsMeasured: number
+  cellsUnmeasured: number
   cellsFailed: number
   cellsCached: number
   totalCostUsd: number
@@ -60,6 +67,12 @@ export interface BenchmarkReport {
   score: BenchmarkDistribution
   costUsd: BenchmarkDistribution
   latencyMs: BenchmarkDistribution
+  definition?: BenchmarkAdapter['definition']
+  definitionDigest?: string
+  evaluationRef?: string
+  /** This report summarizes normalized Eval scores; native official aggregation is separate. */
+  scoreAggregation: 'mean-normalized-score'
+  nativeAggregation: 'not-computed'
 }
 
 export interface BenchmarkSliceSummary {
@@ -92,9 +105,18 @@ export async function runBenchmarkAdapter<TPayload = unknown, TArtifact = string
   options: BenchmarkRunOptions<TPayload, TArtifact>,
 ): Promise<BenchmarkRunResult<TPayload, TArtifact>> {
   const storage = options.storage ?? fsCampaignStorage()
+  if (options.dispatchRef !== undefined && !options.dispatchRef.trim()) {
+    throw new Error('benchmark dispatchRef must not be blank')
+  }
+  if (options.adapter.definition && options.resumable !== false && !options.dispatchRef) {
+    throw new Error('resumable defined benchmarks require an explicit responder dispatchRef')
+  }
   const benchmarkId = benchmarkIdFor(options.adapter)
   const scenarios = await benchmarkScenarios(options.adapter, options.splits)
   const judge = benchmarkJudge(options.adapter)
+  const definitionDigest = options.adapter.definition
+    ? benchmarkDefinitionDigest(options.adapter.definition)
+    : undefined
   const dispatch: DispatchFn<BenchmarkScenario<TPayload>, TArtifact> = async (
     scenario,
     context,
@@ -105,7 +127,14 @@ export async function runBenchmarkAdapter<TPayload = unknown, TArtifact = string
   const campaign = await runCampaign<BenchmarkScenario<TPayload>, TArtifact>({
     scenarios,
     dispatch,
-    dispatchRef: `benchmark:${benchmarkId}`,
+    dispatchRef: [
+      `benchmark:${benchmarkId}`,
+      definitionDigest,
+      options.adapter.evaluationRef,
+      options.dispatchRef,
+    ]
+      .filter((part) => part !== undefined)
+      .join(':'),
     judges: [judge],
     seed: options.seed,
     reps: options.reps,
@@ -170,6 +199,7 @@ export function benchmarkJudge<TPayload, TArtifact>(
   const benchmarkId = benchmarkIdFor(adapter)
   return {
     name: `${benchmarkId}:score`,
+    ...(adapter.evaluationRef ? { judgeVersion: adapter.evaluationRef } : {}),
     dimensions: [
       { key: 'score', description: `Primary ${benchmarkId} benchmark score` },
       { key: 'passed', description: 'Binary pass projection for aggregate reporting' },
@@ -178,12 +208,32 @@ export function benchmarkJudge<TPayload, TArtifact>(
       return scenario.kind === 'benchmark' && scenario.id.startsWith(`${benchmarkId}:`)
     },
     async score({ artifact, scenario }) {
-      const evaluation = await adapter.evaluate(scenario.item, artifact)
+      const receipt = adapter.evaluateResult
+        ? defineBenchmarkResult(
+            await adapter.evaluateResult(scenario.item, artifact),
+            adapter.definition,
+          )
+        : undefined
+      const evaluation = receipt?.evaluation ?? (await adapter.evaluate(scenario.item, artifact))
+      if (!Number.isFinite(evaluation.score) || evaluation.score < 0 || evaluation.score > 1) {
+        throw new Error(`${benchmarkId}: invalid normalized benchmark score ${evaluation.score}`)
+      }
+      if (adapter.definition && typeof evaluation.passed !== 'boolean') {
+        throw new Error(
+          `${benchmarkId}: defined benchmarks require an explicit pass/fail projection`,
+        )
+      }
       const dimensions = normalizeEvaluationDimensions(evaluation)
       return {
         dimensions,
         composite: clamp01(evaluation.score),
         notes: evaluation.notes ?? '',
+        evidence: {
+          benchmarkId,
+          ...(adapter.evaluationRef ? { evaluationRef: adapter.evaluationRef } : {}),
+          ...(receipt ? { benchmarkResult: receipt } : { evaluation }),
+        },
+        ...(evaluation.certification ? { certification: evaluation.certification } : {}),
       }
     },
   }
@@ -198,22 +248,31 @@ function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
   const rows = input.campaign.cells.map((cell) => {
     const scenario = scenarioById.get(cell.scenarioId)
     const judge = firstJudgeScore(cell.judgeScores)
-    const score = judge?.composite ?? 0
+    const measured = judge !== undefined && !judge.failed && Number.isFinite(judge.composite)
+    const score = measured ? judge.composite : Number.NaN
     return {
       cell,
       scenario,
       score,
+      measured,
       passed: (judge?.dimensions.passed ?? (score > 0 ? 1 : 0)) >= 1,
       dimensions: judge?.dimensions ?? {},
     }
   })
-  const successful = rows.filter((row) => !row.cell.error)
+  const successful = rows.filter((row) => !row.cell.error && row.measured)
   const scoreValues = successful.map((row) => row.score)
   return {
     benchmarkId: benchmarkIdFor(input.adapter),
     family: input.adapter.family ?? 'custom',
     taskKind: input.adapter.taskKind ?? 'custom',
     ...(input.adapter.source ? { source: input.adapter.source } : {}),
+    ...(input.adapter.definition
+      ? {
+          definition: input.adapter.definition,
+          definitionDigest: benchmarkDefinitionDigest(input.adapter.definition),
+        }
+      : {}),
+    ...(input.adapter.evaluationRef ? { evaluationRef: input.adapter.evaluationRef } : {}),
     runDir: input.campaign.runDir,
     manifestHash: input.campaign.manifestHash,
     seed: input.campaign.seed,
@@ -221,7 +280,11 @@ function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
     endedAt: input.campaign.endedAt,
     durationMs: input.campaign.durationMs,
     totalItems: input.scenarios.length,
+    scoreAggregation: 'mean-normalized-score',
+    nativeAggregation: 'not-computed',
     totalCells: input.campaign.cells.length,
+    cellsMeasured: successful.length,
+    cellsUnmeasured: rows.length - successful.length,
     cellsFailed: input.campaign.aggregates.cellsFailed,
     cellsCached: input.campaign.aggregates.cellsCached,
     totalCostUsd: input.campaign.aggregates.cost.totalCostUsd,
@@ -255,9 +318,13 @@ function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     `- task kind: ${report.taskKind}`,
     `- run dir: ${report.runDir}`,
     `- manifest: ${report.manifestHash}`,
-    `- cells: ${report.totalCells} total, ${report.cellsFailed} failed, ${report.cellsCached} cached`,
+    `- cells: ${report.totalCells} total, ${report.cellsMeasured} measured, ${report.cellsUnmeasured} unmeasured, ${report.cellsFailed} failed, ${report.cellsCached} cached`,
+    ...(report.definitionDigest ? [`- definition: ${report.definitionDigest}`] : []),
+    `- aggregation: ${report.scoreAggregation}; native aggregation: ${report.nativeAggregation}`,
     `- cost: $${fmt(report.totalCostUsd)}`,
-    `- score: mean ${fmt(report.score.mean)}, median ${fmt(report.score.median)}, p90 ${fmt(report.score.p90)}, n=${report.score.n}`,
+    report.score.n === 0
+      ? '- score: unmeasured (n=0)'
+      : `- normalized score: mean ${fmt(report.score.mean)}, median ${fmt(report.score.median)}, p90 ${fmt(report.score.p90)}, n=${report.score.n}`,
     '',
     '## Splits',
     '',
@@ -281,7 +348,7 @@ function benchmarkIdFor(adapter: Pick<BenchmarkAdapter, 'id' | 'family' | 'taskK
 function normalizeEvaluationDimensions(evaluation: BenchmarkEvaluation): Record<string, number> {
   const dimensions: Record<string, number> = { score: clamp01(evaluation.score) }
   for (const [key, value] of Object.entries(evaluation.dimensions ?? {})) {
-    if (Number.isFinite(value)) dimensions[key] = value
+    if (key !== 'score' && key !== 'passed' && Number.isFinite(value)) dimensions[key] = value
   }
   dimensions.passed = (evaluation.passed ?? evaluation.score > 0) ? 1 : 0
   return dimensions

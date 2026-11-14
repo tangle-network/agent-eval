@@ -30,6 +30,11 @@ export {
   calibrateBenchmarkMetric,
 } from './calibration'
 export {
+  type BenchmarkDefinition,
+  benchmarkDefinitionDigest,
+  defineBenchmark,
+} from './definition'
+export {
   createHarborBenchmarkAdapter,
   gradeHarborPatch,
   type HarborBenchmarkAdapter,
@@ -45,6 +50,22 @@ export {
   prepareCaseEnvironment,
   releaseCaseEnvironment,
 } from './harbor-environment'
+export {
+  gradeHarborTrial,
+  type HarborTrialArtifact,
+  type HarborTrialGradeOptions,
+} from './harbor-regrade'
+export {
+  createNativeBenchmarkAdapter,
+  type NativeBenchmarkAdapter,
+  type NativeBenchmarkOptions,
+} from './native'
+export {
+  type BenchmarkResult,
+  benchmarkResult,
+  benchmarkResultEvidenceDigest,
+  defineBenchmarkResult,
+} from './result'
 export * as routing from './routing/index'
 export {
   type BenchmarkDistribution,

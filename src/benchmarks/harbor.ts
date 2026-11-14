@@ -13,10 +13,10 @@
  */
 
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify, stripVTControlCharacters } from 'node:util'
 
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
@@ -39,6 +39,8 @@ export interface HarborTaskPayload {
   name: string
   /** The task's directory name inside the dataset's `tasks/`. */
   dir: string
+  /** Stable path relative to `tasks/`, including domain directories in nested datasets. */
+  relativePath?: string
   /** Absolute path of the task directory, for the grader. */
   taskDir: string
   /** `instruction.md`, verbatim. */
@@ -58,6 +60,14 @@ export interface HarborTaskPayload {
   }
   /** Paths the verifier reads from the agent's environment (`artifacts`, sources only). */
   artifacts: string[]
+  /** Native artifact declarations, including target/service and unknown upstream fields. */
+  artifactMappings?: Array<Record<string, unknown> & { source: string }>
+  /** The complete parsed task configuration. The execution owner preserves its semantics. */
+  config?: Record<string, unknown>
+  /** Byte identity of the imported task.toml, independent of its declared upstream revision. */
+  configDigest?: string
+  /** Native metadata, including domain/field/subfield/tags in science datasets. */
+  metadata?: Record<string, unknown>
   /** The environment starts more than one container (a docker-compose file). */
   multiContainer: boolean
   /** `[metadata].category`. */
@@ -70,7 +80,7 @@ export type HarborTaskItem = BenchmarkDatasetItem<HarborTaskPayload>
 
 /** What the verifier returned for one task, or why it did not return. */
 export type HarborGradeOutcome =
-  | { succeeded: true; value: { reward: number; detail?: string } }
+  | { succeeded: true; value: { reward: number; detail?: string; raw?: Record<string, unknown> } }
   | { succeeded: false; error: string }
 
 export interface HarborBenchmarkOptions<TArtifact> {
@@ -80,7 +90,7 @@ export interface HarborBenchmarkOptions<TArtifact> {
   datasetDir: string
   /** The upstream name, URL, version, revision, rules and contamination status the checkout is. */
   source: BenchmarkSource & { revision: string }
-  /** Task directory names to load, in this order; every task under `tasks/` when absent. */
+  /** Relative task paths to load, in this order; recursively discover `tasks/` when absent. */
   tasks?: readonly string[]
   /** Run the task's own verifier on the agent's artifact. */
   grade: (item: HarborTaskItem, artifact: TArtifact) => Promise<HarborGradeOutcome>
@@ -104,25 +114,23 @@ const textOrNull = (value: unknown): string | null =>
   typeof value === 'string' && value.length > 0 ? value : null
 
 /** Read one Harbor task directory. Throws when `task.toml` or `instruction.md` is missing or malformed. */
-async function readHarborTask(taskDir: string): Promise<HarborTaskPayload> {
+async function readHarborTask(taskDir: string, relativePath: string): Promise<HarborTaskPayload> {
   const dir = resolve(taskDir)
-  const config = parseToml(await readFile(join(dir, 'task.toml'), 'utf8')) as Record<
-    string,
-    unknown
-  >
+  const configText = await readFile(join(dir, 'task.toml'), 'utf8')
+  const config = parseToml(configText) as Record<string, unknown>
   const instruction = await readFile(join(dir, 'instruction.md'), 'utf8')
   const task = table(config.task)
   const agent = table(config.agent)
   const verifier = table(config.verifier)
   const environment = table(config.environment)
   const metadata = table(config.metadata)
-  const artifacts = (Array.isArray(config.artifacts) ? config.artifacts : []).map(
+  const artifactMappings = (Array.isArray(config.artifacts) ? config.artifacts : []).map(
     (entry, index) => {
       const source = typeof entry === 'string' ? entry : table(entry).source
       if (typeof source !== 'string' || source.length === 0) {
         throw new Error(`${dir}/task.toml: artifacts[${index}] names no source path`)
       }
-      return source
+      return { ...table(entry), source }
     },
   )
   const environmentFiles = await readdir(join(dir, 'environment')).catch(() => [] as string[])
@@ -130,6 +138,7 @@ async function readHarborTask(taskDir: string): Promise<HarborTaskPayload> {
   return {
     name: textOrNull(task.name) ?? name,
     dir: name,
+    relativePath,
     taskDir: dir,
     instruction,
     agentTimeoutSec: numberOrNull(agent.timeout_sec),
@@ -141,11 +150,48 @@ async function readHarborTask(taskDir: string): Promise<HarborTaskPayload> {
       storageMb: numberOrNull(environment.storage_mb),
       gpus: numberOrNull(environment.gpus) ?? 0,
     },
-    artifacts,
+    artifacts: artifactMappings.map((entry) => entry.source),
+    artifactMappings,
+    config,
+    configDigest: `sha256:${createHash('sha256').update(configText).digest('hex')}`,
+    metadata,
     multiContainer: environmentFiles.some((file) => /compose\.ya?ml$/u.test(file)),
     category: textOrNull(metadata.category),
     expertTimeEstimateHours: numberOrNull(metadata.expert_time_estimate_hours),
   }
+}
+
+/** Do not descend into a task's own assets or follow directory symlinks during discovery. */
+async function discoverHarborTasks(tasksDir: string, prefix = ''): Promise<string[]> {
+  const entries = await readdir(join(tasksDir, prefix), { withFileTypes: true })
+  if (entries.some((entry) => entry.name === 'task.toml' && entry.isFile())) {
+    if (!prefix) throw new Error(`${tasksDir}: task.toml must be inside a task directory`)
+    return [prefix]
+  }
+  const nested = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) =>
+        discoverHarborTasks(tasksDir, prefix ? `${prefix}/${entry.name}` : entry.name),
+      ),
+  )
+  return nested.flat().sort()
+}
+
+async function resolveHarborTask(tasksDir: string, name: string): Promise<string> {
+  if (
+    !name ||
+    isAbsolute(name) ||
+    name.includes('\\') ||
+    name.split('/').some((part) => !part || part === '.' || part === '..')
+  )
+    throw new Error(`Harbor task path must be a normalized relative path: ${JSON.stringify(name)}`)
+  const [root, task] = await Promise.all([realpath(tasksDir), realpath(join(tasksDir, name))])
+  const local = relative(root, task)
+  if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) {
+    throw new Error(`Harbor task path escapes the dataset: ${name}`)
+  }
+  return task
 }
 
 /** Import a Harbor dataset checkout as a `BenchmarkAdapter` whose scorer is the dataset's own verifier. */
@@ -157,32 +203,30 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
   const tasksDir = join(resolve(options.datasetDir), 'tasks')
 
   async function loadAll(): Promise<HarborTaskItem[]> {
-    const names =
-      options.tasks ??
-      (
-        await Promise.all(
-          (
-            await readdir(tasksDir)
-          ).map(async (entry) =>
-            (await stat(join(tasksDir, entry, 'task.toml')).catch(() => null)) === null
-              ? null
-              : entry,
-          ),
-        )
-      )
-        .filter((entry): entry is string => entry !== null)
-        .sort()
+    const names = options.tasks ?? (await discoverHarborTasks(tasksDir))
+    if (new Set(names).size !== names.length)
+      throw new Error('Harbor task selection contains duplicate paths')
+    if (names.length === 0) throw new Error(`${tasksDir}: no Harbor tasks found`)
     return Promise.all(
       names.map(async (dir) => {
-        const payload = await readHarborTask(join(tasksDir, dir))
+        const payload = await readHarborTask(await resolveHarborTask(tasksDir, dir), dir)
+        const metadata = payload.metadata ?? {}
+        const tags = [
+          payload.category,
+          metadata.domain,
+          metadata.field,
+          metadata.subfield,
+          ...(Array.isArray(metadata.tags) ? metadata.tags : []),
+        ].filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
         return {
           id: dir,
           payload,
           split: split(dir),
           family: options.source.name ?? 'harbor',
           taskKind: 'harbor-task',
-          tags: payload.category === null ? [] : [payload.category],
+          tags: [...new Set(tags)],
           source: options.source,
+          metadata,
         }
       }),
     )
@@ -209,7 +253,7 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
         throw new Error(
           `${options.id} ${item.id}: the verifier did not score this artifact: ${outcome.error}`,
         )
-      const { reward, detail } = outcome.value
+      const { reward, detail, raw } = outcome.value
       if (!(Number.isFinite(reward) && reward >= 0 && reward <= 1)) {
         throw new Error(
           `${options.id} ${item.id}: the verifier returned reward ${reward}, outside [0, 1]`,
@@ -218,7 +262,7 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
       return {
         score: reward,
         passed: reward === 1,
-        raw: { reward, ...(detail === undefined ? {} : { detail }) },
+        raw: { ...raw, reward, ...(detail === undefined ? {} : { detail }) },
         ...(detail === undefined ? {} : { notes: detail }),
       }
     },

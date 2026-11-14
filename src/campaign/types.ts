@@ -29,6 +29,7 @@ import type {
 import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
 import type { SeriesDistribution } from '../statistics'
+import type { VerdictCertification } from '../verdict'
 import type { SearchProposerView } from './search-summary'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -150,6 +151,10 @@ export interface JudgeScore {
   dimensions: Record<string, number>
   composite: number
   notes: string
+  /** Retained native measurements/provenance. Numeric projections do not replace this evidence. */
+  evidence?: Record<string, unknown>
+  /** Executed verification strategy and checker identity, when provided by the scorer. */
+  certification?: VerdictCertification
   /** Provider metadata for display and diagnostics; accounting uses CostLedger receipts. */
   llmCall?: LlmCallMetadata
   /** How the numbers in `dimensions` were produced. `'sampled'` reads the

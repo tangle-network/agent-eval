@@ -1,0 +1,18 @@
+{
+  "purpose": "Public pinned BixBench metadata inspection only",
+  "repositoryRevision": "49311180bdacb324c596f2e07596c126f2004008",
+  "datasetRevision": "f8cc3bdcc6357c88b8c3648306522b9c422dc95a",
+  "url": "https://huggingface.co/datasets/futurehouse/BixBench/resolve/f8cc3bdcc6357c88b8c3648306522b9c422dc95a/BixBench.jsonl",
+  "sha256": "0d1204dcdae7193a9132ced5a3502008f6b3b163debc1b65b2aa2d86cb132dc9",
+  "rows": 205,
+  "uniqueQuestionIds": 205,
+  "rowVersions": [
+    "1.5"
+  ],
+  "distinctDataFolders": 59,
+  "capsulesHydrated": false,
+  "agentExecuted": false,
+  "judgeExecuted": false,
+  "officialScoresComputed": false,
+  "scope": "Metadata count and source pin only. The 59 data folders are not a verification of the repository README 60-notebook count."
+}

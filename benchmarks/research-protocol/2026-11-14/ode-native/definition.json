@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "tbs-v0.1.0/ode-direct-verifier-calibration",
+  "source": {
+    "name": "Terminal-Bench-Science",
+    "url": "https://github.com/harbor-framework/terminal-bench-science",
+    "version": "v0.1.0",
+    "revision": "f81afac4f11048e77a15dfc8fb1dbfb897fea0ce",
+    "license": "Apache-2.0; task data may carry additional terms",
+    "contamination": "unknown"
+  },
+  "taskIds": [
+    "mathematical-sciences/applied-mathematics/ode-law-discovery"
+  ],
+  "metric": {
+    "name": "all-eight-checks-pass",
+    "unit": "binary",
+    "direction": "higher",
+    "aggregation": "Per-artifact conjunction of all eight upstream checks; no suite aggregate.",
+    "range": [
+      0,
+      1
+    ],
+    "normalization": "1 exactly when every upstream test passed; 0 for completed assertion rejection."
+  },
+  "verification": {
+    "strategy": "test",
+    "checker": {
+      "name": "TBS-ODE-unmodified-pytest-direct",
+      "version": "f81afac4f11048e77a15dfc8fb1dbfb897fea0ce",
+      "pins": {
+        "wrapperSha256": "2415578b3b1e944578cfa091218bf25bddbe1d6e37dcd7e0b72938979240f470",
+        "sourcePinsDigest": "sha256:ebc9b69544150f5177ce89c0cc9ccc825c2420d8cd101de26d8e1fe7ab82ca16",
+        "numpy": "1.26.4",
+        "scipy": "1.13.0",
+        "pandas": "2.2.2",
+        "sympy": "1.13.1",
+        "pytest": "8.4.1"
+      }
+    },
+    "assumptions": [
+      "Direct execution of pinned public checker; not a Harbor sandbox or containment qualification.",
+      "Both controls use public author references; no agent rollout or discovery is claimed.",
+      "CPU dependency versions are checked; hardware, OS and Python may differ from the upstream container.",
+      "Validity extends only to the eight upstream checks and this selected task."
+    ]
+  }
+}
