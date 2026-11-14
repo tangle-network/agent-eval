@@ -176,8 +176,8 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3
       '@tangle-network/agent-interface':
-        specifier: ^5.10.24
-        version: 5.10.24
+        specifier: ^5.10.26
+        version: 5.10.26
       '@tangle-network/agent-trace-contract':
         specifier: ^2.2.2
         version: 2.2.2
@@ -769,8 +769,8 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@tangle-network/agent-interface@5.10.24':
-    resolution: {integrity: sha512-1qdrwxkoBwc3CKBoS5mR7Dn3iAlbashIDM/eyiaRaIQbnQSmM4PXdLNGbUv/4rtSr9TmnDl1I0tly3w6CDq5mg==}
+  '@tangle-network/agent-interface@5.10.26':
+    resolution: {integrity: sha512-zBseOEDsCrNM7/EwIkgx06wYe8l0Q9L81eIR0Pi/1nOV0sPGovSWoYtjVEU+yHdPHd/wS0hqUYFCqtxJ1q+gFg==}
 
   '@tangle-network/agent-trace-contract@2.2.2':
     resolution: {integrity: sha512-46CGFTHw1E+Fvykjdf3tS0ysQugv+DdM9TptHjALVeFzO+Z4Baiw6XWJLYiP3fx/UEk3QCIiITD1qoPi8XfgkA==}
@@ -1874,11 +1874,11 @@ snapshots:
 
   '@tangle-network/agent-core@1.0.3':
     dependencies:
-      '@tangle-network/agent-interface': 5.10.24
+      '@tangle-network/agent-interface': 5.10.26
       '@tangle-network/agent-trace-contract': 2.2.2
       zod: 4.6.7
 
-  '@tangle-network/agent-interface@5.10.24':
+  '@tangle-network/agent-interface@5.10.26':
     dependencies:
       '@noble/hashes': 2.4.0
       spdx-expression-parse: 5.0.0
