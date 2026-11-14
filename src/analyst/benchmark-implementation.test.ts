@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { appendFile, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -32,12 +32,10 @@ describe('public analyst benchmark implementation digest', () => {
     expect(analystBenchmarkImplementationDigest()).toBe(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256)
     expect(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256).toMatch(/^[a-f0-9]{64}$/)
     expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM).toBe(
-      'sha256-canonical-file-manifest-without-own-version',
+      'sha256-resolved-dependency-closure',
     )
     expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES).toEqual([
-      'clients/python/pyproject.toml',
       'clients/python/uv.lock',
-      'package.json',
       'pnpm-lock.yaml',
     ])
     expect(analystBenchmarkDependencyLockDigest()).toBe(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256)
@@ -71,6 +69,54 @@ describe('public analyst benchmark implementation digest', () => {
 
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('implementation digest mismatch')
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true })
+    }
+  })
+
+  // Dependabot bumps lockfile entries it cannot repin. A bump outside what the
+  // benchmark imports must leave the pin valid; one inside it must not.
+  it('ignores lockfile bumps outside the benchmark closure and refuses one inside it', {
+    timeout: CHECKER_TIMEOUT_MS,
+  }, async () => {
+    const sourceRoot = await copyImplementationSources()
+    const pnpmLock = join(sourceRoot, 'pnpm-lock.yaml')
+    const uvLock = join(sourceRoot, 'clients/python/uv.lock')
+    try {
+      const lock = await readFile(pnpmLock, 'utf8')
+      await writeFile(
+        pnpmLock,
+        lock
+          .replace(/(?<![\w/-])hono@(\d[^\s:'()]*)/g, 'hono@$1-bumped')
+          .replace(/^(\s+)hono: (\S+)$/gm, '$1hono: $2-bumped'),
+      )
+      const uv = await readFile(uvLock, 'utf8')
+      await writeFile(uvLock, uv.replace(/(\nname = "pytest"\nversion = ")([^"]+)"/, '$1$2.post1"'))
+      expect(await readFile(pnpmLock, 'utf8')).not.toBe(lock)
+      expect(await readFile(uvLock, 'utf8')).not.toBe(uv)
+
+      const unrelated = runChecker(sourceRoot)
+      expect(unrelated.status, unrelated.stderr).toBe(0)
+
+      const bumped = await readFile(uvLock, 'utf8')
+      const wheelChanged = bumped.replace(/(dspy-[^"]+\.whl", hash = "sha256:)./, '$10')
+      expect(wheelChanged).not.toBe(bumped)
+      await writeFile(uvLock, wheelChanged)
+      const wheel = runChecker(sourceRoot)
+      expect(wheel.status).toBe(1)
+      expect(wheel.stderr).toContain('dependency lock digest mismatch')
+      await writeFile(uvLock, bumped)
+
+      await writeFile(
+        pnpmLock,
+        (await readFile(pnpmLock, 'utf8')).replace(
+          /(\n {2}zod@[^:\n]+:\n {4}resolution: \{integrity: sha512-)./,
+          (_match, prefix: string) => `${prefix}0`,
+        ),
+      )
+      const inside = runChecker(sourceRoot)
+      expect(inside.status).toBe(1)
+      expect(inside.stderr).toContain('dependency lock digest mismatch')
     } finally {
       await rm(sourceRoot, { recursive: true, force: true })
     }

@@ -4,7 +4,8 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
-import { withOwnVersion } from './release-version-fields.mjs'
+import { parse as parseToml } from 'smol-toml'
+import { pnpmLockDocuments } from './pnpm-lock-walk.mjs'
 
 const CHECKER_PATH = fileURLToPath(import.meta.url)
 const REPOSITORY_ROOT = resolve(dirname(CHECKER_PATH), '..')
@@ -14,7 +15,7 @@ const IMPLEMENTATION_MODULE_PATH = resolve(
 )
 const DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/implementation'
 const DEPENDENCY_LOCK_DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/dependency-lock'
-const DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-canonical-file-manifest-without-own-version'
+const DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-resolved-dependency-closure'
 const NON_TYPESCRIPT_IMPLEMENTATION_FILES = [
   'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
   'clients/python/src/agent_eval_rpc/dspy_rlm_codetrace.py',
@@ -36,20 +37,16 @@ try {
   // `--write` authors the manifest from the import graph instead of asserting
   // a hand-copied one matches it. Every other mode still asserts.
   const manifest = options.write
-    ? discoveredFiles
+    ? discoveredFiles.files
     : (assertCompleteSourceManifest(
         implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
-        discoveredFiles,
+        discoveredFiles.files,
       ),
       implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES)
   const actual = await computeDigest(options.sourceRoot, manifest, DIGEST_DOMAIN)
-  // The package's own version is not a dependency: blanking it keeps a
-  // release that only bumps it from changing the pin.
-  const actualDependencyLock = await computeDigest(
+  const actualDependencyLock = await computeDependencyClosureDigest(
     options.sourceRoot,
-    implementation.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
-    DEPENDENCY_LOCK_DIGEST_DOMAIN,
-    (path, source) => withOwnVersion(path, source, ''),
+    discoveredFiles.externalPackages,
   )
   if (options.printOnly) {
     console.log(actual)
@@ -120,7 +117,130 @@ async function discoverImplementationFiles(sourceRoot) {
       throw new Error(`unsupported public analyst benchmark implementation input: ${file}`)
     }
   }
-  return files
+  // Type-only imports are erased before esbuild records them, so these are the
+  // packages the benchmark loads at run time.
+  const externalPackages = new Set()
+  for (const input of Object.values(result.metafile.inputs)) {
+    for (const { path, external } of input.imports) {
+      if (!external || path.startsWith('node:') || path.startsWith('.')) continue
+      const parts = path.split('/')
+      externalPackages.add(path.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0])
+    }
+  }
+  return { files, externalPackages: [...externalPackages].sort() }
+}
+
+/**
+ * The benchmark's dependency identity: every resolved lockfile entry its code
+ * can load, and nothing else. npm roots are the packages the implementation
+ * imports; Python roots are the bridge's runtime dependencies and its `dspy`
+ * extra. A lockfile bump outside that closure (a dev tool, the server stack,
+ * the package's own version) leaves the pin unchanged.
+ */
+async function computeDependencyClosureDigest(root, npmRoots) {
+  const npm = npmClosure(await readLockFile(root, 'pnpm-lock.yaml'), npmRoots)
+  const python = pythonClosure(parseToml(await readLockFile(root, 'clients/python/uv.lock')))
+  return createHash('sha256')
+    .update(JSON.stringify({ domain: DEPENDENCY_LOCK_DIGEST_DOMAIN, npm, python }))
+    .digest('hex')
+}
+
+async function readLockFile(root, path) {
+  const absolutePath = resolve(root, path)
+  assertContained(root, absolutePath, path)
+  return normalizeLineEndings(UTF8.decode(await readFile(absolutePath)))
+}
+
+/**
+ * The project document of a pnpm v9 lockfile: the root importer's resolved
+ * versions, each snapshot's dependency edges and each package's integrity.
+ */
+function parsePnpmLock(text) {
+  const project = pnpmLockDocuments(text)
+    .map((entries) => {
+      const importer = {}
+      const snapshots = {}
+      const integrity = {}
+      for (const { path, value } of entries) {
+        const [section, entry, group, name, field] = path
+        if (section === 'importers' && entry === '.' && field === 'version' && /^(optionalD|devD|d)ependencies$/.test(group)) {
+          importer[name] = value
+        } else if (section === 'snapshots' && path.length === 4 && /^(optionalD|d)ependencies$/.test(group)) {
+          ;(snapshots[entry] ??= {})[name] = value
+        } else if (section === 'packages' && path.length === 3 && group === 'resolution') {
+          integrity[entry] = /integrity: ([^,}\s]+)/.exec(value)?.[1] ?? value
+        }
+      }
+      return { importer, snapshots, integrity }
+    })
+    .filter((document) => Object.keys(document.importer).length > 0)
+  if (project.length !== 1) {
+    throw new Error('pnpm-lock.yaml must hold exactly one project document with root dependencies')
+  }
+  return project[0]
+}
+
+function npmClosure(text, roots) {
+  const lock = parsePnpmLock(text)
+  const entries = new Map()
+  const pending = roots.map((name) => {
+    const version = lock.importer[name]
+    if (!version) throw new Error(`pnpm-lock.yaml does not resolve benchmark import ${name}`)
+    return [name, version]
+  })
+  while (pending.length > 0) {
+    const [name, version] = pending.pop()
+    if (/^(link|file|workspace):/.test(version)) {
+      throw new Error(`unsupported benchmark dependency resolution ${name}@${version}`)
+    }
+    const key = `${name}@${version}`
+    if (entries.has(key)) continue
+    const packageKey = `${name}@${version.replace(/\(.*$/, '')}`
+    const integrity = lock.integrity[packageKey]
+    if (!integrity) throw new Error(`pnpm-lock.yaml has no resolution for ${packageKey}`)
+    entries.set(key, integrity)
+    for (const [dependency, dependencyVersion] of Object.entries(lock.snapshots[key] ?? {})) {
+      pending.push([dependency, dependencyVersion])
+    }
+  }
+  return [...entries].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, integrity]) => ({ key, integrity }))
+}
+
+function pythonClosure(lock) {
+  const packages = lock.package ?? []
+  const root = packages.find((entry) => entry.name === 'agent-eval-rpc' && entry.source?.editable)
+  if (!root) throw new Error('clients/python/uv.lock has no editable agent-eval-rpc package')
+  const entries = new Map()
+  const expandedExtras = new Set()
+  // pyproject.toml's `dspy` extra owns what the bridge files above import beyond the
+  // runtime dependencies; a bridge import from another extra must be added here.
+  const pending = [...(root.dependencies ?? []), ...(root['optional-dependencies']?.dspy ?? [])]
+  while (pending.length > 0) {
+    const edge = pending.pop()
+    const matches = packages.filter(
+      (entry) => entry.name === edge.name && (edge.version === undefined || entry.version === edge.version),
+    )
+    if (matches.length === 0) {
+      throw new Error(`clients/python/uv.lock does not resolve ${edge.name}${edge.version ? `==${edge.version}` : ''}`)
+    }
+    for (const entry of matches) {
+      const key = `${entry.name}==${entry.version}`
+      if (!entries.has(key)) {
+        // An install can take the sdist or any wheel, so every artifact hash binds the pin.
+        entries.set(key, {
+          sdist: entry.sdist?.hash ?? null,
+          wheels: (entry.wheels ?? []).map((wheel) => wheel.hash).sort(),
+        })
+        pending.push(...(entry.dependencies ?? []))
+      }
+      for (const extra of edge.extra ?? []) {
+        if (expandedExtras.has(`${key}[${extra}]`)) continue
+        expandedExtras.add(`${key}[${extra}]`)
+        pending.push(...(entry['optional-dependencies']?.[extra] ?? []))
+      }
+    }
+  }
+  return [...entries].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, hash]) => ({ key, hash }))
 }
 
 function assertCompleteSourceManifest(manifest, discovered) {
@@ -212,9 +332,7 @@ function assertImplementationModule(value) {
     throw new Error('unsupported public analyst benchmark dependency lock digest algorithm')
   }
   assertFileManifest(value.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES, [
-    'clients/python/pyproject.toml',
     'clients/python/uv.lock',
-    'package.json',
     'pnpm-lock.yaml',
   ])
   if (
@@ -231,7 +349,7 @@ function assertFileManifest(files, expected) {
   }
 }
 
-async function computeDigest(root, files, domain, transform = (_path, source) => source) {
+async function computeDigest(root, files, domain) {
   const entries = []
   for (const path of files) {
     const absolutePath = resolve(root, path)
@@ -240,7 +358,7 @@ async function computeDigest(root, files, domain, transform = (_path, source) =>
     if (!metadata.isFile()) {
       throw new Error(`public analyst benchmark implementation source is not a file: ${path}`)
     }
-    const source = transform(path, normalizeLineEndings(UTF8.decode(await readFile(absolutePath))))
+    const source = normalizeLineEndings(UTF8.decode(await readFile(absolutePath)))
     entries.push({
       path,
       sha256: createHash('sha256').update(source, 'utf8').digest('hex'),
