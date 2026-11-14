@@ -1,0 +1,271 @@
+{
+  "purpose": "Public upstream data import and content inspection; no grading",
+  "benchmarkExecuted": false,
+  "officialScoresComputed": false,
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+    "/workspace/scratch/28c5e99689e8/work/agent-eval/examples/benchmarks/research/inspect-inputs.ts",
+    "/workspace/scratch/28c5e99689e8/work/upstream/terminal-bench-science-v0.1.0",
+    "/workspace/scratch/28c5e99689e8/work/upstream/mka-showcase",
+    "benchmarks/research-protocol/2026-11-14/input-import.json"
+  ],
+  "terminalBenchScience": {
+    "revision": "f81afac4f11048e77a15dfc8fb1dbfb897fea0ce",
+    "tasks": 70,
+    "taskIds": [
+      "earth-sciences/atmospheric-sciences/sparse-network-assimilation",
+      "earth-sciences/environmental-sciences/hysteretic-aquifer-control",
+      "earth-sciences/geosciences/duan-thesis",
+      "earth-sciences/geosciences/hbv-calibration-1",
+      "earth-sciences/geosciences/mendota-ice-phenology",
+      "earth-sciences/geosciences/stereo-dem-icesat2",
+      "earth-sciences/geosciences/supraglacial-lake-classification",
+      "earth-sciences/ocean-sciences/masked-spherical-remap",
+      "engineering-sciences/chemical-engineering/reactor-safety-control",
+      "engineering-sciences/civil-engineering/rolling-shutter-oma",
+      "engineering-sciences/electrical-engineering/microarch-modeling",
+      "engineering-sciences/electrical-engineering/navigation-sensor-calibration",
+      "engineering-sciences/mechanical-engineering/baseline-free-localization",
+      "engineering-sciences/mechanical-engineering/guided-wave-localization",
+      "engineering-sciences/mechanical-engineering/inelastic-constitutive-discovery",
+      "engineering-sciences/mechanical-engineering/tamp-skill-planning",
+      "engineering-sciences/mechanical-engineering/virtual-baseline-localization",
+      "life-sciences/biology/ambient-rna-correction",
+      "life-sciences/biology/betalactam-multimodal-transfer",
+      "life-sciences/biology/cell-lineage-reconstruction",
+      "life-sciences/biology/cilia-segmentation",
+      "life-sciences/biology/diag-chipseq",
+      "life-sciences/biology/genomic-model-ranking",
+      "life-sciences/biology/ont-tn-qc",
+      "life-sciences/biology/protein-active-learning",
+      "life-sciences/ecology/animal-reid",
+      "life-sciences/medicine/ankle-mri-findings",
+      "life-sciences/medicine/clinical-metadata-recovery",
+      "life-sciences/medicine/dapi-he-alignment",
+      "life-sciences/medicine/longitudinal-clinical-agent",
+      "life-sciences/medicine/spatial-cell-annotation",
+      "life-sciences/medicine/tumor-immune-interface",
+      "life-sciences/neuroscience/eeg-erp-recovery",
+      "life-sciences/neuroscience/foraging-cognitive-model",
+      "life-sciences/neuroscience/mri-harmonization",
+      "life-sciences/neuroscience/qsm-reconstruction",
+      "mathematical-sciences/applied-mathematics/amr-poisson-optimize",
+      "mathematical-sciences/applied-mathematics/dna-storage-codec",
+      "mathematical-sciences/applied-mathematics/koopman-mfg-id",
+      "mathematical-sciences/applied-mathematics/localized-sspd-solver",
+      "mathematical-sciences/applied-mathematics/ode-law-discovery",
+      "mathematical-sciences/applied-mathematics/traffic-flux-inversion",
+      "mathematical-sciences/formal-mathematics/finite-free-stam",
+      "mathematical-sciences/formal-mathematics/gen-turan-paths",
+      "mathematical-sciences/formal-mathematics/onsager-ising-lean",
+      "mathematical-sciences/operations-research/certified-sparse-regression",
+      "mathematical-sciences/operations-research/energy-routing",
+      "mathematical-sciences/operations-research/linked-cell-suppression",
+      "mathematical-sciences/operations-research/noisy-blackbox-optimization",
+      "mathematical-sciences/operations-research/regularized-game-proof",
+      "mathematical-sciences/statistics/highdim-mediation-debiasing",
+      "mathematical-sciences/statistics/small-area-equivalence",
+      "mathematical-sciences/statistics/symbolic-regression",
+      "physical-sciences/astronomy/3x2pt-inference",
+      "physical-sciences/astronomy/cmb-cross-inference",
+      "physical-sciences/astronomy/neo-orbit-determination",
+      "physical-sciences/astronomy/rv-astrometry-fitting",
+      "physical-sciences/astronomy/tess-transit-vetting",
+      "physical-sciences/astronomy/variable-star-vetting",
+      "physical-sciences/chemistry/geometric-pharmacophore-alignment",
+      "physical-sciences/chemistry/rdkit-ic-constraints",
+      "physical-sciences/materials-science/nanoindentation-property-extraction",
+      "physical-sciences/materials-science/si-fracture-fbc",
+      "physical-sciences/materials-science/stacking-disorder-diffraction",
+      "physical-sciences/materials-science/xrd-multiphase-qpa",
+      "physical-sciences/physics/frustrated-heisenberg-nqs",
+      "physical-sciences/physics/inverse-lithography",
+      "physical-sciences/physics/inverse-waveguide-shape",
+      "physical-sciences/physics/leaky-bloch-meep",
+      "physical-sciences/physics/spin-glass-groundstate"
+    ],
+    "domains": [
+      "earth-sciences",
+      "earth sciences",
+      "engineering-sciences",
+      "engineering sciences",
+      "life-sciences",
+      "life sciences",
+      "mathematical-sciences",
+      "mathematical sciences",
+      "physical-sciences"
+    ],
+    "artifactDeclarations": 150,
+    "sourceCheckout": "partial; task import is not environment hydration or executable readiness"
+  },
+  "mkaShowcase": {
+    "revision": "46bce7ab8768f661750bd1016ec8cbdc517740b5",
+    "tasks": 10,
+    "officialGraderIncluded": false,
+    "completeInputTasks": [
+      "task_143a5623f26c404baaeb63ccd891e196"
+    ],
+    "rows": [
+      {
+        "id": "task_143a5623f26c404baaeb63ccd891e196",
+        "tags": [
+          "Engineering",
+          "Electrical & Electronics",
+          "RF engineer"
+        ],
+        "rubricCriteria": 48,
+        "inputsComplete": true,
+        "sourceHashes": {
+          "metadataSha256": "0a896dc0cf7a278c8abad931b959b84cc7b7f3295454852723d614f0e27384eb",
+          "rubricsSha256": "df761e8dd24e07145c8c0b620ae69868e3b5049d2fbb9f6c4fbea6c18ca29f78"
+        }
+      },
+      {
+        "id": "task_4308eaef4d504328988c1cb5dfd7db77",
+        "tags": [
+          "Logistics & Mapping",
+          "Surveying & GIS",
+          "GIS analyst"
+        ],
+        "rubricCriteria": 62,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "1375a8102e76a688102f426440a663cbb552dcc4939ef8c64f093e3aac34bec2",
+          "rubricsSha256": "ee082d43613e3a946ee0dbc6cad18c062be83183588335bbf6612880b7b9e6c6"
+        }
+      },
+      {
+        "id": "task_47d262f6d58c4e5293a22623f0d711e5",
+        "tags": [
+          "Science",
+          "Applied Sciences",
+          "Biochemist"
+        ],
+        "rubricCriteria": 128,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "2e142cc40f704aa06a56e03e0b44431cfa5ad89463c3b62e86b5ae2ef3d5e07a",
+          "rubricsSha256": "7dc97b7cab07e63c5c14d913a83591a4d77a647c4201ca7adc2a2de021ce59df"
+        }
+      },
+      {
+        "id": "task_5a0212833c224c85b79960604679eb84",
+        "tags": [
+          "Law & Government",
+          "Government Backoffice",
+          "Policy analyst"
+        ],
+        "rubricCriteria": 134,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "2a6ce7787fe4ea84241f39669df0d0d6440dab1330decda0e497092469d166ba",
+          "rubricsSha256": "63037f06c4662a03a6a02284646ee62b331a0e2b210d18fda14b11f2bb84ed9f"
+        }
+      },
+      {
+        "id": "task_9e3bdd2bdccd4164bcc792c914f59925",
+        "tags": [
+          "Education",
+          "Education",
+          "Historian"
+        ],
+        "rubricCriteria": 52,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "fcc4c4872ce922214751fd5d4273bbd07f7b92c95007ea3a299fd14a5df04f24",
+          "rubricsSha256": "71b394586a6d1320a14ec9115246e10837eda0309fd386af1cbaac58ceab9c33"
+        }
+      },
+      {
+        "id": "task_a46a6c3cebd54b82b9ad5e66d1e14e48",
+        "tags": [
+          "Construction",
+          "Architecture",
+          "Architect"
+        ],
+        "rubricCriteria": 84,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "bea716f7440d2b74ef202ded790a992c0dda721101079133626be440f8ebb725",
+          "rubricsSha256": "4e5adcdaf5b5915a4d2a0ce45c218f7de3447ff7e83daad297975921cd885247"
+        }
+      },
+      {
+        "id": "task_c9ab91021dc14eab926dfea0a208108a",
+        "tags": [
+          "Finance",
+          "Management Consulting",
+          "Investment analyst"
+        ],
+        "rubricCriteria": 98,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "59931d9dd329a618769c5a998b68203b0bd720091e8352e08003521ac1e3fd74",
+          "rubricsSha256": "a9d50eaf7f18cbf354f168578e6a78c7fdb928aa9f66bd25dd8ce62032417b69"
+        }
+      },
+      {
+        "id": "task_dd94dc222db74864a13fcb7c6c2844a2",
+        "tags": [
+          "Engineering",
+          "Education",
+          "Mechanical engineering instructor"
+        ],
+        "rubricCriteria": 54,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "ee4983c761f3190f732a8d38a39045e713febd54341a2763672b5a09ec02e429",
+          "rubricsSha256": "5fce4d5bc863bc129e102388727747915d67754fc3c5923449f4bd3bea9b3001"
+        }
+      },
+      {
+        "id": "task_e49e96e764424db08531c39fb685ed70",
+        "tags": [
+          "Software & Data",
+          "Data Science",
+          "Data scientist"
+        ],
+        "rubricCriteria": 85,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "67a202424051d1e7c1e6c368584a24f9bb7b0abb45498b252cffc86119144a4b",
+          "rubricsSha256": "bef76ed8e465510ffdff5922b48c3fc6929aad16285d893e34cf8a16478254df"
+        }
+      },
+      {
+        "id": "task_fea07f327cfd4f4c91af0bf78da197d4",
+        "tags": [
+          "Business",
+          "Data Science",
+          "HR analyst"
+        ],
+        "rubricCriteria": 90,
+        "inputsComplete": false,
+        "sourceHashes": {
+          "metadataSha256": "8ea68aa6ed30df87d04cbb64cd035896dbd7cb963af06095b8442e5c9e02bc85",
+          "rubricsSha256": "9030f1a8abdfe849b6141cbda96b30ac3ac80a41dc632fff98aa0b3c65cc322d"
+        }
+      }
+    ],
+    "realMultimodalInputs": [
+      {
+        "name": "block_diagram.png",
+        "path": "/workspace/scratch/28c5e99689e8/work/upstream/mka-showcase/tasks/task_143a5623f26c404baaeb63ccd891e196/input/block_diagram.png",
+        "sha256": "6a953fa08833fc4bb045fcf6036975c86e069de42275e7991b0285053fb354f3",
+        "available": true
+      },
+      {
+        "name": "signoff_performance_limits.png",
+        "path": "/workspace/scratch/28c5e99689e8/work/upstream/mka-showcase/tasks/task_143a5623f26c404baaeb63ccd891e196/input/signoff_performance_limits.png",
+        "sha256": "7ad552d0bbf62a7c80500186da568189d75a814240e7bf4a57281b7dcb7a1ced",
+        "available": true
+      },
+      {
+        "name": "validation_spectrum.jpg",
+        "path": "/workspace/scratch/28c5e99689e8/work/upstream/mka-showcase/tasks/task_143a5623f26c404baaeb63ccd891e196/input/validation_spectrum.jpg",
+        "sha256": "e4622dc3db86faa86a9a4a5d1861dfb9e6306013bc43f4e307b39309d7fe70d9",
+        "available": true
+      }
+    ]
+  }
+}

@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Fix Harbor discovery for nested datasets while retaining native task configuration, artifact destinations and science metadata.
+- Add native benchmark bindings through the existing checker/adapter contracts, immutable measurement definitions, and artifact-bound result receipts.
+- Retain benchmark raw evidence and verification certifications in campaign cells; exclude unavailable grades from score denominators and bind resumptions to grader and responder identities.
+- Add retained-trial Harbor regrading through the upstream verifier, with explicit reward selection and validity checks.
+
 ## [1.0.34] — 2026-11-14
 
 - fix(deps): resolve Interface 5.10.26 and repin the analyst benchmark's dependency lock

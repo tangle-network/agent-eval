@@ -1,0 +1,45 @@
+                                                                                                                                                                
+ Usage: -c trial regrade [OPTIONS] {source}                                                                                                                     
+                                                                                                                                                                
+ Re-run verification for a recorded trial with a new verifier.                                                                                                  
+                                                                                                                                                                
+ SOURCE is a local trial directory, or a hub trial UUID which is                                                                                                
+ downloaded first. Creates a new trial directory seeded with the source                                                                                         
+ trial's agent logs and artifacts, then runs the given task's verifier                                                                                          
+ against them in a separate verifier environment. Multi-step tasks are                                                                                          
+ supported when every step uses a separate verifier and the source contains                                                                                     
+ the same completed step sequence.                                                                                                                              
+                                                                                                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ *    source      <str>  Source trial directory, or a Harbor hub trial UUID to download and re-score. Never modified. [required]                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --task-path          -p      <path>                                                          Task directory (or a directory of task directories) providing   │
+│                                                                                              the verifier to regrade with.                                   │
+│ --task               -t      <str>                                                           Registry verifier task: org/name@ref.                           │
+│ --env                -e      [aca-sandbox|ack|apple-container|beam|blaxel|boxd|cua-cloud|cw  Environment type for the verifier environment (default: docker) │
+│                              sandbox|daytona|docker|e2b|ec2|gke|hf-sandbox|hyperbrowser|isl  or a custom environment import path (module.path:ClassName).    │
+│                              o|kata|kernel|langsmith|modal|mosaic|novita|opensandbox|opensh                                                                  │
+│                              ift|podman|prime|runloop|runta|sail|sbx|singularity|skypilot|s                                                                  │
+│                              mol|snowflake|superserve|tensorlake|use-computer|vercel]                                                                        │
+│ --ve,--verifier-env          <list[str]>                                                     Environment variable for the verifier in the format KEY=VALUE.  │
+│                                                                                              Can be used multiple times.                                     │
+│ --verifier                   <str>                                                           Custom verifier import path (module.path:ClassName). Replaces   │
+│                                                                                              the task's test-script verifier.                                │
+│ --verifier-kwarg             <list[str]>                                                     Additional verifier kwarg in the format 'key=value'. Requires   │
+│                                                                                              --verifier. Can be used multiple times.                         │
+│ --trial-name                 <str>                                                           Name of the new trial (default: auto-generated)                 │
+│ --trials-dir         -o      <path>                                                          Parent directory for the new trial directory. [default: trials] │
+│ --help               -h      <bool>                                                          Show this message and exit.                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Harbor Hub ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --launch                   <bool>           Create a hosted verifier-only job from a Hub trial UUID.                                                         │
+│ --org                      <str>            Source organization; required with --launch.                                                                     │
+│ --stored-secret            <list[str]>      Stored verifier credential name. Repeatable.                                                                     │
+│ --one-off-secret           <list[str]>      Verifier credential from the local environment. Repeatable.                                                      │
+│ --registry-secret          HOST=NAME_OR_ID  Select a stored image-pull secret when multiple credentials match a host. Requires --launch. Repeatable.         │
+│ --use-static-ip            <bool>           Use a static outbound IP. Requires --launch.                                                                     │
+│ --yes              -y      <bool>           Accept hosted launch and local task upload.                                                                      │
+│ --dry-run                  <bool>           Validate the hosted launch without queuing work.                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+

@@ -1,0 +1,72 @@
+{
+  "purpose": "Pinned native Harbor CLI syntax qualification only",
+  "sourceRevision": "ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4",
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+    "-c",
+    "from harbor.cli.main import app; app()",
+    "trial",
+    "regrade",
+    "--help"
+  ],
+  "environmentOverrides": {
+    "PYTHONPATH": "/workspace/scratch/28c5e99689e8/work/upstream/harbor-cli-source/src:/workspace/scratch/28c5e99689e8/work/upstream/harbor-cli-deps",
+    "NO_COLOR": "1",
+    "COLUMNS": "160"
+  },
+  "exitCode": 0,
+  "durationSeconds": 1.8162280869998995,
+  "loaded": {
+    "source_file": "/workspace/scratch/28c5e99689e8/work/upstream/harbor-cli-source/src/harbor/cli/main.py",
+    "versions": {
+      "harbor": "0.26.0",
+      "typer": "0.29.1",
+      "pydantic": "2.14.3",
+      "rich": "15.0.0",
+      "dirhash": "0.5.0"
+    }
+  },
+  "sourceFiles": [
+    {
+      "path": "src/harbor/cli/main.py",
+      "sha256": "94471908c309901ff4e2963b7ef72ef52a17e98e4a407148833eb6d418f4b0ef",
+      "gitBlobSha1": "4579822218ca9e7d752d4b38bd5816ab5b95dfc1",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/cli/main.py"
+    },
+    {
+      "path": "src/harbor/cli/trials.py",
+      "sha256": "ec96475af88f6863a3254ebcd48ceb7df595c7230500d9d73f4801ed92e73a00",
+      "gitBlobSha1": "f77e15dbaa0438f36523398d4821b05d57193044",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/cli/trials.py"
+    },
+    {
+      "path": "src/harbor/trial/regrade.py",
+      "sha256": "d2280f7b6486d65d2eb7034940f850e5cb0e5befbb4bf737b535d7f48084a37c",
+      "gitBlobSha1": "2e89af49041d8d61229107b17feb9f14ebe5c070",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/trial/regrade.py"
+    },
+    {
+      "path": "src/harbor/models/trial/result.py",
+      "sha256": "06f6c8c2012d5b84a899442b28f3987f417cb789cfce8a9bf1c2a38a9e2a96c3",
+      "gitBlobSha1": "2ee0e823bf3c6d3851cd708e2e65a9863c3a95dc",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/models/trial/result.py"
+    },
+    {
+      "path": "src/harbor/models/trial/artifact_manifest.py",
+      "sha256": "70efdfeb112ad69167544e4d77bfb9cb80dac0fc583f8defce6ae94bc55b9138",
+      "gitBlobSha1": "26c6ef789e5f8a1011a1d91201fbb0d780eed11a",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/models/trial/artifact_manifest.py"
+    },
+    {
+      "path": "src/harbor/models/task/artifacts.py",
+      "sha256": "f0f63a30023bbc5eac00b2d795e687136306131dcbd40b296d9612b6c00d59b5",
+      "gitBlobSha1": "9144ad2e4b83ce647f3f72425d5f6f51203f71ab",
+      "url": "https://github.com/harbor-framework/harbor/blob/ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4/src/harbor/models/task/artifacts.py"
+    }
+  ],
+  "stdoutSha256": "e2c2d21bd2f1857feacf2edc47ca63ece5209972d415138abc6b42b032aa96e0",
+  "agentExecuted": false,
+  "containerExecuted": false,
+  "trialRegraded": false,
+  "scope": "Only --help executed. Native dependencies were installed into an isolated target; exact pinned source takes precedence over wheel source."
+}

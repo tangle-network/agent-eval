@@ -6,6 +6,9 @@
 
 import type { DispatchContext, Scenario } from '../campaign/types'
 import type { RunSplitTag } from '../run-record'
+import type { VerdictCertification } from '../verdict'
+import type { BenchmarkDefinition } from './definition'
+import type { BenchmarkResult } from './result'
 
 export type BenchmarkTaskKind =
   | 'retrieval'
@@ -62,6 +65,8 @@ export interface BenchmarkEvaluation {
   /** Optional bag of raw scoring signals — e.g. parsed numeric
    *  answer, regex match, judge sub-scores. */
   raw: Record<string, unknown>
+  /** Executed checker evidence, distinct from a planned definition's verification identity. */
+  certification?: VerdictCertification
   notes?: string
 }
 
@@ -95,6 +100,10 @@ export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown, TArtifac
   description?: string
   source?: BenchmarkSource
   defaultMetric?: string
+  /** Optional frozen measurement contract for a native or caller-owned benchmark. */
+  definition?: BenchmarkDefinition
+  /** Exact adapter/checker/projection implementation identity, included in resumable campaigns. */
+  evaluationRef?: string
   /** Load the dataset for the given split. May hit the network on
    *  first call but should be cache-friendly. Adapters that don't
    *  ship the dataset itself MUST throw a clearly-marked error
@@ -102,6 +111,11 @@ export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown, TArtifac
   loadDataset(split: RunSplitTag): Promise<BenchmarkDatasetItem<TPayload>[]>
   /** Score a single response. Pure with respect to the inputs. */
   evaluate(item: BenchmarkDatasetItem<TPayload>, artifact: TArtifact): Promise<BenchmarkEvaluation>
+  /** Optional identity-bound receipt, retained by the runner without executing the checker twice. */
+  evaluateResult?(
+    item: BenchmarkDatasetItem<TPayload>,
+    artifact: TArtifact,
+  ): Promise<BenchmarkResult>
   /** Deterministic split assignment via item id hashing. The
    *  fraction of items in each split is implementation-defined but
    *  MUST be stable across processes and platforms. */

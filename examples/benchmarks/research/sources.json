@@ -1,0 +1,299 @@
+{
+  "reviewedAt": "2026-11-14",
+  "recipes": {
+    "terminal-bench-science": {
+      "source": {
+        "name": "Terminal-Bench-Science",
+        "url": "https://github.com/harbor-framework/terminal-bench-science",
+        "revision": "f81afac4f11048e77a15dfc8fb1dbfb897fea0ce",
+        "license": "Apache-2.0; task data may carry additional terms",
+        "version": "v0.1.0"
+      },
+      "requiredPins": [
+        "harbor",
+        "environment"
+      ],
+      "assumptions": [
+        "Declared artifact mappings and verifier environment semantics must be preserved."
+      ],
+      "taskCount": 70,
+      "taskIds": [
+        "earth-sciences/atmospheric-sciences/sparse-network-assimilation",
+        "earth-sciences/environmental-sciences/hysteretic-aquifer-control",
+        "earth-sciences/geosciences/duan-thesis",
+        "earth-sciences/geosciences/hbv-calibration-1",
+        "earth-sciences/geosciences/mendota-ice-phenology",
+        "earth-sciences/geosciences/stereo-dem-icesat2",
+        "earth-sciences/geosciences/supraglacial-lake-classification",
+        "earth-sciences/ocean-sciences/masked-spherical-remap",
+        "engineering-sciences/chemical-engineering/reactor-safety-control",
+        "engineering-sciences/civil-engineering/rolling-shutter-oma",
+        "engineering-sciences/electrical-engineering/microarch-modeling",
+        "engineering-sciences/electrical-engineering/navigation-sensor-calibration",
+        "engineering-sciences/mechanical-engineering/baseline-free-localization",
+        "engineering-sciences/mechanical-engineering/guided-wave-localization",
+        "engineering-sciences/mechanical-engineering/inelastic-constitutive-discovery",
+        "engineering-sciences/mechanical-engineering/tamp-skill-planning",
+        "engineering-sciences/mechanical-engineering/virtual-baseline-localization",
+        "life-sciences/biology/ambient-rna-correction",
+        "life-sciences/biology/betalactam-multimodal-transfer",
+        "life-sciences/biology/cell-lineage-reconstruction",
+        "life-sciences/biology/cilia-segmentation",
+        "life-sciences/biology/diag-chipseq",
+        "life-sciences/biology/genomic-model-ranking",
+        "life-sciences/biology/ont-tn-qc",
+        "life-sciences/biology/protein-active-learning",
+        "life-sciences/ecology/animal-reid",
+        "life-sciences/medicine/ankle-mri-findings",
+        "life-sciences/medicine/clinical-metadata-recovery",
+        "life-sciences/medicine/dapi-he-alignment",
+        "life-sciences/medicine/longitudinal-clinical-agent",
+        "life-sciences/medicine/spatial-cell-annotation",
+        "life-sciences/medicine/tumor-immune-interface",
+        "life-sciences/neuroscience/eeg-erp-recovery",
+        "life-sciences/neuroscience/foraging-cognitive-model",
+        "life-sciences/neuroscience/mri-harmonization",
+        "life-sciences/neuroscience/qsm-reconstruction",
+        "mathematical-sciences/applied-mathematics/amr-poisson-optimize",
+        "mathematical-sciences/applied-mathematics/dna-storage-codec",
+        "mathematical-sciences/applied-mathematics/koopman-mfg-id",
+        "mathematical-sciences/applied-mathematics/localized-sspd-solver",
+        "mathematical-sciences/applied-mathematics/ode-law-discovery",
+        "mathematical-sciences/applied-mathematics/traffic-flux-inversion",
+        "mathematical-sciences/formal-mathematics/finite-free-stam",
+        "mathematical-sciences/formal-mathematics/gen-turan-paths",
+        "mathematical-sciences/formal-mathematics/onsager-ising-lean",
+        "mathematical-sciences/operations-research/certified-sparse-regression",
+        "mathematical-sciences/operations-research/energy-routing",
+        "mathematical-sciences/operations-research/linked-cell-suppression",
+        "mathematical-sciences/operations-research/noisy-blackbox-optimization",
+        "mathematical-sciences/operations-research/regularized-game-proof",
+        "mathematical-sciences/statistics/highdim-mediation-debiasing",
+        "mathematical-sciences/statistics/small-area-equivalence",
+        "mathematical-sciences/statistics/symbolic-regression",
+        "physical-sciences/astronomy/3x2pt-inference",
+        "physical-sciences/astronomy/cmb-cross-inference",
+        "physical-sciences/astronomy/neo-orbit-determination",
+        "physical-sciences/astronomy/rv-astrometry-fitting",
+        "physical-sciences/astronomy/tess-transit-vetting",
+        "physical-sciences/astronomy/variable-star-vetting",
+        "physical-sciences/chemistry/geometric-pharmacophore-alignment",
+        "physical-sciences/chemistry/rdkit-ic-constraints",
+        "physical-sciences/materials-science/nanoindentation-property-extraction",
+        "physical-sciences/materials-science/si-fracture-fbc",
+        "physical-sciences/materials-science/stacking-disorder-diffraction",
+        "physical-sciences/materials-science/xrd-multiphase-qpa",
+        "physical-sciences/physics/frustrated-heisenberg-nqs",
+        "physical-sciences/physics/inverse-lithography",
+        "physical-sciences/physics/inverse-waveguide-shape",
+        "physical-sciences/physics/leaky-bloch-meep",
+        "physical-sciences/physics/spin-glass-groundstate"
+      ]
+    },
+    "ale-bench": {
+      "source": {
+        "name": "ALE-Bench",
+        "url": "https://github.com/SakanaAI/ALE-Bench",
+        "revision": "8ba16e6baf743aa8736516c45d1c52afdbd4de99",
+        "license": "Apache-2.0"
+      },
+      "requiredPins": [
+        "dataset",
+        "judgeImage",
+        "toolchain"
+      ],
+      "assumptions": [
+        "Preserve native public/private evaluation separation, score direction, ranks and resource usage.",
+        "The bounded Eval score is an explicit projection; raw contest scores are never clamped."
+      ],
+      "dataset": {
+        "url": "https://huggingface.co/datasets/SakanaAI/ALE-Bench",
+        "revision": "0f426173b4e4e73b09b2b3631ae0490f66b75f99",
+        "license": "CC-BY-ND-4.0"
+      }
+    },
+    "bixbench": {
+      "source": {
+        "name": "BixBench",
+        "url": "https://github.com/Future-House/BixBench",
+        "revision": "49311180bdacb324c596f2e07596c126f2004008",
+        "license": "Apache-2.0",
+        "version": "v1.5"
+      },
+      "requiredPins": [
+        "dataset",
+        "answerMode",
+        "judge",
+        "judgePrompt",
+        "replicaAggregation"
+      ],
+      "assumptions": [
+        "Harbor conversion is an adapted protocol; label CLI versus notebook variants.",
+        "Harbor --commit alone does not pin its Hugging Face dataset download."
+      ],
+      "dataset": {
+        "url": "https://huggingface.co/datasets/futurehouse/BixBench",
+        "revision": "f8cc3bdcc6357c88b8c3648306522b9c422dc95a",
+        "license": null,
+        "metadataFile": "BixBench.jsonl",
+        "metadataSha256": "0d1204dcdae7193a9132ced5a3502008f6b3b163debc1b65b2aa2d86cb132dc9",
+        "metadataRows": 205,
+        "distinctDataFolders": 59,
+        "versionFields": [
+          "1.5"
+        ]
+      },
+      "taskCount": 205,
+      "notebookCount": 60
+    },
+    "paperbench": {
+      "source": {
+        "name": "PaperBench",
+        "url": "https://github.com/openai/frontier-evals",
+        "revision": "b78dab1da774a6456b1ed9c48c9ff194ee3ff36d",
+        "license": "MIT"
+      },
+      "requiredPins": [
+        "dataset",
+        "variant",
+        "reproducerImage",
+        "judge",
+        "judgePrompt"
+      ],
+      "assumptions": [
+        "Full reproduction and Code-Dev are distinct protocols.",
+        "Preserve recursive rubric weights, leaf outcomes, reproduction status and repeated-run identity."
+      ],
+      "path": "project/paperbench",
+      "taskCount": 20
+    },
+    "agents-last-exam": {
+      "source": {
+        "name": "Agents' Last Exam",
+        "url": "https://github.com/rdi-berkeley/agents-last-exam",
+        "revision": "2e91edd3cd26baa35a38127c90c8e5241dfbe62f",
+        "license": "Apache-2.0",
+        "version": "v1.1"
+      },
+      "requiredPins": [
+        "publicData",
+        "references",
+        "metadata",
+        "environment",
+        "taskList"
+      ],
+      "assumptions": [
+        "Full grading needs authorized access to the manual-gated reference package.",
+        "Stage hidden references only after agent execution; use native task load functions.",
+        "Missing references or incomplete preparation are not measured failures of the agent."
+      ],
+      "releaseDate": "2026-10-14",
+      "dataLicense": "CC-BY-4.0",
+      "publicDataRevision": "e9a2674a62f7d8069f136e642c10e8d8e9979dbf",
+      "referenceRevision": "e6a990308d79da249d596871c2cc9a40396e4e22",
+      "referenceAccess": "manual-gated",
+      "metadataRevision": "70895aea227ef2e275b990ca3f1295598f03c9f4",
+      "taskCount": 122,
+      "cpuTasks": 119,
+      "dockerSubsetTasks": 78,
+      "dockerImage": "agentslastexam/ale-ubuntu22-docker:v1.1@sha256:0b223c5042bedfa78f37f17881f6b410aa3d745310b667e5dff62637363c5085"
+    },
+    "mka-showcase": {
+      "source": {
+        "name": "MKA public showcase",
+        "url": "https://huggingface.co/datasets/google/multimodal-knowledge-agent",
+        "revision": "46bce7ab8768f661750bd1016ec8cbdc517740b5",
+        "license": "Apache-2.0"
+      },
+      "requiredPins": [
+        "customJudge",
+        "customRubricAggregation"
+      ],
+      "assumptions": [
+        "Only the ten public showcase tasks; not the private 200-task official benchmark.",
+        "No official executable grader is included; judgments use an explicitly custom public-showcase protocol.",
+        "Preserve criterion weights, dependencies, grading targets and missing-input status."
+      ],
+      "publicTasks": 10,
+      "officialPrivateTasks": 200,
+      "officialGraderIncluded": false,
+      "taskIds": [
+        "task_143a5623f26c404baaeb63ccd891e196",
+        "task_4308eaef4d504328988c1cb5dfd7db77",
+        "task_47d262f6d58c4e5293a22623f0d711e5",
+        "task_5a0212833c224c85b79960604679eb84",
+        "task_9e3bdd2bdccd4164bcc792c914f59925",
+        "task_a46a6c3cebd54b82b9ad5e66d1e14e48",
+        "task_c9ab91021dc14eab926dfea0a208108a",
+        "task_dd94dc222db74864a13fcb7c6c2844a2",
+        "task_e49e96e764424db08531c39fb685ed70",
+        "task_fea07f327cfd4f4c91af0bf78da197d4"
+      ],
+      "protocolPrefix": "custom-"
+    }
+  },
+  "harbor": {
+    "repository": "https://github.com/harbor-framework/harbor",
+    "revision": "ec6aeab7fe0eb51df52b4e72c524daf5ea9cc5f4"
+  },
+  "ode": {
+    "relativeTask": "mathematical-sciences/applied-mathematics/ode-law-discovery",
+    "files": [
+      {
+        "path": "instruction.md",
+        "sha256": "d1f1e45625b031ba6a637d1d6b5fbad0cdea33cd72a2529893d09ca520a478e1",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/instruction.md"
+      },
+      {
+        "path": "task.toml",
+        "sha256": "ca4b168d641f59f38e861edecbceeaf01b86e0e0c0972a2555c738ef722b0761",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/task.toml"
+      },
+      {
+        "path": "tests/Dockerfile",
+        "sha256": "0b4380be3f638dff4b79147a8919a42d6be87241e465e47a48fd0730b3fa1de0",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/Dockerfile"
+      },
+      {
+        "path": "tests/hidden_reference.json",
+        "sha256": "8ed05aee186057494b5211a1edddeb48047b19132219728edacf1756663710fc",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/hidden_reference.json"
+      },
+      {
+        "path": "tests/hidden_stress_initial_conditions.csv",
+        "sha256": "4a0c8e7024f79e29ff79c202d5d608f6b35c8f4eb5f2869a4e539e3ffeb9ece7",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/hidden_stress_initial_conditions.csv"
+      },
+      {
+        "path": "tests/hidden_stress_trajectories.csv",
+        "sha256": "61a0cf8fc3261739f04940df1b852aa1e29c6f9dc0eb08e49b546ecca4669a6a",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/hidden_stress_trajectories.csv"
+      },
+      {
+        "path": "tests/hidden_test_trajectories.csv",
+        "sha256": "c9b8dce22c48c9c7154471e7d53c35e9dad13cf752b2f5b1fa962f503b1cfaae",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/hidden_test_trajectories.csv"
+      },
+      {
+        "path": "tests/submission_checker.py",
+        "sha256": "39f16c13f19e66042f69b510fe5b5d064248f4be733f230f173ddd1a83b12dfd",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/submission_checker.py"
+      },
+      {
+        "path": "tests/test.sh",
+        "sha256": "9bcaccdcb059c354cc79eb17d0667a54f06558c89ca895965fd234615c112214",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/test.sh"
+      },
+      {
+        "path": "tests/test_outputs.py",
+        "sha256": "5238b844547781964d10239c6ea64016f61138669545da10b15e27401774078a",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/test_outputs.py"
+      },
+      {
+        "path": "tests/test_submission_checker.py",
+        "sha256": "7070ea5274ef44896e1c077c2853faa83e8d741590f584c5fcd85f28194a9845",
+        "url": "https://raw.githubusercontent.com/harbor-framework/terminal-bench-science/f81afac4f11048e77a15dfc8fb1dbfb897fea0ce/tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/tests/test_submission_checker.py"
+      }
+    ]
+  }
+}

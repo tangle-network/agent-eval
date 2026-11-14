@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/harbor-framework/terminal-bench-science",
+  "revision": "f81afac4f11048e77a15dfc8fb1dbfb897fea0ce",
+  "version": "0.1.0",
+  "scope": "Unmodified metadata and instructions for importer integration only; execution environments, answers and verifier assets are not bundled.",
+  "files": [
+    {
+      "path": "tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/task.toml",
+      "sha256": "ca4b168d641f59f38e861edecbceeaf01b86e0e0c0972a2555c738ef722b0761"
+    },
+    {
+      "path": "tasks/mathematical-sciences/applied-mathematics/ode-law-discovery/instruction.md",
+      "sha256": "d1f1e45625b031ba6a637d1d6b5fbad0cdea33cd72a2529893d09ca520a478e1"
+    },
+    {
+      "path": "tasks/earth-sciences/atmospheric-sciences/sparse-network-assimilation/task.toml",
+      "sha256": "dd4498a8ff2814e048d2a775509861c2a96be7ec6bb6d5d5db3065461a4daaa3"
+    },
+    {
+      "path": "tasks/earth-sciences/atmospheric-sciences/sparse-network-assimilation/instruction.md",
+      "sha256": "f75d7f5ee9cbb83a128ae879ebf5bfcd71f0413d1d67d669b99d9e36b3c6f245"
+    }
+  ]
+}
