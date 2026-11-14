@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [1.0.35] — 2026-11-14
 
 - Fix Harbor discovery for nested datasets while retaining native task configuration, artifact destinations and science metadata.
 - Add native benchmark bindings through the existing checker/adapter contracts, immutable measurement definitions, and artifact-bound result receipts.
