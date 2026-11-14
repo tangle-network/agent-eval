@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { pnpmLockDocuments } from './pnpm-lock-walk.mjs'
 
 const SCOPE = '@tangle-network/'
 const SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
@@ -62,21 +63,17 @@ export function readLocks(dir) {
   }
   if (existsSync(join(dir, 'pnpm-lock.yaml'))) {
     format = 'pnpm'
-    const path = []
-    for (const line of readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8').replace(/\r/g, '').split('\n')) {
-      const m = /^( *)(['"]?)([^'":\s][^'":]*)\2:(?:\s+(\S.*))?$/.exec(line)
-      if (!m) continue
-      const depth = m[1].length / 2
-      path.length = depth
-      path[depth] = m[3]
-      if (m[3] !== 'version' || !m[4]) continue
+    const entries = pnpmLockDocuments(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).flat()
+    for (const { path, value } of entries) {
+      const depth = path.length - 1
+      if (path[depth] !== 'version' || !value) continue
       if (path[0] === 'catalogs' && depth === 3) {
-        const version = m[4].replace(/^['"]|['"]$/g, '').replace(/\(.*$/, '')
+        const version = value.replace(/\(.*$/, '')
         const old = catalog.get(path[2])
         if (exact.test(version) && (!old || version.localeCompare(old, undefined, { numeric: true }) < 0)) catalog.set(path[2], version)
       } else if (path[0] === 'importers' && depth === 4 && SECTIONS.includes(path[2])) {
         const versions = importers.get(path[1]) ?? new Map()
-        const version = record(versions, path[3], m[4])
+        const version = record(versions, path[3], value)
         importers.set(path[1], versions)
         rows.push({ importer: path[1], section: path[2], name: path[3], version })
       }
