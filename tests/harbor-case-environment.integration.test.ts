@@ -185,6 +185,65 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     expect(tags).not.toContain(image)
   }, 600_000)
 
+  it("reclaims a dead pass's image before waiting for build space", async () => {
+    const root = await dataset()
+    const coord = await mkdtemp(join(tmpdir(), 'eval-harbor-case-passes-'))
+    roots.push(coord)
+    const script = join(import.meta.dirname, 'fixtures/harbor-case-pass.ts')
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      ['--import', 'tsx', script, root, coord, '0', 'crash'],
+      { timeout: 600_000, maxBuffer: 1 << 26 },
+    )
+    const { image: orphan } = JSON.parse(stdout.trim().split('\n').at(-1)!) as { image: string }
+    const [task] = await createHarborBenchmarkAdapter({
+      id: 'case-env',
+      datasetDir: root,
+      source: { name: 'synthetic-case-env', revision: 'local' },
+      grade: gradeHarborPatch(),
+    }).loadAll()
+    // The host stays below the floor, so the restarted pass waits; the orphan is gone meanwhile.
+    const preparing = prepareCaseEnvironment(task!, {
+      freeFloorBytes: Number.MAX_SAFE_INTEGER,
+      recheckMs: 200,
+      log: () => undefined,
+      signal: AbortSignal.timeout(5_000),
+    })
+    await expect(preparing).rejects.toThrow(/aborted|timeout/i)
+    expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).not.toContain(orphan)
+    await releaseCaseEnvironment(task!)
+    expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
+  }, 600_000)
+
+  it("shares a live owner's image without waiting for build space", async () => {
+    const load = async () =>
+      (
+        await createHarborBenchmarkAdapter({
+          id: 'case-env',
+          datasetDir: await dataset(),
+          source: { name: 'synthetic-case-env', revision: 'local' },
+          grade: gradeHarborPatch(),
+        }).loadAll()
+      )[0]!
+    const [first, second] = [await load(), await load()]
+    const image = await prepareCaseEnvironment(first)
+    try {
+      const shared = await prepareCaseEnvironment(second, {
+        freeFloorBytes: Number.MAX_SAFE_INTEGER,
+        signal: AbortSignal.timeout(30_000),
+      })
+      expect(shared).not.toBe(image)
+      const id = (tag: string) => docker('image', 'inspect', '-f', '{{.Id}}', tag).trim()
+      expect(id(shared)).toBe(id(image))
+      await releaseCaseEnvironment(first)
+      expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).toContain(shared)
+    } finally {
+      await releaseCaseEnvironment(first)
+      await releaseCaseEnvironment(second)
+    }
+    expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
+  }, 600_000)
+
   it('pauses, never fails, while the docker host is below its free-space floor', async () => {
     const root = await dataset()
     const [task] = await createHarborBenchmarkAdapter({
