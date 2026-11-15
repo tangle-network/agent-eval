@@ -97,6 +97,8 @@ async function plannerExecutorLoop(candidateExecutor: string) {
     storage: inMemoryCampaignStorage(),
     runDir: 'mem://planner-executor-comparison',
     proposer: { kind: 'fixed', propose: async () => ['WIN'] },
+    populationSize: 1,
+    maxGenerations: 1,
     autoOnPromote: 'none',
     // Every cell records two paid calls: a planner, then an executor.
     dispatchWithSurface: async (surface, _scenario, context) => {
