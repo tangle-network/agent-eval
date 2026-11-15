@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
+
 ## [1.0.35] — 2026-11-14
 
 - Fix Harbor discovery for nested datasets while retaining native task configuration, artifact destinations and science metadata.

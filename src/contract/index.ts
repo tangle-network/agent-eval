@@ -53,6 +53,7 @@ export type {
 
 export { campaignSplitDigest } from '../campaign/coverage'
 export type { FinalEvidencePolicy, FinalEvidenceUse } from '../campaign/final-evidence'
+export { withFinalEvidenceSources } from '../campaign/final-evidence'
 export { type RunEvalOptions, runEval } from '../campaign/presets/run-eval'
 export {
   type RunImprovementLoopOptions,

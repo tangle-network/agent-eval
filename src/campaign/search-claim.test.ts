@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { openFinalEvidenceLedger } from '../experiment/final-evidence'
 import { hashCanonical } from '../ledger-core/canonical'
 import { uniform } from './allocation'
-import { prepareSearchFinalEvidence } from './final-evidence'
+import { prepareSearchFinalEvidence, withFinalEvidenceSources } from './final-evidence'
 import { searchClaimDecision, verifySearchClaim } from './search-claim'
 import {
   type RunSearchOptions,
@@ -32,6 +32,7 @@ const tasks = (prefix: string, count: number) =>
  * uses its continuous estimator. */
 async function searchOptions(
   direction: 'maximize' | 'minimize',
+  testPrefix = 'x',
 ): Promise<RunSearchOptions<string>> {
   const storage = inMemoryCampaignStorage()
   let clock = Date.parse('2026-10-06T00:00:00Z')
@@ -65,7 +66,7 @@ async function searchOptions(
       splits: {
         train: tasks('t', 2),
         selection: tasks('s', 8),
-        test: tasks('x', 24),
+        test: tasks(testPrefix, 24),
         heldOutUnits: true,
       },
       policy: { expansion: 'incumbent', allocation: 'uniform', seed: 7 },
@@ -231,6 +232,50 @@ describe('searchClaimDecision', () => {
       evidence = await prepareSearchFinalEvidence(evidenceInput)
       await runSearch(options)
       expect(attempts).toBe(2)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses final task content that a renamed search presents as fresh evidence', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'search-final-sources-'))
+    try {
+      const ledger = openFinalEvidenceLedger({ path: join(directory, 'exposure.jsonl') })
+      const prepare = async (requestId: string, testPrefix: string, content: string) => {
+        const { recorder } = await searchOptions('maximize', testPrefix)
+        const { objective, splits } = (await recorder.state()).header!
+        const development = [...splits.train.tasks, ...splits.selection.tasks]
+        // A content digest ignores the display id: test task i holds the same task in every search.
+        const sources = new Map([
+          ...splits.test.tasks.map(
+            (task, index) => [task.taskId, hashCanonical({ content, index })] as const,
+          ),
+          ...development.map(
+            (task) => [task.taskId, hashCanonical({ development: task.taskId })] as const,
+          ),
+        ])
+        return prepareSearchFinalEvidence({
+          policy: withFinalEvidenceSources(
+            { ledger, requestId, evaluatorDigest: SOURCE.revision },
+            sources,
+          ),
+          recorder,
+          claim: objective.claim,
+          finalScenarios: splits.test.tasks.map((task) => ({ id: task.taskId, kind: 'test' })),
+          developmentScenarios: development.map((task) => ({ id: task.taskId, kind: 'test' })),
+        })
+      }
+      await prepare('first-search', 'x', 'held-out tasks')
+      await expect(prepare('renamed-search', 'y', 'held-out tasks')).rejects.toThrow(
+        /source '.*' was already used by 'first-search'/,
+      )
+      await prepare('fresh-search', 'y', 'fresh tasks')
+      const retained = await ledger.read()
+      if (!retained.succeeded) throw new Error(retained.error.message)
+      expect(retained.value.map((record) => record.reservation.requestId)).toEqual([
+        'first-search',
+        'fresh-search',
+      ])
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
