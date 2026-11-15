@@ -442,8 +442,8 @@ describe('served snapshots through public comparison boundaries', () => {
       'anthropic/claude-sonnet-4.6',
     ]) {
       const { result, gateCalls } = await improvementLoop(() => [{ requested: served, served }])
-      expect(result.modelComparison, served).toMatchObject({ eligible: true, issues: [] })
-      expect(gateCalls, served).toBe(1)
+      expect.soft(result.modelComparison, served).toMatchObject({ eligible: true, issues: [] })
+      expect.soft(gateCalls, served).toBe(1)
     }
     // The comparison, checkServedModel and run-record validation read this one grammar.
     const grammar: Array<[string, boolean]> = [
@@ -498,21 +498,21 @@ describe('served snapshots through public comparison boundaries', () => {
     const winnerTimesOut = (requested: string) => (surface: string) =>
       surface === 'WIN' ? [{ requested }] : [{ requested: pinned, served: pinned }]
     const unserved = await improvementLoop(winnerTimesOut(pinned))
-    expect(unserved.gateCalls).toBe(0)
-    expect(unserved.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+    expect.soft(unserved.gateCalls).toBe(0)
+    expect.soft(unserved.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
       'each arm needs a reported served model',
       'each arm needs a reported served model',
     ])
     const required = await improvementLoop(winnerTimesOut(pinned), { requireReportedModel: true })
-    expect(required.gateCalls).toBe(0)
-    expect(required.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+    expect.soft(required.gateCalls).toBe(0)
+    expect.soft(required.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
       'each arm needs one unambiguous served model',
       'each arm needs one unambiguous served model',
     ])
     // A declared model fills a cell that served nothing, whatever the failed call requested.
     const declared = await improvementLoop(winnerTimesOut('gpt-4.1'), { model: pinned })
-    expect(declared.result.modelComparison).toMatchObject({ eligible: true, issues: [] })
-    expect(declared.gateCalls).toBe(1)
+    expect.soft(declared.result.modelComparison).toMatchObject({ eligible: true, issues: [] })
+    expect.soft(declared.gateCalls).toBe(1)
 
     // A failed profile-matrix row keeps its absence marker, not the alias it requested.
     const matrix = await runProfileMatrix({
@@ -566,19 +566,19 @@ describe('served snapshots through public comparison boundaries', () => {
         modelTreatment,
       })
     const sameAlias = cohort('candidate', 'gpt-5-codex', () => 0.8)
-    expect(sameAlias[0]?.model).toBe('gpt-5-codex@observed-local')
+    expect.soft(sameAlias[0]?.model).toBe('gpt-5-codex@observed-local')
     // One moving alias on both sides, or no recorded model: unreported, and lift is descriptive.
     for (const model of ['gpt-5-codex@observed-local', 'gpt-5-codex@otlp', 'unknown@unknown']) {
       const report = await analyze(sameAlias.map((run) => ({ ...run, model })))
-      expect(report.lift, model).toMatchObject({
+      expect.soft(report.lift, model).toMatchObject({
         n: 20,
         decisionEligible: false,
         modelComparison: { checkedPairs: 0, unreportedPairs: 20 },
       })
-      expect(report.release.axes).toContainEqual(
+      expect.soft(report.release.axes).toContainEqual(
         expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
       )
-      expect(report.recommendations.some((row) => row.kind === 'ship')).toBe(false)
+      expect.soft(report.recommendations.some((row) => row.kind === 'ship')).toBe(false)
     }
     // Cohorts that recorded different models served different models, tagged or not.
     const changed = cohort('candidate', 'gpt-5.1-codex', () => 0.8)
@@ -588,11 +588,11 @@ describe('served snapshots through public comparison boundaries', () => {
       changed.map((run) => ({ ...run, model: 'claude-sonnet-4-5-20250929' })),
     ]) {
       const report = await analyze(candidate)
-      expect(report.lift, candidate[0]?.model).toMatchObject({
+      expect.soft(report.lift, candidate[0]?.model).toMatchObject({
         decisionEligible: false,
         modelComparison: { eligible: false, checkedPairs: 20 },
       })
-      expect(report.release.axes).toContainEqual(
+      expect.soft(report.release.axes).toContainEqual(
         expect.objectContaining({ name: 'served-model-identity', status: 'fail' }),
       )
     }
@@ -601,7 +601,7 @@ describe('served snapshots through public comparison boundaries', () => {
       baseline: 'gpt-5-codex@2025-09-15',
       candidate: 'gpt-5.1-codex@2025-11-13',
     })
-    expect(declared.lift).toMatchObject({
+    expect.soft(declared.lift).toMatchObject({
       decisionEligible: false,
       modelComparison: { eligible: false, checkedPairs: 20 },
     })
@@ -628,16 +628,17 @@ describe('served snapshots through public comparison boundaries', () => {
           scoreForTrace: (runId) => (candidateId === 'baseline' ? 0.2 + Number(runId) / 100 : 0.8),
         },
       )
-    expect(traces('baseline', { 'gen_ai.request.model': 'gpt-4o-mini' })[0]?.model).toBe(
+    expect.soft(traces('baseline', { 'gen_ai.request.model': 'gpt-4o-mini' })[0]?.model).toBe(
       'gpt-4o-mini@otlp',
     )
-    for (const attributes of [{ 'gen_ai.request.model': 'gpt-4o' }, {}]) {
+    const attributeSets: Array<Record<string, string>> = [{ 'gen_ai.request.model': 'gpt-4o' }, {}]
+    for (const attributes of attributeSets) {
       const report = await analyzeRuns({
         runs: [...traces('baseline', attributes), ...traces('candidate', attributes)],
         baselineCandidateId: 'baseline',
         candidateCandidateId: 'candidate',
       })
-      expect(report.lift, JSON.stringify(attributes)).toMatchObject({
+      expect.soft(report.lift, JSON.stringify(attributes)).toMatchObject({
         n: 20,
         decisionEligible: false,
         modelComparison: { checkedPairs: 0, unreportedPairs: 20 },
