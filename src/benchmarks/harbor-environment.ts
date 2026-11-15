@@ -7,11 +7,21 @@
  * floor, since that space belongs to the host. `gradeHarborPatch` then names the prepared image
  * as the task's `docker_image`, so Harbor builds nothing per trial. A `host` is an ssh target:
  * builds and `docker run` reach it through `DOCKER_HOST`, and Harbor runs there.
+ *
+ * Each prepared case owns its tag: `harbor-case/<task dir>:<environment digest>-<owner>`, the owner
+ * being this machine, this process id and a nonce. Two processes grading the same case on one
+ * docker host (two improve passes at once) share the image and its build cache but never a tag, so
+ * one pass's release untags only its own name and the other's grades keep their image. Before its
+ * space check a preparation removes the case's tags left by dead processes of this machine (a
+ * crash or kill leaves them) and shares a live owner's image of the same environment under its own
+ * tag; a release removes such dead tags too. Tags of other machines' processes stay, since their
+ * liveness is not known here.
  */
 
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -44,8 +54,19 @@ const wake = () => {
   for (const resume of waiters.splice(0)) resume()
 }
 
-/** `harbor-case/<task dir>:<digest of every file under environment/>`. */
-async function imageTag(item: HarborTaskItem): Promise<string> {
+const MACHINE = createHash('sha256').update(hostname()).digest('hex').slice(0, 6)
+const OWNED = new RegExp(`^[0-9a-f]{16}-${MACHINE}-(\\d+)-[0-9a-f]{4}$`, 'u')
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** `harbor-case/<task dir>` and the digest of every file under `environment/`. */
+async function caseImage(item: HarborTaskItem): Promise<{ repository: string; digest: string }> {
   const dir = join(item.payload.taskDir, 'environment')
   const digest = createHash('sha256')
   for (const file of (await readdir(dir, { recursive: true, withFileTypes: true }))
@@ -53,7 +74,26 @@ async function imageTag(item: HarborTaskItem): Promise<string> {
     .map((entry) => join(entry.parentPath, entry.name))
     .sort())
     digest.update(`${file.slice(dir.length)}\0`).update(await readFile(file))
-  return `harbor-case/${item.payload.dir.toLowerCase()}:${digest.digest('hex').slice(0, 16)}`
+  return {
+    repository: `harbor-case/${item.payload.dir.toLowerCase()}`,
+    digest: digest.digest('hex').slice(0, 16),
+  }
+}
+
+/**
+ * Remove the case's tags whose owner is a dead process of this machine, and return the tags left.
+ * Tags of other machines' processes stay, since their liveness is not known here.
+ */
+async function reclaimDead(repository: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const listed = await execute('docker', ['images', repository, '--format', '{{.Tag}}'], { env })
+  const tags = listed.stdout.split('\n').filter(Boolean)
+  const dead = (tag: string) => {
+    const pid = Number(OWNED.exec(tag)?.[1] ?? process.pid)
+    return pid !== process.pid && !alive(pid)
+  }
+  for (const tag of tags.filter(dead))
+    await execute('docker', ['image', 'rm', `${repository}:${tag}`], { env }).catch(() => undefined)
+  return tags.filter((tag) => !dead(tag))
 }
 
 /** The image `gradeHarborPatch` names for a case prepared in this process. */
@@ -72,14 +112,19 @@ async function build(item: HarborTaskItem, options: CaseEnvironmentOptions): Pro
   const { host, freeFloorBytes = 25 * 2 ** 30, recheckMs = 60_000, signal } = options
   const log = options.log ?? ((line: string) => console.error(line))
   const env = dockerHostEnv(host)
-  const image = await imageTag(item)
-  if (
-    await execute('docker', ['image', 'inspect', image], { env }).then(
-      () => true,
-      () => false,
+  const { repository, digest } = await caseImage(item)
+  const owner = `${MACHINE}-${process.pid}-${randomBytes(2).toString('hex')}`
+  const image = `${repository}:${digest}-${owner}`
+  // A dead pass's image is reclaimed before the space check; a live owner's image of the same
+  // environment is shared under a new tag, since sharing it takes no space.
+  for (const tag of (await reclaimDead(repository, env)).filter((t) => t.startsWith(`${digest}-`)))
+    if (
+      await execute('docker', ['tag', `${repository}:${tag}`, image], { env }).then(
+        () => true,
+        () => false,
+      )
     )
-  )
-    return image
+      return image
   for (let free = await freeBytes(host); free < freeFloorBytes; free = await freeBytes(host)) {
     const gib = (bytes: number) => (bytes / 2 ** 30).toFixed(1)
     log(
@@ -88,6 +133,7 @@ async function build(item: HarborTaskItem, options: CaseEnvironmentOptions): Pro
     await sleep(recheckMs, undefined, { signal })
   }
   const context = join(item.payload.taskDir, 'environment')
+  // An image another owner built from the same environment comes back from the build cache.
   await execute('docker', ['build', '-q', '-t', image, context], { env, maxBuffer: 1 << 26 })
   return image
 }
@@ -118,18 +164,21 @@ export async function prepareCaseEnvironment(
 }
 
 /**
- * Remove the case's image and its build cache: the records whose step is the Dockerfile's first
- * `RUN` line, and every record built on them. Frees the case's live slot.
+ * Remove the case's tag and its build cache: the records whose step is the Dockerfile's first
+ * `RUN` line, and every record built on them. Frees the case's live slot. Another owner's tag of
+ * the same image keeps that image, and pruning build cache never removes an image.
  */
 export async function releaseCaseEnvironment(
   item: HarborTaskItem,
   options: { host?: string } = {},
 ) {
-  const host = live.get(item.payload.taskDir)?.host ?? options.host
+  const entry = live.get(item.payload.taskDir)
   live.delete(item.payload.taskDir)
   wake()
-  const env = dockerHostEnv(host)
-  await execute('docker', ['image', 'rm', await imageTag(item)], { env }).catch(() => undefined)
+  const env = dockerHostEnv(entry?.host ?? options.host)
+  const image = await entry?.image.catch(() => undefined)
+  if (image) await execute('docker', ['image', 'rm', image], { env }).catch(() => undefined)
+  await reclaimDead((await caseImage(item)).repository, env)
   const dockerfile = await readFile(join(item.payload.taskDir, 'environment/Dockerfile'), 'utf8')
   const marker = /^RUN\s+(.*?)\s*\\?$/mu.exec(dockerfile)?.[1]
   if (!marker) return
