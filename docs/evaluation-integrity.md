@@ -70,7 +70,8 @@ Lower-level deterministic campaigns with no model calls report unmeasured model 
 `selfImprove()` requires a pinned receipt or fallback for every cell.
 A `runImprovementLoop()` cell may call several models: under the matched policy both arms must
 serve the same set of pinned snapshots, and a declared treatment allows one model per arm.
-`selfImprove()` still records one model per cell.
+`selfImprove()` records one model per cell, so a cell that calls several models holds promotion
+before the gate.
 
 When changing the model is part of the experiment, declare
 `modelTreatment: { baseline: 'model@build-a', candidate: 'model@build-b' }`
@@ -79,7 +80,8 @@ it does not isolate the effect of a prompt or code change. `analyzeRuns()` accep
 policy with explicit `baselineCandidateId` and `candidateCandidateId`, and otherwise makes
 lift descriptive when served snapshots differ. A pair in which either run records the unknown
 model marker (a failed run that never observed a served model) counts as unreported and does not
-make the comparison ineligible. Declaring a policy during later analysis
+make the comparison ineligible. When no pair is checked, the release scorecard reports the
+served-model identity as not evaluated. Declaring a policy during later analysis
 does not establish that it was registered before data collection.
 
 Routing prefixes and equivalent date spelling may differ. Two different pinned snapshots

@@ -65,7 +65,12 @@ export function buildReleaseScorecard(
   if (lift?.modelComparison)
     axes.push({
       name: 'served-model-identity',
-      status: lift.modelComparison.eligible ? 'pass' : 'fail',
+      status:
+        lift.modelComparison.checkedPairs === 0
+          ? 'not_evaluated'
+          : lift.modelComparison.eligible
+            ? 'pass'
+            : 'fail',
       detail: `${lift.modelComparison.checkedPairs} checked pairs; ${lift.modelComparison.issues.length} conflicts; policy=${lift.modelComparison.policy}`,
     })
   const contamPass =

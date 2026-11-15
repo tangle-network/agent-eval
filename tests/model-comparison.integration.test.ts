@@ -22,13 +22,17 @@ const freeCost = {
   incompleteReasons: [],
 }
 
+type Observed = { gateCalls: number; decided: string[] }
+
 async function measuredComparison(
   mode: 'method' | 'proposer',
   servedCandidate: string,
   modelTreatment?: ModelTreatment,
   neutralizedModel?: string,
+  // An executor adds a second paid call to every cell of both arms.
+  extra: { executor?: string; observed?: Observed } = {},
 ) {
-  let gateCalls = 0
+  const observed: Observed = extra.observed ?? { gateCalls: 0, decided: [] }
   const result = await selfImprove({
     scenarios,
     baselineSurface: 'BASE',
@@ -41,6 +45,9 @@ async function measuredComparison(
       holdoutScenarios: scenarios.slice(3),
       ...(mode === 'proposer' ? { generations: 1, populationSize: 1 } : {}),
     },
+    onProgress: (event) => {
+      if (event.kind === 'gate.decided') observed.decided.push(event.decision)
+    },
     agent: async (surface, _scenario, context) => {
       const model =
         surface === 'BASE'
@@ -48,6 +55,16 @@ async function measuredComparison(
           : surface === 'BLANK'
             ? neutralizedModel!
             : servedCandidate
+      const executor = extra.executor
+      if (executor) {
+        const executed = await context.cost.runPaidCall({
+          actor: 'worker',
+          model: executor,
+          execute: async () => executor,
+          receipt: () => ({ model: executor, inputTokens: 2, outputTokens: 1, actualCostUsd: 0 }),
+        })
+        if (!executed.succeeded) throw executed.error
+      }
       const response = await context.cost.runPaidCall({
         actor: 'worker',
         model,
@@ -69,7 +86,7 @@ async function measuredComparison(
     gate: {
       name: 'custom-promotion',
       decide: async () => {
-        gateCalls++
+        observed.gateCalls++
         return { decision: 'ship', reasons: [], contributingGates: [] }
       },
     },
@@ -83,7 +100,7 @@ async function measuredComparison(
         }
       : { proposer: { kind: 'fixed', propose: async () => ['WIN'] } }),
   })
-  return { result, gateCalls }
+  return { result, gateCalls: observed.gateCalls }
 }
 
 async function plannerExecutorLoop(candidateExecutor: string) {
@@ -203,6 +220,29 @@ describe('served snapshots through public comparison boundaries', () => {
     })
   })
 
+  it('reports served-model identity as not evaluated when analyzeRuns checks no pair', async () => {
+    const runs = pairedRuns(() => baselineModel)
+    for (const run of runs)
+      if (run.candidateId === 'baseline')
+        Object.assign(run, {
+          model: UNKNOWN_MODEL,
+          terminalOutcome: 'failed',
+          outcome: { raw: {}, holdoutScore: 0.4 },
+        })
+    const report = await analyzeRuns({
+      runs,
+      baselineCandidateId: 'baseline',
+      candidateCandidateId: 'candidate',
+      canaryScenarios: [{ id: 'canary', payload: {}, canary: 'canary-token-never-emitted' }],
+    })
+    expect(report.lift).toMatchObject({ n: 24, decisionEligible: true })
+    expect(report.lift?.modelComparison).toMatchObject({ checkedPairs: 0, unreportedPairs: 24 })
+    expect(report.release.axes).toContainEqual(
+      expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
+    )
+    expect(report.release.status).toBe('warn')
+  })
+
   it.each(['method', 'proposer'] as const)(
     'holds %s promotion before a custom gate while preserving every measured cell',
     async (mode) => {
@@ -222,6 +262,22 @@ describe('served snapshots through public comparison boundaries', () => {
       expect(result.provenance.gate.contributingGates).toContainEqual(
         expect.objectContaining({ name: 'served-model-identity', status: 'fail' }),
       )
+    },
+  )
+
+  it.each(['method', 'proposer'] as const)(
+    'holds a %s cell that calls several models before a custom gate',
+    async (mode) => {
+      // Both arms call the same planner and executor; selfImprove records one model per cell.
+      const observed: Observed = { gateCalls: 0, decided: [] }
+      await expect(
+        measuredComparison(mode, baselineModel, undefined, undefined, {
+          executor: 'gpt-4.1-mini-2025-04-14',
+          observed,
+        }),
+      ).rejects.toThrow(/multiple agent models/)
+      expect(observed.gateCalls).toBe(0)
+      expect(observed.decided).toEqual(mode === 'proposer' ? ['hold'] : [])
     },
   )
 

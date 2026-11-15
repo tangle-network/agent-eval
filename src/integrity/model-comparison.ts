@@ -19,7 +19,9 @@ export interface ModelComparison {
   treatment?: ModelTreatment
   eligible: boolean
   checkedPairs: number
-  /** Both arms reported no agent model. Deterministic campaigns may have no model calls. */
+  /** Pairs with no comparable served model: both arms empty in campaigns, or either run
+   *  carrying the unknown-model marker in analyzeRuns. Deterministic campaigns may have no
+   *  model calls. */
   unreportedPairs: number
   issues: Array<ModelComparisonPair & { reason: string }>
 }
@@ -55,11 +57,13 @@ export function compareModelIdentities(
     }
     const baseline = [...new Set(pair.baseline.map(modelSnapshotIdentity))]
     const candidate = [...new Set(pair.candidate.map(modelSnapshotIdentity))]
-    // A matched cell may call several models; a declared treatment names one model per arm.
+    // A matched cell may call several models; a declared treatment and selfImprove's
+    // one-model run records (requireReported) need one model per arm.
     const reason =
       baseline.length === 0 ||
       candidate.length === 0 ||
-      (treatment !== undefined && (baseline.length !== 1 || candidate.length !== 1))
+      ((treatment !== undefined || requireReported) &&
+        (baseline.length !== 1 || candidate.length !== 1))
         ? 'each arm needs one unambiguous served model'
         : [...pair.baseline, ...pair.candidate].some((model) => !modelHasSnapshot(model))
           ? 'each served model needs a snapshot identity'
