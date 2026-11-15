@@ -144,7 +144,8 @@ Reaching the floor only establishes sample-count eligibility.
 A paired comparison also requires matching served model snapshots, unless `modelTreatment`
 explicitly names the pinned model for each arm. `lift.modelComparison` retains every conflict;
 one conflict makes `decisionEligible: false` without discarding its scores or changing the sample.
-The served-model release axis fails and lift cannot recommend shipping. A model treatment
+The served-model release axis fails and lift cannot recommend shipping. Lift over intake runs that
+recorded no served snapshot, with no checked pair, is also not decision-eligible. A model treatment
 requires explicit baseline/candidate ids and reports the combined effect of the declared changes.
 A zero-width interval still cannot produce a lift-based ship recommendation.
 An eligible, nonzero-width interval must exceed `decisionThreshold`, which defaults to `0.02` in score units.

@@ -52,10 +52,10 @@ export function assertScheduleCachesReusable<TScenario extends Scenario>(args: {
 export function modelEvidenceFromReceipts(
   receipts: ReadonlyArray<Pick<CostReceipt, 'model' | 'error'>>,
 ): Pick<CampaignCellResult<unknown>, 'resolvedModels' | 'resolvedModel'> {
-  // A failed call's receipt names the requested id or `unknown`, not a served model. It describes
-  // the cell only when no call was served, as for a failed row.
+  // A failed call's receipt names the requested id or `unknown`, not a served model, so a cell
+  // whose calls all failed reports none.
   const served = receipts.filter((receipt) => receipt.error === undefined)
-  const models = [...new Set((served.length > 0 ? served : receipts).map(({ model }) => model))]
+  const models = [...new Set(served.map(({ model }) => model))]
   if (models.length === 0) return {}
   return {
     resolvedModels: models,

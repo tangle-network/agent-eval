@@ -75,7 +75,7 @@ A `runImprovementLoop()` cell may call several models: under the matched policy 
 serve the same set of pinned snapshots, and a declared treatment requires exactly one served
 snapshot per arm, however many spellings name it. Only served calls count: a failed call's receipt
 names the requested id or `unknown`, so a timed-out call followed by a served retry is evidence of
-the retry's model alone.
+the retry's model alone, and a cell whose calls all failed reports no model.
 `selfImprove()` records one reported model id per cell: a cell that calls several models, or one
 model under two spellings, holds promotion before the gate. In a baseline or winner cell the call
 then fails with a `SelfImproveRunError` whose cause is a `ValidationError` naming the cell; in a
@@ -87,16 +87,19 @@ before search. Each arm must report that exact build. This measures the combined
 it does not isolate the effect of a prompt or code change. `analyzeRuns()` accepts the same
 policy with explicit `baselineCandidateId` and `candidateCandidateId`, and otherwise makes
 lift descriptive when served snapshots differ. A pair in which either run records the unknown
-model marker (a failed run that never observed a served model), or an intake tag that stands in for
-a snapshot the session never recorded (`@observed-local`, `@otlp`, `unknown@unknown`), counts as
-unreported and does not make the comparison ineligible. When no pair is checked, the release scorecard reports the
+model marker (a failed run that never observed a served model) counts as unreported and does not
+make the comparison ineligible. An intake tag stands in for a snapshot the session never recorded
+(`@observed-local`, `@otlp`, `unknown@unknown`): a pair whose runs name one model counts as
+unreported, a pair whose runs name different models served different snapshots, and a declared
+treatment reads a tagged run as an arm with no reported model. Lift over tagged runs is descriptive
+when no pair is checked. When no pair is checked, the release scorecard reports the
 served-model identity as not evaluated. Declaring a policy during later analysis
 does not establish that it was registered before data collection.
 
 `modelHasSnapshot()` is the one snapshot grammar every check reads: a routing tier (`:free`,
-`:batch`) may follow a snapshot, a Bedrock revision (`-v1:0`) pins, and an impossible date, a
-token ending in `.` or `-`, or surrounding whitespace does not. Campaign receipts are trimmed
-before the check.
+`:batch`) may follow a snapshot, a Bedrock revision (`-v1:0`) and a `-YYMM` release
+(`devstral-2512`) pin, and an impossible date, a token ending in `.` or `-`, or surrounding
+whitespace does not. Campaign receipts are trimmed before the check.
 Routing prefixes and equivalent date spelling may differ. Two different pinned snapshots
 are distinct even when they share a model family. `checkServedModel()` still accepts a floating
 requested alias resolved to a concrete build; an explicitly pinned request cannot resolve to

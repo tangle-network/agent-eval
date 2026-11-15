@@ -747,8 +747,9 @@ function validateJudgeScores(value: unknown, path: string): void {
  * The one snapshot grammar for provider model ids: the pinned name and its snapshot token, or
  * nothing for a moving alias. A routing tier (`:free`, `:batch`) may follow the snapshot. Pinned
  * forms: one opaque `@token`, a Vertex-style `:date-token` or Bedrock-style `:0` revision, a valid
- * ISO or compact date, Router's `-MMDD`, and Claude ids from 4.6 on, which Anthropic serves under
- * one fixed id with no dated form (`claude-sonnet-5`; the id is its own snapshot, token `''`).
+ * ISO or compact date, Router's `-MMDD`, otherwise a `-YYMM` release (`devstral-2512`), and Claude
+ * ids from 4.6 on, which Anthropic serves under one fixed id with no dated form (`claude-sonnet-5`,
+ * `claude-sonnet-4.6`; the id is its own snapshot, token `''`).
  * Routing selectors such as `@preset/name`, impossible dates, a token ending in `.` or `-`,
  * surrounding whitespace and older Claude aliases (`claude-sonnet-4-5`) pin nothing.
  */
@@ -765,7 +766,9 @@ export function modelSnapshot(model: string): { name: string; snapshot: string }
     /^(.+)-()(\d{2})(\d{2})$/u.exec(id)
   if (dated && validSnapshotDate(dated[2] || undefined, dated[3]!, dated[4]!))
     return { name: dated[1]!, snapshot: id.slice(dated[1]!.length + 1) }
-  const claude = /(?:^|\/)claude-[a-z]+-(\d{1,2})(?:-(\d{1,2}))?$/iu.exec(id)
+  const release = /^(.+)-(2\d(?:0[1-9]|1[0-2]))$/u.exec(id)
+  if (release) return { name: release[1]!, snapshot: release[2]! }
+  const claude = /(?:^|\/)claude-[a-z]+-(\d{1,2})(?:[.-](\d{1,2}))?$/iu.exec(id)
   if (claude && Number(claude[1]) * 100 + Number(claude[2] ?? 0) >= 406)
     return { name: id, snapshot: '' }
   return undefined

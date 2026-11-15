@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { describe, expect, it } from 'vitest'
+import { runProfileMatrix } from '../src/campaign'
 import { inMemoryCampaignStorage } from '../src/campaign/storage'
 import {
   analyzeRuns,
@@ -12,6 +13,7 @@ import {
   selfImprove,
 } from '../src/contract'
 import { modelHasSnapshot, type RunRecord, UNKNOWN_MODEL } from '../src/run-record'
+import { otlpToRunRecords } from '../src/trace-analyst/otlp-to-run-records'
 
 const baselineModel = 'openai/gpt-4.1-2025-04-14'
 const candidateModel = 'gpt-4.1-2025-05-14'
@@ -109,7 +111,7 @@ type PaidCall = { requested?: string; served?: string }
 
 async function improvementLoop(
   callsFor: (surface: string) => PaidCall[],
-  modelTreatment?: ModelTreatment,
+  options: { model?: string; modelTreatment?: ModelTreatment; requireReportedModel?: boolean } = {},
 ) {
   let gateCalls = 0
   const result = await runImprovementLoop({
@@ -122,7 +124,7 @@ async function improvementLoop(
     populationSize: 1,
     maxGenerations: 1,
     autoOnPromote: 'none',
-    modelTreatment,
+    ...options,
     dispatchWithSurface: async (surface, _scenario, context) => {
       for (const call of callsFor(String(surface))) {
         const response = await context.cost.runPaidCall({
@@ -432,10 +434,12 @@ describe('served snapshots through public comparison boundaries', () => {
     }
   })
 
-  it('admits a pinned id spelled with a routing tier or a Bedrock revision', async () => {
+  it('admits a pinned id spelled with a routing tier, a Bedrock revision or a release', async () => {
     for (const served of [
       'deepseek/deepseek-chat-v3-0324:free',
       'anthropic.claude-3-5-sonnet-20240620-v1:0',
+      'mistralai/devstral-2512:free',
+      'anthropic/claude-sonnet-4.6',
     ]) {
       const { result, gateCalls } = await improvementLoop(() => [{ requested: served, served }])
       expect(result.modelComparison, served).toMatchObject({ eligible: true, issues: [] })
@@ -449,9 +453,14 @@ describe('served snapshots through public comparison boundaries', () => {
       ['amazon.nova-pro-v1:0', true],
       ['Claude-Sonnet-5', true],
       ['claude-code/anthropic/claude-sonnet-5', true],
+      ['anthropic/claude-sonnet-4.6', true],
       ['fixture:date-build-a', true],
+      ['mistralai/devstral-2512:free', true],
+      ['qwen/qwen3-235b-a22b-2507', true],
       ['gpt-4.1:free', false],
+      ['codestral-latest', false],
       ['claude-sonnet-4-5', false],
+      ['anthropic/claude-sonnet-4.5', false],
       ['fixture-20241399', false],
       ['fixture-2024-13-01', false],
       ['fixture-0230', false],
@@ -483,43 +492,156 @@ describe('served snapshots through public comparison boundaries', () => {
     }
   })
 
+  it('takes no model from a cell whose only paid call failed', async () => {
+    const pinned = 'gpt-4.1-2025-04-14'
+    // Every winner cell's only call times out; the dispatch still returns a scored artifact.
+    const winnerTimesOut = (requested: string) => (surface: string) =>
+      surface === 'WIN' ? [{ requested }] : [{ requested: pinned, served: pinned }]
+    const unserved = await improvementLoop(winnerTimesOut(pinned))
+    expect(unserved.gateCalls).toBe(0)
+    expect(unserved.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+      'each arm needs a reported served model',
+      'each arm needs a reported served model',
+    ])
+    const required = await improvementLoop(winnerTimesOut(pinned), { requireReportedModel: true })
+    expect(required.gateCalls).toBe(0)
+    expect(required.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+      'each arm needs one unambiguous served model',
+      'each arm needs one unambiguous served model',
+    ])
+    // A declared model fills a cell that served nothing, whatever the failed call requested.
+    const declared = await improvementLoop(winnerTimesOut('gpt-4.1'), { model: pinned })
+    expect(declared.result.modelComparison).toMatchObject({ eligible: true, issues: [] })
+    expect(declared.gateCalls).toBe(1)
+
+    // A failed profile-matrix row keeps its absence marker, not the alias it requested.
+    const matrix = await runProfileMatrix({
+      profiles: [{ name: 'moving', model: { default: 'gpt-4.1' } }],
+      scenarios: scenarios.slice(0, 1),
+      storage: inMemoryCampaignStorage(),
+      runDir: 'mem://profile-matrix-failed-row',
+      commitSha: 'fixture',
+      integrity: 'off',
+      dispatch: async (_profile, _scenario, context) => {
+        const response = await context.cost.runPaidCall({
+          actor: 'worker',
+          model: 'gpt-4.1',
+          execute: async (): Promise<string> => {
+            throw new Error('request timed out')
+          },
+          receipt: () => ({ model: pinned, inputTokens: 2, outputTokens: 1, actualCostUsd: 0 }),
+        })
+        if (!response.succeeded) throw response.error
+        return response.value
+      },
+    })
+    expect(matrix.records.map((record) => [record.model, record.terminalOutcome])).toEqual([
+      [UNKNOWN_MODEL, 'failed'],
+    ])
+  })
+
   it('does not read intake tags for an unrecorded snapshot as pinned served models', async () => {
-    // Two Codex cohorts on the moving alias gpt-5-codex share one scenario.
-    const runs = ['baseline', 'candidate'].flatMap(
-      (candidateId, index) =>
+    // Codex cohorts share 20 scenarios, the bootstrap floor; the candidate scores higher.
+    const cohort = (candidateId: string, model: string, score: (index: number) => number) =>
+      Array.from({ length: 20 }, (_, index) =>
         fromCodexSession({
           entries: [
-            { type: 'thread.started', thread_id: `codex-${candidateId}` },
-            { type: 'turn_context', payload: { model: 'gpt-5-codex' } },
+            { type: 'thread.started', thread_id: `codex-${candidateId}-${index}` },
+            { type: 'turn_context', payload: { model } },
             { type: 'turn.started' },
             { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } },
           ],
           candidateId,
-          scenarioId: 'fix-login',
+          scenarioId: `s${index}`,
           seed: 0,
-          score: 0.2 + index * 0.6,
+          score: score(index),
         }).runs,
-    )
-    expect(runs.map((run) => run.model)).toEqual([
-      'gpt-5-codex@observed-local',
-      'gpt-5-codex@observed-local',
-    ])
-    // The OTLP intakes write the other two tags.
-    for (const model of ['gpt-5-codex@observed-local', 'gpt-5-codex@otlp', 'unknown@unknown']) {
-      for (const run of runs) run.model = model
-      const report = await analyzeRuns({
-        runs,
+      ).flat()
+    const baseline = cohort('baseline', 'gpt-5-codex', (index) => 0.2 + index / 100)
+    const analyze = (candidate: RunRecord[], modelTreatment?: ModelTreatment) =>
+      analyzeRuns({
+        runs: [...baseline, ...candidate],
         baselineCandidateId: 'baseline',
         candidateCandidateId: 'candidate',
+        modelTreatment,
       })
-      expect(report.lift?.modelComparison, model).toMatchObject({
-        checkedPairs: 0,
-        unreportedPairs: 1,
+    const sameAlias = cohort('candidate', 'gpt-5-codex', () => 0.8)
+    expect(sameAlias[0]?.model).toBe('gpt-5-codex@observed-local')
+    // One moving alias on both sides, or no recorded model: unreported, and lift is descriptive.
+    for (const model of ['gpt-5-codex@observed-local', 'gpt-5-codex@otlp', 'unknown@unknown']) {
+      const report = await analyze(sameAlias.map((run) => ({ ...run, model })))
+      expect(report.lift, model).toMatchObject({
+        n: 20,
+        decisionEligible: false,
+        modelComparison: { checkedPairs: 0, unreportedPairs: 20 },
       })
-      expect(report.lift?.decisionEligible).toBe(false)
       expect(report.release.axes).toContainEqual(
         expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
       )
+      expect(report.recommendations.some((row) => row.kind === 'ship')).toBe(false)
+    }
+    // Cohorts that recorded different models served different models, tagged or not.
+    const changed = cohort('candidate', 'gpt-5.1-codex', () => 0.8)
+    for (const candidate of [
+      cohort('candidate', 'gpt-5', () => 0.8),
+      changed,
+      changed.map((run) => ({ ...run, model: 'claude-sonnet-4-5-20250929' })),
+    ]) {
+      const report = await analyze(candidate)
+      expect(report.lift, candidate[0]?.model).toMatchObject({
+        decisionEligible: false,
+        modelComparison: { eligible: false, checkedPairs: 20 },
+      })
+      expect(report.release.axes).toContainEqual(
+        expect.objectContaining({ name: 'served-model-identity', status: 'fail' }),
+      )
+    }
+    // A declared treatment needs the build each arm served; an intake tag names none.
+    const declared = await analyze(changed, {
+      baseline: 'gpt-5-codex@2025-09-15',
+      candidate: 'gpt-5.1-codex@2025-11-13',
+    })
+    expect(declared.lift).toMatchObject({
+      decisionEligible: false,
+      modelComparison: { eligible: false, checkedPairs: 20 },
+    })
+
+    // OTLP intake tags a moving alias `@otlp`, never with the fallback's snapshot token.
+    const traces = (candidateId: string, attributes: Record<string, string>) =>
+      otlpToRunRecords(
+        Array.from({ length: 20 }, (_, index) =>
+          JSON.stringify({
+            trace_id: `${candidateId}-${index}`,
+            span_id: 'llm',
+            name: 'llm',
+            start_time: '1700000000000',
+            end_time: '1700000001000',
+            status: { code: 'OK' },
+            attributes: { 'openinference.span.kind': 'LLM', ...attributes },
+          }),
+        ).join('\n'),
+        {
+          experimentId: 'otlp-cohorts',
+          candidateId,
+          fallbackModel: 'unknown@phoenix',
+          logicalRunIdForTrace: (traceId) => traceId.split('-')[1]!,
+          scoreForTrace: (runId) => (candidateId === 'baseline' ? 0.2 + Number(runId) / 100 : 0.8),
+        },
+      )
+    expect(traces('baseline', { 'gen_ai.request.model': 'gpt-4o-mini' })[0]?.model).toBe(
+      'gpt-4o-mini@otlp',
+    )
+    for (const attributes of [{ 'gen_ai.request.model': 'gpt-4o' }, {}]) {
+      const report = await analyzeRuns({
+        runs: [...traces('baseline', attributes), ...traces('candidate', attributes)],
+        baselineCandidateId: 'baseline',
+        candidateCandidateId: 'candidate',
+      })
+      expect(report.lift, JSON.stringify(attributes)).toMatchObject({
+        n: 20,
+        decisionEligible: false,
+        modelComparison: { checkedPairs: 0, unreportedPairs: 20 },
+      })
     }
   })
 
@@ -537,7 +659,7 @@ describe('served snapshots through public comparison boundaries', () => {
     const candidate = 'gpt-4.1-2025-05-14'
     const spelled = await improvementLoop(
       (surface) => served(surface === 'BASE' ? [pinned] : [candidate, `openai/${candidate}`]),
-      { baseline: pinned, candidate },
+      { modelTreatment: { baseline: pinned, candidate } },
     )
     expect(spelled.result.winnerOnHoldout.cells[0]?.resolvedModels).toHaveLength(2)
     expect(spelled.result.modelComparison).toMatchObject({

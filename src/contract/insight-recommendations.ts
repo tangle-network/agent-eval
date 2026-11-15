@@ -59,7 +59,7 @@ export function buildReleaseScorecard(
     name: 'quality-lift',
     status: liftPass,
     detail: lift
-      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}${lift.decisionEligible ? '' : lift.modelComparison?.eligible === false ? ' (descriptive only; served model identity conflict)' : ` (descriptive only; ${lift.minimumRequired} required)`}`
+      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}${lift.decisionEligible ? '' : lift.modelComparison?.eligible === false ? ' (descriptive only; served model identity conflict)' : lift.n < lift.minimumRequired ? ` (descriptive only; ${lift.minimumRequired} required)` : ' (descriptive only; no served snapshot recorded)'}`
       : 'no baseline/candidate pair available',
   })
   if (lift?.modelComparison)
@@ -244,6 +244,15 @@ export function buildRecommendations(ctx: RecommendationContext): Recommendation
         kind: 'hold',
         title: 'Hold — served model identities confound the comparison',
         detail: `${ctx.lift.modelComparison.issues.length} paired observations violate the model policy. Rerun with matched snapshots, or predeclare pinned models for an intentional model treatment. The observed lift is retained as descriptive evidence.`,
+        evidencePath: 'lift.modelComparison',
+      })
+    } else if (!ctx.lift.decisionEligible && ctx.lift.n >= ctx.lift.minimumRequired) {
+      out.push({
+        priority: 'high',
+        kind: 'expand-corpus',
+        title: 'Inconclusive — no paired run recorded its served model snapshot',
+        detail:
+          'Intake recorded no served snapshot for these runs, so lift is descriptive and cannot support a ship decision. Record the served model to check the comparison.',
         evidencePath: 'lift.modelComparison',
       })
     } else if (!ctx.lift.decisionEligible) {
