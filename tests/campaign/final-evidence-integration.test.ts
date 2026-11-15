@@ -6,6 +6,7 @@ import {
   exposeFinalEvidence,
   type FinalEvidencePolicy,
   reserveFinalEvidence,
+  withFinalEvidenceSources,
 } from '../../src/campaign/final-evidence'
 import { compareOptimizationMethods } from '../../src/campaign/presets/compare-optimization-methods'
 import { runImprovementLoop } from '../../src/campaign/presets/run-improvement-loop'
@@ -80,6 +81,84 @@ async function record() {
 }
 
 describe('final evidence through campaign entrypoints', () => {
+  it('protects source content across renamed final and development tasks and preserves the initial reservation at exposure', async () => {
+    const taskDigest = hashCanonical({ task: 'original immutable task', workspace: 'revision' })
+    const developmentDigest = hashCanonical({ task: 'development task' })
+    const selected = withFinalEvidenceSources(
+      policy(),
+      new Map([
+        [final[0]!.id, taskDigest],
+        [train[0]!.id, developmentDigest],
+      ]),
+    )
+    await reserveFinalEvidence(selected, claim(), final.slice(0, 1), train.slice(0, 1))
+    await exposeFinalEvidence(selected, claim(), final.slice(0, 1), ['BASE', 'WIN'])
+    const renamed = source('new-display-id', 'new-unit-name')
+    await expect(
+      reserveFinalEvidence(
+        withFinalEvidenceSources(policy('renamed'), new Map([[renamed.id, taskDigest]])),
+        claim(),
+        [renamed],
+      ),
+    ).rejects.toThrow(/source.*already used/)
+    await expect(
+      reserveFinalEvidence(
+        withFinalEvidenceSources(
+          policy('calibration'),
+          new Map([
+            [renamed.id, hashCanonical('fresh final task')],
+            ['renamed-development', taskDigest],
+          ]),
+        ),
+        claim(),
+        [renamed],
+        [source('renamed-development')],
+      ),
+    ).rejects.toThrow(/development source.*reserved as final/)
+    await expect(
+      reserveFinalEvidence(
+        withFinalEvidenceSources(
+          policy('former-development'),
+          new Map([[renamed.id, developmentDigest]]),
+        ),
+        claim(),
+        [renamed],
+      ),
+    ).rejects.toThrow(/source.*already used/)
+    expect((await record()).reservation).toMatchObject({
+      sourceDigests: [taskDigest],
+      developmentSourceDigests: [developmentDigest],
+    })
+    expect((await record()).exposure).not.toBeNull()
+  })
+
+  it('requires source coverage and rejects renamed within-campaign leakage before reserving', async () => {
+    const sourceDigest = hashCanonical('one task')
+    await expect(
+      reserveFinalEvidence(
+        withFinalEvidenceSources(policy(), new Map([[final[0]!.id, sourceDigest]])),
+        claim(),
+        final.slice(0, 1),
+        train.slice(0, 1),
+      ),
+    ).rejects.toThrow(/source identity is missing/)
+    await expect(
+      reserveFinalEvidence(
+        withFinalEvidenceSources(
+          policy(),
+          new Map([
+            [final[0]!.id, sourceDigest],
+            [train[0]!.id, sourceDigest],
+          ]),
+        ),
+        claim(),
+        final.slice(0, 1),
+        train.slice(0, 1),
+      ),
+    ).rejects.toThrow(/share source content/)
+    expect(await ledger.read()).toEqual({ succeeded: true, value: [] })
+  })
+
   it('keeps declared-unit regression data reusable and detects a large gain with eight binary pairs', async () => {
     const heldout = Array.from({ length: 8 }, (_, i) => source(`holdout-${i}`))
     const options = {

@@ -53,6 +53,7 @@ export type {
 
 export { campaignSplitDigest } from '../campaign/coverage'
 export type { FinalEvidencePolicy, FinalEvidenceUse } from '../campaign/final-evidence'
+export { withFinalEvidenceSources } from '../campaign/final-evidence'
 export { type RunEvalOptions, runEval } from '../campaign/presets/run-eval'
 export {
   type RunImprovementLoopOptions,
@@ -82,7 +83,6 @@ export type {
   ReferenceEquivalenceJudgeResult,
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
-
 
 // ── Proposers ────────────────────────────────────────────────────────
 
@@ -202,11 +202,11 @@ export {
 export {
   type AgentProfileImprovementExperimentExecutionInput,
   type AgentProfileImprovementExperimentRun,
+  type AgentProfileImprovementIncompleteExperimentRun,
   type CompareAgentProfileImprovementExperimentOptions,
   measuredComparisonFromAgentProfileImprovementExperiment,
-  type RunAgentProfileImprovementExperimentOptions,
   type RecordAgentProfileImprovementExperimentOptions,
-  type AgentProfileImprovementIncompleteExperimentRun,
+  type RunAgentProfileImprovementExperimentOptions,
   runAgentProfileImprovementExperiment,
   type SealAgentProfileImprovementSuiteOptions,
   sealAgentProfileImprovementExperiment,
@@ -248,7 +248,11 @@ export { analyzeRuns, summarizeExecution } from './analyze-runs'
 // One-call reporting suite: runs (or a run dir/file) → `analyzeRuns` →
 // optional `analysis.json`. Thin composition over `analyzeRuns` +
 // `fromRunRecordDir`; adds no analysis logic of its own.
-export { type EvalReportingSuiteInput, type EvalReportingSuiteOptions, type EvalReportingSuiteResult } from './eval-reporting-suite'
+export type {
+  EvalReportingSuiteInput,
+  EvalReportingSuiteOptions,
+  EvalReportingSuiteResult,
+} from './eval-reporting-suite'
 export type {
   CostProvenanceSummary,
   ExecutionErrorOutcomeCell,
@@ -271,4 +275,55 @@ export type {
 // output straight into `analyzeRuns({ runs })`.
 
 export type { CostLedgerHandle } from '../cost-ledger'
-export { type AgentTraceContributor, type AgentTraceContributorType, type AgentTraceConversation, type AgentTraceFile, type AgentTraceIndex, type AgentTraceRange, type AgentTraceRecord, type AuthoringProvenance, type CodeAgentJsonlLine, type CodeAgentSessionAction, type CodeAgentSessionActionKind, type CodeAgentSessionActionStatus, type CodeAgentSessionActionSurface, type CodeAgentSessionDiagnostic, type CodeAgentSessionExecutionReceipt, type CodeAgentSessionIntakeOptions, type CodeAgentSessionIntakeResult, type CodeAgentSessionMetrics, type CodeAgentSessionObservation, type CodeAgentSessionSource, type CodeAgentSessionTerminalStatus, type CodeAgentStoreObservation, type CodeAgentStoreRejection, type CodeAgentStoreRejections, type CodeAgentStoreScope, type CodeAgentStoreSession, type FeedbackTableMeta, type FeedbackTableRow, type FromFeedbackTableOptions, type FromFeedbackTableResult, type FromOtelSpansOptions, type FromRunRecordDirOptions, type FromRunRecordDirResult, fromClaudeCodeSession, fromCodexSession, fromFeedbackTable, fromKimiCodeSession, fromOpenCodeSession, fromOtelSpans, fromPiSession, observeCodeAgentSession, type ParsedCodeAgentJsonl, type PartitionByAuthoringModelResult, parseAgentTrace, parseCodeAgentJsonl, parseCodeAgentJsonlFile, partitionRunsByAuthoringModel, type RunRecordRejection, streamCodeAgentJsonlFile } from './intake'
+export type { ModelComparison, ModelTreatment } from '../integrity/model-comparison'
+export {
+  type AgentTraceContributor,
+  type AgentTraceContributorType,
+  type AgentTraceConversation,
+  type AgentTraceFile,
+  type AgentTraceIndex,
+  type AgentTraceRange,
+  type AgentTraceRecord,
+  type AuthoringProvenance,
+  type CodeAgentJsonlLine,
+  type CodeAgentSessionAction,
+  type CodeAgentSessionActionKind,
+  type CodeAgentSessionActionStatus,
+  type CodeAgentSessionActionSurface,
+  type CodeAgentSessionDiagnostic,
+  type CodeAgentSessionExecutionReceipt,
+  type CodeAgentSessionIntakeOptions,
+  type CodeAgentSessionIntakeResult,
+  type CodeAgentSessionMetrics,
+  type CodeAgentSessionObservation,
+  type CodeAgentSessionSource,
+  type CodeAgentSessionTerminalStatus,
+  type CodeAgentStoreObservation,
+  type CodeAgentStoreRejection,
+  type CodeAgentStoreRejections,
+  type CodeAgentStoreScope,
+  type CodeAgentStoreSession,
+  type FeedbackTableMeta,
+  type FeedbackTableRow,
+  type FromFeedbackTableOptions,
+  type FromFeedbackTableResult,
+  type FromOtelSpansOptions,
+  type FromRunRecordDirOptions,
+  type FromRunRecordDirResult,
+  fromClaudeCodeSession,
+  fromCodexSession,
+  fromFeedbackTable,
+  fromKimiCodeSession,
+  fromOpenCodeSession,
+  fromOtelSpans,
+  fromPiSession,
+  observeCodeAgentSession,
+  type ParsedCodeAgentJsonl,
+  type PartitionByAuthoringModelResult,
+  parseAgentTrace,
+  parseCodeAgentJsonl,
+  parseCodeAgentJsonlFile,
+  partitionRunsByAuthoringModel,
+  type RunRecordRejection,
+  streamCodeAgentJsonlFile,
+} from './intake'

@@ -59,6 +59,27 @@ Claim metadata records the intended scope; it does not authenticate sampling or 
 
 ## Interpret small and inconclusive results
 
+Prompt and code comparisons require matched served model snapshots for every paired cell.
+`selfImprove()` and `runImprovementLoop()` enforce this before calling even a custom release gate,
+including the optional neutralized arm. The result and persisted gate contributions retain
+`modelComparison`; a conflicting pair holds promotion without removing its measurements.
+The agent's committed model receipts take precedence over a declared `model` fallback.
+Lower-level deterministic campaigns with no model calls report unmeasured model identity;
+`selfImprove()` requires a pinned receipt or fallback for every cell.
+
+When changing the model is part of the experiment, declare
+`modelTreatment: { baseline: 'model@build-a', candidate: 'model@build-b' }`
+before search. Each arm must report that exact build. This measures the combined treatment;
+it does not isolate the effect of a prompt or code change. `analyzeRuns()` accepts the same
+policy with explicit `baselineCandidateId` and `candidateCandidateId`, and otherwise makes
+lift descriptive when served snapshots differ. Declaring a policy during later analysis
+does not establish that it was registered before data collection.
+
+Routing prefixes and equivalent date spelling may differ. Two different pinned snapshots
+are distinct even when they share a model family. `checkServedModel()` still accepts a floating
+requested alias resolved to a concrete build; an explicitly pinned request cannot resolve to
+a different build or an unpinned alias.
+
 There is no universal task count that proves an improvement.
 The effect, outcome type, dependence, confidence level, and decision procedure determine what the evidence supports.
 
@@ -114,6 +135,20 @@ Source unit identities are unique across the shared ledger, including across pop
 The ledger also rejects the same dataset digest under another request.
 Use one persistent ledger for related decisions and preserve stable source identities.
 Opening another empty ledger or inventing new lineage identities cannot establish independent evidence.
+
+When display ids and unit labels can change, also bind semantic source identity with
+`withFinalEvidenceSources(finalEvidence, sourceDigestByScenarioId)` from `/campaign` or `/contract`.
+The map must cover every development and final scenario; additional entries are development
+sources. Hash the immutable task inputs and relevant workspace bytes, excluding rollout ids,
+display names and unit labels. The helper captures the map before asynchronous work.
+Reusing one task under different independent units or across final/development roles is refused.
+
+The existing ledger atomically reserves `sourceDigests` and `developmentSourceDigests` with the
+unit and dataset identities. Across requests, a previous final source cannot become either final
+or development evidence; a previous development source cannot become final evidence. Repeated
+development use remains permitted. Source-aware reservations cannot mix with legacy history
+whose semantic source identities are unknown. Such a conflict needs provenance reconciliation;
+creating a fresh ledger does not prove freshness.
 
 `FinalEvidenceLedger` returns typed outcomes.
 Inspect `succeeded` before reading `value`.

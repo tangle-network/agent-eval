@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+- Hold prompt/code promotion when paired served model snapshots differ; preserve descriptive results and support an explicit pinned model treatment in campaign and analysis APIs.
+- Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
+- Route release Verifiers/RFT and Tinker training selection through shared admission, including attempt/native-capture completeness, licensing and exclusion diagnostics.
+
 ## [1.0.35] — 2026-11-14
 
 - Fix Harbor discovery for nested datasets while retaining native task configuration, artifact destinations and science metadata.

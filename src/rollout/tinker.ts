@@ -1,8 +1,8 @@
 /** Tinker RL Datum projection of the canonical rollout waist; no client or training loop. */
 import { assessShareSafety, shareAllowed } from '../trace/redact'
-import { isSplitEligible, type TrainingExportOptions } from './exporters'
 import { defaultRolloutScrubber } from './release/scrub'
 import { assertMinted, assertRewardGate, type MintedRolloutLine, type RolloutStep } from './schema'
+import { type TrainingExportOptions, trainingAdmission } from './training-admission'
 
 /** JSON wire projection of Tinker's text-only Datum; the consumer constructs SDK objects. */
 export interface TinkerDatum {
@@ -27,7 +27,10 @@ export interface TinkerDatumRow {
 }
 
 export interface TinkerExportOptions
-  extends Pick<TrainingExportOptions, 'allowHeldOutTrainingData'> {
+  extends Pick<
+    TrainingExportOptions,
+    'allowHeldOutTrainingData' | 'allowLicenseClasses' | 'onAdmission'
+  > {
   /** Exact model identity of the captured tokenizer/sampling policy. */
   model: string
   /** Offline decoder for that model. Never re-tokenize or fabricate missing sampling data. */
@@ -132,18 +135,12 @@ export function toTinkerDatumRows(
     if (identities.has(line.rollout_id))
       throw new Error(`Tinker export: duplicate rollout ${line.rollout_id}`)
     identities.add(line.rollout_id)
-    if (
-      !isSplitEligible(line, { allowHeldOutTrainingData: options.allowHeldOutTrainingData }) ||
-      line.outcome.reward === null ||
-      line.outcome.realness_gated ||
-      !line.outcome.is_completed ||
-      line.outcome.is_truncated ||
-      line.outcome.error !== null ||
-      line.provenance.lossy_projection === true
-    )
-      continue
-    if (!Number.isFinite(line.outcome.reward))
-      throw new Error('Tinker export: reward must be finite')
+    const admission = trainingAdmission(line, 'preference', { ...options, onAdmission: undefined })
+    // Token-level policy gradients require a finished, error-free sampled action sequence.
+    if (admission.reason === null && line.outcome.error !== null)
+      admission.reason = 'execution-error'
+    options.onAdmission?.(admission)
+    if (admission.reason !== null) continue
     if (line.policy.model !== options.model)
       throw new Error('Tinker export: captured model identity differs')
     if (line.messages.some((message) => message.is_copied_context)) {

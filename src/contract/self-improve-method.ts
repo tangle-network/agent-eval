@@ -324,6 +324,9 @@ function measureMethodWinner<TScenario extends Scenario, TArtifact>(
       independentUnitByScenarioId: opts.claim ? evaluationUnitMap(opts.claim, holdout) : undefined,
     })
   return runFinalComparison({
+    model: opts.model,
+    modelTreatment: opts.modelTreatment,
+    requireReportedModel: true,
     claim: opts.claim,
     finalEvidence: opts.finalEvidence,
     baselineSurface,
@@ -422,6 +425,9 @@ function analyzeMethodHoldout<TScenario extends Scenario, TArtifact>(
           )),
     ],
     baselineCandidateId: 'baseline',
+    ...(comparison.winnerOnHoldout === comparison.baselineOnHoldout
+      ? {}
+      : { modelTreatment: opts.modelTreatment }),
     independentUnitByScenarioId: opts.claim ? evaluationUnitMap(opts.claim, holdout) : undefined,
     decisionThreshold: opts.claim?.minimumEffect ?? 0.05,
     ...(comparison.winnerOnHoldout === comparison.baselineOnHoldout

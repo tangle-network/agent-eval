@@ -22,6 +22,7 @@
 
 import { AgentEvalError } from '../errors'
 import { type JudgeFamily, judgeFamily } from '../judge-families'
+import { modelHasSnapshot } from '../run-record'
 
 /**
  * Output-token budget a liveness probe must grant a model.
@@ -73,10 +74,9 @@ export interface ServedModelCheck {
  * trailing build date, and `.`/`_` folded to `-` so one version is spelled one
  * way.
  *
- * Dropping the build date is what makes snapshot resolution legible as the
- * non-event it is: a router answering `gpt-4o-mini` with
- * `gpt-4o-mini-2024-07-18` pinned a floating alias to a reproducible build —
- * the same model, which is the behaviour we want. Only routing decoration is
+ * This supports resolution of a floating alias to a build. It does not prove
+ * two explicitly pinned builds are equal; use modelSnapshotIdentity for that.
+ * Only routing decoration is
  * stripped; version digits are load-bearing, so `deepseek-v3.2` and
  * `deepseek-v4-flash` stay distinct, and comparison is EXACT equality rather
  * than a prefix test (a prefix rule would accept `gpt-5` → `gpt-5-mini`, a
@@ -88,14 +88,30 @@ export function normalizeModelId(modelId: string): string {
   if (at > 0) id = id.slice(0, at)
   const colon = id.indexOf(':')
   if (colon > 0) id = id.slice(0, colon)
-  const slash = id.lastIndexOf('/')
-  if (slash >= 0) id = id.slice(slash + 1)
+  return normalizeModelSpelling(id.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{8}$/, ''))
+}
+
+function normalizeModelSpelling(id: string): string {
   return id
-    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
-    .replace(/-\d{8}$/, '')
+    .slice(id.lastIndexOf('/') + 1)
     .replace(/[._]/g, '-')
     .replace(/-+$/, '')
     .trim()
+}
+
+/** Routing spelling may vary; an explicitly named build remains part of the identity. */
+export function modelSnapshotIdentity(modelId: string): string {
+  const id = modelId.trim().replace(/:(?:batch|free)$/iu, '')
+  const snapshot =
+    id.match(/@([A-Za-z0-9][A-Za-z0-9._-]*)$/u) ??
+    id.match(/:((?:date-)[A-Za-z0-9][A-Za-z0-9._-]*|\d[\d._-]*)$/u) ??
+    id.match(/-(\d{4}-\d{2}-\d{2}|\d{8})$/u) ??
+    id.match(/-((?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))$/u)
+  if (!snapshot) return normalizeModelId(id)
+  const token = /^\d{4}-\d{2}-\d{2}$/u.test(snapshot[1]!)
+    ? snapshot[1]!.replaceAll('-', '')
+    : snapshot[1]!
+  return `${normalizeModelSpelling(id.slice(0, snapshot.index).toLowerCase())}@${token}`
 }
 
 /**
@@ -124,7 +140,7 @@ export function checkServedModel(
     }
   }
   const servedFamily = judgeFamily(served)
-  if (requested.trim().toLowerCase() === served.trim().toLowerCase()) {
+  if (requested.trim() === served.trim()) {
     return {
       requested,
       served,
@@ -134,7 +150,14 @@ export function checkServedModel(
       substituted: false,
     }
   }
-  if (normalizeModelId(requested) === normalizeModelId(served)) {
+  const requestedIdentity = modelSnapshotIdentity(requested)
+  const pinnedRequest =
+    modelHasSnapshot(requested.trim().toLowerCase()) || requestedIdentity.includes('@')
+  if (
+    pinnedRequest
+      ? requestedIdentity === modelSnapshotIdentity(served)
+      : normalizeModelId(requested) === normalizeModelId(served)
+  ) {
     return {
       requested,
       served,

@@ -29,6 +29,9 @@ export interface FinalEvidencePolicy {
   ledger: FinalEvidenceLedger
   requestId: string
   evaluatorDigest: LedgerHash
+  /** Immutable task/evidence content identities for every final and development scenario.
+   * Exclude display ids, statistical grouping labels and run identifiers from the digest. */
+  sourceDigestByScenarioId?: ReadonlyMap<string, LedgerHash>
 }
 
 export interface FinalEvidenceUse {
@@ -42,7 +45,25 @@ export function captureFinalEvidencePolicy(policy: FinalEvidencePolicy): FinalEv
     ledger: policy.ledger,
     requestId: policy.requestId,
     evaluatorDigest: policy.evaluatorDigest,
+    ...(policy.sourceDigestByScenarioId === undefined
+      ? {}
+      : {
+          sourceDigestByScenarioId: new Map(policy.sourceDigestByScenarioId),
+        }),
   })
+}
+
+/** Opt into content-based exposure checks without teaching Eval a product's input schema. */
+export function withFinalEvidenceSources(
+  policy: FinalEvidencePolicy,
+  sourceDigestByScenarioId: ReadonlyMap<string, LedgerHash>,
+): FinalEvidencePolicy {
+  for (const [id, source] of sourceDigestByScenarioId)
+    if (!id.trim() || !LEDGER_HASH_PATTERN.test(source))
+      throw new ValidationError(
+        'final evidence source identities require scenario ids and content digests',
+      )
+  return captureFinalEvidencePolicy({ ...policy, sourceDigestByScenarioId })
 }
 
 export function evaluationUnitMap<TScenario extends Scenario>(
@@ -96,6 +117,38 @@ function finalEvidenceReservation<TScenario extends Scenario>(
   const units = evaluationUnitMap(claim, scenarios)
   const finalUnitIds = new Set(units.values())
   assertIndependentEvaluationSplit(claim, scenarios, developmentScenarios)
+  const sources = policy.sourceDigestByScenarioId
+  let sourceDigests: LedgerHash[] | undefined
+  let developmentSourceDigests: LedgerHash[] | undefined
+  if (sources !== undefined) {
+    for (const [id, source] of sources)
+      if (!id.trim() || !LEDGER_HASH_PATTERN.test(source))
+        throw new ValidationError(
+          'final evidence source identities require scenario ids and content digests',
+        )
+    for (const scenario of [...scenarios, ...developmentScenarios])
+      if (!sources.has(scenario.id))
+        throw new ValidationError(`final evidence source identity is missing for '${scenario.id}'`)
+    const finalIds = new Set(scenarios.map((scenario) => scenario.id))
+    sourceDigests = [...new Set(scenarios.map((scenario) => sources.get(scenario.id)!))].sort(
+      compareCodeUnits,
+    )
+    developmentSourceDigests = [
+      ...new Set([...sources].filter(([id]) => !finalIds.has(id)).map(([, source]) => source)),
+    ].sort(compareCodeUnits)
+    if (sourceDigests.some((source) => developmentSourceDigests!.includes(source)))
+      throw new ValidationError('development and final evidence share source content')
+    const sourceUnits = new Map<string, string>()
+    for (const scenario of scenarios) {
+      const source = sources.get(scenario.id)!
+      const unit = units.get(scenario.id)!
+      if (sourceUnits.has(source) && sourceUnits.get(source) !== unit)
+        throw new ValidationError(
+          'identical final source content cannot name different independent units',
+        )
+      sourceUnits.set(source, unit)
+    }
+  }
   return {
     claim,
     reservation: {
@@ -108,6 +161,7 @@ function finalEvidenceReservation<TScenario extends Scenario>(
       populationId: claim.population.id,
       inputDigest: hashCanonical([...scenarios].sort((a, b) => compareCodeUnits(a.id, b.id))),
       unitIds: [...finalUnitIds].sort(compareCodeUnits),
+      ...(sourceDigests === undefined ? {} : { sourceDigests, developmentSourceDigests }),
     },
   }
 }

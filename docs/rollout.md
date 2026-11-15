@@ -348,13 +348,20 @@ and [Datum API](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/typ
 ## Training admission and conditioning
 
 `trainingAdmission(line, purpose, options)` owns split and capture eligibility for
-SFT (`imitation`), DPO/PRM (`preference`), and offline GRPO (`reward`). Every mode
+SFT (`imitation`), DPO/PRM/Tinker (`preference`), and offline GRPO/Verifiers/RFT (`reward`). Every mode
 excludes known lossy capture, unfinished or truncated execution, missing reward,
 and disallowed license classes. Imitation requires a clean positive result and a
 new assistant target; preferences may compare completed honest failures; reward
 training retains screened gaming at its cleared nonpositive reward. A claimed
 positive score alongside an executor error is excluded in every mode. These are
 format eligibility rules, not approval to run a trainer or an on-policy guarantee.
+
+Verifiers and RFT's batch `gatedLines: 'zero-and-flag'` mode uses this same admission,
+including release builds. It keeps eligible nonpositive examples without admitting incomplete,
+unscored, truncated, unlicensed or unresolved native capture. Tinker also uses the common
+attempt/native-capture checks, then applies its stricter error-free token/logprob requirements.
+Both paths honor `allowLicenseClasses` and `onAdmission`. Single-row projection functions
+remain format adapters; use the batch exporters to select a training population.
 
 Pass `onAdmission` to observe each considered invocation and its exclusion reason.
 `buildRlDataset` writes `admission.jsonl`, per-format unique-invocation counts and

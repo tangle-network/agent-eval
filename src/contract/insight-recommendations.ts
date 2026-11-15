@@ -59,9 +59,15 @@ export function buildReleaseScorecard(
     name: 'quality-lift',
     status: liftPass,
     detail: lift
-      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}${lift.decisionEligible ? '' : ` (descriptive only; ${lift.minimumRequired} required)`}`
+      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}${lift.decisionEligible ? '' : lift.modelComparison?.eligible === false ? ' (descriptive only; served model identity conflict)' : ` (descriptive only; ${lift.minimumRequired} required)`}`
       : 'no baseline/candidate pair available',
   })
+  if (lift?.modelComparison)
+    axes.push({
+      name: 'served-model-identity',
+      status: lift.modelComparison.eligible ? 'pass' : 'fail',
+      detail: `${lift.modelComparison.checkedPairs} checked pairs; ${lift.modelComparison.issues.length} conflicts; policy=${lift.modelComparison.policy}`,
+    })
   const contamPass =
     contamination === undefined
       ? ('not_evaluated' as const)
@@ -227,7 +233,15 @@ export function buildRecommendations(ctx: RecommendationContext): Recommendation
   }
 
   if (ctx.lift) {
-    if (!ctx.lift.decisionEligible) {
+    if (ctx.lift.modelComparison?.eligible === false) {
+      out.push({
+        priority: 'critical',
+        kind: 'hold',
+        title: 'Hold — served model identities confound the comparison',
+        detail: `${ctx.lift.modelComparison.issues.length} paired observations violate the model policy. Rerun with matched snapshots, or predeclare pinned models for an intentional model treatment. The observed lift is retained as descriptive evidence.`,
+        evidencePath: 'lift.modelComparison',
+      })
+    } else if (!ctx.lift.decisionEligible) {
       out.push({
         priority: 'high',
         kind: 'expand-corpus',

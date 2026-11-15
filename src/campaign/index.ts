@@ -11,6 +11,7 @@ export {
   type ProposalFindingOrigin,
 } from '../analyst/types'
 export type { CostBreakdown, CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
+export type { ModelComparison, ModelTreatment } from '../integrity/model-comparison'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
 export { llmJudge } from '../llm-judge'
@@ -151,6 +152,7 @@ export {
   type FinalEvidencePolicy,
   type FinalEvidenceUse,
   prepareSearchFinalEvidence,
+  withFinalEvidenceSources,
 } from './final-evidence'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {

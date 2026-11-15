@@ -2,6 +2,7 @@
 
 import { welchsTTest } from '../baseline'
 import { aggregatePairedHoldout } from '../campaign/gates/statistical-heldout'
+import { compareModelIdentities, type ModelTreatment } from '../integrity/model-comparison'
 import { pairRunRecords } from '../paired-arms'
 import type { RunRecord } from '../run-record'
 import {
@@ -152,6 +153,7 @@ export function computeLift(
   candidateId: string | undefined,
   split: 'search' | 'holdout',
   independentUnitByScenarioId?: ReadonlyMap<string, string>,
+  modelTreatment?: ModelTreatment,
 ): LiftInsight | undefined {
   let bId = baselineId
   let cId = candidateId
@@ -183,6 +185,15 @@ export function computeLift(
   const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
   const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
+  const modelComparison = compareModelIdentities(
+    pairing.pairs.map((pair) => ({
+      id: pair.pairKey,
+      baseline: [pair.baseline.model],
+      candidate: [pair.treatment.model],
+    })),
+    modelTreatment,
+    true,
+  )
   let pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
   let pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
   if (pairedBaseline.length === 0) return undefined
@@ -243,7 +254,8 @@ export function computeLift(
     n: pairedBaseline.length,
     ...(grouped ? { pairedRunN: pairing.pairs.length, independentUnitIds: grouped.unitIds } : {}),
     minimumRequired: BOOTSTRAP_GATE_MIN_N,
-    decisionEligible: bootstrap.gateEligible,
+    decisionEligible: bootstrap.gateEligible && modelComparison.eligible,
+    modelComparison,
     unpairedBaseline: (reverseInferredArms ? pairing.unpairedTreatment : pairing.unpairedBaseline)
       .length,
     unpairedCandidate: (reverseInferredArms ? pairing.unpairedBaseline : pairing.unpairedTreatment)

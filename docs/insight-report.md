@@ -141,6 +141,11 @@ Repeated runs measure variation on those tasks; they do not create new independe
 The analyzer's bootstrap decision floor is 20 paired observations.
 Below it, a positive interval remains descriptive and the lift recommendation requests more evidence.
 Reaching the floor only establishes sample-count eligibility.
+A paired comparison also requires matching served model snapshots, unless `modelTreatment`
+explicitly names the pinned model for each arm. `lift.modelComparison` retains every conflict;
+one conflict makes `decisionEligible: false` without discarding its scores or changing the sample.
+The served-model release axis fails and lift cannot recommend shipping. A model treatment
+requires explicit baseline/candidate ids and reports the combined effect of the declared changes.
 A zero-width interval still cannot produce a lift-based ship recommendation.
 An eligible, nonzero-width interval must exceed `decisionThreshold`, which defaults to `0.02` in score units.
 
@@ -156,7 +161,7 @@ Its `ship` kind can refer to lift or an improved prior-period metric.
 Other findings can coexist with it, including a failed canary check.
 Read the complete report before acting.
 
-`release` rolls up quality lift, canary matches, and composite score thresholds.
+`release` rolls up quality lift, served model identity, canary matches, and composite score thresholds.
 An unavailable axis is `not_evaluated` and makes the overall status at least `warn`.
 The quality-lift axis uses positive lift; recommendation thresholds can differ.
 These built-in thresholds are report heuristics, not your product's complete release policy.

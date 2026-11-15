@@ -1,4 +1,9 @@
 import { defineEvaluationClaim, type EvaluationClaim } from '../../experiment/claim'
+import {
+  captureModelTreatment,
+  compareModelIdentities,
+  type ModelTreatment,
+} from '../../integrity/model-comparison'
 import { assertCompleteCampaign } from '../coverage'
 import {
   captureFinalEvidencePolicy,
@@ -23,6 +28,9 @@ interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
   gate: Gate<TArtifact, TScenario>
   claim?: EvaluationClaim
   finalEvidence?: FinalEvidencePolicy
+  model?: string
+  modelTreatment?: ModelTreatment
+  requireReportedModel?: boolean
   holdout?: 'measured' | 'deferred'
   label?: string
   neutralize?: (winner: MutableSurface, baseline: MutableSurface) => MutableSurface
@@ -35,6 +43,7 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
   opts = {
     ...opts,
     judges: opts.judges?.map(captureJudge),
+    modelTreatment: captureModelTreatment(opts.modelTreatment),
     claim: opts.claim && defineEvaluationClaim(opts.claim),
     finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
   }
@@ -179,8 +188,34 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
     }
   }
 
+  // Model identity is a precondition of a prompt/code comparison, including a custom gate.
+  // Keep every measurement; a confounded pair makes the comparison ineligible.
+  const models = (cell: (typeof baselineOnHoldout.cells)[number]) =>
+    cell.resolvedModels?.length
+      ? cell.resolvedModels
+      : cell.resolvedModel
+        ? [cell.resolvedModel]
+        : opts.model
+          ? [opts.model]
+          : []
+  const baselineCells = new Map(baselineOnHoldout.cells.map((cell) => [cell.cellId, cell]))
+  const comparisonPairs = (campaign: typeof winnerOnHoldout, arm: string) =>
+    campaign.cells.map((cell) => ({
+      id: `${arm}:${cell.cellId}`,
+      baseline: models(baselineCells.get(cell.cellId)!),
+      candidate: models(cell),
+    }))
+  const modelComparison = compareModelIdentities(
+    [
+      ...comparisonPairs(winnerOnHoldout, 'winner'),
+      ...(neutralizedOnHoldout ? comparisonPairs(neutralizedOnHoldout, 'neutralized') : []),
+    ],
+    opts.modelTreatment,
+    opts.requireReportedModel,
+  )
+
   // Deferred measurement has no observed delta. An unchanged selection has zero change.
-  const gateResult = holdoutDeferred
+  const decision = holdoutDeferred
     ? {
         decision: 'hold' as const,
         reasons: [
@@ -203,22 +238,44 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
           ],
           delta: 0,
         }
-      : await opts.gate.decide({
-          candidateArtifacts,
-          baselineArtifacts,
-          judgeScores,
-          baselineJudgeScores,
-          neutralizedArtifacts,
-          neutralizedJudgeScores,
-          scenarios: structuredClone(finalScenarios),
-          cost: {
-            candidate: winnerOnHoldout.aggregates.cost.totalCostUsd,
-            baseline: baselineOnHoldout.aggregates.cost.totalCostUsd,
-          },
-          costLedger,
-          costPhase: costPhase('promotion.gate'),
-          signal: opts.signal ?? new AbortController().signal,
-        })
+      : !modelComparison.eligible
+        ? {
+            decision: 'hold' as const,
+            reasons: ['served model identity does not support the declared comparison'],
+            contributingGates: [],
+          }
+        : await opts.gate.decide({
+            candidateArtifacts,
+            baselineArtifacts,
+            judgeScores,
+            baselineJudgeScores,
+            neutralizedArtifacts,
+            neutralizedJudgeScores,
+            scenarios: structuredClone(finalScenarios),
+            cost: {
+              candidate: winnerOnHoldout.aggregates.cost.totalCostUsd,
+              baseline: baselineOnHoldout.aggregates.cost.totalCostUsd,
+            },
+            costLedger,
+            costPhase: costPhase('promotion.gate'),
+            signal: opts.signal ?? new AbortController().signal,
+          })
+  const gateResult = {
+    ...decision,
+    contributingGates: [
+      ...decision.contributingGates,
+      {
+        name: 'served-model-identity',
+        status:
+          modelComparison.checkedPairs === 0
+            ? ('not_evaluated' as const)
+            : modelComparison.eligible
+              ? ('pass' as const)
+              : ('fail' as const),
+        detail: modelComparison,
+      },
+    ],
+  }
 
   const promotedDiff =
     surfaceHash(winnerSurface) === surfaceHash(baselineSurface)
@@ -235,6 +292,7 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
       : {}),
     ...(holdoutDeferred ? { holdout: 'deferred' as const } : {}),
     gateResult,
+    modelComparison,
     promotedDiff,
   }
 }

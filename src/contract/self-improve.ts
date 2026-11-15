@@ -64,6 +64,7 @@ import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-l
 import type { CampaignEvidenceContext } from '../experiment/campaign-evidence'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import { shipBestEffort, startSearchShipper } from '../hosted/search-shipper'
+import { captureModelTreatment, type ModelTreatment } from '../integrity/model-comparison'
 import type { RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
@@ -152,6 +153,8 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
    * Omit this when every cell reports its concrete model in a receipt.
    */
   model?: string
+  /** Explicit pinned baseline/candidate models when the model itself is part of the treatment. */
+  modelTreatment?: ModelTreatment
   /** Version of execution behavior outside the candidate surface, used by measurement caches. */
   dispatchRef?: string
 
@@ -665,6 +668,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   opts = {
     ...opts,
     judge: captureJudge(opts.judge),
+    modelTreatment: captureModelTreatment(opts.modelTreatment),
     ...(opts.claim || opts.finalEvidence
       ? {
           claim: opts.claim && defineEvaluationClaim(opts.claim),
@@ -804,6 +808,9 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     baselineSurface: opts.baselineSurface,
     premeasuredBaseline: opts.premeasuredBaseline,
     dispatchWithSurface: opts.agent,
+    model: opts.model,
+    modelTreatment: opts.modelTreatment,
+    requireReportedModel: true,
     dispatchRef: opts.dispatchRef,
     proposer,
     judges: [opts.judge],
@@ -923,6 +930,9 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
           )),
     ],
     baselineCandidateId: 'baseline',
+    ...(reportWinnerCampaign === reportBaselineCampaign
+      ? {}
+      : { modelTreatment: opts.modelTreatment }),
     independentUnitByScenarioId: reportUnitMap,
     decisionThreshold: opts.claim?.minimumEffect ?? 0.05,
     ...(reportWinnerCampaign === reportBaselineCampaign ? {} : { candidateCandidateId: 'winner' }),

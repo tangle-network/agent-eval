@@ -27,6 +27,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'clients/python/src/agent_eval_rpc/dspy_rlm_validation.py',
   'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
   'src/abort-signal.ts',
+  'src/agent-profile-cell.ts',
   'src/analyst/benchmark-agentrx-calibration.ts',
   'src/analyst/benchmark-command-artifact.ts',
   'src/analyst/benchmark-command-persistence.ts',
@@ -131,7 +132,10 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/math/special-functions.ts',
   'src/math/student-t.ts',
   'src/metrics.ts',
+  'src/pre-registration.ts',
   'src/record-id.ts',
+  'src/rollout/reward.ts',
+  'src/run-record.ts',
   'src/statistics/agreement-irr.ts',
   'src/statistics/cluster.ts',
   'src/statistics/clustered-paired.ts',
@@ -170,11 +174,12 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/trace/raw-provider-sink.ts',
   'src/trace/redact.ts',
   'src/trace/redaction/detectors.ts',
+  'src/trace/schema.ts',
   'src/verdict-cache.ts',
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '8155c01f7d6c350d41eb70b3b98e0ed2d624f383a9f649d1738c55d26ac8231a'
+  'ddbd5e409e986b3efed0f96aa602be43c03cb6907d4b99db56b1a2970c987a20'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
