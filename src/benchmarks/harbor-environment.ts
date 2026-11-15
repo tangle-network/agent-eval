@@ -7,10 +7,15 @@
  * floor, since that space belongs to the host. `gradeHarborPatch` then names the prepared image
  * as the task's `docker_image`, so Harbor builds nothing per trial. A `host` is an ssh target:
  * builds and `docker run` reach it through `DOCKER_HOST`, and Harbor runs there.
+ *
+ * Each prepared case owns its tag: `harbor-case/<task dir>:<environment digest>-<owner>`. Two
+ * processes grading the same case on one docker host (two improve passes at once) share the image
+ * and its build cache but never a tag, so one pass's release untags only its own name and the
+ * other's grades keep their image.
  */
 
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -44,7 +49,7 @@ const wake = () => {
   for (const resume of waiters.splice(0)) resume()
 }
 
-/** `harbor-case/<task dir>:<digest of every file under environment/>`. */
+/** `harbor-case/<task dir>:<digest of every file under environment/>-<owner>`, owner fresh per call. */
 async function imageTag(item: HarborTaskItem): Promise<string> {
   const dir = join(item.payload.taskDir, 'environment')
   const digest = createHash('sha256')
@@ -53,7 +58,8 @@ async function imageTag(item: HarborTaskItem): Promise<string> {
     .map((entry) => join(entry.parentPath, entry.name))
     .sort())
     digest.update(`${file.slice(dir.length)}\0`).update(await readFile(file))
-  return `harbor-case/${item.payload.dir.toLowerCase()}:${digest.digest('hex').slice(0, 16)}`
+  const owner = randomBytes(4).toString('hex')
+  return `harbor-case/${item.payload.dir.toLowerCase()}:${digest.digest('hex').slice(0, 16)}-${owner}`
 }
 
 /** The image `gradeHarborPatch` names for a case prepared in this process. */
@@ -73,13 +79,6 @@ async function build(item: HarborTaskItem, options: CaseEnvironmentOptions): Pro
   const log = options.log ?? ((line: string) => console.error(line))
   const env = dockerHostEnv(host)
   const image = await imageTag(item)
-  if (
-    await execute('docker', ['image', 'inspect', image], { env }).then(
-      () => true,
-      () => false,
-    )
-  )
-    return image
   for (let free = await freeBytes(host); free < freeFloorBytes; free = await freeBytes(host)) {
     const gib = (bytes: number) => (bytes / 2 ** 30).toFixed(1)
     log(
@@ -88,6 +87,7 @@ async function build(item: HarborTaskItem, options: CaseEnvironmentOptions): Pro
     await sleep(recheckMs, undefined, { signal })
   }
   const context = join(item.payload.taskDir, 'environment')
+  // An image another owner built from the same environment comes back from the build cache.
   await execute('docker', ['build', '-q', '-t', image, context], { env, maxBuffer: 1 << 26 })
   return image
 }
@@ -118,18 +118,20 @@ export async function prepareCaseEnvironment(
 }
 
 /**
- * Remove the case's image and its build cache: the records whose step is the Dockerfile's first
- * `RUN` line, and every record built on them. Frees the case's live slot.
+ * Remove the case's tag and its build cache: the records whose step is the Dockerfile's first
+ * `RUN` line, and every record built on them. Frees the case's live slot. Another owner's tag of
+ * the same image keeps that image, and pruning build cache never removes an image.
  */
 export async function releaseCaseEnvironment(
   item: HarborTaskItem,
   options: { host?: string } = {},
 ) {
-  const host = live.get(item.payload.taskDir)?.host ?? options.host
+  const entry = live.get(item.payload.taskDir)
   live.delete(item.payload.taskDir)
   wake()
-  const env = dockerHostEnv(host)
-  await execute('docker', ['image', 'rm', await imageTag(item)], { env }).catch(() => undefined)
+  const env = dockerHostEnv(entry?.host ?? options.host)
+  const image = await entry?.image.catch(() => undefined)
+  if (image) await execute('docker', ['image', 'rm', image], { env }).catch(() => undefined)
   const dockerfile = await readFile(join(item.payload.taskDir, 'environment/Dockerfile'), 'utf8')
   const marker = /^RUN\s+(.*?)\s*\\?$/mu.exec(dockerfile)?.[1]
   if (!marker) return

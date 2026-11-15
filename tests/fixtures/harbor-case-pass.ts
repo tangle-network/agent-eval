@@ -26,7 +26,11 @@ const PATCH = `diff --git a/greeting.txt b/greeting.txt
 +world
 `
 
-const exists = (path: string) => access(path).then(() => true, () => false)
+const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  )
 async function until(paths: string[]) {
   while (!(await Promise.all(paths.map(exists))).every(Boolean)) await sleep(100)
 }
