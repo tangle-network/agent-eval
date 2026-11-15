@@ -73,7 +73,7 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     })
     const [task] = await adapter.loadAll()
     const image = await prepareCaseEnvironment(task!)
-    expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}-[0-9a-f]{8}$/)
+    expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}-[0-9a-f]{6}-\d+-[0-9a-f]{4}$/)
     expect(docker('buildx', 'du', '--format', 'json')).toContain(MARK)
 
     expect(await adapter.evaluate(task!, { patch: PATCH })).toMatchObject({ score: 1 })
@@ -154,6 +154,31 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     },
     1_800_000,
   )
+
+  it("removes a dead pass's image on the next release of its case", async () => {
+    const root = await dataset()
+    const coord = await mkdtemp(join(tmpdir(), 'eval-harbor-case-passes-'))
+    roots.push(coord)
+    const script = join(import.meta.dirname, 'fixtures/harbor-case-pass.ts')
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      ['--import', 'tsx', script, root, coord, '0', 'crash'],
+      { timeout: 600_000, maxBuffer: 1 << 26 },
+    )
+    const { image: orphan } = JSON.parse(stdout.trim().split('\n').at(-1)!) as { image: string }
+    expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).toContain(orphan)
+    const [task] = await createHarborBenchmarkAdapter({
+      id: 'case-env',
+      datasetDir: root,
+      source: { name: 'synthetic-case-env', revision: 'local' },
+      grade: gradeHarborPatch(),
+    }).loadAll()
+    const image = await prepareCaseEnvironment(task!)
+    await releaseCaseEnvironment(task!)
+    const tags = docker('images', '--format', '{{.Repository}}:{{.Tag}}')
+    expect(tags).not.toContain(orphan)
+    expect(tags).not.toContain(image)
+  }, 600_000)
 
   it('pauses, never fails, while the docker host is below its free-space floor', async () => {
     const root = await dataset()

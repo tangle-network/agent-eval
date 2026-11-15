@@ -3,7 +3,8 @@
  * patch and an empty one, release. `node --import tsx harbor-case-pass.ts <dataset> <coord> <i> <n>`
  * prints `{ pass, image, scores }`. Passes meet in `coord`: every pass prepares before any grades,
  * and pass 0 grades and releases before the others grade, the order a concurrent run reaches when
- * one pass finishes a case first.
+ * one pass finishes a case first. With `<n>` = `crash` the pass prepares, prints and exits without
+ * releasing, as a killed pass does.
  */
 import { access, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -32,7 +33,11 @@ const exists = (path: string) =>
     () => false,
   )
 async function until(paths: string[]) {
-  while (!(await Promise.all(paths.map(exists))).every(Boolean)) await sleep(100)
+  const deadline = Date.now() + 600_000
+  while (!(await Promise.all(paths.map(exists))).every(Boolean)) {
+    if (Date.now() > deadline) throw new Error(`pass ${pass}: no peer reached ${paths.join(', ')}`)
+    await sleep(100)
+  }
 }
 
 const adapter = createHarborBenchmarkAdapter<{ patch: string }>({
@@ -43,17 +48,24 @@ const adapter = createHarborBenchmarkAdapter<{ patch: string }>({
 })
 const [task] = await adapter.loadAll()
 const image = await prepareCaseEnvironment(task!)
-await writeFile(join(coord, `prepared-${pass}`), image)
-await until(Array.from({ length: Number(count) }, (_, i) => join(coord, `prepared-${i}`)))
-if (pass !== 0) await until([join(coord, 'released-0')])
+if (count === 'crash') {
+  console.log(JSON.stringify({ pass, image }))
+  process.exit(0)
+}
 const scores: (number | string)[] = []
-for (const patch of [PATCH, ''])
-  scores.push(
-    await adapter.evaluate(task!, { patch }).then(
-      (evaluation) => evaluation.score,
-      (error: Error) => error.message.slice(0, 400),
-    ),
-  )
-await releaseCaseEnvironment(task!)
-if (pass === 0) await writeFile(join(coord, 'released-0'), '')
+try {
+  await writeFile(join(coord, `prepared-${pass}`), image)
+  await until(Array.from({ length: Number(count) }, (_, i) => join(coord, `prepared-${i}`)))
+  if (pass !== 0) await until([join(coord, 'released-0')])
+  for (const patch of [PATCH, ''])
+    scores.push(
+      await adapter.evaluate(task!, { patch }).then(
+        (evaluation) => evaluation.score,
+        (error: Error) => error.message.slice(0, 400),
+      ),
+    )
+} finally {
+  await releaseCaseEnvironment(task!)
+  if (pass === 0) await writeFile(join(coord, 'released-0'), '')
+}
 console.log(JSON.stringify({ pass, image, scores }))
