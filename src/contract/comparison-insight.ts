@@ -4,7 +4,7 @@ import { welchsTTest } from '../baseline'
 import { aggregatePairedHoldout } from '../campaign/gates/statistical-heldout'
 import { compareModelIdentities, type ModelTreatment } from '../integrity/model-comparison'
 import { pairRunRecords } from '../paired-arms'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, UNKNOWN_MODEL } from '../run-record'
 import {
   BOOTSTRAP_GATE_MIN_N,
   pairedBootstrap,
@@ -185,15 +185,21 @@ export function computeLift(
   const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
   const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
-  const modelComparison = compareModelIdentities(
-    pairing.pairs.map((pair) => ({
-      id: pair.pairKey,
-      baseline: [pair.baseline.model],
-      candidate: [pair.treatment.model],
-    })),
-    modelTreatment,
-    true,
+  // A failed run that never observed a served model is unreported, not a model change.
+  const reportedPairs = pairing.pairs.filter(
+    (pair) => pair.baseline.model !== UNKNOWN_MODEL && pair.treatment.model !== UNKNOWN_MODEL,
   )
+  const modelComparison = {
+    ...compareModelIdentities(
+      reportedPairs.map((pair) => ({
+        id: pair.pairKey,
+        baseline: [pair.baseline.model],
+        candidate: [pair.treatment.model],
+      })),
+      modelTreatment,
+    ),
+    unreportedPairs: pairing.pairs.length - reportedPairs.length,
+  }
   let pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
   let pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
   if (pairedBaseline.length === 0) return undefined

@@ -4,6 +4,7 @@ import {
   compareModelIdentities,
   type ModelTreatment,
 } from '../../integrity/model-comparison'
+import { cellReceiptModels } from '../cell-cache'
 import { assertCompleteCampaign } from '../coverage'
 import {
   captureFinalEvidencePolicy,
@@ -190,14 +191,10 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
 
   // Model identity is a precondition of a prompt/code comparison, including a custom gate.
   // Keep every measurement; a confounded pair makes the comparison ineligible.
-  const models = (cell: (typeof baselineOnHoldout.cells)[number]) =>
-    cell.resolvedModels?.length
-      ? cell.resolvedModels
-      : cell.resolvedModel
-        ? [cell.resolvedModel]
-        : opts.model
-          ? [opts.model]
-          : []
+  const models = (cell: (typeof baselineOnHoldout.cells)[number]) => {
+    const reported = cellReceiptModels(cell)
+    return reported.length > 0 || !opts.model ? reported : [opts.model]
+  }
   const baselineCells = new Map(baselineOnHoldout.cells.map((cell) => [cell.cellId, cell]))
   const comparisonPairs = (campaign: typeof winnerOnHoldout, arm: string) =>
     campaign.cells.map((cell) => ({

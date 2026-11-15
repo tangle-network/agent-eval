@@ -9,6 +9,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Hold prompt/code promotion when paired served model snapshots differ; preserve descriptive results and support an explicit pinned model treatment in campaign and analysis APIs.
 - Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
 - Route release Verifiers/RFT and Tinker training selection through shared admission, including attempt/native-capture completeness, licensing and exclusion diagnostics.
+- `runImprovementLoop` compares the set of served snapshots per arm, so cells that call several models stay comparable when both arms serve the same set; a declared model treatment still requires one model per arm.
+- `analyzeRuns` counts a pair in which either run carries the unknown-model marker as unreported; it no longer makes the comparison ineligible.
+- A pinned request served under another spelling (for example `claude-sonnet-4-5-20250929` served as `anthropic/claude-sonnet-4.5`) now classifies as `substituted-within-family`, which throws under `assertServedModel: true`.
 
 ## [1.0.35] — 2026-11-14
 

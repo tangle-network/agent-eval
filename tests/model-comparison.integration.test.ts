@@ -3,8 +3,14 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { inMemoryCampaignStorage } from '../src/campaign/storage'
-import { analyzeRuns, createChatClient, type ModelTreatment, selfImprove } from '../src/contract'
-import type { RunRecord } from '../src/run-record'
+import {
+  analyzeRuns,
+  createChatClient,
+  type ModelTreatment,
+  runImprovementLoop,
+  selfImprove,
+} from '../src/contract'
+import { type RunRecord, UNKNOWN_MODEL } from '../src/run-record'
 
 const baselineModel = 'openai/gpt-4.1-2025-04-14'
 const candidateModel = 'gpt-4.1-2025-05-14'
@@ -80,7 +86,121 @@ async function measuredComparison(
   return { result, gateCalls }
 }
 
+async function plannerExecutorLoop(candidateExecutor: string) {
+  const planner = 'gpt-4.1-2025-04-14'
+  const executor = 'gpt-4.1-mini-2025-04-14'
+  let gateCalls = 0
+  const result = await runImprovementLoop({
+    scenarios: scenarios.slice(0, 3),
+    holdoutScenarios: scenarios.slice(3),
+    baselineSurface: 'BASE',
+    storage: inMemoryCampaignStorage(),
+    runDir: 'mem://planner-executor-comparison',
+    proposer: { kind: 'fixed', propose: async () => ['WIN'] },
+    autoOnPromote: 'none',
+    // Every cell records two paid calls: a planner, then an executor.
+    dispatchWithSurface: async (surface, _scenario, context) => {
+      for (const model of [planner, surface === 'BASE' ? executor : candidateExecutor]) {
+        const response = await context.cost.runPaidCall({
+          actor: 'worker',
+          model,
+          execute: async () => model,
+          receipt: () => ({ model, inputTokens: 2, outputTokens: 1, actualCostUsd: 0 }),
+        })
+        if (!response.succeeded) throw response.error
+      }
+      return { quality: surface === 'BASE' ? 0.2 : 0.8 }
+    },
+    judges: [
+      {
+        name: 'quality',
+        dimensions: [{ key: 'quality', description: 'Observed task quality' }],
+        score: ({ artifact }) => ({
+          composite: artifact.quality,
+          dimensions: { quality: artifact.quality },
+          notes: '',
+        }),
+      },
+    ],
+    gate: {
+      name: 'custom-promotion',
+      decide: async () => {
+        gateCalls++
+        return { decision: 'ship', reasons: [], contributingGates: [] }
+      },
+    },
+  })
+  return { result, gateCalls }
+}
+
+function pairedRuns(candidateModelAt: (index: number) => string): RunRecord[] {
+  return Array.from({ length: 24 }, (_, index) =>
+    ['baseline', 'candidate'].map((arm) => ({
+      runId: `${arm}-${index}`,
+      experimentId: 'model-comparison',
+      candidateId: arm,
+      scenarioId: `task-${index}`,
+      seed: 0,
+      model: arm === 'candidate' ? candidateModelAt(index) : baselineModel,
+      promptHash: `sha256:${arm}`,
+      configHash: 'sha256:fixture',
+      commitSha: 'fixture',
+      wallMs: 1,
+      costUsd: 0,
+      costProvenance: { kind: 'observed' as const, usd: 0 },
+      tokenUsage: { input: 1, output: 1 },
+      terminalOutcome: 'succeeded' as const,
+      outcome: { raw: {}, holdoutScore: arm === 'baseline' ? 0.2 : 0.65 + index / 200 },
+      splitTag: 'holdout' as const,
+    })),
+  ).flat()
+}
+
 describe('served snapshots through public comparison boundaries', () => {
+  it('lets the gate decide when both arms serve the same set of models in every cell', async () => {
+    const matched = await plannerExecutorLoop('gpt-4.1-mini-2025-04-14')
+    expect(matched.result.winnerOnHoldout.cells[0]?.resolvedModels).toHaveLength(2)
+    expect(matched.gateCalls).toBe(1)
+    expect(matched.result.gateResult.decision).toBe('ship')
+    expect(matched.result.modelComparison).toMatchObject({
+      policy: 'matched',
+      eligible: true,
+      checkedPairs: 2,
+      issues: [],
+    })
+
+    const changed = await plannerExecutorLoop('gpt-4.1-nano-2025-04-14')
+    expect(changed.gateCalls).toBe(0)
+    expect(changed.result.gateResult.decision).toBe('hold')
+    expect(changed.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+      'baseline and candidate served different model snapshots',
+      'baseline and candidate served different model snapshots',
+    ])
+  })
+
+  it('counts a failed run without a served model as unreported in analyzeRuns', async () => {
+    const runs = pairedRuns(() => baselineModel)
+    const failed = runs.find((run) => run.runId === 'candidate-0')!
+    Object.assign(failed, {
+      model: UNKNOWN_MODEL,
+      terminalOutcome: 'failed',
+      outcome: { raw: {}, holdoutScore: 0 },
+    })
+    const report = await analyzeRuns({
+      runs,
+      baselineCandidateId: 'baseline',
+      candidateCandidateId: 'candidate',
+    })
+    expect(report.lift?.n).toBe(24)
+    expect(report.lift?.decisionEligible).toBe(true)
+    expect(report.lift?.modelComparison).toMatchObject({
+      eligible: true,
+      checkedPairs: 23,
+      unreportedPairs: 1,
+      issues: [],
+    })
+  })
+
   it.each(['method', 'proposer'] as const)(
     'holds %s promotion before a custom gate while preserving every measured cell',
     async (mode) => {
@@ -140,26 +260,7 @@ describe('served snapshots through public comparison boundaries', () => {
   })
 
   it('retains significant descriptive lift but withholds an analyzeRuns ship recommendation for a single confounded pair', async () => {
-    const runs: RunRecord[] = Array.from({ length: 24 }, (_, index) =>
-      ['baseline', 'candidate'].map((arm) => ({
-        runId: `${arm}-${index}`,
-        experimentId: 'model-comparison',
-        candidateId: arm,
-        scenarioId: `task-${index}`,
-        seed: 0,
-        model: arm === 'candidate' && index === 0 ? candidateModel : baselineModel,
-        promptHash: `sha256:${arm}`,
-        configHash: 'sha256:fixture',
-        commitSha: 'fixture',
-        wallMs: 1,
-        costUsd: 0,
-        costProvenance: { kind: 'observed' as const, usd: 0 },
-        tokenUsage: { input: 1, output: 1 },
-        terminalOutcome: 'succeeded' as const,
-        outcome: { raw: {}, holdoutScore: arm === 'baseline' ? 0.2 : 0.65 + index / 200 },
-        splitTag: 'holdout' as const,
-      })),
-    ).flat()
+    const runs = pairedRuns((index) => (index === 0 ? candidateModel : baselineModel))
     const report = await analyzeRuns({
       runs,
       baselineCandidateId: 'baseline',

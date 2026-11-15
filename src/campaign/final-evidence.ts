@@ -58,12 +58,16 @@ export function withFinalEvidenceSources(
   policy: FinalEvidencePolicy,
   sourceDigestByScenarioId: ReadonlyMap<string, LedgerHash>,
 ): FinalEvidencePolicy {
-  for (const [id, source] of sourceDigestByScenarioId)
+  assertSourceIdentities(sourceDigestByScenarioId)
+  return captureFinalEvidencePolicy({ ...policy, sourceDigestByScenarioId })
+}
+
+function assertSourceIdentities(sources: ReadonlyMap<string, LedgerHash>): void {
+  for (const [id, source] of sources)
     if (!id.trim() || !LEDGER_HASH_PATTERN.test(source))
       throw new ValidationError(
         'final evidence source identities require scenario ids and content digests',
       )
-  return captureFinalEvidencePolicy({ ...policy, sourceDigestByScenarioId })
 }
 
 export function evaluationUnitMap<TScenario extends Scenario>(
@@ -121,11 +125,7 @@ function finalEvidenceReservation<TScenario extends Scenario>(
   let sourceDigests: LedgerHash[] | undefined
   let developmentSourceDigests: LedgerHash[] | undefined
   if (sources !== undefined) {
-    for (const [id, source] of sources)
-      if (!id.trim() || !LEDGER_HASH_PATTERN.test(source))
-        throw new ValidationError(
-          'final evidence source identities require scenario ids and content digests',
-        )
+    assertSourceIdentities(sources)
     for (const scenario of [...scenarios, ...developmentScenarios])
       if (!sources.has(scenario.id))
         throw new ValidationError(`final evidence source identity is missing for '${scenario.id}'`)

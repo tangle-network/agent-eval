@@ -61,6 +61,7 @@ import {
 } from '../../run-record'
 import { mean, meanOrNull } from '../../statistics/mean'
 import { computeManifestHash } from '../campaign-manifest'
+import { cellReceiptModels } from '../cell-cache'
 import { runCampaign } from '../run-campaign'
 import { campaignCellToRunRecord } from '../run-record'
 import type { CampaignStorage } from '../storage'
@@ -292,8 +293,7 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
 }
 
 function receiptModels(cell: CampaignCellResult<unknown>): string[] {
-  const reported = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
-  return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
+  return [...new Set(cellReceiptModels(cell).map((model) => model.trim()).filter(Boolean))]
 }
 
 function isUnknownModelOnly(reported: string[]): boolean {

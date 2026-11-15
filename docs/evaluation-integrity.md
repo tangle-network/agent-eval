@@ -64,15 +64,22 @@ Prompt and code comparisons require matched served model snapshots for every pai
 including the optional neutralized arm. The result and persisted gate contributions retain
 `modelComparison`; a conflicting pair holds promotion without removing its measurements.
 The agent's committed model receipts take precedence over a declared `model` fallback.
+A cell where one arm reports a model and the other reports none is held unless the caller declares `model`.
+A declared `model` fills cells without receipts and is a declaration, not evidence.
 Lower-level deterministic campaigns with no model calls report unmeasured model identity;
 `selfImprove()` requires a pinned receipt or fallback for every cell.
+A `runImprovementLoop()` cell may call several models: under the matched policy both arms must
+serve the same set of pinned snapshots, and a declared treatment allows one model per arm.
+`selfImprove()` still records one model per cell.
 
 When changing the model is part of the experiment, declare
 `modelTreatment: { baseline: 'model@build-a', candidate: 'model@build-b' }`
 before search. Each arm must report that exact build. This measures the combined treatment;
 it does not isolate the effect of a prompt or code change. `analyzeRuns()` accepts the same
 policy with explicit `baselineCandidateId` and `candidateCandidateId`, and otherwise makes
-lift descriptive when served snapshots differ. Declaring a policy during later analysis
+lift descriptive when served snapshots differ. A pair in which either run records the unknown
+model marker (a failed run that never observed a served model) counts as unreported and does not
+make the comparison ineligible. Declaring a policy during later analysis
 does not establish that it was registered before data collection.
 
 Routing prefixes and equivalent date spelling may differ. Two different pinned snapshots

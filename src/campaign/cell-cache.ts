@@ -60,6 +60,13 @@ export function modelEvidenceFromReceipts(
   }
 }
 
+/** Every model a cell's paid-call receipts reported. */
+export function cellReceiptModels(
+  cell: Pick<CampaignCellResult<unknown>, 'resolvedModels' | 'resolvedModel'>,
+): string[] {
+  return cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+}
+
 export function withCurrentAgentModelEvidence<TArtifact>(
   cached: CampaignCellResult<TArtifact>,
   costLedger: CostLedgerHandle,

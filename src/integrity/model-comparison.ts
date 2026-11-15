@@ -55,8 +55,11 @@ export function compareModelIdentities(
     }
     const baseline = [...new Set(pair.baseline.map(modelSnapshotIdentity))]
     const candidate = [...new Set(pair.candidate.map(modelSnapshotIdentity))]
+    // A matched cell may call several models; a declared treatment names one model per arm.
     const reason =
-      baseline.length !== 1 || candidate.length !== 1
+      baseline.length === 0 ||
+      candidate.length === 0 ||
+      (treatment !== undefined && (baseline.length !== 1 || candidate.length !== 1))
         ? 'each arm needs one unambiguous served model'
         : [...pair.baseline, ...pair.candidate].some((model) => !modelHasSnapshot(model))
           ? 'each served model needs a snapshot identity'
@@ -65,7 +68,7 @@ export function compareModelIdentities(
               candidate[0] === modelSnapshotIdentity(treatment.candidate)
               ? undefined
               : 'served models differ from the declared model treatment'
-            : baseline[0] !== candidate[0]
+            : baseline.sort().join('\n') !== candidate.sort().join('\n')
               ? 'baseline and candidate served different model snapshots'
               : undefined
     if (reason !== undefined) issues.push({ ...pair, reason })

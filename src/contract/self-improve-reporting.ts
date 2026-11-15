@@ -1,3 +1,4 @@
+import { cellReceiptModels } from '../campaign/cell-cache'
 import { campaignCellToRunRecord } from '../campaign/run-record'
 import { pairedCampaignComposites } from '../campaign/score-utils'
 import { surfaceContentHash } from '../campaign/surface-identity'
@@ -62,7 +63,7 @@ export function cellsToRunRecords<TArtifact>(
   const promptHash = surfaceContentHash(surface)
   const configHash = surfaceContentHash(candidateId)
   return cells.map((cell) => {
-    const receiptModels = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+    const receiptModels = cellReceiptModels(cell)
     if (receiptModels.length > 1) {
       throw new ValidationError(
         `selfImprove cell ${cell.cellId} used multiple agent models: ${receiptModels.join(', ')}`,
