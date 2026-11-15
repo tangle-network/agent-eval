@@ -8,15 +8,18 @@
  * as the task's `docker_image`, so Harbor builds nothing per trial. A `host` is an ssh target:
  * builds and `docker run` reach it through `DOCKER_HOST`, and Harbor runs there.
  *
- * Each prepared case owns its tag: `harbor-case/<task dir>:<environment digest>-<owner>`. Two
- * processes grading the same case on one docker host (two improve passes at once) share the image
- * and its build cache but never a tag, so one pass's release untags only its own name and the
- * other's grades keep their image.
+ * Each prepared case owns its tag: `harbor-case/<task dir>:<environment digest>-<owner>`, the owner
+ * being this machine, this process id and a nonce. Two processes grading the same case on one
+ * docker host (two improve passes at once) share the image and its build cache but never a tag, so
+ * one pass's release untags only its own name and the other's grades keep their image. A release
+ * also removes the case's tags left by dead processes of this machine, which a crash or kill
+ * leaves behind; tags of other machines' processes stay, since their liveness is not known here.
  */
 
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -49,7 +52,18 @@ const wake = () => {
   for (const resume of waiters.splice(0)) resume()
 }
 
-/** `harbor-case/<task dir>:<digest of every file under environment/>-<owner>`, owner fresh per call. */
+const MACHINE = createHash('sha256').update(hostname()).digest('hex').slice(0, 6)
+const OWNED = new RegExp(`^[0-9a-f]{16}-${MACHINE}-(\\d+)-[0-9a-f]{4}$`, 'u')
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** `harbor-case/<task dir>:<environment digest>-<machine>-<pid>-<nonce>`, fresh per call. */
 async function imageTag(item: HarborTaskItem): Promise<string> {
   const dir = join(item.payload.taskDir, 'environment')
   const digest = createHash('sha256')
@@ -58,7 +72,7 @@ async function imageTag(item: HarborTaskItem): Promise<string> {
     .map((entry) => join(entry.parentPath, entry.name))
     .sort())
     digest.update(`${file.slice(dir.length)}\0`).update(await readFile(file))
-  const owner = randomBytes(4).toString('hex')
+  const owner = `${MACHINE}-${process.pid}-${randomBytes(2).toString('hex')}`
   return `harbor-case/${item.payload.dir.toLowerCase()}:${digest.digest('hex').slice(0, 16)}-${owner}`
 }
 
@@ -131,7 +145,14 @@ export async function releaseCaseEnvironment(
   wake()
   const env = dockerHostEnv(entry?.host ?? options.host)
   const image = await entry?.image.catch(() => undefined)
-  if (image) await execute('docker', ['image', 'rm', image], { env }).catch(() => undefined)
+  const repository = `harbor-case/${item.payload.dir.toLowerCase()}`
+  const listed = await execute('docker', ['images', repository, '--format', '{{.Tag}}'], { env })
+  const dead = listed.stdout.split('\n').filter((tag) => {
+    const pid = Number(OWNED.exec(tag)?.[1] ?? process.pid)
+    return pid !== process.pid && !alive(pid)
+  })
+  for (const tag of [...(image ? [image] : []), ...dead.map((tag) => `${repository}:${tag}`)])
+    await execute('docker', ['image', 'rm', tag], { env }).catch(() => undefined)
   const dockerfile = await readFile(join(item.payload.taskDir, 'environment/Dockerfile'), 'utf8')
   const marker = /^RUN\s+(.*?)\s*\\?$/mu.exec(dockerfile)?.[1]
   if (!marker) return
