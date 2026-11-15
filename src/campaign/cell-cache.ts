@@ -50,9 +50,12 @@ export function assertScheduleCachesReusable<TScenario extends Scenario>(args: {
 }
 
 export function modelEvidenceFromReceipts(
-  receipts: ReadonlyArray<Pick<CostReceipt, 'model'>>,
+  receipts: ReadonlyArray<Pick<CostReceipt, 'model' | 'error'>>,
 ): Pick<CampaignCellResult<unknown>, 'resolvedModels' | 'resolvedModel'> {
-  const models = [...new Set(receipts.map((receipt) => receipt.model))]
+  // A failed call's receipt names the requested id or `unknown`, not a served model. It describes
+  // the cell only when no call was served, as for a failed row.
+  const served = receipts.filter((receipt) => receipt.error === undefined)
+  const models = [...new Set((served.length > 0 ? served : receipts).map(({ model }) => model))]
   if (models.length === 0) return {}
   return {
     resolvedModels: models,
@@ -60,11 +63,12 @@ export function modelEvidenceFromReceipts(
   }
 }
 
-/** Every model a cell's paid-call receipts reported. */
+/** Every distinct model a cell's paid-call receipts reported, without surrounding space. */
 export function cellReceiptModels(
   cell: Pick<CampaignCellResult<unknown>, 'resolvedModels' | 'resolvedModel'>,
 ): string[] {
-  return cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+  const reported = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+  return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
 }
 
 export function withCurrentAgentModelEvidence<TArtifact>(

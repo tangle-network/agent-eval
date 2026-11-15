@@ -45,8 +45,8 @@ export type RunImprovementLoopOptions<
   model?: string
   /** Declare a model change as part of the treatment before search starts. */
   modelTreatment?: ModelTreatment
-  /** Require one served model per arm, even when neither arm reports a model call.
-   *  Enabled by selfImprove. */
+  /** Require one reported model id per arm (two spellings of one snapshot count as two), even
+   *  when neither arm reports a model call. Enabled by selfImprove. */
   requireReportedModel?: boolean
   /** Holdout policy. Default `'measured'`: baseline + winner are re-scored on
    *  `holdoutScenarios` and the gate decides on that held-out comparison.

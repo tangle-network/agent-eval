@@ -6,11 +6,12 @@ import { inMemoryCampaignStorage } from '../src/campaign/storage'
 import {
   analyzeRuns,
   createChatClient,
+  fromCodexSession,
   type ModelTreatment,
   runImprovementLoop,
   selfImprove,
 } from '../src/contract'
-import { type RunRecord, UNKNOWN_MODEL } from '../src/run-record'
+import { modelHasSnapshot, type RunRecord, UNKNOWN_MODEL } from '../src/run-record'
 
 const baselineModel = 'openai/gpt-4.1-2025-04-14'
 const candidateModel = 'gpt-4.1-2025-05-14'
@@ -103,30 +104,38 @@ async function measuredComparison(
   return { result, gateCalls: observed.gateCalls }
 }
 
-async function plannerExecutorLoop(candidateExecutor: string) {
-  const planner = 'gpt-4.1-2025-04-14'
-  const executor = 'gpt-4.1-mini-2025-04-14'
+// One paid call: `served` is the model the response names; without it the call times out.
+type PaidCall = { requested?: string; served?: string }
+
+async function improvementLoop(
+  callsFor: (surface: string) => PaidCall[],
+  modelTreatment?: ModelTreatment,
+) {
   let gateCalls = 0
   const result = await runImprovementLoop({
     scenarios: scenarios.slice(0, 3),
     holdoutScenarios: scenarios.slice(3),
     baselineSurface: 'BASE',
     storage: inMemoryCampaignStorage(),
-    runDir: 'mem://planner-executor-comparison',
+    runDir: 'mem://improvement-loop-comparison',
     proposer: { kind: 'fixed', propose: async () => ['WIN'] },
     populationSize: 1,
     maxGenerations: 1,
     autoOnPromote: 'none',
-    // Every cell records two paid calls: a planner, then an executor.
+    modelTreatment,
     dispatchWithSurface: async (surface, _scenario, context) => {
-      for (const model of [planner, surface === 'BASE' ? executor : candidateExecutor]) {
+      for (const call of callsFor(String(surface))) {
         const response = await context.cost.runPaidCall({
           actor: 'worker',
-          model,
-          execute: async () => model,
-          receipt: () => ({ model, inputTokens: 2, outputTokens: 1, actualCostUsd: 0 }),
+          ...(call.requested ? { model: call.requested } : {}),
+          execute: async () => {
+            if (call.served === undefined) throw new Error('request timed out')
+            return call.served
+          },
+          receipt: (model) => ({ model, inputTokens: 2, outputTokens: 1, actualCostUsd: 0 }),
         })
-        if (!response.succeeded) throw response.error
+        // The agent retries a timed-out call; the next entry is that retry.
+        if (!response.succeeded && call.served !== undefined) throw response.error
       }
       return { quality: surface === 'BASE' ? 0.2 : 0.8 }
     },
@@ -151,6 +160,14 @@ async function plannerExecutorLoop(candidateExecutor: string) {
   })
   return { result, gateCalls }
 }
+
+// Every cell records two paid calls: a planner, then an executor.
+const plannerExecutorLoop = (candidateExecutor: string) =>
+  improvementLoop((surface) =>
+    ['gpt-4.1-2025-04-14', surface === 'BASE' ? 'gpt-4.1-mini-2025-04-14' : candidateExecutor].map(
+      (model) => ({ requested: model, served: model }),
+    ),
+  )
 
 function pairedRuns(candidateModelAt: (index: number) => string): RunRecord[] {
   return Array.from({ length: 24 }, (_, index) =>
@@ -413,5 +430,119 @@ describe('served snapshots through public comparison boundaries', () => {
         server.close((error) => (error ? reject(error) : resolve())),
       )
     }
+  })
+  it('admits a pinned id that a routing tier, a Bedrock revision or a padded receipt spells', async () => {
+    for (const served of [
+      'deepseek/deepseek-chat-v3-0324:free',
+      'anthropic.claude-3-5-sonnet-20240620-v1:0',
+      ' gpt-4.1-2025-04-14 ',
+    ]) {
+      const { result, gateCalls } = await improvementLoop(() => [
+        { requested: served.trim(), served },
+      ])
+      expect(result.modelComparison, served).toMatchObject({ eligible: true, issues: [] })
+      expect(gateCalls, served).toBe(1)
+    }
+    // The comparison, checkServedModel and run-record validation read this one grammar.
+    const grammar: Array<[string, boolean]> = [
+      ['deepseek/deepseek-chat-v3-0324:free', true],
+      ['gpt-4.1-2025-04-14:batch', true],
+      ['anthropic.claude-3-5-sonnet-20240620-v1:0', true],
+      ['amazon.nova-pro-v1:0', true],
+      ['Claude-Sonnet-5', true],
+      ['claude-code/anthropic/claude-sonnet-5', true],
+      ['fixture:date-build-a', true],
+      ['gpt-4.1:free', false],
+      ['claude-sonnet-4-5', false],
+      ['fixture-20241399', false],
+      ['fixture-2024-13-01', false],
+      ['fixture-0230', false],
+      ['fixture@build-', false],
+      ['fixture:date-build.', false],
+      ['fixture@preset/name', false],
+      [' gpt-4.1-2025-04-14 ', false],
+    ]
+    expect(grammar.filter(([model, pinned]) => modelHasSnapshot(model) !== pinned)).toEqual([])
+  })
+
+  it('counts only served calls, so a timed-out call before a served retry does not hold', async () => {
+    const pinned = 'gpt-4.1-2025-04-14'
+    // A timed-out call's receipt names the requested alias, or `unknown` when none was named.
+    for (const requested of ['gpt-4.1', undefined]) {
+      const { result, gateCalls } = await improvementLoop((surface) => [
+        ...(surface === 'WIN' ? [{ requested }] : []),
+        { requested, served: pinned },
+      ])
+      expect(result.modelComparison, String(requested)).toMatchObject({ eligible: true, issues: [] })
+      expect(gateCalls).toBe(1)
+      expect(result.winnerOnHoldout.cells.map((cell) => cell.resolvedModels)).toEqual([
+        [pinned],
+        [pinned],
+      ])
+    }
+  })
+
+  it('does not read intake tags for an unrecorded snapshot as pinned served models', async () => {
+    // Two Codex cohorts on the moving alias gpt-5-codex share one scenario.
+    const runs = ['baseline', 'candidate'].flatMap(
+      (candidateId, index) =>
+        fromCodexSession({
+          entries: [
+            { type: 'thread.started', thread_id: `codex-${candidateId}` },
+            { type: 'turn_context', payload: { model: 'gpt-5-codex' } },
+            { type: 'turn.started' },
+            { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } },
+          ],
+          candidateId,
+          scenarioId: 'fix-login',
+          seed: 0,
+          score: 0.2 + index * 0.6,
+        }).runs,
+    )
+    expect(runs.map((run) => run.model)).toEqual([
+      'gpt-5-codex@observed-local',
+      'gpt-5-codex@observed-local',
+    ])
+    // The OTLP intakes write the other two tags.
+    for (const model of ['gpt-5-codex@observed-local', 'gpt-5-codex@otlp', 'unknown@unknown']) {
+      for (const run of runs) run.model = model
+      const report = await analyzeRuns({
+        runs,
+        baselineCandidateId: 'baseline',
+        candidateCandidateId: 'candidate',
+      })
+      expect(report.lift?.modelComparison, model).toMatchObject({
+        checkedPairs: 0,
+        unreportedPairs: 1,
+      })
+      expect(report.lift?.decisionEligible).toBe(false)
+      expect(report.release.axes).toContainEqual(
+        expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
+      )
+    }
+  })
+
+  it('names an arm with no served model and counts treatment snapshots, not spellings', async () => {
+    const pinned = 'gpt-4.1-2025-04-14'
+    const served = (models: string[]) => models.map((model) => ({ requested: model, served: model }))
+    const empty = await improvementLoop((surface) => (surface === 'BASE' ? served([pinned]) : []))
+    expect(empty.gateCalls).toBe(0)
+    expect(empty.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
+      'each arm needs a reported served model',
+      'each arm needs a reported served model',
+    ])
+    // Without requireReportedModel, one candidate snapshot under two spellings is one model.
+    const candidate = 'gpt-4.1-2025-05-14'
+    const spelled = await improvementLoop(
+      (surface) => served(surface === 'BASE' ? [pinned] : [candidate, `openai/${candidate}`]),
+      { baseline: pinned, candidate },
+    )
+    expect(spelled.result.winnerOnHoldout.cells[0]?.resolvedModels).toHaveLength(2)
+    expect(spelled.result.modelComparison).toMatchObject({
+      policy: 'treatment',
+      eligible: true,
+      issues: [],
+    })
+    expect(spelled.gateCalls).toBe(1)
   })
 })

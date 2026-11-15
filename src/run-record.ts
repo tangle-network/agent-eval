@@ -744,37 +744,36 @@ function validateJudgeScores(value: unknown, path: string): void {
 }
 
 /**
- * Snapshot check for provider model identifiers. Accepts ISO and compact dates, Router's `-MMDD`
- * snapshots, one opaque `@token`, Vertex-style `:date-token` suffixes, and Claude ids from 4.6 on,
- * which Anthropic serves under one fixed id with no dated form (`claude-sonnet-5-5`). Routing
- * selectors such as `@preset/name` and older Claude aliases (`claude-sonnet-4-5`) are not pinned.
+ * The one snapshot grammar for provider model ids: the pinned name and its snapshot token, or
+ * nothing for a moving alias. A routing tier (`:free`, `:batch`) may follow the snapshot. Pinned
+ * forms: one opaque `@token`, a Vertex-style `:date-token` or Bedrock-style `:0` revision, a valid
+ * ISO or compact date, Router's `-MMDD`, and Claude ids from 4.6 on, which Anthropic serves under
+ * one fixed id with no dated form (`claude-sonnet-5`; the id is its own snapshot, token `''`).
+ * Routing selectors such as `@preset/name`, impossible dates, a token ending in `.` or `-`,
+ * surrounding whitespace and older Claude aliases (`claude-sonnet-4-5`) pin nothing.
  */
+export function modelSnapshot(model: string): { name: string; snapshot: string } | undefined {
+  if (model.trim() !== model) return undefined
+  const id = model.replace(/:(?:batch|free)$/iu, '')
+  const tagged =
+    /^([^@]+)@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)$/u.exec(id) ??
+    /^(.+):(date-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?|\d(?:[\d._-]*\d)?)$/iu.exec(id)
+  if (tagged) return { name: tagged[1]!, snapshot: tagged[2]! }
+  const dated =
+    /^(.+)-(\d{4})-(\d{2})-(\d{2})$/u.exec(id) ??
+    /^(.+)-(\d{4})(\d{2})(\d{2})$/u.exec(id) ??
+    /^(.+)-()(\d{2})(\d{2})$/u.exec(id)
+  if (dated && validSnapshotDate(dated[2] || undefined, dated[3]!, dated[4]!))
+    return { name: dated[1]!, snapshot: id.slice(dated[1]!.length + 1) }
+  const claude = /(?:^|\/)claude-[a-z]+-(\d{1,2})(?:-(\d{1,2}))?$/iu.exec(id)
+  if (claude && Number(claude[1]) * 100 + Number(claude[2] ?? 0) >= 406)
+    return { name: id, snapshot: '' }
+  return undefined
+}
+
+/** Whether a model id pins a snapshot under {@link modelSnapshot}. */
 export function modelHasSnapshot(model: string): boolean {
-  if (model.length === 0 || model.trim() !== model) return false
-
-  const opaqueAt = model.lastIndexOf('@')
-  if (opaqueAt > 0) {
-    const base = model.slice(0, opaqueAt)
-    const token = model.slice(opaqueAt + 1)
-    if (!base.includes('@') && /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(token)) {
-      return true
-    }
-  }
-
-  const isoDate = model.match(/-(\d{4})-(\d{2})-(\d{2})$/u)
-  if (isoDate && validSnapshotDate(isoDate[1]!, isoDate[2]!, isoDate[3]!)) return true
-
-  const compactDate = model.match(/-(\d{4})(\d{2})(\d{2})$/u)
-  if (compactDate && validSnapshotDate(compactDate[1]!, compactDate[2]!, compactDate[3]!)) {
-    return true
-  }
-
-  const routerDate = model.match(/-(\d{2})(\d{2})$/u)
-  if (routerDate && validSnapshotDate(undefined, routerDate[1]!, routerDate[2]!)) return true
-
-  const claude = /(?:^|\/)claude-[a-z]+-(\d{1,2})(?:-(\d{1,2}))?$/u.exec(model)
-  if (claude && Number(claude[1]) * 100 + Number(claude[2] ?? 0) >= 406) return true
-  return /:date-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(model)
+  return modelSnapshot(model) !== undefined
 }
 
 function validSnapshotDate(year: string | undefined, month: string, day: string): boolean {

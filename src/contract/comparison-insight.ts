@@ -185,9 +185,12 @@ export function computeLift(
   const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
   const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
-  // A failed run that never observed a served model is unreported, not a model change.
+  // A failed run that never observed a served model is unreported, not a model change. So is an
+  // intake tag that stands in for a snapshot no session recorded (`gpt-5-codex@observed-local`).
+  const reported = (model: string) =>
+    model !== UNKNOWN_MODEL && !/@(?:observed-local|otlp|unknown)$/u.test(model)
   const reportedPairs = pairing.pairs.filter(
-    (pair) => pair.baseline.model !== UNKNOWN_MODEL && pair.treatment.model !== UNKNOWN_MODEL,
+    (pair) => reported(pair.baseline.model) && reported(pair.treatment.model),
   )
   const modelComparison = {
     ...compareModelIdentities(

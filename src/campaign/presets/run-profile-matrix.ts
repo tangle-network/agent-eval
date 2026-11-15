@@ -53,6 +53,7 @@ import {
 } from '../../integrity/backend-integrity'
 import {
   modelHasSnapshot,
+  modelSnapshot,
   type RunRecord,
   type RunSplitTag,
   runTaskScore,
@@ -292,10 +293,6 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   ) => { prompt: string; completion: string } | undefined
 }
 
-function receiptModels(cell: CampaignCellResult<unknown>): string[] {
-  return [...new Set(cellReceiptModels(cell).map((model) => model.trim()).filter(Boolean))]
-}
-
 function isUnknownModelOnly(reported: string[]): boolean {
   return reported.length > 0 && reported.every((model) => model === UNKNOWN_MODEL)
 }
@@ -306,7 +303,7 @@ function recordModel(
   profileId: string,
   declaredModel: string,
 ): string {
-  const reported = receiptModels(cell)
+  const reported = cellReceiptModels(cell)
   // A dispatch failure can happen before the provider returns any model
   // identity. Preserve that failed row with an explicit absence marker; a
   // failure must not be converted into a made-up snapshot or discarded.
@@ -351,12 +348,7 @@ function recordModel(
 }
 
 function sameMovingModel(declared: string, resolved: string): boolean {
-  const resolvedBase = resolved
-    .replace(/@[^/]+$/u, '')
-    .replace(/-\d{8}$/u, '')
-    .replace(/-\d{4}-\d{2}-\d{2}$/u, '')
-    .replace(/-\d{4}$/u, '')
-    .replace(/:date-[^/]+$/u, '')
+  const resolvedBase = modelSnapshot(resolved)?.name ?? resolved
   return (
     resolvedBase === declared ||
     resolvedBase.endsWith(`/${declared}`) ||
@@ -417,7 +409,7 @@ function durableCellForRecord<TArtifact>(
 ): CampaignCellResult<TArtifact> {
   if (cell.error === undefined) return cell
 
-  const hasSettledAgentCalls = receiptModels(cell).some((model) => model !== UNKNOWN_MODEL)
+  const hasSettledAgentCalls = cellReceiptModels(cell).some((model) => model !== UNKNOWN_MODEL)
   return {
     ...cell,
     tokenUsage:
