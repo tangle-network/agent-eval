@@ -4,14 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## Unreleased
 
 - Hold prompt/code promotion when paired served model snapshots differ; preserve descriptive results and support an explicit pinned model treatment in campaign and analysis APIs.
 - Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
 - Route release Verifiers/RFT and Tinker training selection through shared admission, including attempt/native-capture completeness, licensing and exclusion diagnostics.
 - `runImprovementLoop` compares the set of served snapshots per arm, so cells that call several models stay comparable when both arms serve the same set; a declared model treatment and `selfImprove` require one model per arm.
 - `analyzeRuns` counts a pair in which either run carries the unknown-model marker as unreported and does not make the comparison ineligible; when no pair is checked, the release scorecard's `served-model-identity` axis is `not_evaluated`.
-- A pinned request is an alias only when the served id names the same snapshot. A served id without that snapshot or with another one (for example `claude-sonnet-4-5-20250929` served as `anthropic/claude-sonnet-4.5` or `claude-sonnet-4-5-20251001`) now classifies as `substituted-within-family`, which throws under `assertServedModel: true`.
+- A pinned request is an alias only when the served id names the same snapshot. A served id without that snapshot or with another one (for example `claude-sonnet-4-5-20250929` served as `anthropic/claude-sonnet-4.5` or `claude-sonnet-4-5-20251001`) now classifies as `substituted-within-family`, which throws under `assertServedModel: true`. The same classification is also refused, without that flag, by the completion verifier's correctness checker, by external optimizer model callbacks under the default `exact` served-model policy, and by `assertModelsServed` probes (`probe: true`).
 
 ## [1.0.35] — 2026-11-14
 

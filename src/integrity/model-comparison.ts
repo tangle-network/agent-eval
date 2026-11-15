@@ -57,24 +57,24 @@ export function compareModelIdentities(
     }
     const baseline = [...new Set(pair.baseline.map(modelSnapshotIdentity))]
     const candidate = [...new Set(pair.candidate.map(modelSnapshotIdentity))]
-    // A matched cell may call several models; a declared treatment and selfImprove's
-    // one-model run records (requireReported) need one model per arm.
+    // A matched cell may call several models. A declared treatment needs one model per arm;
+    // selfImprove's one-model run records (requireReported) count each reported spelling.
+    const counted = requireReported ? [pair.baseline, pair.candidate] : [baseline, candidate]
     const reason =
-      baseline.length === 0 ||
-      candidate.length === 0 ||
-      ((treatment !== undefined || requireReported) &&
-        (baseline.length !== 1 || candidate.length !== 1))
+      (treatment !== undefined || requireReported) && counted.some((arm) => arm.length !== 1)
         ? 'each arm needs one unambiguous served model'
-        : [...pair.baseline, ...pair.candidate].some((model) => !modelHasSnapshot(model))
-          ? 'each served model needs a snapshot identity'
-          : treatment !== undefined
-            ? baseline[0] === modelSnapshotIdentity(treatment.baseline) &&
-              candidate[0] === modelSnapshotIdentity(treatment.candidate)
-              ? undefined
-              : 'served models differ from the declared model treatment'
-            : baseline.sort().join('\n') !== candidate.sort().join('\n')
-              ? 'baseline and candidate served different model snapshots'
-              : undefined
+        : baseline.length === 0 || candidate.length === 0
+          ? 'each arm needs a reported served model'
+          : [...pair.baseline, ...pair.candidate].some((model) => !modelHasSnapshot(model))
+            ? 'each served model needs a snapshot identity'
+            : treatment !== undefined
+              ? baseline[0] === modelSnapshotIdentity(treatment.baseline) &&
+                candidate[0] === modelSnapshotIdentity(treatment.candidate)
+                ? undefined
+                : 'served models differ from the declared model treatment'
+              : baseline.sort().join('\n') !== candidate.sort().join('\n')
+                ? 'baseline and candidate served different model snapshots'
+                : undefined
     if (reason !== undefined) issues.push({ ...pair, reason })
   }
   return {

@@ -268,16 +268,16 @@ describe('served snapshots through public comparison boundaries', () => {
   it.each(['method', 'proposer'] as const)(
     'holds a %s cell that calls several models before a custom gate',
     async (mode) => {
-      // Both arms call the same planner and executor; selfImprove records one model per cell.
-      const observed: Observed = { gateCalls: 0, decided: [] }
-      await expect(
-        measuredComparison(mode, baselineModel, undefined, undefined, {
-          executor: 'gpt-4.1-mini-2025-04-14',
-          observed,
-        }),
-      ).rejects.toThrow(/multiple agent models/)
-      expect(observed.gateCalls).toBe(0)
-      expect(observed.decided).toEqual(mode === 'proposer' ? ['hold'] : [])
+      // Both arms call the same planner and executor; selfImprove records one model per cell,
+      // so a second spelling of the planner's snapshot also counts as a second model.
+      for (const executor of ['gpt-4.1-mini-2025-04-14', 'gpt-4.1-2025-04-14']) {
+        const observed: Observed = { gateCalls: 0, decided: [] }
+        await expect(
+          measuredComparison(mode, baselineModel, undefined, undefined, { executor, observed }),
+        ).rejects.toThrow(/multiple agent models/)
+        expect(observed.gateCalls).toBe(0)
+        expect(observed.decided).toEqual(mode === 'proposer' ? ['hold'] : [])
+      }
     },
   )
 
