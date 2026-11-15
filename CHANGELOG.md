@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [1.0.36] — 2026-11-15
 
 - Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
 
@@ -14,6 +14,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Add native benchmark bindings through the existing checker/adapter contracts, immutable measurement definitions, and artifact-bound result receipts.
 - Retain benchmark raw evidence and verification certifications in campaign cells; exclude unavailable grades from score denominators and bind resumptions to grader and responder identities.
 - Add retained-trial Harbor regrading through the upstream verifier, with explicit reward selection and validity checks.
+- Keep each improve pass's Harbor case images when several passes share one Docker host (#1272).
+- Reclaim dead owners' Harbor case images, and share a live owner's, before the free-space check (#1273).
 
 ## [1.0.34] — 2026-11-14
 
