@@ -673,6 +673,28 @@ const describeLeaks = (leaks: Leak[]): string =>
  */
 const CASES = Number(process.env.GATE_PROPERTY_RUNS ?? 1000)
 
+/** Reach every exporter independently of the random generator's rate of valid gated rows. */
+function calibrationCorpus() {
+  const line = (id: string, reward: number) =>
+    draftLine({
+      rolloutId: id,
+      runId: id,
+      parentRolloutId: null,
+      instanceId: 'calibration',
+      gated: true,
+      draft: { reward, metrics: {}, verdict: null, realness_screened: true },
+      steps: [{ kind: 'tool', name: 'edit', durationMs: 12 }],
+    })
+  return {
+    lines: [
+      line('calibration-a', 0),
+      line('calibration-b', 0),
+      line('calibration-refused', 42.1337),
+    ],
+    ids: ['calibration-a', 'calibration-b'],
+  }
+}
+
 describe('PROPERTY: a gated run contributes no positive signal to any exporter', () => {
   it(`holds over ${CASES} generated all-gated corpora, through BOTH the minted and the raw door`, async () => {
     const coverage = newCoverage()
@@ -737,17 +759,27 @@ describe('PROPERTY: a gated run contributes no positive signal to any exporter',
           }
         },
       ),
-      { numRuns: CASES },
+      // fast-check counts examples toward numRuns; add one so the full reseeded search remains.
+      { numRuns: CASES + 1, examples: [[calibrationCorpus()]] },
     )
 
     // Calibration: the property must actually have reached the exporters.
-    expect(coverage.cases).toBe(CASES)
+    expect(coverage.cases).toBe(CASES + 1)
     expect(coverage.mintedLines).toBeGreaterThan(0)
     expect(coverage.refusedLines).toBeGreaterThan(0)
+    const counts = Object.fromEntries(
+      MEMORY_EXPORTERS.map((id) => [
+        id,
+        {
+          emitted: coverage.emitted.get(id) ?? 0,
+          threw: coverage.threw.get(id) ?? 0,
+        },
+      ]),
+    )
     for (const id of MEMORY_EXPORTERS) {
       expect(
         coverage.emitted.get(id) ?? 0,
-        `${id} never produced output across ${CASES} cases — the property never reached it`,
+        `${id} never produced output across the fixed calibration and ${CASES} generated cases — exporter counts: ${JSON.stringify(counts)}`,
       ).toBeGreaterThan(0)
     }
   }, 240_000)
