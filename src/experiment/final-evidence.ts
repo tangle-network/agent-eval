@@ -14,6 +14,8 @@ const reservationSchema = z
     populationId: identity,
     inputDigest: digest,
     unitIds: z.array(identity).min(1),
+    sourceDigests: z.array(digest).min(1).optional(),
+    developmentSourceDigests: z.array(digest).optional(),
   })
   .strict()
 
@@ -108,7 +110,22 @@ function normalizeReservation(input: FinalEvidenceReservation): FinalEvidenceRes
   if (new Set(parsed.unitIds).size !== parsed.unitIds.length) {
     throw invalid('unitIds must be unique independent source identities')
   }
-  return { ...parsed, unitIds: [...parsed.unitIds].sort(compareCodeUnits) }
+  if (parsed.developmentSourceDigests !== undefined && parsed.sourceDigests === undefined)
+    throw invalid('developmentSourceDigests requires sourceDigests')
+  if (parsed.sourceDigests?.some((value) => parsed.developmentSourceDigests?.includes(value)))
+    throw invalid('development and final evidence share source content')
+  return {
+    ...parsed,
+    unitIds: [...parsed.unitIds].sort(compareCodeUnits),
+    ...(parsed.sourceDigests === undefined
+      ? {}
+      : {
+          sourceDigests: [...new Set(parsed.sourceDigests)].sort(compareCodeUnits),
+          developmentSourceDigests: [...new Set(parsed.developmentSourceDigests ?? [])].sort(
+            compareCodeUnits,
+          ),
+        }),
+  }
 }
 
 function normalizeMeasurement(input: FinalEvidenceMeasurement): FinalEvidenceMeasurement {
@@ -145,6 +162,9 @@ function codec(): LedgerJournalCodec<{ schema: typeof schema }, Event, FinalEvid
       const records = new Map<string, FinalEvidenceRecord>()
       const owners = new Map<string, string>()
       const inputOwners = new Map<string, string>()
+      const sourceOwners = new Map<string, string>()
+      const developmentOwners = new Map<string, string>()
+      let legacyRequest: string | undefined
       return {
         apply: (entry) => {
           const event = entry.event
@@ -162,6 +182,28 @@ function codec(): LedgerJournalCodec<{ schema: typeof schema }, Event, FinalEvid
                 `final input is already reserved by '${inputOwner}'`,
               )
             }
+            if (reservation.sourceDigests !== undefined && legacyRequest !== undefined)
+              throw new FinalEvidenceConflictError(
+                `final evidence request '${legacyRequest}' has no source identities; freshness against that history is unproven`,
+              )
+            if (reservation.sourceDigests === undefined && sourceOwners.size > 0)
+              throw new FinalEvidenceConflictError(
+                'this final evidence ledger requires source identities',
+              )
+            for (const source of reservation.sourceDigests ?? []) {
+              const owner = sourceOwners.get(source) ?? developmentOwners.get(source)
+              if (owner !== undefined)
+                throw new FinalEvidenceConflictError(
+                  `source '${source}' was already used by '${owner}'`,
+                )
+            }
+            for (const source of reservation.developmentSourceDigests ?? []) {
+              const owner = sourceOwners.get(source)
+              if (owner !== undefined)
+                throw new FinalEvidenceConflictError(
+                  `development source '${source}' is reserved as final evidence by '${owner}'`,
+                )
+            }
             for (const unitId of reservation.unitIds) {
               const owner = owners.get(unitId)
               if (owner !== undefined) {
@@ -172,6 +214,11 @@ function codec(): LedgerJournalCodec<{ schema: typeof schema }, Event, FinalEvid
               owners.set(unitId, reservation.requestId)
             }
             inputOwners.set(reservation.inputDigest, reservation.requestId)
+            if (reservation.sourceDigests === undefined) legacyRequest ??= reservation.requestId
+            for (const source of reservation.sourceDigests ?? [])
+              sourceOwners.set(source, reservation.requestId)
+            for (const source of reservation.developmentSourceDigests ?? [])
+              developmentOwners.set(source, reservation.requestId)
             records.set(reservation.requestId, {
               reservation,
               reservationHash: entry.entryHash,

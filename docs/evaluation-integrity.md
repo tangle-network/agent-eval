@@ -115,6 +115,20 @@ The ledger also rejects the same dataset digest under another request.
 Use one persistent ledger for related decisions and preserve stable source identities.
 Opening another empty ledger or inventing new lineage identities cannot establish independent evidence.
 
+When display ids and unit labels can change, also bind semantic source identity with
+`withFinalEvidenceSources(finalEvidence, sourceDigestByScenarioId)` from `/campaign` or `/contract`.
+The map must cover every development and final scenario; additional entries are development
+sources. Hash the immutable task inputs and relevant workspace bytes, excluding rollout ids,
+display names and unit labels. The helper captures the map before asynchronous work.
+Reusing one task under different independent units or across final/development roles is refused.
+
+The existing ledger atomically reserves `sourceDigests` and `developmentSourceDigests` with the
+unit and dataset identities. Across requests, a previous final source cannot become either final
+or development evidence; a previous development source cannot become final evidence. Repeated
+development use remains permitted. Source-aware reservations cannot mix with legacy history
+whose semantic source identities are unknown. Such a conflict needs provenance reconciliation;
+creating a fresh ledger does not prove freshness.
+
 `FinalEvidenceLedger` returns typed outcomes.
 Inspect `succeeded` before reading `value`.
 Failures distinguish conflicting use, invalid input, and unavailable or damaged storage.

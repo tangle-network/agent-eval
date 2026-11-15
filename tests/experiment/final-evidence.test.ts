@@ -36,6 +36,37 @@ const measurement = {
 }
 
 describe('durable final evidence lifecycle', () => {
+  it('atomically admits one content owner even when every caller renames the input and units', async () => {
+    const sourceDigests = [hashCanonical('immutable task')]
+    const attempts = await Promise.all(
+      Array.from({ length: 4 }, (_, i) =>
+        openFinalEvidenceLedger({ path }).reserve({
+          ...reservation(`owner-${i}`),
+          unitIds: [`renamed-${i}`],
+          sourceDigests,
+        }),
+      ),
+    )
+    expect(attempts.filter((result) => result.succeeded)).toHaveLength(1)
+    expect(value(await openFinalEvidenceLedger({ path }).read())).toHaveLength(1)
+  })
+
+  it.each([true, false])(
+    'refuses mixing source-aware and legacy history (source-first: %s)',
+    async (sourceFirst) => {
+      const ledger = openFinalEvidenceLedger({ path })
+      const source = { sourceDigests: [hashCanonical('immutable task')] }
+      value(await ledger.reserve({ ...reservation(), ...(sourceFirst ? source : {}) }))
+      expect(
+        await ledger.reserve({
+          ...reservation('next'),
+          unitIds: ['fresh-unit'],
+          ...(sourceFirst ? {} : source),
+        }),
+      ).toMatchObject({ succeeded: false, error: { kind: 'conflict' } })
+    },
+  )
+
   it('reopens reservations and exact retries without creating a second exposure', async () => {
     const first = openFinalEvidenceLedger({ path })
     expect(value(await first.read())).toEqual([])

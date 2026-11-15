@@ -151,6 +151,7 @@ export {
   type FinalEvidencePolicy,
   type FinalEvidenceUse,
   prepareSearchFinalEvidence,
+  withFinalEvidenceSources,
 } from './final-evidence'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
