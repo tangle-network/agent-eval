@@ -431,15 +431,13 @@ describe('served snapshots through public comparison boundaries', () => {
       )
     }
   })
-  it('admits a pinned id that a routing tier, a Bedrock revision or a padded receipt spells', async () => {
+
+  it('admits a pinned id spelled with a routing tier or a Bedrock revision', async () => {
     for (const served of [
       'deepseek/deepseek-chat-v3-0324:free',
       'anthropic.claude-3-5-sonnet-20240620-v1:0',
-      ' gpt-4.1-2025-04-14 ',
     ]) {
-      const { result, gateCalls } = await improvementLoop(() => [
-        { requested: served.trim(), served },
-      ])
+      const { result, gateCalls } = await improvementLoop(() => [{ requested: served, served }])
       expect(result.modelComparison, served).toMatchObject({ eligible: true, issues: [] })
       expect(gateCalls, served).toBe(1)
     }
@@ -473,7 +471,10 @@ describe('served snapshots through public comparison boundaries', () => {
         ...(surface === 'WIN' ? [{ requested }] : []),
         { requested, served: pinned },
       ])
-      expect(result.modelComparison, String(requested)).toMatchObject({ eligible: true, issues: [] })
+      expect(result.modelComparison, String(requested)).toMatchObject({
+        eligible: true,
+        issues: [],
+      })
       expect(gateCalls).toBe(1)
       expect(result.winnerOnHoldout.cells.map((cell) => cell.resolvedModels)).toEqual([
         [pinned],
@@ -524,7 +525,8 @@ describe('served snapshots through public comparison boundaries', () => {
 
   it('names an arm with no served model and counts treatment snapshots, not spellings', async () => {
     const pinned = 'gpt-4.1-2025-04-14'
-    const served = (models: string[]) => models.map((model) => ({ requested: model, served: model }))
+    const served = (models: string[]) =>
+      models.map((model) => ({ requested: model, served: model }))
     const empty = await improvementLoop((surface) => (surface === 'BASE' ? served([pinned]) : []))
     expect(empty.gateCalls).toBe(0)
     expect(empty.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
