@@ -7,11 +7,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ## Unreleased
 
 - Hold prompt/code promotion when paired served model snapshots differ; preserve descriptive results and support an explicit pinned model treatment in campaign and analysis APIs.
-- Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
 - Route release Verifiers/RFT and Tinker training selection through shared admission, including attempt/native-capture completeness, licensing and exclusion diagnostics.
 - `runImprovementLoop` compares the set of served snapshots per arm, so cells that call several models stay comparable when both arms serve the same set; a declared model treatment and `selfImprove` require one model per arm.
 - `analyzeRuns` counts a pair in which either run carries the unknown-model marker as unreported and does not make the comparison ineligible; when no pair is checked, the release scorecard's `served-model-identity` axis is `not_evaluated`.
 - A pinned request is an alias only when the served id names the same snapshot. A served id without that snapshot or with another one (for example `claude-sonnet-4-5-20250929` served as `anthropic/claude-sonnet-4.5` or `claude-sonnet-4-5-20251001`) now classifies as `substituted-within-family`, which throws under `assertServedModel: true`. The same classification is also refused, without that flag, by the completion verifier's correctness checker, by external optimizer model callbacks under the default `exact` served-model policy, and by `assertModelsServed` probes (`probe: true`).
+
+## [1.0.36] — 2026-11-15
+
+- Bind semantic task digests to the existing final-evidence ledger so renamed tasks cannot move between final and development evidence or be consumed again as fresh final cases.
 
 ## [1.0.35] — 2026-11-14
 
@@ -19,6 +22,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Add native benchmark bindings through the existing checker/adapter contracts, immutable measurement definitions, and artifact-bound result receipts.
 - Retain benchmark raw evidence and verification certifications in campaign cells; exclude unavailable grades from score denominators and bind resumptions to grader and responder identities.
 - Add retained-trial Harbor regrading through the upstream verifier, with explicit reward selection and validity checks.
+- Keep each improve pass's Harbor case images when several passes share one Docker host (#1272).
+- Reclaim dead owners' Harbor case images, and share a live owner's, before the free-space check (#1273).
 
 ## [1.0.34] — 2026-11-14
 
