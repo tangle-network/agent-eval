@@ -73,16 +73,21 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     })
     const [task] = await adapter.loadAll()
     const image = await prepareCaseEnvironment(task!)
-    expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}-[0-9a-f]{6}-\d+-[0-9a-f]{4}$/)
-    expect(docker('buildx', 'du', '--format', 'json')).toContain(MARK)
+    try {
+      expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}-[0-9a-f]{6}-\d+-[0-9a-f]{4}$/)
+      expect(docker('buildx', 'du', '--format', 'json')).toContain(MARK)
 
-    expect(await adapter.evaluate(task!, { patch: PATCH })).toMatchObject({ score: 1 })
-    expect(await adapter.evaluate(task!, { patch: '' })).toMatchObject({ score: 0 })
-    // Both grades ran on the prepared image: Harbor built no image of its own.
-    const named = docker('images', '--format', '{{.Repository}}').split('\n')
-    expect(named.filter((name) => name.includes('prepared'))).toEqual(['harbor-case/prepared'])
-
-    await releaseCaseEnvironment(task!)
+      expect(await adapter.evaluate(task!, { patch: PATCH })).toMatchObject({ score: 1 })
+      expect(await adapter.evaluate(task!, { patch: '' })).toMatchObject({ score: 0 })
+      // Both grades ran on the prepared image: Harbor built no image of its own. Other owners'
+      // harbor-case/prepared tags may share the host.
+      const named = docker('images', '--format', '{{.Repository}}').split('\n')
+      expect(
+        named.filter((name) => name.includes('prepared') && name !== 'harbor-case/prepared'),
+      ).toEqual([])
+    } finally {
+      await releaseCaseEnvironment(task!)
+    }
     expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).not.toContain(image)
     expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
   }, 900_000)
