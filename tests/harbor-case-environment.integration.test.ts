@@ -1,8 +1,9 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import {
@@ -72,16 +73,21 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     })
     const [task] = await adapter.loadAll()
     const image = await prepareCaseEnvironment(task!)
-    expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}$/)
-    expect(docker('buildx', 'du', '--format', 'json')).toContain(MARK)
+    try {
+      expect(image).toMatch(/^harbor-case\/prepared:[0-9a-f]{16}-[0-9a-f]{6}-\d+-[0-9a-f]{4}$/)
+      expect(docker('buildx', 'du', '--format', 'json')).toContain(MARK)
 
-    expect(await adapter.evaluate(task!, { patch: PATCH })).toMatchObject({ score: 1 })
-    expect(await adapter.evaluate(task!, { patch: '' })).toMatchObject({ score: 0 })
-    // Both grades ran on the prepared image: Harbor built no image of its own.
-    const named = docker('images', '--format', '{{.Repository}}').split('\n')
-    expect(named.filter((name) => name.includes('prepared'))).toEqual(['harbor-case/prepared'])
-
-    await releaseCaseEnvironment(task!)
+      expect(await adapter.evaluate(task!, { patch: PATCH })).toMatchObject({ score: 1 })
+      expect(await adapter.evaluate(task!, { patch: '' })).toMatchObject({ score: 0 })
+      // Both grades ran on the prepared image: Harbor built no image of its own. Other owners'
+      // harbor-case/prepared tags may share the host.
+      const named = docker('images', '--format', '{{.Repository}}').split('\n')
+      expect(
+        named.filter((name) => name.includes('prepared') && name !== 'harbor-case/prepared'),
+      ).toEqual([])
+    } finally {
+      await releaseCaseEnvironment(task!)
+    }
     expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).not.toContain(image)
     expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
   }, 900_000)
@@ -109,11 +115,75 @@ describe.skipIf(!harborAndDocker)('a Harbor case environment on a real docker ho
     expect(await prepareCaseEnvironment(first, { maxLive: 1 })).toBe(image)
     expect(admitted).toBe(false)
     await releaseCaseEnvironment(first)
-    expect(await next).toBe(image)
+    const nextImage = await next
+    expect(nextImage).not.toBe(image)
     await releaseCaseEnvironment(second)
-    expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).not.toContain(image)
+    const tags = docker('images', '--format', '{{.Repository}}:{{.Tag}}')
+    expect(tags).not.toContain(image)
+    expect(tags).not.toContain(nextImage)
     expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
   }, 300_000)
+
+  // The 2026-11-14 factory v4 runs: two improve passes graded the same cases on one host, and the
+  // pass that finished a case first removed the image the other's judge then failed to pull.
+  it.each([2, 4])(
+    'grades the same case in %i concurrent passes, each releasing only its own image',
+    async (count) => {
+      const root = await dataset()
+      const coord = await mkdtemp(join(tmpdir(), 'eval-harbor-case-passes-'))
+      roots.push(coord)
+      const script = join(import.meta.dirname, 'fixtures/harbor-case-pass.ts')
+      const passes = await Promise.all(
+        Array.from({ length: count }, (_, i) =>
+          promisify(execFile)(
+            process.execPath,
+            ['--import', 'tsx', script, root, coord, `${i}`, `${count}`],
+            { timeout: 900_000, maxBuffer: 1 << 26 },
+          ),
+        ),
+      )
+      const results = passes.map(
+        ({ stdout }) =>
+          JSON.parse(stdout.trim().split('\n').at(-1)!) as {
+            image: string
+            scores: (number | string)[]
+          },
+      )
+      expect(results.map((result) => result.scores)).toEqual(
+        Array.from({ length: count }, () => [1, 0]),
+      )
+      expect(new Set(results.map((result) => result.image)).size).toBe(count)
+      const tags = docker('images', '--format', '{{.Repository}}:{{.Tag}}')
+      for (const { image } of results) expect(tags).not.toContain(image)
+      expect(docker('buildx', 'du', '--format', 'json')).not.toContain(MARK)
+    },
+    1_800_000,
+  )
+
+  it("removes a dead pass's image on the next release of its case", async () => {
+    const root = await dataset()
+    const coord = await mkdtemp(join(tmpdir(), 'eval-harbor-case-passes-'))
+    roots.push(coord)
+    const script = join(import.meta.dirname, 'fixtures/harbor-case-pass.ts')
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      ['--import', 'tsx', script, root, coord, '0', 'crash'],
+      { timeout: 600_000, maxBuffer: 1 << 26 },
+    )
+    const { image: orphan } = JSON.parse(stdout.trim().split('\n').at(-1)!) as { image: string }
+    expect(docker('images', '--format', '{{.Repository}}:{{.Tag}}')).toContain(orphan)
+    const [task] = await createHarborBenchmarkAdapter({
+      id: 'case-env',
+      datasetDir: root,
+      source: { name: 'synthetic-case-env', revision: 'local' },
+      grade: gradeHarborPatch(),
+    }).loadAll()
+    const image = await prepareCaseEnvironment(task!)
+    await releaseCaseEnvironment(task!)
+    const tags = docker('images', '--format', '{{.Repository}}:{{.Tag}}')
+    expect(tags).not.toContain(orphan)
+    expect(tags).not.toContain(image)
+  }, 600_000)
 
   it('pauses, never fails, while the docker host is below its free-space floor', async () => {
     const root = await dataset()
