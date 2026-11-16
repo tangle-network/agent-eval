@@ -167,6 +167,11 @@ The map must cover every development and final scenario; additional entries are 
 sources. Hash the immutable task inputs and relevant workspace bytes, excluding rollout ids,
 display names and unit labels. The helper captures the map before asynchronous work.
 Reusing one task under different independent units or across final/development roles is refused.
+Every entry whose id is not a final scenario is recorded as development evidence, and a later
+request cannot use that source as final evidence, so pass this run's scenarios, not the whole corpus.
+The reservation stores the distinct non-final digests, so a retry of the same `requestId` with a
+different set (an entry added, removed or rehashed) conflicts with the recorded reservation and
+cannot resume.
 
 The existing ledger atomically reserves `sourceDigests` and `developmentSourceDigests` with the
 unit and dataset identities. Across requests, a previous final source cannot become either final
