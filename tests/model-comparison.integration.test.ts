@@ -499,16 +499,17 @@ describe('served snapshots through public comparison boundaries', () => {
       surface === 'WIN' ? [{ requested }] : [{ requested: pinned, served: pinned }]
     const unserved = await improvementLoop(winnerTimesOut(pinned))
     expect.soft(unserved.gateCalls).toBe(0)
-    expect.soft(unserved.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
-      'each arm needs a reported served model',
-      'each arm needs a reported served model',
-    ])
+    expect
+      .soft(unserved.result.modelComparison.issues.map((issue) => issue.reason))
+      .toEqual(['each arm needs a reported served model', 'each arm needs a reported served model'])
     const required = await improvementLoop(winnerTimesOut(pinned), { requireReportedModel: true })
     expect.soft(required.gateCalls).toBe(0)
-    expect.soft(required.result.modelComparison.issues.map((issue) => issue.reason)).toEqual([
-      'each arm needs one unambiguous served model',
-      'each arm needs one unambiguous served model',
-    ])
+    expect
+      .soft(required.result.modelComparison.issues.map((issue) => issue.reason))
+      .toEqual([
+        'each arm needs one unambiguous served model',
+        'each arm needs one unambiguous served model',
+      ])
     // A declared model fills a cell that served nothing, whatever the failed call requested.
     const declared = await improvementLoop(winnerTimesOut('gpt-4.1'), { model: pinned })
     expect.soft(declared.result.modelComparison).toMatchObject({ eligible: true, issues: [] })
@@ -543,19 +544,21 @@ describe('served snapshots through public comparison boundaries', () => {
   it('does not read intake tags for an unrecorded snapshot as pinned served models', async () => {
     // Codex cohorts share 20 scenarios, the bootstrap floor; the candidate scores higher.
     const cohort = (candidateId: string, model: string, score: (index: number) => number) =>
-      Array.from({ length: 20 }, (_, index) =>
-        fromCodexSession({
-          entries: [
-            { type: 'thread.started', thread_id: `codex-${candidateId}-${index}` },
-            { type: 'turn_context', payload: { model } },
-            { type: 'turn.started' },
-            { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } },
-          ],
-          candidateId,
-          scenarioId: `s${index}`,
-          seed: 0,
-          score: score(index),
-        }).runs,
+      Array.from(
+        { length: 20 },
+        (_, index) =>
+          fromCodexSession({
+            entries: [
+              { type: 'thread.started', thread_id: `codex-${candidateId}-${index}` },
+              { type: 'turn_context', payload: { model } },
+              { type: 'turn.started' },
+              { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } },
+            ],
+            candidateId,
+            scenarioId: `s${index}`,
+            seed: 0,
+            score: score(index),
+          }).runs,
       ).flat()
     const baseline = cohort('baseline', 'gpt-5-codex', (index) => 0.2 + index / 100)
     const analyze = (candidate: RunRecord[], modelTreatment?: ModelTreatment) =>
@@ -575,9 +578,11 @@ describe('served snapshots through public comparison boundaries', () => {
         decisionEligible: false,
         modelComparison: { checkedPairs: 0, unreportedPairs: 20 },
       })
-      expect.soft(report.release.axes).toContainEqual(
-        expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
-      )
+      expect
+        .soft(report.release.axes)
+        .toContainEqual(
+          expect.objectContaining({ name: 'served-model-identity', status: 'not_evaluated' }),
+        )
       expect.soft(report.recommendations.some((row) => row.kind === 'ship')).toBe(false)
     }
     // Cohorts that recorded different models served different models, tagged or not.
@@ -592,9 +597,9 @@ describe('served snapshots through public comparison boundaries', () => {
         decisionEligible: false,
         modelComparison: { eligible: false, checkedPairs: 20 },
       })
-      expect.soft(report.release.axes).toContainEqual(
-        expect.objectContaining({ name: 'served-model-identity', status: 'fail' }),
-      )
+      expect
+        .soft(report.release.axes)
+        .toContainEqual(expect.objectContaining({ name: 'served-model-identity', status: 'fail' }))
     }
     // A declared treatment needs the build each arm served; an intake tag names none.
     const declared = await analyze(changed, {
@@ -628,9 +633,9 @@ describe('served snapshots through public comparison boundaries', () => {
           scoreForTrace: (runId) => (candidateId === 'baseline' ? 0.2 + Number(runId) / 100 : 0.8),
         },
       )
-    expect.soft(traces('baseline', { 'gen_ai.request.model': 'gpt-4o-mini' })[0]?.model).toBe(
-      'gpt-4o-mini@otlp',
-    )
+    expect
+      .soft(traces('baseline', { 'gen_ai.request.model': 'gpt-4o-mini' })[0]?.model)
+      .toBe('gpt-4o-mini@otlp')
     const attributeSets: Array<Record<string, string>> = [{ 'gen_ai.request.model': 'gpt-4o' }, {}]
     for (const attributes of attributeSets) {
       const report = await analyzeRuns({
