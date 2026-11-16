@@ -97,6 +97,9 @@ def _main() -> None:
     _require_model_proxy_dependencies(input_value)
 
     evaluation_count = 0
+    restore_tracker: GepaRestoreObserver | None = None
+    # GEPA indexes the valset (the selection set) by list position.
+    val_index = {example["id"]: index for index, example in enumerate(input_value["selectionSet"])}
 
     def evaluate_one(
         candidate: str | dict[str, str],
@@ -105,6 +108,10 @@ def _main() -> None:
         nonlocal evaluation_count
         if not isinstance(example.get("id"), str):
             raise ValueError("GEPA requested an example without a string id")
+        if restore_tracker is not None and candidate == input_value["seedCandidate"]:
+            replayed = restore_tracker.seed_score(val_index.get(example["id"], -1))
+            if replayed is not None:
+                return replayed, {}
         response = httpx.post(
             input_value["callbackUrl"],
             headers={"Authorization": f"Bearer {input_value['callbackToken']}"},
@@ -173,7 +180,6 @@ def _main() -> None:
         resume_supported=_supports_resume(recipe),
         resume_scope=_resume_scope(recipe),
     ) as run:
-        restore_tracker: GepaRestoreObserver | None = None
         if run.restore_requested:
             restore_tracker = load_restore_observer(
                 run.run_dir,

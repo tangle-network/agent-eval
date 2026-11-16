@@ -532,8 +532,17 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
     from agent_eval_rpc.gepa_compat_0_1_4 import load_restore_observer
 
     _assert_installed_gepa_runtime()
+    evaluations: list[str] = []
 
     def callback_post(url: str, **kwargs: Any) -> httpx.Response:
+        # Like the TypeScript owner, the run's evaluation budget spans attempts.
+        evaluations.append(kwargs["json"]["exampleId"])
+        if len(evaluations) > 4:
+            return httpx.Response(
+                429,
+                json={"error": "evaluation limit reached"},
+                request=httpx.Request("POST", url),
+            )
         candidate = kwargs["json"]["candidate"]
         score = 1.0 if "ALWAYS_RETURN_READY" in candidate else 0.0
         return httpx.Response(
@@ -644,7 +653,11 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
                 },
                 trusted=True,
             )
+        first_evaluations = len(evaluations)
         second = run_bridge("second-run")
+        # The resumed attempt answers GEPA's discarded seed re-score from the
+        # restored state instead of spending the exhausted budget.
+        assert len(evaluations) == first_evaluations
 
     assert first["resumed"] is False
     assert first["seedApplied"] is True
