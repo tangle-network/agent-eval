@@ -639,7 +639,8 @@ export interface CampaignCellResult<TArtifact> {
   /** Exact durable receipts required to reuse this cached result. */
   costCallIds?: string[]
   /** Agent-call token usage committed by `ctx.cost.runPaidCall`.
-   *  `{ input: 0, output: 0 }` when no paid agent call was recorded. */
+   *  Counts are zero when no paid agent call was recorded. A failed cell without agent receipts
+   *  also carries `tokensKnown: false`; a receipt that explicitly reports zero stays measured. */
   tokenUsage: CampaignTokenUsage
   /** Every distinct concrete model reported by committed agent receipts, in
    *  first-seen order. Multiple entries mean the cell used mixed models. */

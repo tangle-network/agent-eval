@@ -71,18 +71,28 @@ export function cellReceiptModels(
   return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
 }
 
-export function withCurrentAgentModelEvidence<TArtifact>(
-  cached: CampaignCellResult<TArtifact>,
+/** Reconcile a live or resumed cell with its agent receipts. Model identity and accounting
+ * completeness are independent: a failed call may report complete usage without a served model. */
+export function withCurrentAgentEvidence<TArtifact>(
+  source: CampaignCellResult<TArtifact>,
   costLedger: CostLedgerHandle,
   stableCostTags: Record<string, string>,
 ): CampaignCellResult<TArtifact> {
-  const cachedCallIds = new Set(cached.costCallIds ?? [])
+  const callIds = new Set(source.costCallIds ?? [])
   const receipts = costLedger
     .list({ channel: 'agent', tags: stableCostTags })
-    .filter((receipt) => cachedCallIds.has(receipt.callId))
-  const cell = { ...cached }
+    .filter((receipt) => callIds.has(receipt.callId))
+  const cell = { ...source }
   delete cell.resolvedModel
   delete cell.resolvedModels
+  // An empty ledger is a zero subtotal, not evidence that a failed dispatch consumed nothing.
+  // Conversely, an error receipt can explicitly report zero; retain that observation.
+  if (cell.error !== undefined && receipts.length === 0) {
+    cell.tokenUsage = { ...cell.tokenUsage, tokensKnown: false }
+    if (cell.costProvenance.kind === 'observed' && cell.costUsd === 0) {
+      cell.costProvenance = { kind: 'uncaptured', usd: null }
+    }
+  }
   return Object.assign(cell, modelEvidenceFromReceipts(receipts))
 }
 
@@ -91,8 +101,18 @@ export function cachedCellReceiptProblem(
   costLedger: CostLedgerHandle,
   stableCostTags: Record<string, string>,
 ): string | undefined {
+  // The producer explicitly retained an empty receipt set for an unmeasured failure. Reusing
+  // that failure preserves unknown accounting; it does not assert that missing paid work was free.
+  const unmeteredFailure =
+    cached.error !== undefined &&
+    cached.costCallIds?.length === 0 &&
+    cached.costProvenance.kind === 'uncaptured' &&
+    cached.tokenUsage.tokensKnown === false &&
+    cached.costUsd === 0 &&
+    cached.tokenUsage.input === 0 &&
+    cached.tokenUsage.output === 0
   const reportsPaidActivity =
-    cached.costProvenance.kind !== 'observed' ||
+    (cached.costProvenance.kind !== 'observed' && !unmeteredFailure) ||
     cached.costUsd > 0 ||
     cached.tokenUsage.input > 0 ||
     cached.tokenUsage.output > 0
