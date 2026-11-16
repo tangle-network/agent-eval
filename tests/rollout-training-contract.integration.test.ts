@@ -22,10 +22,14 @@ import {
   readRolloutJournal,
   readRolloutLedger,
   type TrainingAdmission,
+  toRftItems,
   toSftRows,
+  toVerifiersRolloutOutputs,
   trainingAdmission,
+  writeRolloutLedger,
 } from '../src/rollout'
 import { fixtureRolloutLine } from '../src/rollout/fixtures'
+import { buildHfDataset } from '../src/rollout/release/hf-dataset'
 import type { RunRecord } from '../src/run-record'
 import { InMemoryTraceStore } from '../src/trace/store'
 
@@ -295,4 +299,64 @@ it('applies split and capture admission even to supplied pairs, and accounts for
   expect(
     audit.some((decision) => decision.rollout_id === 'holdout' && decision.reason === 'split'),
   ).toBe(true)
+})
+
+it('keeps completed negative evidence while excluding capture gaps from released signed-signal formats', async () => {
+  const base = fixtureRolloutLine()
+  const line = (id: string, changes: Partial<RolloutLine> = {}) =>
+    assertMinted({ ...base, rollout_id: id, run_id: id, ...changes })
+  const rows = [
+    line('good'),
+    line('negative', { outcome: { ...base.outcome, reward: 0, error: 'verification failed' } }),
+    line('gated', { outcome: { ...base.outcome, reward: 0, realness_gated: true } }),
+    line('unfinished', { outcome: { ...base.outcome, is_completed: false } }),
+    line('truncated', { outcome: { ...base.outcome, is_truncated: true } }),
+    line('unscored', { outcome: { ...base.outcome, reward: null } }),
+    line('native-gap', { provenance: { ...base.provenance, native_captures: [] } }),
+    line('native-unresolved', {
+      provenance: {
+        ...base.provenance,
+        native_captures: [
+          {
+            execution_index: 0,
+            evidence_ref: 'capture',
+            root_id: 'root',
+            attempt_id: 'attempt',
+            task_ref: 'task',
+            result_ref: 'result',
+            transcript_ref: null,
+            verified: false,
+            gap: 'native capture unavailable',
+            native_session_ids: [],
+          },
+        ],
+      },
+    }),
+  ]
+  const path = join(directory, 'signed-signal.jsonl')
+  await writeRolloutLedger(path, rows)
+  const retained = await readRolloutLedger(path)
+  for (const exporter of [toRftItems, toVerifiersRolloutOutputs]) {
+    const admissions: TrainingAdmission[] = []
+    expect(
+      exporter(retained, {
+        gatedLines: 'zero-and-flag',
+        onAdmission: (decision) => admissions.push(decision),
+      }),
+    ).toHaveLength(3)
+    expect(admissions).toHaveLength(rows.length)
+    expect(
+      admissions.filter((decision) => decision.reason !== null).map((decision) => decision.reason),
+    ).toEqual(['incomplete', 'truncated', 'unscored', 'lossy-capture', 'lossy-capture'])
+    expect(
+      exporter(retained, { gatedLines: 'zero-and-flag', allowLicenseClasses: ['human'] }),
+    ).toEqual([])
+  }
+  const released = await buildHfDataset([path], {
+    out: join(directory, 'release'),
+    formats: ['verifiers', 'rft', 'raw'],
+    includeProposers: false,
+  })
+  expect(released.formatCounts).toEqual({ verifiers: 3, rft: 3, raw: rows.length })
+  expect(await readRolloutLedger(path)).toEqual(retained)
 })

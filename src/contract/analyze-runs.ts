@@ -22,6 +22,7 @@
 
 import type { AnalystRegistry } from '../analyst/registry'
 import type { DatasetScenario } from '../dataset'
+import { captureModelTreatment, type ModelTreatment } from '../integrity/model-comparison'
 import { type RunRecord, validateRunRecord } from '../run-record'
 import { paretoChart } from '../summary-report'
 import { computeLift, computePriorPeriodComparison } from './comparison-insight'
@@ -60,6 +61,8 @@ export interface AnalyzeRunsOptions {
    *  Unmatched rows remain visible in the lift result. */
   baselineCandidateId?: string
   candidateCandidateId?: string
+  /** A predeclared model change; requires explicit baseline and candidate ids. */
+  modelTreatment?: ModelTreatment
   /** Average matched run scores within these units before estimating lift.
    *  Raw run distributions and unmatched-run counts remain unchanged. */
   independentUnitByScenarioId?: ReadonlyMap<string, string>
@@ -101,6 +104,10 @@ export interface AnalyzeRunsOptions {
 }
 
 export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightReport> {
+  const modelTreatment = captureModelTreatment(opts.modelTreatment)
+  if (modelTreatment && (!opts.baselineCandidateId || !opts.candidateCandidateId)) {
+    throw new Error('analyzeRuns: model treatment requires explicit baseline and candidate ids')
+  }
   const runs = opts.runs.map(validateRunRecord)
   const bins = opts.histogramBins ?? 12
   const threshold = opts.decisionThreshold ?? 0.02
@@ -156,6 +163,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     opts.candidateCandidateId,
     split,
     opts.independentUnitByScenarioId,
+    modelTreatment,
   )
 
   const failureClusters = opts.analyst

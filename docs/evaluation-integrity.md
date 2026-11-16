@@ -59,6 +59,52 @@ Claim metadata records the intended scope; it does not authenticate sampling or 
 
 ## Interpret small and inconclusive results
 
+Prompt and code comparisons require matched served model snapshots for every paired cell.
+`selfImprove()` and `runImprovementLoop()` enforce this before calling even a custom release gate,
+including the optional neutralized arm. The result and persisted gate contributions of a run that
+completes retain `modelComparison`; a conflicting pair holds promotion without removing its
+measurements.
+The agent's committed model receipts take precedence over a declared `model` fallback.
+A cell where one arm reports a model and the other reports none is held; a declared `model` fills
+the empty arm, which is then compared like a receipt, and it can hide a model change in a cell that
+bypassed the paid-call path.
+A declared `model` fills cells without receipts and is a declaration, not evidence.
+Lower-level deterministic campaigns with no model calls report unmeasured model identity;
+`selfImprove()` requires a pinned receipt or fallback for every cell.
+A `runImprovementLoop()` cell may call several models: under the matched policy both arms must
+serve the same set of pinned snapshots, and a declared treatment requires exactly one served
+snapshot per arm, however many spellings name it. Only served calls count: a failed call's receipt
+names the requested id or `unknown`, so a timed-out call followed by a served retry is evidence of
+the retry's model alone, and a cell whose calls all failed reports no model.
+`selfImprove()` records one reported model id per cell: a cell that calls several models, or one
+model under two spellings, holds promotion before the gate. In a baseline or winner cell the call
+then fails with a `SelfImproveRunError` whose cause is a `ValidationError` naming the cell; in a
+neutralized cell the hold is the only effect.
+
+When changing the model is part of the experiment, declare
+`modelTreatment: { baseline: 'model@build-a', candidate: 'model@build-b' }`
+before search. Each arm must report that exact build. This measures the combined treatment;
+it does not isolate the effect of a prompt or code change. `analyzeRuns()` accepts the same
+policy with explicit `baselineCandidateId` and `candidateCandidateId`, and otherwise makes
+lift descriptive when served snapshots differ. A pair in which either run records the unknown
+model marker (a failed run that never observed a served model) counts as unreported and does not
+make the comparison ineligible. An intake tag stands in for a snapshot the session never recorded
+(`@observed-local`, `@otlp`, `unknown@unknown`): a pair whose runs name one model counts as
+unreported, a pair whose runs name different models served different snapshots, and a declared
+treatment reads a tagged run as an arm with no reported model. Lift over tagged runs is descriptive
+when no pair is checked. When no pair is checked, the release scorecard reports the
+served-model identity as not evaluated. Declaring a policy during later analysis
+does not establish that it was registered before data collection.
+
+`modelHasSnapshot()` is the one snapshot grammar every check reads: a routing tier (`:free`,
+`:batch`) may follow a snapshot, a Bedrock revision (`-v1:0`) and a `-YYMM` release
+(`devstral-2512`) pin, and an impossible date, a token ending in `.` or `-`, or surrounding
+whitespace does not. Campaign receipts are trimmed before the check.
+Routing prefixes and equivalent date spelling may differ. Two different pinned snapshots
+are distinct even when they share a model family. `checkServedModel()` still accepts a floating
+requested alias resolved to a concrete build; an explicitly pinned request cannot resolve to
+a different build or an unpinned alias.
+
 There is no universal task count that proves an improvement.
 The effect, outcome type, dependence, confidence level, and decision procedure determine what the evidence supports.
 

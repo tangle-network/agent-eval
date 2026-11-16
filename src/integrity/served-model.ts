@@ -22,6 +22,7 @@
 
 import { AgentEvalError } from '../errors'
 import { type JudgeFamily, judgeFamily } from '../judge-families'
+import { modelHasSnapshot, modelSnapshot } from '../run-record'
 
 /**
  * Output-token budget a liveness probe must grant a model.
@@ -70,32 +71,43 @@ export interface ServedModelCheck {
 /**
  * Reduce a model id to its comparable core: lowercase, no surrounding space,
  * no `provider/` prefix, no `@snapshot` / `:batch` / `:free` tier suffix, no
- * trailing build date, and `.`/`_` folded to `-` so one version is spelled one
- * way.
+ * trailing date snapshot (as `modelSnapshot` reads it), and `.`/`_` folded to
+ * `-` so one version is spelled one way.
  *
- * Dropping the build date is what makes snapshot resolution legible as the
- * non-event it is: a router answering `gpt-4o-mini` with
- * `gpt-4o-mini-2024-07-18` pinned a floating alias to a reproducible build —
- * the same model, which is the behaviour we want. Only routing decoration is
+ * This supports resolution of a floating alias to a build. It does not prove
+ * two explicitly pinned builds are equal; use modelSnapshotIdentity for that.
+ * Only routing decoration is
  * stripped; version digits are load-bearing, so `deepseek-v3.2` and
  * `deepseek-v4-flash` stay distinct, and comparison is EXACT equality rather
  * than a prefix test (a prefix rule would accept `gpt-5` → `gpt-5-mini`, a
  * silent downgrade wearing the right vendor name).
  */
 export function normalizeModelId(modelId: string): string {
-  let id = modelId.trim().toLowerCase()
+  let id = modelId.trim()
   const at = id.indexOf('@')
   if (at > 0) id = id.slice(0, at)
   const colon = id.indexOf(':')
   if (colon > 0) id = id.slice(0, colon)
-  const slash = id.lastIndexOf('/')
-  if (slash >= 0) id = id.slice(slash + 1)
+  return normalizeModelSpelling((modelSnapshot(id)?.name ?? id).toLowerCase())
+}
+
+function normalizeModelSpelling(id: string): string {
   return id
-    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
-    .replace(/-\d{8}$/, '')
+    .slice(id.lastIndexOf('/') + 1)
     .replace(/[._]/g, '-')
     .replace(/-+$/, '')
     .trim()
+}
+
+/** Routing spelling may vary; the snapshot `modelSnapshot` reads remains part of the identity. */
+export function modelSnapshotIdentity(modelId: string): string {
+  const pinned = modelSnapshot(modelId)
+  if (!pinned) return normalizeModelId(modelId)
+  const name = normalizeModelSpelling(pinned.name.toLowerCase())
+  const token = /^\d{4}-\d{2}-\d{2}$/u.test(pinned.snapshot)
+    ? pinned.snapshot.replaceAll('-', '')
+    : pinned.snapshot
+  return token ? `${name}@${token}` : name
 }
 
 /**
@@ -124,7 +136,9 @@ export function checkServedModel(
     }
   }
   const servedFamily = judgeFamily(served)
-  if (requested.trim().toLowerCase() === served.trim().toLowerCase()) {
+  const requestedId = requested.trim()
+  const servedId = served.trim()
+  if (requestedId === servedId) {
     return {
       requested,
       served,
@@ -134,7 +148,11 @@ export function checkServedModel(
       substituted: false,
     }
   }
-  if (normalizeModelId(requested) === normalizeModelId(served)) {
+  if (
+    modelHasSnapshot(requestedId)
+      ? modelSnapshotIdentity(requestedId) === modelSnapshotIdentity(servedId)
+      : normalizeModelId(requestedId) === normalizeModelId(servedId)
+  ) {
     return {
       requested,
       served,

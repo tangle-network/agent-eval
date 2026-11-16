@@ -2,8 +2,10 @@
 
 import { welchsTTest } from '../baseline'
 import { aggregatePairedHoldout } from '../campaign/gates/statistical-heldout'
+import { compareModelIdentities, type ModelTreatment } from '../integrity/model-comparison'
+import { normalizeModelId } from '../integrity/served-model'
 import { pairRunRecords } from '../paired-arms'
-import type { RunRecord } from '../run-record'
+import { type RunRecord, UNKNOWN_MODEL } from '../run-record'
 import {
   BOOTSTRAP_GATE_MIN_N,
   pairedBootstrap,
@@ -152,6 +154,7 @@ export function computeLift(
   candidateId: string | undefined,
   split: 'search' | 'holdout',
   independentUnitByScenarioId?: ReadonlyMap<string, string>,
+  modelTreatment?: ModelTreatment,
 ): LiftInsight | undefined {
   let bId = baselineId
   let cId = candidateId
@@ -183,6 +186,28 @@ export function computeLift(
   const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
   const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
+  // A run that never observed a served model (`unknown`, intake's `unknown@otlp`) is unreported,
+  // not a model change. An intake tag stands in for a snapshot no session recorded
+  // (`gpt-5-codex@observed-local`): runs naming one model are unreported, runs naming different
+  // models still differ, and a declared treatment reads a tagged run as an arm with no model.
+  const unknown = (model: string) => model.split('@')[0] === UNKNOWN_MODEL
+  const intake = (model: string) =>
+    model !== UNKNOWN_MODEL && (unknown(model) || /@(?:observed-local|otlp|unknown)$/u.test(model))
+  const comparedPairs = pairing.pairs.flatMap(({ pairKey, baseline, treatment }) => {
+    const models = [baseline.model, treatment.model]
+    const oneName = normalizeModelId(models[0]!) === normalizeModelId(models[1]!)
+    if (models.some(unknown) || (!modelTreatment && models.some(intake) && oneName)) return []
+    const [b, c] = models.map((model) => (modelTreatment && intake(model) ? [] : [model]))
+    return [{ id: pairKey, baseline: b!, candidate: c! }]
+  })
+  const modelComparison = {
+    ...compareModelIdentities(comparedPairs, modelTreatment),
+    unreportedPairs: pairing.pairs.length - comparedPairs.length,
+  }
+  // Lift over intake-tagged runs is descriptive unless some pair's served models were checked.
+  const identityChecked =
+    modelComparison.checkedPairs > 0 ||
+    !pairing.pairs.some((pair) => intake(pair.baseline.model) || intake(pair.treatment.model))
   let pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
   let pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
   if (pairedBaseline.length === 0) return undefined
@@ -243,7 +268,8 @@ export function computeLift(
     n: pairedBaseline.length,
     ...(grouped ? { pairedRunN: pairing.pairs.length, independentUnitIds: grouped.unitIds } : {}),
     minimumRequired: BOOTSTRAP_GATE_MIN_N,
-    decisionEligible: bootstrap.gateEligible,
+    decisionEligible: bootstrap.gateEligible && modelComparison.eligible && identityChecked,
+    modelComparison,
     unpairedBaseline: (reverseInferredArms ? pairing.unpairedTreatment : pairing.unpairedBaseline)
       .length,
     unpairedCandidate: (reverseInferredArms ? pairing.unpairedBaseline : pairing.unpairedTreatment)

@@ -28,10 +28,10 @@
  * actionable layer, ranked by priority. The numeric sections back it up.
  */
 
+import type { ContinuousAgreement } from '../judge-calibration'
 import type { RunTerminalOutcome } from '../run-record'
 import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
 import type { FailureClass } from '../trace/schema'
-import type { ContinuousAgreement } from '../judge-calibration'
 
 // ── Top-level report ────────────────────────────────────────────────
 
@@ -300,9 +300,9 @@ export interface LiftInsight {
   /** Minimum paired observations required before the interval can drive a decision. */
   minimumRequired: number
   /**
-   * Whether the bootstrap interval has enough observations to drive a decision.
+   * Whether the comparison has enough observations and valid model identities.
    *
-   * Sample size only. A ZERO-WIDTH interval clears this and is still refused at
+   * A ZERO-WIDTH interval clears this and is still refused at
    * the ship decision itself: n identical paired deltas make every resample
    * identical, so `[g, g]` clears every threshold below g and `[0, 0]` clears
    * every negative one on no spread at all. That is an absence of evidence, not
@@ -310,6 +310,8 @@ export interface LiftInsight {
    * reported where the decision is made, not folded in here.
    */
   decisionEligible: boolean
+  /** Served snapshots remain attached even when confounding makes lift descriptive only. */
+  modelComparison?: import('../integrity/model-comparison').ModelComparison
   /** Scored baseline observations without a candidate match. */
   unpairedBaseline: number
   /** Scored candidate observations without a baseline match. */
@@ -381,7 +383,7 @@ export interface ReleaseSummary {
    *  warns, else pass. */
   status: 'pass' | 'warn' | 'fail'
   axes: Array<{
-    name: 'quality-lift' | 'contamination' | 'composite-distribution'
+    name: 'quality-lift' | 'contamination' | 'composite-distribution' | 'served-model-identity'
     status: 'pass' | 'warn' | 'fail' | 'not_evaluated'
     detail: string
   }>

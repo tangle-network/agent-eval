@@ -17,11 +17,7 @@
  * verbatim into training data.
  */
 
-import {
-  isSplitEligible,
-  type TrainingExportOptions,
-  trainingAdmission,
-} from './training-admission'
+import { type TrainingExportOptions, trainingAdmission } from './training-admission'
 import { requireToolLinkage } from './transcript'
 
 export { isSplitEligible, type TrainingExportOptions } from './training-admission'
@@ -320,9 +316,7 @@ export function toVerifiersRolloutOutputs(
     return lines
       .filter(
         (line) =>
-          isSplitEligible(line, options) &&
-          line.provenance.lossy_projection !== true &&
-          line.messages.length > 0,
+          trainingAdmission(line, 'reward', options).reason === null && line.messages.length > 0,
       )
       .map(toVerifiersRolloutOutput)
   }
@@ -383,7 +377,7 @@ export function toRftItems(
     .filter(
       (line) =>
         (options.gatedLines === 'zero-and-flag'
-          ? isSplitEligible(line, options) && line.provenance.lossy_projection !== true
+          ? trainingAdmission(line, 'reward', options).reason === null
           : isTrainingLineEligible(line, options)) &&
         line.messages.length > 0 &&
         firstAssistantIndex(line.messages) > 0,

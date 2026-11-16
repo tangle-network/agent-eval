@@ -1,4 +1,9 @@
 import { defineEvaluationClaim, type EvaluationClaim } from '../../experiment/claim'
+import {
+  captureModelTreatment,
+  type ModelComparison,
+  type ModelTreatment,
+} from '../../integrity/model-comparison'
 /**
  * Run a caller-owned candidate generator, compare its winner with the starting
  * surface on separate cases, apply a release rule, and optionally open a pull
@@ -36,6 +41,13 @@ export type RunImprovementLoopOptions<
   holdoutScenarios: TScenario[]
   claim?: EvaluationClaim
   finalEvidence?: FinalEvidencePolicy
+  /** Snapshot identity for agents without model receipts. Receipts take precedence. */
+  model?: string
+  /** Declare a model change as part of the treatment before search starts. */
+  modelTreatment?: ModelTreatment
+  /** Require one reported model id per arm (two spellings of one snapshot count as two), even
+   *  when neither arm reports a model call. Enabled by selfImprove. */
+  requireReportedModel?: boolean
   /** Holdout policy. Default `'measured'`: baseline + winner are re-scored on
    *  `holdoutScenarios` and the gate decides on that held-out comparison.
    *  `'deferred'`: the improvement-set (search) campaigns run exactly as usual,
@@ -76,6 +88,7 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
   claim?: EvaluationClaim
   finalEvidence?: FinalEvidenceUse
+  modelComparison: ModelComparison
   /** Present iff the loop ran with `holdout: 'deferred'`. When set,
    *  `baselineOnHoldout`/`winnerOnHoldout` are the shared EMPTY campaign (zero
    *  cells dispatched) and the gate verdict is the forced `'hold'`. */
@@ -97,6 +110,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   opts = {
     ...opts,
     judges: opts.judges?.map(captureJudge),
+    modelTreatment: captureModelTreatment(opts.modelTreatment),
     ...(opts.claim || opts.finalEvidence
       ? {
           claim: opts.claim && defineEvaluationClaim(opts.claim),

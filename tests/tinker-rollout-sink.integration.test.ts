@@ -164,10 +164,34 @@ it('reads canonical filesystem rows and sends aligned Datums with honest zero re
   dev.task.split = 'dev'
   const gated = peerLine('gated', 0)
   gated.outcome.realness_gated = true
-  await boundary([...source, dev, gated], async (lines, url, dir) => {
+  const nativeGap = peerLine('native-gap', 1)
+  nativeGap.provenance.native_captures = []
+  const attemptGap = peerLine('attempt-gap', 1)
+  attemptGap.provenance.attempts = [
+    {
+      executionId: 'execution',
+      ordinal: 1,
+      providerSessionId: null,
+      nativeSessionIds: [],
+      processIds: [],
+      outcome: 'succeeded',
+      missingReasons: ['native transcript missing'],
+    },
+  ]
+  await boundary([...source, dev, gated, nativeGap, attemptGap], async (lines, url, dir) => {
     const before = JSON.stringify(lines)
-    const rows = toTinkerDatumRows(lines, options)
+    const admissions: Array<{ rollout_id: string; reason: string | null }> = []
+    const rows = toTinkerDatumRows(lines, {
+      ...options,
+      onAdmission: (decision) => admissions.push(decision),
+    })
     expect(rows.map((row) => row.rollout_id)).toEqual(['success', 'honest-failure'])
+    expect(admissions).toHaveLength(lines.length)
+    expect(
+      admissions
+        .filter((decision) => decision.reason === 'lossy-capture')
+        .map((decision) => decision.rollout_id),
+    ).toEqual(['native-gap', 'attempt-gap'])
     expect(rows.map((row) => row.reward)).toEqual([1, 0])
     expect(rows[0]!.datum.model_input.chunks[0]!.tokens).toEqual([11, 12, 13])
     expect(rows[0]!.datum.loss_fn_inputs.target_tokens.data).toEqual([12, 13, 14])

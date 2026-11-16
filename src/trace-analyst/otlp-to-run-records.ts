@@ -83,9 +83,9 @@ export interface OtlpToRunRecordsOptions {
   /** RNG seed recorded on every row. Default 0. */
   seed?: number
   /**
-   * Fallback model snapshot when the trace exposes no LLM model attribute
-   * OR exposes a bare alias `validateRunRecord` would reject. The trace's
-   * own model wins when it already carries a snapshot. Default
+   * Fallback model when the trace exposes no LLM model attribute. The
+   * trace's own model wins; a bare alias (`gpt-4o`) is recorded as
+   * `gpt-4o@otlp`, which `analyzeRuns` counts as unreported. Default
    * `'unknown@otlp'` (opaque-snapshot form the validator accepts).
    */
   fallbackModel?: string
@@ -285,7 +285,7 @@ function traceRunRecordsFromSpans(
       experimentId: opts.experimentId,
       candidateId: opts.candidateId,
       seed,
-      model: ensureSnapshot(agg.model, fallbackModel),
+      model: ensureSnapshot(agg.model),
       promptHash,
       configHash,
       commitSha,
@@ -614,11 +614,7 @@ function firstModelAttr(spans: ProjectedOtlpSpan[]): string | null {
   return null
 }
 
-/** Keep a pinned model; give a moving alias (`gpt-4o`) the fallback's `@` token after its name. */
-function ensureSnapshot(model: string, fallbackModel: string): string {
-  if (modelHasSnapshot(model)) return model
-  const fallbackTag = fallbackModel.includes('@')
-    ? fallbackModel.slice(fallbackModel.indexOf('@'))
-    : '@otlp'
-  return `${model}${fallbackTag}`
+/** Keep a pinned model; tag a moving alias (`gpt-4o@otlp`), never with another model's snapshot. */
+function ensureSnapshot(model: string): string {
+  return modelHasSnapshot(model) ? model : `${model}@otlp`
 }
