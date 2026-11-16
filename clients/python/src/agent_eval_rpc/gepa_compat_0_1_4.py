@@ -54,9 +54,19 @@ class GepaRestoreObserver:
     state_iteration: int
     state_evaluations: int
     state_candidates: list[Any]
+    seed_val_scores: dict[Any, float]
     restored: bool = False
     _engine_module: ModuleType | None = None
     _original_initialize: Any = None
+
+    def seed_score(self, val_index: int) -> float | None:
+        """GEPA 0.1.4 scores the seed on the valset before it loads saved state,
+        then discards that evaluation for the restored one. Answering it from the
+        restored seed scores keeps a resume from spending evaluation budget (which
+        the owner refuses once a run has spent it) on a measurement it discards."""
+        if self.restored:
+            return None
+        return self.seed_val_scores.get(val_index)
 
     def __enter__(self) -> GepaRestoreObserver:
         import gepa.core.engine as engine_module
@@ -134,6 +144,7 @@ def load_restore_observer(
         state_iteration=state.i,
         state_evaluations=state.total_num_evals,
         state_candidates=list(state.program_candidates),
+        seed_val_scores=dict(state.prog_candidate_val_subscores[0]),
     )
 
 
