@@ -6,6 +6,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [1.0.38] — 2026-11-16
 
+- fix(python): accept an optimizer model budget without maxCostUsd (#1285)
 - fix: validate release plans against the published source before writing
 - fix(campaign): reconcile failure evidence from agent receipts
 - test(rollout): make exporter calibration deterministic
