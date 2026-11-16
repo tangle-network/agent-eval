@@ -4,7 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [1.0.38] — 2026-11-16
+
+- fix: validate release plans against the published source before writing
+- fix(campaign): reconcile failure evidence from agent receipts
+- test(rollout): make exporter calibration deterministic
 
 - Reconcile failed-cell evidence once for live and resumed campaigns using actual agent receipts. Profile matrices preserve measured failure usage and explicit zero cost independently of missing served-model identity.
 
