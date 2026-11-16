@@ -66,14 +66,16 @@ def validate_json_size(value: Any, max_chars: int, label: str) -> None:
 def validate_optimizer_model_budget(value: Any, label: str) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object")
+    # Optional, as in ExternalOptimizerModelBudget: a subscription lane has no
+    # per-token price, so its caller omits the spend ceiling.
     max_cost = value.get("maxCostUsd")
-    if (
+    if max_cost is not None and (
         isinstance(max_cost, bool)
         or not isinstance(max_cost, (int, float))
         or not math.isfinite(max_cost)
         or max_cost <= 0
     ):
-        raise ValueError(f"{label}.maxCostUsd must be a positive finite number")
+        raise ValueError(f"{label}.maxCostUsd must be positive and finite when supplied")
     for key in (
         "maxRequests",
         "maxRequestBytes",
