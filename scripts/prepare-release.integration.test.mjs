@@ -43,6 +43,8 @@ function repository() {
   const root = mkdtempSync(join(tmpdir(), 'eval-prepare-release-'))
   roots.push(root)
   git(root, 'init', '--quiet', '--initial-branch=main')
+  // A throwaway repo must not run the host's global commit hooks (an identity guard refuses this author).
+  git(root, 'config', 'core.hooksPath', '/dev/null')
   git(root, 'config', 'user.name', 'Release integration')
   git(root, 'config', 'user.email', 'release-integration@example.invalid')
   mkdirSync(join(root, 'scripts'))
