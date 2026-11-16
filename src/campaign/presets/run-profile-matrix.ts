@@ -367,8 +367,7 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
   // carries the provider-facing moving alias, the paid-call receipt supplies
   // the immutable identity used here. Failed rows use explicit unknown data.
   const model = recordModel(cell, profileId, declaredModel)
-  const durableCell = durableCellForRecord(cell)
-  const record = campaignCellToRunRecord(durableCell, {
+  const record = campaignCellToRunRecord(cell, {
     runId: `${matrixId}:${profileId}:${cell.cellId}`,
     experimentId,
     candidateId: profileId,
@@ -395,32 +394,6 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     }
   }
   return record
-}
-
-/**
- * Keep failed rows truthful at the RunRecord boundary.
- *
- * A cell with no settled call currently has a zero subtotal and an observed
- * zero from the ledger. That is not measured provider usage or cost, so mark
- * usage incomplete and cost uncaptured while retaining the known subtotal.
- */
-function durableCellForRecord<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
-): CampaignCellResult<TArtifact> {
-  if (cell.error === undefined) return cell
-
-  const hasSettledAgentCalls = cellReceiptModels(cell).some((model) => model !== UNKNOWN_MODEL)
-  return {
-    ...cell,
-    tokenUsage:
-      cell.tokenUsage.tokensKnown === false || hasSettledAgentCalls
-        ? cell.tokenUsage
-        : { ...cell.tokenUsage, tokensKnown: false },
-    costProvenance:
-      !hasSettledAgentCalls && cell.costProvenance.kind === 'observed' && cell.costUsd === 0
-        ? { kind: 'uncaptured', usd: null }
-        : cell.costProvenance,
-  }
 }
 
 /**

@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Reconcile failed-cell evidence once for live and resumed campaigns using actual agent receipts. Profile matrices preserve measured failure usage and explicit zero cost independently of missing served-model identity.
+
 ## [1.0.37] — 2026-11-16
 
 - chore(analyst): refresh the benchmark implementation pin and format the model-comparison test

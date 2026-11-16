@@ -12,9 +12,8 @@ import {
   cachedCellReceiptProblem,
   cacheIssueRequiresExplicitRerun,
   invalidCachedCellsError,
-  modelEvidenceFromReceipts,
   readCachedCell,
-  withCurrentAgentModelEvidence,
+  withCurrentAgentEvidence,
 } from './cell-cache'
 import { cellAttemptDirectory, cellDirectory, stableCostTagsFor } from './cell-schedule'
 import { runJudgeCell } from './judge-cell'
@@ -97,7 +96,7 @@ function reuseCachedCell<TScenario extends Scenario, TArtifact>(
   if (cached.status === 'hit' && (!cached.cell.error || args.opts.reuseFailedCells)) {
     const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
     if (receiptProblem === undefined) {
-      const cell = withCurrentAgentModelEvidence(cached.cell, args.costLedger, stableCostTags)
+      const cell = withCurrentAgentEvidence(cached.cell, args.costLedger, stableCostTags)
       enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
       return { cell: { ...cell, cached: true }, artifactsByPath: {} }
     }
@@ -331,12 +330,11 @@ async function awaitCellShutdown<TScenario extends Scenario, TArtifact>(
   }
 }
 
-/** The agent spend of this attempt: cost, token usage and the models that served it. */
+/** The agent spend of this attempt, as reported by the canonical ledger summary. */
 function measureAgentUsage<TScenario extends Scenario, TArtifact>(
   args: CellArgs<TScenario, TArtifact>,
   costTags: Record<string, string>,
 ) {
-  const agentReceipts = args.costLedger.list({ channel: 'agent', tags: costTags })
   const agentCost = args.costLedger.summary({ channel: 'agent', tags: costTags })
   const tokenUsage: CampaignTokenUsage = {
     input: agentCost.inputTokens,
@@ -350,7 +348,7 @@ function measureAgentUsage<TScenario extends Scenario, TArtifact>(
       ? { cacheWrite: agentCost.cacheWriteTokens }
       : {}),
   }
-  return { agentCost, tokenUsage, agentModelEvidence: modelEvidenceFromReceipts(agentReceipts) }
+  return { agentCost, tokenUsage }
 }
 
 /**
@@ -455,7 +453,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   const dispatch = await dispatchCell(args, run)
   await awaitCellShutdown(args, run, dispatch.dispatched, costTags)
   const { artifact } = dispatch
-  const { agentCost, tokenUsage, agentModelEvidence } = measureAgentUsage(args, costTags)
+  const { agentCost, tokenUsage } = measureAgentUsage(args, costTags)
   try {
     enforceDispatchUsage(
       {
@@ -490,28 +488,31 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     .map((receipt) => receipt.callId)
     .sort()
 
-  const cell: CampaignCellResult<TArtifact> = {
-    manifestHash: args.manifestHash,
-    attempt,
-    cellId: args.slot.cellId,
-    scenarioId: args.slot.scenario.id,
-    rep: args.slot.rep,
-    artifact: (artifact ?? null) as TArtifact,
-    judgeScores,
-    ...(agentCost.costBreakdown ? { costBreakdown: agentCost.costBreakdown } : {}),
-    costUsd: agentCost.totalCostUsd,
-    costProvenance: agentCost.costProvenance,
-    costCallIds,
-    tokenUsage,
-    ...agentModelEvidence,
-    durationMs: Date.now() - startMs,
-    seed: args.slot.cellSeed,
-    cached: false,
-    ...(args.attempt > 1 ? { retryAttempts: args.attempt - 1 } : {}),
-    ...(failure ? { errorStage: failure.stage } : {}),
-    ...(failure?.judge ? { errorJudge: failure.judge } : {}),
-    error: errorMessage,
-  }
+  const cell = withCurrentAgentEvidence<TArtifact>(
+    {
+      manifestHash: args.manifestHash,
+      attempt,
+      cellId: args.slot.cellId,
+      scenarioId: args.slot.scenario.id,
+      rep: args.slot.rep,
+      artifact: (artifact ?? null) as TArtifact,
+      judgeScores,
+      ...(agentCost.costBreakdown ? { costBreakdown: agentCost.costBreakdown } : {}),
+      costUsd: agentCost.totalCostUsd,
+      costProvenance: agentCost.costProvenance,
+      costCallIds,
+      tokenUsage,
+      durationMs: Date.now() - startMs,
+      seed: args.slot.cellSeed,
+      cached: false,
+      ...(args.attempt > 1 ? { retryAttempts: args.attempt - 1 } : {}),
+      ...(failure ? { errorStage: failure.stage } : {}),
+      ...(failure?.judge ? { errorJudge: failure.judge } : {}),
+      error: errorMessage,
+    },
+    args.costLedger,
+    costTags,
+  )
 
   let retry = failure
     ? recordCellFailure(args, run, failure, cell, costTags, fatalCellError)
