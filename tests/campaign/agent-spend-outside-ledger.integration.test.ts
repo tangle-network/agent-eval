@@ -96,13 +96,10 @@ describe('agent spend the cost ledger never saw', () => {
       usageComplete: false,
       accountingComplete: false,
     })
-    expect(result.aggregates.cost.incompleteReasons).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/no paid call was recorded/),
-        "agent spend for cell 'cli-flag:0' was not captured by the cost ledger",
-        "agent spend for cell 'null-guard:0' was not captured by the cost ledger",
-      ]),
-    )
+    expect(result.aggregates.cost.incompleteReasons).toEqual([
+      "agent spend for cell 'cli-flag:0' was not captured by the cost ledger",
+      "agent spend for cell 'null-guard:0' was not captured by the cost ledger",
+    ])
     for (const cell of result.cells) {
       expect(cell.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
       expect(cell.tokenUsage.tokensKnown).toBe(false)

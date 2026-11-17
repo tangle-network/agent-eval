@@ -4,7 +4,18 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cellAttemptDirectory } from '../../src/campaign/cell-schedule'
 import { campaignCoverage } from '../../src/campaign/coverage'
-import { type CampaignCellFailureReceipt, campaignSplitDigestFromIdentities, type DispatchFn, fsCampaignStorage, inMemoryCampaignStorage, type JudgeConfig, planCampaignRun, runCampaign, type Scenario, transientDispatchFailure } from '../../src/campaign/index'
+import {
+  type CampaignCellFailureReceipt,
+  campaignSplitDigestFromIdentities,
+  type DispatchFn,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+  type JudgeConfig,
+  planCampaignRun,
+  runCampaign,
+  type Scenario,
+  transientDispatchFailure,
+} from '../../src/campaign/index'
 import { CostLedger } from '../../src/cost-ledger'
 import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
 
@@ -337,7 +348,8 @@ describe('runCampaign — core primitive', () => {
     }
 
     const first = await runCampaign(options)
-    expect(first.cells.every((cell) => cell.costProvenance.kind === 'observed')).toBe(true)
+    // These dispatches record no paid call, so their agent spend is unknown, not $0.
+    expect(first.cells.every((cell) => cell.costProvenance.kind === 'uncaptured')).toBe(true)
     expect(dispatchCount).toBe(3)
 
     const runnablePath = '/cost-provenance-cache/a_0/cached-result.json'
@@ -1237,7 +1249,8 @@ describe('runCampaign — expectUsage stub guard', () => {
       runDir: mkdtempSync(join(tmpdir(), 'run-campaign-')),
     })
     expect(result.cells).toHaveLength(1)
-    expect(result.cells[0]!.tokenUsage).toEqual({ input: 0, output: 0 })
+    expect(result.cells[0]!.tokenUsage).toEqual({ input: 0, output: 0, tokensKnown: false })
+    expect(result.cells[0]!.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
   })
 })
 

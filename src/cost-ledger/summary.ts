@@ -10,9 +10,6 @@ import type {
   PendingCostCall,
 } from './contract'
 
-/** The incomplete reason an empty ledger reports: it recorded no call, so its spend is unknown. */
-const NO_RECORDED_CALLS = 'no paid call was recorded, so spend outside this ledger is unknown'
-
 export function summarizeCostLedger(
   records: readonly CostLedgerRecord[],
   activeCallIds: ReadonlySet<string>,
@@ -25,10 +22,6 @@ export function summarizeCostLedger(
   const incompleteReasons: string[] = pending.map(
     (record) => `call '${record.callId}' for '${record.actor}' is pending`,
   )
-  // An empty ledger saw no call, which is not evidence that nothing was spent: work that paid
-  // outside the ledger (a sandboxed harness, a direct provider call) leaves no record here.
-  const recordedNothing = records.length === 0
-  if (recordedNothing) incompleteReasons.push(NO_RECORDED_CALLS)
   let inputTokens = 0
   let outputTokens = 0
   let reasoningTokens = 0
@@ -87,7 +80,7 @@ export function summarizeCostLedger(
     cacheWriteTokens,
     totalCostUsd,
     costProvenance:
-      recordedNothing || pending.length > 0 || receipts.some((receipt) => receipt.costUnknown)
+      pending.length > 0 || receipts.some((receipt) => receipt.costUnknown)
         ? { kind: 'uncaptured', usd: null }
         : receipts.every((receipt) => receipt.actualCostUsd !== undefined)
           ? { kind: 'observed', usd: totalCostUsd }
@@ -95,10 +88,7 @@ export function summarizeCostLedger(
     byChannel: [...byChannel.values()].sort((a, b) => a.channel.localeCompare(b.channel)),
     unpricedModels: [...unpriced].sort(),
     fullyPriced: unpriced.size === 0,
-    usageComplete:
-      !recordedNothing &&
-      pending.length === 0 &&
-      receipts.every((receipt) => !receipt.usageUnknown),
+    usageComplete: pending.length === 0 && receipts.every((receipt) => !receipt.usageUnknown),
     accountingComplete: incompleteReasons.length === 0,
     incompleteReasons: [...new Set(incompleteReasons)],
   }
