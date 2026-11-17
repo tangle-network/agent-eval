@@ -4,7 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [1.0.39] — 2026-11-17
+
+- fix(campaign): an executed cell with no agent receipt makes the run's cost unknown, not an observed $0 (#1294)
+- fix(analyst): behavioral claims state the thresholds their rules enforce (#1292)
+- test(release): keep the prepare-release fixture off the host's commit hooks (#1289)
 
 - An executed campaign cell whose agent recorded no paid call now reports `costProvenance: uncaptured` and `tokensKnown: false`, and the run's `aggregates.cost` reports `uncaptured` with `accountingComplete: false` and one `incompleteReasons` entry per such cell. An agent that paid outside the ledger (a sandboxed harness through `box.prompt`) used to produce an observed $0 with complete accounting. To claim a known zero, record the call through `ctx.cost.runPaidCall` with `actualCostUsd: 0`; to report a sandbox's own bill, record it as that call's `actualCostUsd`.
 
