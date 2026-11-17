@@ -85,9 +85,9 @@ export function withCurrentAgentEvidence<TArtifact>(
   const cell = { ...source }
   delete cell.resolvedModel
   delete cell.resolvedModels
-  // An empty ledger is a zero subtotal, not evidence that a failed dispatch consumed nothing.
-  // Conversely, an error receipt can explicitly report zero; retain that observation.
-  if (cell.error !== undefined && receipts.length === 0) {
+  // An empty ledger is a zero subtotal, not evidence that the dispatch consumed nothing: an agent
+  // that paid outside the ledger leaves no receipt. A receipt that explicitly reports zero stays.
+  if (receipts.length === 0) {
     cell.tokenUsage = { ...cell.tokenUsage, tokensKnown: false }
     if (cell.costProvenance.kind === 'observed' && cell.costUsd === 0) {
       cell.costProvenance = { kind: 'uncaptured', usd: null }
@@ -101,10 +101,9 @@ export function cachedCellReceiptProblem(
   costLedger: CostLedgerHandle,
   stableCostTags: Record<string, string>,
 ): string | undefined {
-  // The producer explicitly retained an empty receipt set for an unmeasured failure. Reusing
-  // that failure preserves unknown accounting; it does not assert that missing paid work was free.
-  const unmeteredFailure =
-    cached.error !== undefined &&
+  // The producer explicitly retained an empty receipt set for an unmetered cell. Reusing it
+  // preserves unknown accounting; it does not assert that missing paid work was free.
+  const unmetered =
     cached.costCallIds?.length === 0 &&
     cached.costProvenance.kind === 'uncaptured' &&
     cached.tokenUsage.tokensKnown === false &&
@@ -112,7 +111,7 @@ export function cachedCellReceiptProblem(
     cached.tokenUsage.input === 0 &&
     cached.tokenUsage.output === 0
   const reportsPaidActivity =
-    (cached.costProvenance.kind !== 'observed' && !unmeteredFailure) ||
+    (cached.costProvenance.kind !== 'observed' && !unmetered) ||
     cached.costUsd > 0 ||
     cached.tokenUsage.input > 0 ||
     cached.tokenUsage.output > 0

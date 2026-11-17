@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- An executed campaign cell whose agent recorded no paid call now reports `costProvenance: uncaptured` and `tokensKnown: false`, and the run's `aggregates.cost` reports `uncaptured` with `accountingComplete: false` and one `incompleteReasons` entry per such cell. An agent that paid outside the ledger (a sandboxed harness through `box.prompt`) used to produce an observed $0 with complete accounting. To claim a known zero, record the call through `ctx.cost.runPaidCall` with `actualCostUsd: 0`; to report a sandbox's own bill, record it as that call's `actualCostUsd`.
+
 ## [1.0.38] — 2026-11-16
 
 - fix(python): accept an optimizer model budget without maxCostUsd (#1285)

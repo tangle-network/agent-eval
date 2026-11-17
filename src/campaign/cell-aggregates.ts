@@ -67,7 +67,7 @@ export function computeAggregates<TArtifact>(
   return {
     byJudge,
     byScenario,
-    cost,
+    cost: withUncapturedAgentCells(cost, cells),
     cellsExecuted: cells.filter(
       (cell) =>
         !cell.error?.startsWith('skipped:') &&
@@ -80,6 +80,36 @@ export function computeAggregates<TArtifact>(
     cellsDispatchFailed: dispatchFailures.length,
     cellsJudgeFailed: judgeFailures.length,
     cellsUnclassifiedFailed: unclassifiedFailures.length,
+  }
+}
+
+/**
+ * The run's ledger summary, made incomplete by each cell whose agent spend the ledger did not
+ * capture. A judge receipt elsewhere in the run says nothing about an agent that paid outside the
+ * ledger, so the run claims complete accounting only when every executed cell's agent spend is known.
+ */
+function withUncapturedAgentCells<TArtifact>(
+  cost: CostLedgerSummary,
+  cells: CampaignCellResult<TArtifact>[],
+): CostLedgerSummary {
+  const uncaptured = cells.filter(
+    (cell) => !cell.error?.startsWith('skipped:') && cell.costProvenance.kind === 'uncaptured',
+  )
+  if (uncaptured.length === 0) return cost
+  return {
+    ...cost,
+    costProvenance: { kind: 'uncaptured', usd: null },
+    usageComplete:
+      cost.usageComplete && uncaptured.every((cell) => cell.tokenUsage.tokensKnown !== false),
+    accountingComplete: false,
+    incompleteReasons: [
+      ...new Set([
+        ...cost.incompleteReasons,
+        ...uncaptured.map(
+          (cell) => `agent spend for cell '${cell.cellId}' was not captured by the cost ledger`,
+        ),
+      ]),
+    ],
   }
 }
 
