@@ -65,21 +65,25 @@ interface TokenSample {
   step: number | null
 }
 
+// The thresholds below are the rules themselves. Aggregate claim text is built from these
+// exports (`behavioral-analyst.ts`), so a finding never states a rule the code does not enforce.
+
 /** ≥ this input-token growth ratio across a run, with no compression, fires. */
-const INPUT_GROWTH_FACTOR = 3
+export const INPUT_GROWTH_FACTOR = 3
+/** Serial calls required before input growth counts. */
+export const INPUT_GROWTH_MINIMUM_CALLS = 3
 /** Tool-usage signals need at least this many calls to be meaningful. */
-const MIN_TOOL_CALLS = 3
+export const MIN_TOOL_CALLS = 3
 /**
- * Serial calls required before a strictly-decreasing output run counts as decay.
+ * Serial calls required before an output run that never rises counts as decay.
  *
- * A run of n independent lengths is strictly decreasing by chance with
- * probability 1/n!, so the old minimum of 3 fired on roughly one sequence in
- * six. The paired `inputIsMonotonic && inputGrew` guard does not offset that:
+ * A run of n independent lengths is decreasing by chance with probability
+ * 1/n!, so the old minimum of 3 fired on roughly one sequence in six. The paired `inputIsMonotonic && inputGrew` guard does not offset that:
  * context accumulates by construction in a serial agent loop, so input growth
  * is very nearly free evidence. At 5 calls chance alone accounts for under 1%,
  * which is the bar a signal reported at full confidence has to clear.
  */
-const OUTPUT_DECAY_MINIMUM_CALLS = 5
+export const OUTPUT_DECAY_MINIMUM_CALLS = 5
 /**
  * The last output must fall to at most this fraction of the first.
  *
@@ -89,7 +93,7 @@ const OUTPUT_DECAY_MINIMUM_CALLS = 5
  * length keeps the signal on the failure it names: late steps that quietly
  * stop doing the work.
  */
-const OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION = 0.6
+export const OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION = 0.6
 /** Tool names that read or check state count as self-verification, not mutation.
  *  Covers the inspect verbs plus the read/search tools real harnesses use to
  *  verify (Claude Code Read/Grep/Glob, codex read_file/ls/cat, git status/diff,
@@ -430,7 +434,10 @@ function tokenSignals(sequence: BehavioralTokenSequence): SuboptimalSignal[] {
   const signals: SuboptimalSignal[] = []
   const inputs = sequence.inputTokenTrajectory
   const outputs = sequence.outputTokenTrajectory
-  if (inputs.length >= 3 && inputs.every((value): value is number => value !== null)) {
+  if (
+    inputs.length >= INPUT_GROWTH_MINIMUM_CALLS &&
+    inputs.every((value): value is number => value !== null)
+  ) {
     const first = inputs[0]!
     const last = inputs[inputs.length - 1]!
     const isMonotonic = everyAdjacent(inputs, (previous, current) => current >= previous)
