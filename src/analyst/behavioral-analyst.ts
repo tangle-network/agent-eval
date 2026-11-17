@@ -8,6 +8,11 @@ import { FAILURE_CLASSES, type FailureClass } from '../trace/schema'
 import {
   type BehavioralMetrics,
   computeTraceMetrics,
+  INPUT_GROWTH_FACTOR,
+  INPUT_GROWTH_MINIMUM_CALLS,
+  MIN_TOOL_CALLS,
+  OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION,
+  OUTPUT_DECAY_MINIMUM_CALLS,
   type SuboptimalCode,
 } from '../trace-analyst/behavioral-metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
@@ -79,15 +84,19 @@ export interface BehavioralAnalystOptions {
   traceQuestions?: BehavioralTraceQuestionsOptions
 }
 
+// Each sentence states the rule `computeTraceMetrics` enforces, from the same constants.
+const OUTPUT_DECAY_MAXIMUM_RETAINED_PERCENT = Math.round(
+  OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION * 100,
+)
 const AGGREGATE_CLAIM: Record<SuboptimalCode, (observed: number, analyzed: number) => string> = {
   'monotonic-input-growth': (observed, analyzed) =>
-    `${observed}/${analyzed} analyzed traces showed input tokens grow from zero to nonzero or to at least 3x their initial value across at least 3 serial model calls without a decrease.`,
+    `${observed}/${analyzed} analyzed traces showed input tokens grow from zero to nonzero or to at least ${INPUT_GROWTH_FACTOR}x their initial value across at least ${INPUT_GROWTH_MINIMUM_CALLS} serial model calls without a decrease.`,
   'output-length-decay': (observed, analyzed) =>
-    `${observed}/${analyzed} analyzed traces showed output tokens decrease while input tokens increased monotonically across at least 3 serial model calls.`,
+    `${observed}/${analyzed} analyzed traces showed output tokens fall without rising to at most ${OUTPUT_DECAY_MAXIMUM_RETAINED_PERCENT}% of the first call's while input tokens grew without a decrease, across at least ${OUTPUT_DECAY_MINIMUM_CALLS} serial model calls.`,
   'single-tool-dependency': (observed, analyzed) =>
-    `${observed}/${analyzed} analyzed traces used only one named tool across at least 3 tool calls.`,
+    `${observed}/${analyzed} analyzed traces used only one named tool across at least ${MIN_TOOL_CALLS} tool calls.`,
   'no-self-verification': (observed, analyzed) =>
-    `${observed}/${analyzed} analyzed traces had at least 3 tool calls without a verification-named tool call.`,
+    `${observed}/${analyzed} analyzed traces had at least ${MIN_TOOL_CALLS} tool calls without a verification-named tool call.`,
 }
 
 async function listTraceIds(
