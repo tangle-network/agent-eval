@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import {
+  INPUT_GROWTH_FACTOR,
+  INPUT_GROWTH_MINIMUM_CALLS,
+  MIN_TOOL_CALLS,
+  OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION,
+  OUTPUT_DECAY_MINIMUM_CALLS,
+} from '../trace-analyst/behavioral-metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import {
@@ -144,6 +151,101 @@ describe('buildDefaultAnalystRegistry', () => {
     const growth = result.findings.find((finding) => finding.subject === 'monotonic-input-growth')
 
     expect(growth?.claim).toContain('grow from zero to nonzero or to at least 3x')
+  })
+
+  // Each aggregate claim states the rule that fires it: a trace exactly at a rule's thresholds
+  // produces the finding, one call fewer (or one token over the retained fraction) does not, and
+  // the claim names the same numbers.
+  function llmTrace(inputs: readonly number[], outputs: readonly number[]): TraceAnalystSpan[] {
+    return inputs.map((input, index) =>
+      span({
+        span_id: `llm-${index}`,
+        kind: 'LLM',
+        start_time: `2026-01-01T00:00:0${index}.000Z`,
+        end_time: `2026-01-01T00:00:0${index}.100Z`,
+        attributes: {
+          'llm.input_tokens': input,
+          'llm.output_tokens': outputs[index]!,
+          step: index,
+        },
+      }),
+    )
+  }
+  function toolTrace(calls: number): TraceAnalystSpan[] {
+    return Array.from({ length: calls }, (_, index) =>
+      span({ span_id: `tool-${index}`, kind: 'TOOL', tool_name: 'world.execute' }),
+    )
+  }
+  const rising = (calls: number, last: number) =>
+    Array.from({ length: calls }, (_, index) => 1_000 + ((last - 1_000) * index) / (calls - 1))
+  const flat = (calls: number) => Array.from({ length: calls }, () => 1_000)
+  const decayed = OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION * 1_000
+  const rules = [
+    {
+      subject: 'monotonic-input-growth',
+      fires: llmTrace(
+        rising(INPUT_GROWTH_MINIMUM_CALLS, INPUT_GROWTH_FACTOR * 1_000),
+        flat(INPUT_GROWTH_MINIMUM_CALLS),
+      ),
+      silent: [
+        llmTrace(
+          rising(INPUT_GROWTH_MINIMUM_CALLS - 1, INPUT_GROWTH_FACTOR * 1_000),
+          flat(INPUT_GROWTH_MINIMUM_CALLS - 1),
+        ),
+        llmTrace(
+          rising(INPUT_GROWTH_MINIMUM_CALLS, INPUT_GROWTH_FACTOR * 1_000 - 1),
+          flat(INPUT_GROWTH_MINIMUM_CALLS),
+        ),
+      ],
+      claim: [
+        `at least ${INPUT_GROWTH_FACTOR}x their initial value`,
+        `at least ${INPUT_GROWTH_MINIMUM_CALLS} serial model calls`,
+      ],
+    },
+    {
+      subject: 'output-length-decay',
+      fires: llmTrace(
+        rising(OUTPUT_DECAY_MINIMUM_CALLS, 2_000),
+        rising(OUTPUT_DECAY_MINIMUM_CALLS, decayed),
+      ),
+      silent: [
+        llmTrace(
+          rising(OUTPUT_DECAY_MINIMUM_CALLS - 1, 2_000),
+          rising(OUTPUT_DECAY_MINIMUM_CALLS - 1, decayed),
+        ),
+        llmTrace(
+          rising(OUTPUT_DECAY_MINIMUM_CALLS, 2_000),
+          rising(OUTPUT_DECAY_MINIMUM_CALLS, decayed + 1),
+        ),
+      ],
+      claim: [
+        `at most ${Math.round(OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION * 100)}% of the first call's`,
+        `at least ${OUTPUT_DECAY_MINIMUM_CALLS} serial model calls`,
+      ],
+    },
+    {
+      subject: 'single-tool-dependency',
+      fires: toolTrace(MIN_TOOL_CALLS),
+      silent: [toolTrace(MIN_TOOL_CALLS - 1)],
+      claim: [`at least ${MIN_TOOL_CALLS} tool calls`],
+    },
+    {
+      subject: 'no-self-verification',
+      fires: toolTrace(MIN_TOOL_CALLS),
+      silent: [toolTrace(MIN_TOOL_CALLS - 1)],
+      claim: [`at least ${MIN_TOOL_CALLS} tool calls`],
+    },
+  ]
+  it.each(rules)('states the $subject rule the metric enforces', async (rule) => {
+    const findingFor = async (spans: TraceAnalystSpan[]) => {
+      const store = traceStore(['t1'], async () => ({ trace_id: 't1', spans }))
+      const result = await buildDefaultAnalystRegistry().run(rule.subject, { traceStore: store })
+      return result.findings.find((finding) => finding.subject === rule.subject)
+    }
+
+    const finding = await findingFor(rule.fires)
+    for (const phrase of rule.claim) expect(finding?.claim).toContain(phrase)
+    for (const spans of rule.silent) expect(await findingFor(spans)).toBeUndefined()
   })
 
   it('analyzes sampled traces independently instead of joining unrelated calls', async () => {
