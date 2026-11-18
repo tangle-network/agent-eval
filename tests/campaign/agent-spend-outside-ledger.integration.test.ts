@@ -107,6 +107,15 @@ const keepBaseline = {
     },
   }),
 }
+// Search, selection and final splits for the optimization reporters.
+const tasks = [
+  'cli-flag',
+  'null-guard',
+  'retry-guard',
+  'path-escape',
+  'json-schema',
+  'env-default',
+].map((id) => ({ id, kind: 'fix' }))
 const missed = (label: string, cellId: string) =>
   `${label}: agent spend for cell '${cellId}' was not captured by the cost ledger`
 
@@ -172,15 +181,16 @@ describe('agent spend the cost ledger never saw', () => {
 
 describe('reports built from ledger reads count agent spend the ledger never saw', () => {
   it.each(['method', 'proposer'] as const)(
-    'improve() in %s mode reports unknown cost, not an observed $0',
+    'improve() in %s mode reports unknown cost, not an observed zero',
     async (mode) => {
       const before = billedUsd
       const result = await evalKit((id) => promptOutsideLedger(id)).improve({
-        model: 'glm-5.3',
+        scenarios: tasks,
+        model: 'glm-5.3@2026-11-17',
         storage: inMemoryCampaignStorage(),
         runDir: `mem://improve-outside-ledger-${mode}`,
         budget: {
-          holdoutScenarios: [scenarios[1]!],
+          holdoutScenarios: tasks.slice(4),
           ...(mode === 'proposer' ? { generations: 1 } : {}),
         },
         ...(mode === 'method'
@@ -193,7 +203,7 @@ describe('reports built from ledger reads count agent spend the ledger never saw
         costProvenance: { kind: 'uncaptured', usd: null },
         accountingComplete: false,
       })
-      expect(result.cost.incompleteReasons).toContain(missed('holdout.baseline', 'null-guard:0'))
+      expect(result.cost.incompleteReasons).toContain(missed('holdout.baseline', 'json-schema:0'))
     },
   )
 
@@ -202,9 +212,9 @@ describe('reports built from ledger reads count agent spend the ledger never saw
     const result = await compareOptimizationMethods<Task, number>({
       methods: [keepBaseline],
       baselineSurface: 'claude-code',
-      trainScenarios: [scenarios[0]!],
-      selectionScenarios: [{ id: 'retry-guard', kind: 'fix' }],
-      testScenarios: [scenarios[1]!],
+      trainScenarios: tasks.slice(0, 3),
+      selectionScenarios: [tasks[3]!],
+      testScenarios: tasks.slice(4),
       judges: [suite],
       expectUsage: 'off',
       storage: inMemoryCampaignStorage(),
@@ -220,7 +230,7 @@ describe('reports built from ledger reads count agent spend the ledger never saw
         accountingComplete: false,
       })
     }
-    expect(result.testCost.incompleteReasons).toContain(missed('test/baseline', 'null-guard:0'))
+    expect(result.testCost.incompleteReasons).toContain(missed('test/baseline', 'json-schema:0'))
   })
 
   it.each([
