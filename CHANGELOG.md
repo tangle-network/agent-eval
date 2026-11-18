@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [1.0.40] — 2026-11-18
+
+- fix(cost): selfImprove, compareOptimizationMethods and trace analysts report agent spend the ledger missed (#1296)
+
 ## [1.0.39] — 2026-11-17
 
 - fix(campaign): an executed cell with no agent receipt makes the run's cost unknown, not an observed $0 (#1294)
