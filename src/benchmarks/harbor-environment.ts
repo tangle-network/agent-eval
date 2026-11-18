@@ -167,6 +167,10 @@ export async function prepareCaseEnvironment(
  * Remove the case's tag and its build cache: the records whose step is the Dockerfile's first
  * `RUN` line, and every record built on them. Frees the case's live slot. Another owner's tag of
  * the same image keeps that image, and pruning build cache never removes an image.
+ *
+ * The prune names the case's records and passes `--all`: without it BuildKit skips every record it
+ * reports as shared with an image, and on a busy docker host it reported this case's records shared
+ * after the case's last tag was gone, leaving them behind.
  */
 export async function releaseCaseEnvironment(
   item: HarborTaskItem,
@@ -198,7 +202,7 @@ export async function releaseCaseEnvironment(
   if (ids.size)
     await execute(
       'docker',
-      ['buildx', 'prune', '-f', '--filter', `id~=^(${[...ids].join('|')})$`],
+      ['buildx', 'prune', '-f', '--all', '--filter', `id~=^(${[...ids].join('|')})$`],
       {
         env,
       },
