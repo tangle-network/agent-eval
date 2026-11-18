@@ -38,6 +38,23 @@ interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
 }
 
 /** Compare a search-selected surface without changing the search's selection. */
+/** Each holdout campaign a final comparison dispatched, labeled by arm; a reused arm counts once. */
+export function finalComparisonCampaigns<TArtifact, TScenario extends Scenario>(comparison: {
+  baselineOnHoldout: CampaignResult<TArtifact, TScenario>
+  winnerOnHoldout: CampaignResult<TArtifact, TScenario>
+  neutralizedOnHoldout?: CampaignResult<TArtifact, TScenario>
+}) {
+  return [
+    { label: 'holdout.baseline', cells: comparison.baselineOnHoldout.cells },
+    ...(comparison.winnerOnHoldout === comparison.baselineOnHoldout
+      ? []
+      : [{ label: 'holdout.winner', cells: comparison.winnerOnHoldout.cells }]),
+    ...(comparison.neutralizedOnHoldout
+      ? [{ label: 'holdout.neutralized', cells: comparison.neutralizedOnHoldout.cells }]
+      : []),
+  ]
+}
+
 export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
   opts: FinalComparisonOptions<TScenario, TArtifact>,
 ) {

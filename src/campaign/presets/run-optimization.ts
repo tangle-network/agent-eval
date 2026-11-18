@@ -25,6 +25,7 @@ import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { hashCanonical } from '../../ledger-core/canonical'
 import { uniform } from '../allocation'
 import { computeManifestHash } from '../campaign-manifest'
+import { withUncapturedAgentSpend } from '../cell-aggregates'
 import {
   assertCampaignSplitIdentity,
   campaignCoverage,
@@ -480,6 +481,7 @@ function optimizationResult<TScenario extends Scenario, TArtifact>(
         }
       }),
     }))
+  const baselineCampaign = nodes.campaign(state, state.rootNodeId!)
   return {
     generations,
     baselineSurface,
@@ -487,11 +489,29 @@ function optimizationResult<TScenario extends Scenario, TArtifact>(
     winnerSurfaceHash: surfaceHash(winnerSurface),
     ...(firstEdge.operator !== 'seed' && firstEdge.label ? { winnerLabel: firstEdge.label } : {}),
     ...(winnerRationale ? { winnerRationale } : {}),
-    baselineCampaign: nodes.campaign(state, state.rootNodeId!),
-    cost: costLedger.summary(),
+    baselineCampaign,
+    cost: withUncapturedAgentSpend(
+      costLedger.summary(),
+      searchCampaigns({ baselineCampaign, generations }),
+    ),
     searchHistory: recorder.receipt({ producerId: opts.proposer.kind, runId: runDir }),
     paretoFrontier: nodes.frontier(state),
   }
+}
+
+/** Each distinct campaign a search measured, labeled by its surface. */
+export function searchCampaigns<TArtifact, TScenario extends Scenario>(
+  search: Pick<RunOptimizationResult<TArtifact, TScenario>, 'baselineCampaign' | 'generations'>,
+) {
+  const labeled = new Map<CampaignResult<TArtifact, TScenario>, string>([
+    [search.baselineCampaign, 'search.baseline'],
+  ])
+  for (const generation of search.generations) {
+    for (const { surfaceHash: hash, campaign } of generation.surfaces) {
+      if (!labeled.has(campaign)) labeled.set(campaign, `search.${hash.slice(0, 12)}`)
+    }
+  }
+  return [...labeled].map(([campaign, label]) => ({ label, cells: campaign.cells }))
 }
 
 /** The default ledger and identities when the caller binds none. Revisions are

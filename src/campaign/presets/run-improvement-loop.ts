@@ -11,6 +11,7 @@ import {
  */
 
 import { openAutoPr } from '../auto-pr'
+import { withUncapturedAgentSpend } from '../cell-aggregates'
 import {
   assertIndependentEvaluationSplit,
   captureFinalEvidencePolicy,
@@ -22,9 +23,9 @@ import { captureJudge } from '../judge-snapshot'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
-import { runFinalComparison } from './run-final-comparison'
+import { finalComparisonCampaigns, runFinalComparison } from './run-final-comparison'
 import type { RunOptimizationOptions, RunOptimizationResult } from './run-optimization'
-import { runOptimization } from './run-optimization'
+import { runOptimization, searchCampaigns } from './run-optimization'
 
 /** Default per-cell dispatch deadline (10 min). Generous enough that only a
  *  true hang trips it; a single agent turn that legitimately needs longer can
@@ -212,6 +213,9 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     ...optimization,
     ...comparison,
     prResult,
-    cost: costLedger.summary(),
+    cost: withUncapturedAgentSpend(costLedger.summary(), [
+      ...searchCampaigns(optimization),
+      ...finalComparisonCampaigns(comparison),
+    ]),
   }
 }

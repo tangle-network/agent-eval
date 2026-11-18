@@ -13,7 +13,7 @@ import {
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { buildTraceToolsForGroup, type TraceToolGroupName } from './tool-groups'
-import type { AnalystContext, AnalystFinding } from './types'
+import type { AnalystContext, AnalystFinding, AnalystUsageReceipt } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
@@ -65,6 +65,7 @@ export async function runTraceAnalyst(args: {
     analystId: definition.id,
     ...(context.correlationId ? { analystRunId: context.correlationId } : {}),
   }
+  let reportedModelCalls: number | undefined
 
   try {
     const preparedContext = await definition.prepareContext?.(args.store, context)
@@ -115,6 +116,7 @@ export async function runTraceAnalyst(args: {
       ...(context.signal ? { signal: context.signal } : {}),
       ...(context.log ? { log: context.log } : {}),
     })
+    reportedModelCalls = completed.modelCalls
     const observedSourceReads = sourceReads.slice()
     const findings = await acceptFindings(
       definition,
@@ -161,7 +163,24 @@ export async function runTraceAnalyst(args: {
         timeout_ms: settlementTimeoutMs,
       })
     }
-    context.recordUsage?.(usage.receipt)
+    context.recordUsage?.(withUnrecordedModelCalls(usage.receipt, reportedModelCalls))
+  }
+}
+
+/**
+ * An engine that reports model calls while the ledger recorded none paid outside the ledger: its
+ * spend is unknown, not $0.
+ */
+function withUnrecordedModelCalls(
+  receipt: AnalystUsageReceipt,
+  reportedModelCalls: number | undefined,
+): AnalystUsageReceipt {
+  if (!reportedModelCalls || receipt.calls !== 0) return receipt
+  return {
+    calls: reportedModelCalls,
+    tokens: null,
+    cost: { kind: 'uncaptured', usd: null },
+    knownCostUsd: 0,
   }
 }
 

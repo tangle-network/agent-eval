@@ -449,28 +449,6 @@ describe('createTraceAnalyst', () => {
       },
     })
   })
-
-  it('records an empty usage receipt without inventing model tokens', async () => {
-    const recordUsage = vi.fn()
-    const analyst = createTraceAnalyst(definition, {
-      engine: fakeEngine(async () => ({
-        answer: 'No issue.',
-        findings: [],
-        trajectory: [],
-        modelCalls: 1,
-        toolCalls: 1,
-        runtime: {},
-      })),
-    })
-
-    await analyst.analyze(store, { ...context(), recordUsage })
-
-    expect(recordUsage).toHaveBeenCalledWith({
-      calls: 0,
-      tokens: { input: 0, output: 0 },
-      cost: { kind: 'observed', usd: 0 },
-    })
-  })
 })
 
 function fakeEngine(analyze: TraceAnalysisEngine['analyze']): TraceAnalysisEngine {
