@@ -31,6 +31,7 @@ import {
 } from '../../paired-promotion-decision'
 import { meanOrZero } from '../../statistics/mean'
 import { contentHash } from '../../verdict-cache'
+import { withUncapturedAgentSpend } from '../cell-aggregates'
 import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
 import {
   assertIndependentEvaluationSplit,
@@ -293,6 +294,11 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
     resolvedRunDir,
     costLedger,
   } = prev
+  // Each final-test campaign, so a test cost read from the ledger can count agent spend it missed.
+  const testCampaigns: Array<{
+    label: string
+    cells: CampaignResult<TArtifact, TScenario>['cells']
+  }> = []
   const scoreOnTest = async (
     surface: MutableSurface,
     tag: string,
@@ -317,6 +323,7 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
       true,
       `compareOptimizationMethods: ${tag} final comparison`,
     )
+    testCampaigns.push({ label: tag, cells: campaign.cells })
     if (evidence)
       evidenceBySurface.set(
         surfaceContentHash(measuredSurface),
@@ -373,6 +380,7 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
   return {
     ...prev,
     scoreOnTest,
+    testCampaigns,
     scenarioIds,
     unitByScenario,
     units,
@@ -648,6 +656,7 @@ function comparisonResult<TScenario extends Scenario, TArtifact>(
     units,
     optimized,
     testCostPhase,
+    testCampaigns,
     finalEvidence,
     scores,
     best,
@@ -656,7 +665,10 @@ function comparisonResult<TScenario extends Scenario, TArtifact>(
   const optimizationCost = combineComparisonCosts(
     scores.map((score) => ({ label: `method '${score.name}'`, cost: score.optimizationCost })),
   )
-  const testCost = costFromLedgerSummary(costLedger.summary({ phase: testCostPhase }))
+  const testCost = withUncapturedAgentSpend(
+    costFromLedgerSummary(costLedger.summary({ phase: testCostPhase })),
+    testCampaigns,
+  )
   const totalCost = combineComparisonCosts([
     { label: 'optimization', cost: optimizationCost },
     { label: 'final test', cost: testCost },

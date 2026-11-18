@@ -8,7 +8,7 @@
  * in this package report the same fields under the same quantile definition.
  */
 
-import type { CostLedgerSummary } from '../cost-ledger'
+import type { CostLedgerSummary, CostProvenance } from '../cost-ledger'
 import { confidenceInterval, summarizeNumberSeries } from '../statistics'
 import { projectCampaignCellQuality } from './run-record'
 import type {
@@ -67,7 +67,7 @@ export function computeAggregates<TArtifact>(
   return {
     byJudge,
     byScenario,
-    cost: withUncapturedAgentCells(cost, cells),
+    cost: withUncapturedAgentSpend(cost, [{ cells }]),
     cellsExecuted: cells.filter(
       (cell) =>
         !cell.error?.startsWith('skipped:') &&
@@ -83,34 +83,55 @@ export function computeAggregates<TArtifact>(
   }
 }
 
+/** The accounting fields a ledger summary and a reported comparison cost share. */
+interface CostAccounting {
+  costProvenance: CostProvenance
+  accountingComplete: boolean
+  incompleteReasons: string[]
+  usageComplete?: boolean
+}
+
 /**
- * The run's ledger summary, made incomplete by each cell whose agent spend the ledger did not
- * capture. A judge receipt elsewhere in the run says nothing about an agent that paid outside the
- * ledger, so the run claims complete accounting only when every executed cell's agent spend is known.
+ * A cost read from the ledger, made incomplete by each executed cell whose agent spend the ledger
+ * did not capture. A ledger read counts only recorded calls, so an agent that paid outside the
+ * ledger would otherwise read as complete. A labeled campaign prefixes its reasons, so cells that
+ * share an id across arms stay distinct.
  */
-function withUncapturedAgentCells<TArtifact>(
-  cost: CostLedgerSummary,
-  cells: CampaignCellResult<TArtifact>[],
-): CostLedgerSummary {
-  const uncaptured = cells.filter(
-    (cell) => !cell.error?.startsWith('skipped:') && cell.costProvenance.kind === 'uncaptured',
+export function withUncapturedAgentSpend<TCost extends CostAccounting>(
+  cost: TCost,
+  campaigns: ReadonlyArray<
+    { label?: string; cells: readonly CampaignCellResult<unknown>[] } | undefined
+  >,
+): TCost {
+  const uncaptured = campaigns.flatMap((campaign) =>
+    (campaign?.cells ?? [])
+      .filter(
+        (cell) => !cell.error?.startsWith('skipped:') && cell.costProvenance.kind === 'uncaptured',
+      )
+      .map((cell) => ({ cell, label: campaign?.label })),
   )
   if (uncaptured.length === 0) return cost
   return {
     ...cost,
     costProvenance: { kind: 'uncaptured', usd: null },
-    usageComplete:
-      cost.usageComplete && uncaptured.every((cell) => cell.tokenUsage.tokensKnown !== false),
+    ...(cost.usageComplete === undefined
+      ? {}
+      : {
+          usageComplete:
+            cost.usageComplete &&
+            uncaptured.every(({ cell }) => cell.tokenUsage.tokensKnown !== false),
+        }),
     accountingComplete: false,
     incompleteReasons: [
       ...new Set([
         ...cost.incompleteReasons,
         ...uncaptured.map(
-          (cell) => `agent spend for cell '${cell.cellId}' was not captured by the cost ledger`,
+          ({ cell, label }) =>
+            `${label ? `${label}: ` : ''}agent spend for cell '${cell.cellId}' was not captured by the cost ledger`,
         ),
       ]),
     ],
-  }
+  } as TCost
 }
 
 // Percentile bootstrap CI95 via seeded resampling. Deterministic for a given

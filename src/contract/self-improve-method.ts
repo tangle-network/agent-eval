@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { openAutoPr } from '../campaign/auto-pr'
+import { withUncapturedAgentSpend } from '../campaign/cell-aggregates'
 import { campaignSplitDigest } from '../campaign/coverage'
 import { evaluationUnitMap } from '../campaign/final-evidence'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
@@ -10,7 +11,10 @@ import {
 } from '../campaign/optimization-cost'
 import type { OptimizationMethodResult } from '../campaign/optimization-method'
 import { executeOptimizationMethod } from '../campaign/optimization-method'
-import { runFinalComparison } from '../campaign/presets/run-final-comparison'
+import {
+  finalComparisonCampaigns,
+  runFinalComparison,
+} from '../campaign/presets/run-final-comparison'
 import { campaignMeasurementDigest, canonicalDigest } from '../campaign/provenance'
 import type { CampaignComparisonUnits } from '../campaign/score-utils'
 import type { SearchHistoryCoverageRow } from '../campaign/search-history-receipt'
@@ -149,7 +153,8 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
   const insight = deferred
     ? undefined
     : await analyzeMethodHoldout(args, comparison, baselineSurface, selected)
-  const cost = totalCost()
+  const holdoutCampaigns = finalComparisonCampaigns(comparison)
+  const cost = withUncapturedAgentSpend(totalCost(), holdoutCampaigns)
   const optimization = {
     name: opts.method.name,
     cost: methodCost,
@@ -205,7 +210,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
     provenance,
     optimization,
     cost,
-    ledgerCost: costLedger.summary(),
+    ledgerCost: withUncapturedAgentSpend(costLedger.summary(), holdoutCampaigns),
     totalCostUsd: cost.totalCostUsd,
     durationMs,
     receipts,
