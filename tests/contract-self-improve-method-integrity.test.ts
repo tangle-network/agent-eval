@@ -266,7 +266,22 @@ describe('complete method measurement integrity', () => {
   it('does not mark equivalent floating-point cost sums as underreported', async () => {
     const result = await selfImprove({
       ...common(),
-      agent: async (surface) => ({ quality: surface === 'BASE' ? 0 : 1 }),
+      // A free agent records its zero; an unrecorded one would make the total unknown.
+      agent: async (surface, _scenario, context) => {
+        const paid = await context.cost.runPaidCall({
+          actor: 'worker',
+          model: 'deterministic@2026-07-25',
+          execute: async () => ({ quality: surface === 'BASE' ? 0 : 1 }),
+          receipt: () => ({
+            model: 'deterministic@2026-07-25',
+            inputTokens: 0,
+            outputTokens: 0,
+            actualCostUsd: 0,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      },
       method: {
         name: 'rounded-sum',
         optimize: async (input) => {
