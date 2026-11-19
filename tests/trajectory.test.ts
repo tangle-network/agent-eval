@@ -52,6 +52,29 @@ describe('buildTrajectory', () => {
     expect(traj.totalDurationMs).toBe(0)
   })
 
+  it('keeps a span whose parent is missing from the capture and counts it', async () => {
+    // A parent's appendSpan was dropped: its child still names it.
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const e = new TraceEmitter(store, { now: () => t++ })
+    await e.startRun({ scenarioId: 's' })
+    const llm = await e.span({ kind: 'llm', name: 'plan', model: 'm', messages: [] })
+    await llm.end()
+    const orphan = await e.span({
+      kind: 'tool',
+      name: 'write',
+      toolName: 'write',
+      args: { path: 'a.txt' },
+      parentSpanId: 'agent-never-captured',
+    })
+    await orphan.end()
+
+    const traj = await buildTrajectory(store, e.runId)
+    expect(traj.toolCalls).toBe(1)
+    expect(traj.steps.map((s) => s.span.name)).toEqual(['plan', 'write'])
+    expect(traj.steps[1]!.depth).toBe(0)
+  })
+
   it('attaches events to their spans', async () => {
     const store = new InMemoryTraceStore()
     const e = new TraceEmitter(store)
