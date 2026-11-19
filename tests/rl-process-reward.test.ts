@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { toPrmRows } from '../src/rl/exporters'
-import type { StepReward, StepScorer } from '../src/rl/process-reward'
+import type { PrmTrainingTriple, StepReward, StepScorer } from '../src/rl/process-reward'
 import {
   extractStepRewards,
   prmTrainingPairs,
@@ -236,6 +236,11 @@ describe('process-reward pairs from recorded runs', () => {
     expect(answers[1]?.contextDigest).toBe(answers[0]?.contextDigest)
     // Both plans: the same context and the same action, which is no preference.
     expect(paired.sameActionContexts).toBe(1)
+    // The exporter refuses the same triple once it no longer names its context.
+    const { contextDigest: _, ...undigested } = paired.triples[0]!
+    await expect(
+      toPrmRows([undigested as PrmTrainingTriple], storeLookups(store), { lines }),
+    ).rejects.toThrow(/no context digest/)
   })
 
   it('reports the steps it could not pair instead of pairing them', async () => {

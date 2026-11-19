@@ -469,9 +469,9 @@ export async function toPrmRows(
   context: PrmLineContext,
 ): Promise<PrmExportRow[]> {
   for (const t of triples) {
-    if (typeof t.contextDigest !== 'string' || t.contextDigest.length === 0) {
+    if (!t.contextDigest) {
       throw new Error(
-        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} carries no context digest — refusing to build a process-reward row from two steps not known to share a context`,
+        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} has no context digest; its steps are not known to share a context`,
       )
     }
   }
