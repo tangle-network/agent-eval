@@ -10,22 +10,36 @@
  * Counterfactual runs are recorded as a new Run with `layer='meta'` and
  * `parentRunId = originalRunId`, so downstream diff + correlation
  * pipelines see them natively.
+ *
+ * The prefix is drawn by span timing (`trajectoryTimingBoundary`), not by
+ * slicing the step list: with parallel branches, a step listed before the
+ * target can have started after it, and the replayed agent must not inherit it.
  */
 
-import { NotFoundError, ValidationError } from './errors'
+import { NotFoundError } from './errors'
 import { TraceEmitter } from './trace/emitter'
 import type { LlmSpan, Span, ToolSpan } from './trace/schema'
 import type { TraceStore } from './trace/store'
-import { buildTrajectory, type Trajectory, type TrajectoryStep } from './trajectory'
+import {
+  buildTrajectory,
+  type Trajectory,
+  type TrajectoryStep,
+  type TrajectoryStepRef,
+  trajectoryTimingBoundary,
+} from './trajectory'
 
+/**
+ * The step a mutation changes: its index in the original trajectory's steps, or
+ * the id of its span. A span id stays valid when the step list is rebuilt.
+ */
 export type CounterfactualMutation =
-  | { kind: 'swap-model'; at: number; newModel: string }
-  | { kind: 'swap-tool-result'; at: number; newResult: unknown }
-  | { kind: 'truncate-after'; at: number }
-  | { kind: 'inject-system-message'; at: number; content: string }
+  | { kind: 'swap-model'; at: TrajectoryStepRef; newModel: string }
+  | { kind: 'swap-tool-result'; at: TrajectoryStepRef; newResult: unknown }
+  | { kind: 'truncate-after'; at: TrajectoryStepRef }
+  | { kind: 'inject-system-message'; at: TrajectoryStepRef; content: string }
   | {
       kind: 'custom'
-      at: number
+      at: TrajectoryStepRef
       describe: string
       apply: (step: TrajectoryStep) => TrajectoryStep
     }
@@ -33,11 +47,17 @@ export type CounterfactualMutation =
 export interface CounterfactualContext {
   originalRunId: string
   originalTrajectory: Trajectory
-  /** Steps up to (but not including) the mutation point — the prefix the
-   *  replayed agent inherits as its prior conversation/tool history. */
+  /** What the replayed agent inherits: the target's ancestors and every step
+   *  that ended before the target started, in containment order. A sequential
+   *  trace's prefix is every step before the target. See
+   *  `trajectoryTimingBoundary` for what timing does not prove. */
   prefix: TrajectoryStep[]
+  /** Steps that were still running when the target started. Their outcome was
+   *  not available to the decision; their partial effects on the environment
+   *  are the executor's to account for. */
+  inFlight: TrajectoryStep[]
   mutation: CounterfactualMutation
-  /** Pre-applied mutation on the step at `mutation.at`. Consumers use this
+  /** Pre-applied mutation on the target step. Consumers use this
    *  as the FIRST step the replayed agent emits (they decide whether to
    *  re-emit it or continue from there). */
   mutatedStep: TrajectoryStep
@@ -47,6 +67,8 @@ export interface CounterfactualResult {
   counterfactualRunId: string
   originalRunId: string
   mutation: CounterfactualMutation
+  /** Span id of the step the mutation changed. */
+  targetSpanId: string
   /** Structured delta summary — caller can extend via scoring. */
   delta: {
     originalOutcomeScore: number | null
@@ -73,34 +95,31 @@ export async function runCounterfactual(
   const originalRun = await store.getRun(originalRunId)
   if (!originalRun) throw new NotFoundError(`counterfactual: run ${originalRunId} not found`)
   const trajectory = await buildTrajectory(store, originalRunId)
-  if (mutation.at < 0 || mutation.at >= trajectory.steps.length) {
-    throw new ValidationError(
-      `counterfactual: mutation.at=${mutation.at} out of range [0, ${trajectory.steps.length})`,
-    )
-  }
-  const targetStep = trajectory.steps[mutation.at]!
-  const mutatedStep = applyMutation(targetStep, mutation)
+  const { target, prefix, inFlight } = trajectoryTimingBoundary(trajectory, mutation.at)
+  const mutatedStep = applyMutation(target, mutation)
+  const targetSpanId = target.span.spanId
+  // An index target keeps its `@<index>` variant id; a span target is named by span.
+  const at = typeof mutation.at === 'number' ? String(mutation.at) : `span:${targetSpanId}`
 
   const cfEmitter = new TraceEmitter(store)
   await cfEmitter.startRun({
     scenarioId: originalRun.scenarioId,
     variantId: originalRun.variantId
-      ? `${originalRun.variantId}+cf:${mutation.kind}@${mutation.at}`
-      : `cf:${mutation.kind}@${mutation.at}`,
+      ? `${originalRun.variantId}+cf:${mutation.kind}@${at}`
+      : `cf:${mutation.kind}@${at}`,
     projectId: originalRun.projectId,
     parentRunId: originalRunId,
     layer: 'meta',
-    tags: { counterfactual: 'true', mutationKind: mutation.kind, mutationAt: String(mutation.at) },
+    tags: {
+      counterfactual: 'true',
+      mutationKind: mutation.kind,
+      mutationAt: String(target.index),
+      mutationSpanId: targetSpanId,
+    },
   })
 
   await runner.executeFrom(
-    {
-      originalRunId,
-      originalTrajectory: trajectory,
-      prefix: trajectory.steps.slice(0, mutation.at),
-      mutation,
-      mutatedStep,
-    },
+    { originalRunId, originalTrajectory: trajectory, prefix, inFlight, mutation, mutatedStep },
     cfEmitter,
   )
 
@@ -113,7 +132,7 @@ export async function runCounterfactual(
         ? counterfactual.outcome.score - originalRun.outcome.score
         : null,
   }
-  return { counterfactualRunId: cfEmitter.runId, originalRunId, mutation, delta }
+  return { counterfactualRunId: cfEmitter.runId, originalRunId, mutation, targetSpanId, delta }
 }
 
 function applyMutation(step: TrajectoryStep, mutation: CounterfactualMutation): TrajectoryStep {

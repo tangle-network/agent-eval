@@ -2,6 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { runCounterfactual } from '../../src/counterfactual'
+import { TraceEmitter } from '../../src/trace/emitter'
 import { InMemoryTraceStore } from '../../src/trace/store'
 import { buildTrajectory } from '../../src/trajectory'
 import { wrapActionForExec } from '../../src/trajectory-replay/exec'
@@ -16,6 +18,7 @@ import {
   ingestRecordedTrajectory,
   PREFIX_DIVERGENCE_TOLERANCE_PCT,
   replayVerify,
+  SandboxCounterfactualRunner,
   summarizePrefixReplay,
 } from '../../src/trajectory-replay/verify'
 import {
@@ -444,6 +447,48 @@ describe('replayVerify', () => {
         backend: scriptedBackend(() => ({ exitCode: 0, stdout: '', stderr: '' })),
       }),
     ).rejects.toThrow(/contiguous step_ids/)
+  })
+
+  it('refuses a step another command was still running beside, before opening a sandbox', async () => {
+    // A watcher starts at t=1 and runs past the build that starts at t=3, so no
+    // sequential replay of finished commands can rebuild the state at t=3.
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const emitter = new TraceEmitter(store, { now: () => t })
+    await emitter.startRun({ scenarioId: 'parallel-shell' })
+    const session = await emitter.span({ kind: 'agent', name: 'session' })
+    t = 1
+    const watcher = await emitter.tool({
+      name: 'step:1',
+      toolName: 'shell',
+      args: { command: 'npm run watch' },
+      parentSpanId: session.span.spanId,
+    })
+    t = 3
+    const build = await emitter.tool({
+      name: 'step:2',
+      toolName: 'shell',
+      args: { command: 'make target' },
+      parentSpanId: session.span.spanId,
+    })
+    t = 4
+    await build.end({ result: { returncode: 2 } })
+    t = 9
+    await watcher.end({ result: { returncode: 0 } })
+    await session.end()
+    await emitter.endRun({ pass: false })
+
+    const backend = scriptedBackend(() => ({ exitCode: 0, stdout: '', stderr: '' }))
+    const runner = new SandboxCounterfactualRunner(backend, { cwd: '/repo', stepTimeoutMs: 1000 })
+    await expect(
+      runCounterfactual(
+        store,
+        emitter.runId,
+        { kind: 'custom', at: { spanId: build.span.spanId }, describe: 'replay', apply: (s) => s },
+        runner,
+      ),
+    ).rejects.toThrow(/1 step\(s\) were still running when step:2 started/)
+    expect(backend.executed).toEqual([])
   })
 
   it('honors prefixLimit and reports the truncated count', async () => {
