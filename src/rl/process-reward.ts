@@ -131,7 +131,7 @@ export async function extractStepRewards(
   const out: StepReward[] = []
   for (const [position, span] of ordered.entries()) {
     const record = spanRecord(span, positionOf)
-    const input = span.kind === 'llm' ? record.messages ?? UNRECORDED : undefined
+    const input = span.kind === 'llm' ? (record.messages ?? UNRECORDED) : undefined
     const action = actionOf(span)
     const contextBefore = prefix
     // A tool call with neither a result nor an error leaves unknown what came back.
