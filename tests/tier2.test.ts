@@ -88,6 +88,66 @@ describe('runCounterfactual', () => {
     expect(cfRun?.tags?.counterfactual).toBe('true')
   })
 
+  it('never hands the replayed agent a step that started after the decision it changes', async () => {
+    // Two parallel branches under one supervisor: A starts at t=1, B at t=2,
+    // B decides at t=3, and A writes at t=40. Depth-first order lists A's whole
+    // branch, write included, before B.
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const e = new TraceEmitter(store, { now: () => t })
+    await e.startRun({ scenarioId: 's' })
+    const root = await e.span({ kind: 'agent', name: 'supervisor' })
+    t = 1
+    const a = await e.span({ kind: 'agent', name: 'agent-a', parentSpanId: root.span.spanId })
+    t = 2
+    const b = await e.span({ kind: 'agent', name: 'agent-b', parentSpanId: root.span.spanId })
+    t = 3
+    const decide = await e.span({
+      kind: 'llm',
+      name: 'b-decide',
+      model: 'm',
+      messages: [],
+      parentSpanId: b.span.spanId,
+    })
+    t = 5
+    await decide.end()
+    t = 40
+    const write = await e.span({
+      kind: 'tool',
+      name: 'a-write',
+      toolName: 'write',
+      args: { path: 'out.txt' },
+      parentSpanId: a.span.spanId,
+    })
+    t = 41
+    await write.end()
+    t = 42
+    await a.end()
+    t = 43
+    await b.end()
+    t = 50
+    await root.end()
+    await e.endRun({ pass: true, score: 0.5 })
+
+    let prefix: string[] = []
+    const result = await runCounterfactual(
+      store,
+      e.runId,
+      { kind: 'swap-model', at: 4, newModel: 'other' },
+      {
+        async executeFrom(ctx, emitter) {
+          expect(ctx.mutatedStep.span.name).toBe('b-decide')
+          const startedAt = ctx.mutatedStep.span.startedAt
+          prefix = ctx.prefix.map((s) => s.span.name)
+          expect(ctx.prefix.filter((s) => s.span.startedAt > startedAt)).toHaveLength(0)
+          await emitter.endRun({ pass: true, score: 0.5 })
+        },
+      },
+    )
+    expect(prefix).toEqual(['supervisor', 'agent-b'])
+    expect(result.delta.deltaScore).toBe(0)
+  })
+
   it('rejects out-of-range mutation index — regression: silent OOB would produce bogus replays', async () => {
     const store = new InMemoryTraceStore()
     const originalId = await seed(store, 0.5, [{ kind: 'llm', name: 'one' }])
