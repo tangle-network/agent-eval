@@ -35,7 +35,7 @@
  */
 
 import { hashCanonical, jsonDocument, LedgerCanonicalizationError } from '../ledger-core/canonical'
-import type { Message, Span } from '../trace/schema'
+import type { Span } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
 export interface StepReward {
@@ -67,12 +67,16 @@ export interface StepReward {
   /**
    * Digest of everything the policy could have seen before acting at this
    * step: the run's scenario id, the recorded content of every span ordered
-   * before this one in the run, and this step's own input. Two steps with the
-   * same context digest acted in the same context.
+   * before this one in the run (all fields, attributes included, except
+   * identifiers, timestamps, token and cost accounting and the model id), and
+   * this step's own input (an llm span's `messages`). Two steps with the same
+   * context digest acted in the same context. A value a producer writes per run
+   * into a span therefore keeps that run from matching any other.
    *
-   * Absent when any of that was not recorded: an unknown run, an earlier llm
-   * span with no `output`, an earlier tool call whose arguments or result were
-   * not captured. Absent means unknown, never "matches nothing in particular".
+   * Absent when any of that was not recorded: a run the store does not know,
+   * an llm span with no `messages` or an earlier one with no `output`, an
+   * earlier tool call whose arguments or result were not captured. Absent means
+   * unknown and is never treated as a match.
    */
   contextDigest?: string
   /**
@@ -116,21 +120,26 @@ export async function extractStepRewards(
   runId: string,
   opts: ExtractStepRewardsOptions,
 ): Promise<StepReward[]> {
-  const run = await store.getRun(runId)
+  const scenarioId = (await store.getRun(runId))?.scenarioId
   const spans = await store.spans({ runId })
   const ordered = [...spans].sort((a, b) => a.startedAt - b.startedAt)
   const positionOf = new Map(ordered.map((span, position) => [span.spanId, position]))
-  // The context chain: a digest of the scenario and every span recorded so
-  // far. It is undefined for a run with no scenario id, and from the first
-  // span whose content is unknown.
-  const scenarioId = run?.scenarioId
-  let prefix =
-    typeof scenarioId === 'string' && scenarioId.length > 0 ? digestOf({ scenarioId }) : undefined
+  // The context chain: the scenario, then every span recorded so far. It is
+  // undefined for a run with no scenario id, and from the first span whose
+  // content is not fully recorded.
+  let prefix = scenarioId ? digestOf({ scenarioId }) : undefined
   const out: StepReward[] = []
   for (const [position, span] of ordered.entries()) {
-    const content = spanContent(span, positionOf)
-    const prefixBefore = prefix
-    prefix = prefixBefore === undefined ? undefined : extendContext(prefixBefore, span, content)
+    const record = spanRecord(span, positionOf)
+    const input = span.kind === 'llm' ? record.messages ?? UNRECORDED : undefined
+    const action = actionOf(span)
+    const contextBefore = prefix
+    // A tool call with neither a result nor an error leaves unknown what came back.
+    const complete =
+      input !== UNRECORDED &&
+      action !== UNRECORDED &&
+      (span.kind !== 'tool' || span.result !== undefined || span.error !== undefined)
+    prefix = prefix !== undefined && complete ? digestOf({ prefix, span: record }) : undefined
     if (opts.preFilter && !opts.preFilter(span)) continue
     let scored: ScoredStep | null | undefined = null
     for (const s of opts.scorers) {
@@ -142,8 +151,16 @@ export async function extractStepRewards(
       }
     }
     if (!scored) continue
-    const contextDigest = scored.contextDigest ?? stepContextDigest(prefixBefore, content)
-    const actionDigest = scored.actionDigest ?? stepActionDigest(span, content)
+    const contextDigest =
+      scored.contextDigest ??
+      (contextBefore === undefined || input === UNRECORDED
+        ? undefined
+        : digestOf({ prefix: contextBefore, input }))
+    const actionDigest =
+      scored.actionDigest ??
+      (action === undefined || action === UNRECORDED
+        ? undefined
+        : digestOf({ kind: span.kind, name: span.name, action }))
     out.push({
       spanId: span.spanId,
       runId,
@@ -161,131 +178,82 @@ export async function extractStepRewards(
   return out
 }
 
-// ── Span content: input, action, observation ─────────────────────────────
+// ── Span content ─────────────────────────────────────────────────────────
+
+/** A part the span's kind carries and the trace does not. */
+const UNRECORDED = Symbol('unrecorded')
 
 /**
- * One part of a span's recorded content. `absent` means the span's kind has no
- * such part; `unrecorded` means the kind has one and the trace does not carry
- * it, so nothing that depends on it can be digested.
+ * Fields left out of a span's record: identifiers, timestamps, and token and
+ * cost accounting differ between runs that saw and did the same thing, and the
+ * model is the policy, not the context. Every other field is content, so a
+ * field the schema gains later makes contexts more specific, never less.
  */
-type ContentPart = { recorded: unknown } | 'absent' | 'unrecorded'
+const NOT_CONTENT = new Set([
+  'spanId',
+  'parentSpanId',
+  'runId',
+  'startedAt',
+  'endedAt',
+  'latencyMs',
+  'wallMs',
+  'model',
+  'inputTokens',
+  'outputTokens',
+  'cachedTokens',
+  'cacheWriteTokens',
+  'reasoningTokens',
+  'costUsd',
+  'tokens',
+])
 
-interface SpanContent {
-  /** What the span was handed to act on. */
-  input: ContentPart
-  /** What the policy chose to do. Only a span with a recorded action is pairable. */
-  action: ContentPart
-  /** What came back, or the record of a span the policy did not choose. */
-  observation: ContentPart
+const contentOf = (value: object): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(value).filter(([key]) => !NOT_CONTENT.has(key)))
+
+/**
+ * A span's recorded content as later steps saw it. An llm span's messages are
+ * missing when none were captured, and a judge's target is named by its
+ * position in the run, so the same target reads the same in two runs.
+ */
+function spanRecord(span: Span, positionOf: ReadonlyMap<string, number>): Record<string, unknown> {
+  const record = contentOf(span)
+  if (span.kind === 'llm') {
+    record.messages =
+      Array.isArray(span.messages) && span.messages.length > 0
+        ? span.messages.map(contentOf)
+        : undefined
+  }
+  if (span.kind === 'judge') {
+    record.targetSpanId = positionOf.get(span.targetSpanId) ?? span.targetSpanId
+  }
+  return record
 }
 
 /**
- * Split a span into input, action and observation, using the fields
- * `trace/schema.ts` defines for its kind:
- *
- *   llm            input = messages (role, content, images), action = output,
- *                  observation = error
- *   tool           action = { toolName, args }, observation = { result, error }
- *   retrieval      action = { query }, observation = { hits, error }
- *   judge          observation = { judgeId, dimension, score, rationale,
- *                  evidence, target }
- *   sandbox        observation = { image, command, exitCode, test counts,
- *                  output hashes, error }
- *   agent, custom  observation = { attributes, status, error }
- *
- * Judge, sandbox, agent and custom spans make no policy decision — a judge
- * grades, the harness runs the sandbox, and a container only groups — so they
- * shape the context of later steps and are never paired.
- *
- * Span ids, timestamps, token and cost accounting, and the model id are left
- * out: they differ between runs that saw and did the same thing, and the model
- * is the policy, not the context. A judge's target is named by its position in
- * the run, so the same target in two runs reads the same. An undefined field
- * inside a recorded part is dropped, as a JSON document drops it.
+ * The decision a step made: an llm span's `output`, a tool call's name and
+ * arguments, a retrieval's query. Judge, sandbox, agent and custom spans make
+ * no policy decision — a judge grades, the harness runs the sandbox, a
+ * container only groups — so they shape later contexts and are never paired.
  */
-function spanContent(span: Span, positionOf: ReadonlyMap<string, number>): SpanContent {
-  const error = span.error
+function actionOf(span: Span): unknown {
   switch (span.kind) {
     case 'llm':
-      return {
-        input:
-          Array.isArray(span.messages) && span.messages.length > 0
-            ? { recorded: span.messages.map(messageContent) }
-            : 'unrecorded',
-        action: typeof span.output === 'string' ? { recorded: span.output } : 'unrecorded',
-        observation: error === undefined ? 'absent' : { recorded: { error } },
-      }
+      return typeof span.output === 'string' ? span.output : UNRECORDED
     case 'tool':
-      return {
-        input: 'absent',
-        action:
-          span.argsCaptured === false || span.args === undefined
-            ? 'unrecorded'
-            : { recorded: { toolName: span.toolName, args: span.args } },
-        observation:
-          span.result === undefined && error === undefined
-            ? 'unrecorded'
-            : { recorded: { result: span.result, error } },
-      }
+      return span.argsCaptured === false || span.args === undefined
+        ? UNRECORDED
+        : { toolName: span.toolName, args: span.args }
     case 'retrieval':
-      return {
-        input: 'absent',
-        action: typeof span.query === 'string' ? { recorded: { query: span.query } } : 'unrecorded',
-        observation: Array.isArray(span.hits)
-          ? { recorded: { hits: span.hits, error } }
-          : 'unrecorded',
-      }
-    case 'judge':
-      return {
-        input: 'absent',
-        action: 'absent',
-        observation: {
-          recorded: {
-            judgeId: span.judgeId,
-            dimension: span.dimension,
-            score: span.score,
-            rationale: span.rationale,
-            evidence: span.evidence,
-            target: positionOf.get(span.targetSpanId) ?? span.targetSpanId,
-            error,
-          },
-        },
-      }
-    case 'sandbox':
-      return {
-        input: 'absent',
-        action: 'absent',
-        observation: {
-          recorded: {
-            image: span.image,
-            command: span.command,
-            exitCode: span.exitCode,
-            testsTotal: span.testsTotal,
-            testsPassed: span.testsPassed,
-            stdoutHash: span.stdoutHash,
-            stderrHash: span.stderrHash,
-            error,
-          },
-        },
-      }
+      return typeof span.query === 'string' ? { query: span.query } : UNRECORDED
     default:
-      return {
-        input: 'absent',
-        action: 'absent',
-        observation: { recorded: { attributes: span.attributes, status: span.status, error } },
-      }
+      return undefined
   }
 }
 
-/** A message as the model read it; its token count depends on the model, so it is left out. */
-function messageContent(message: Message): unknown {
-  return { role: message.role, content: message.content, images: message.images }
-}
-
 /**
- * The canonical digest of `value` in its JSON document form, or undefined when
- * the value has no canonical form (NaN, a class instance). Such content cannot
- * be compared, the same as content that was never recorded.
+ * The canonical digest of `value` in its JSON document form, where an
+ * undefined field is absent. Content with no canonical form (NaN, a class
+ * instance) has no digest, the same as content that was never recorded.
  */
 function digestOf(value: unknown): string | undefined {
   try {
@@ -294,38 +262,6 @@ function digestOf(value: unknown): string | undefined {
     if (error instanceof LedgerCanonicalizationError) return undefined
     throw error
   }
-}
-
-function recordedOrOmitted(key: string, part: ContentPart): Record<string, unknown> {
-  return typeof part === 'object' ? { [key]: part.recorded } : {}
-}
-
-/** The context after `span`: undefined when any part its kind carries is unrecorded. */
-function extendContext(prefix: string, span: Span, content: SpanContent): string | undefined {
-  const { input, action, observation } = content
-  if (input === 'unrecorded' || action === 'unrecorded' || observation === 'unrecorded') {
-    return undefined
-  }
-  return digestOf({
-    prefix,
-    span: {
-      kind: span.kind,
-      name: span.name,
-      ...recordedOrOmitted('input', input),
-      ...recordedOrOmitted('action', action),
-      ...recordedOrOmitted('observation', observation),
-    },
-  })
-}
-
-function stepContextDigest(prefix: string | undefined, content: SpanContent): string | undefined {
-  if (prefix === undefined || content.input === 'unrecorded') return undefined
-  return digestOf({ prefix, ...recordedOrOmitted('input', content.input) })
-}
-
-function stepActionDigest(span: Span, content: SpanContent): string | undefined {
-  if (typeof content.action !== 'object') return undefined
-  return digestOf({ kind: span.kind, name: span.name, action: content.action.recorded })
 }
 
 // ── Run-level summary ────────────────────────────────────────────────────
@@ -429,13 +365,6 @@ export interface PrmPairingResult {
   singleRunContexts: number
   /** Contexts reached by two or more runs that all took the same action there. */
   sameActionContexts: number
-  /** Pairs of different actions in one context whose rewards differ by less than `minMargin`. */
-  pairsBelowMargin: number
-}
-
-export interface PrmTrainingPairsOptions {
-  /** Smallest reward gap that makes a preference. Default 0.2. */
-  minMargin?: number
 }
 
 /**
@@ -447,14 +376,14 @@ export interface PrmTrainingPairsOptions {
  *   - they carry the same `contextDigest`, so they acted in the same context;
  *   - they carry different `actionDigest`s — the same action in the same
  *     context with two rewards is scorer noise, not a preference;
- *   - their rewards differ by at least `minMargin`.
+ *   - their rewards differ, by at least `minMargin` (default 0.2).
  * The higher-reward step is `chosen`. Steps are grouped by context digest
  * across all runs, so every qualifying pair in a context becomes a triple.
  * A step with no digest is counted in the result and never paired.
  */
 export function prmTrainingPairs(
   stepRewardsByRun: Map<string, StepReward[]>,
-  opts: PrmTrainingPairsOptions = {},
+  opts: { minMargin?: number } = {},
 ): PrmPairingResult {
   const minMargin = opts.minMargin ?? 0.2
   if (!Number.isFinite(minMargin) || minMargin < 0) {
@@ -462,32 +391,28 @@ export function prmTrainingPairs(
       `prmTrainingPairs: minMargin must be a finite number >= 0, got ${minMargin}`,
     )
   }
+  const result: PrmPairingResult = {
+    triples: [],
+    stepsWithoutContextDigest: 0,
+    stepsWithoutActionDigest: 0,
+    singleRunContexts: 0,
+    sameActionContexts: 0,
+  }
   const byContext = new Map<string, StepReward[]>()
-  let stepsWithoutContextDigest = 0
-  let stepsWithoutActionDigest = 0
   for (const steps of stepRewardsByRun.values()) {
     for (const step of steps) {
-      if (!isDigest(step.contextDigest)) stepsWithoutContextDigest++
-      else if (!isDigest(step.actionDigest)) stepsWithoutActionDigest++
-      else {
-        const group = byContext.get(step.contextDigest)
-        if (group === undefined) byContext.set(step.contextDigest, [step])
-        else group.push(step)
-      }
+      if (!step.contextDigest) result.stepsWithoutContextDigest++
+      else if (!step.actionDigest) result.stepsWithoutActionDigest++
+      else byContext.set(step.contextDigest, [...(byContext.get(step.contextDigest) ?? []), step])
     }
   }
-
-  const triples: PrmTrainingTriple[] = []
-  let singleRunContexts = 0
-  let sameActionContexts = 0
-  let pairsBelowMargin = 0
   for (const [contextDigest, group] of byContext) {
     if (new Set(group.map((s) => s.runId)).size < 2) {
-      singleRunContexts++
+      result.singleRunContexts++
       continue
     }
     if (new Set(group.map((s) => s.actionDigest)).size < 2) {
-      sameActionContexts++
+      result.sameActionContexts++
       continue
     }
     for (let i = 0; i < group.length; i++) {
@@ -496,12 +421,9 @@ export function prmTrainingPairs(
         const b = group[j]!
         if (a.runId === b.runId || a.actionDigest === b.actionDigest) continue
         const margin = Math.abs(a.reward - b.reward)
-        if (!(margin > 0 && margin >= minMargin)) {
-          pairsBelowMargin++
-          continue
-        }
+        if (!(margin > 0 && margin >= minMargin)) continue
         const [chosen, rejected] = a.reward > b.reward ? [a, b] : [b, a]
-        triples.push({
+        result.triples.push({
           contextDigest,
           prefixRunId: chosen.runId,
           prefixStepIndex: chosen.stepIndex - 1,
@@ -515,16 +437,5 @@ export function prmTrainingPairs(
       }
     }
   }
-  return {
-    triples,
-    stepsWithoutContextDigest,
-    stepsWithoutActionDigest,
-    singleRunContexts,
-    sameActionContexts,
-    pairsBelowMargin,
-  }
-}
-
-function isDigest(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return result
 }

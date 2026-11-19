@@ -290,7 +290,6 @@ describe('process-reward pairs from recorded runs', () => {
       // 'same-1' and 'same-2' gave the same answer in one context
       sameActionContexts: 1,
       singleRunContexts: 0,
-      pairsBelowMargin: 0,
     })
   })
 

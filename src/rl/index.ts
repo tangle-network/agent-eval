@@ -128,7 +128,6 @@ export * from './preferences'
 export type {
   ExtractStepRewardsOptions,
   PrmPairingResult,
-  PrmTrainingPairsOptions,
   PrmTrainingTriple,
   RunwiseStepSummary,
   ScoredStep,
