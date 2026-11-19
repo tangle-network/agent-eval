@@ -18,6 +18,7 @@ import {
 import { openExternalOptimizerObservationLog } from '../../src/campaign/external-optimizer-observations'
 import { recordGepaSearch } from '../../src/campaign/gepa-search-import'
 import type { DispatchContext } from '../../src/campaign/types'
+import { buildReflectionPrompt } from '../../src/reflective-mutation'
 import { contentHash } from '../../src/verdict-cache'
 
 // Each test runs a real campaign per evaluation, the real loopback callback,
@@ -248,11 +249,28 @@ async function runScriptedGepa<TArtifact>(input: {
   return { events: readLedger(ledgerPath), observations, responses }
 }
 
+/** The reflection prompt a reflective proposer builds from its parent's measured scenarios. */
+function reflectionPrompt(ctx: ProposeContext): string {
+  return buildReflectionPrompt({
+    target: 'prompt',
+    parentPayload: ctx.currentSurface,
+    topTrials: [],
+    bottomTrials: (ctx.parentOutcome?.scenarios ?? []).map((row) => ({
+      id: row.scenarioId,
+      score: row.composite,
+      ...(row.emitted === undefined ? {} : { emitted: row.emitted }),
+      ...(row.notes === undefined ? {} : { failureNote: row.notes }),
+    })),
+    childCount: 1,
+  })
+}
+
 /** One native optimization round: the baseline is measured, then the proposer reads it and stops. */
 async function runNative<TArtifact>(input: {
   scenarioId: string
   output: TArtifact
   judge: JudgeConfig<TArtifact, Scenario>
+  describeArtifact?: (artifact: TArtifact, scenario: Scenario) => unknown
 }) {
   const seen: ProposeContext[] = []
   const nativeDir = join(runDir, 'native')
@@ -272,6 +290,7 @@ async function runNative<TArtifact>(input: {
     maxGenerations: 1,
     expectUsage: 'off',
     runDir: nativeDir,
+    ...(input.describeArtifact ? { describeArtifact: input.describeArtifact } : {}),
   })
   expect(seen).toHaveLength(1)
   return { ctx: seen[0]!, nativeDir, events: readLedger(join(nativeDir, 'search', 'ledger.jsonl')) }
@@ -453,7 +472,20 @@ describe('external evaluations import as the measured campaign cells', () => {
   })
 })
 
-describe('the native path records what each cell measured', () => {
+describe('the native path records and shows what each cell measured', () => {
+  it('shows the reflective proposer the end of a long output', async () => {
+    const { ctx } = await runNative({
+      scenarioId: 'long',
+      output: LONG_OUTPUT,
+      judge: lateFailureJudge,
+    })
+    const prompt = reflectionPrompt(ctx)
+    // The failure is at the end of the output, so the end must reach the prompt.
+    expect(prompt).toContain(TAIL)
+    expect(prompt).toContain(LONG_OUTPUT.slice(0, 500))
+    expect(prompt).toMatch(/\d+ characters omitted/)
+  })
+
   it('records every judge dimension and the measuring attempt on each native cell', async () => {
     const { events, nativeDir } = await runNative({
       scenarioId: 'long',
@@ -470,5 +502,51 @@ describe('the native path records what each cell measured', () => {
     const [latest] = findFiles(nativeDir, 'latest-attempt.json')
     const attempt = JSON.parse(readFileSync(latest!, 'utf8')) as { runAttemptId: string }
     expect(settled[0]!.traceRef?.unknown).toEqual(expect.stringContaining(attempt.runAttemptId))
+  })
+})
+
+describe('the native and external paths see the same evidence', () => {
+  it('gives both optimizers the same excerpt of a string output', async () => {
+    const native = await runNative({
+      scenarioId: 'train',
+      output: LONG_OUTPUT,
+      judge: lateFailureJudge,
+    })
+    const nativeEvidence = native.ctx.parentOutcome?.scenarios.find(
+      (row) => row.scenarioId === 'train',
+    )?.emitted
+    const external = await runScriptedGepa<string>({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      dispatchWithSurface: async () => LONG_OUTPUT,
+      judge: lateFailureJudge,
+    })
+    expect(nativeEvidence).toBeDefined()
+    expect(nativeEvidence!.endsWith(TAIL)).toBe(true)
+    expect(external.responses[0]!.info.artifact).toBe(nativeEvidence)
+  })
+
+  it('gives both optimizers the described evidence of a structured output', async () => {
+    const describeArtifact = (artifact: TextArtifact) => ({ answer: artifact.text })
+    const native = await runNative<TextArtifact>({
+      scenarioId: 'train',
+      output: { text: 'better' },
+      judge: betterJudge,
+      describeArtifact,
+    })
+    const nativeEvidence = native.ctx.parentOutcome?.scenarios.find(
+      (row) => row.scenarioId === 'train',
+    )?.emitted
+    const external = await runScriptedGepa<TextArtifact>({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      dispatchWithSurface: async () => ({ text: 'better' }),
+      judge: betterJudge,
+      describeArtifact,
+    })
+    expect(external.responses[0]!.info.artifact).toEqual({ answer: 'better' })
+    expect(nativeEvidence).toBe(JSON.stringify({ answer: 'better' }))
   })
 })
