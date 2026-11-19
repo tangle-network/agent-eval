@@ -133,6 +133,10 @@ export interface ToolDef {
 export interface RolloutStep {
   kind: string
   name: string
+  /** Id of the trace span the step was projected from; absent on steps not minted from a span. */
+  spanId?: string
+  /** Parent id that span names; absent for a root span. It can name a span missing from the capture, which `provenance.gap` then states. */
+  parentSpanId?: string
   /** llm: last-message summary · tool: stringified args. Scrubbed. */
   input?: string
   /** llm: output text · tool: stringified result. Scrubbed. */
@@ -622,8 +626,15 @@ function validateRolloutTranscript(value: Record<string, unknown>, errors: strin
           errors.push(`steps[${i}]: must be {kind: string, name: string, …}`)
           return
         }
-        // ATIF-lifted optionals: absent on every line written before they
-        // existed, so they are checked only when present — old ledgers stay valid.
+        // Optionals added after v1 shipped (span linkage, the ATIF-lifted RL
+        // fields): absent on every line written before they existed, so they
+        // are checked only when present — old ledgers stay valid.
+        for (const key of ['spanId', 'parentSpanId'] as const) {
+          const id = s[key]
+          if (id !== undefined && (typeof id !== 'string' || id.length === 0)) {
+            errors.push(`steps[${i}].${key}: expected non-empty string when present`)
+          }
+        }
         if (s.llm_call_count !== undefined && !Number.isInteger(s.llm_call_count)) {
           errors.push(`steps[${i}].llm_call_count: expected integer when present`)
         }
