@@ -307,9 +307,7 @@ describe('mintRolloutRows', () => {
       ],
     })
     const line = rows[0]!
-    expect(line.provenance.gap).toMatch(
-      /1 trace span names a parent span missing from the capture/,
-    )
+    expect(line.provenance.gap).toMatch(/1 trace span names a parent span missing from the capture/)
     expect(line.provenance.lossy_projection).toBe(true)
     expect(line.steps!.map((s) => s.name)).toEqual(['coder', 'bash', 'write'])
     // Each step names the span it came from, so the hole can be traced back.

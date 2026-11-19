@@ -127,10 +127,7 @@ export interface TrajectoryTimingBoundary {
 }
 
 /** The step a reference names; a ValidationError when it names none, or more than one. */
-function resolveTrajectoryStep(
-  trajectory: Trajectory,
-  ref: TrajectoryStepRef,
-): TrajectoryStep {
+function resolveTrajectoryStep(trajectory: Trajectory, ref: TrajectoryStepRef): TrajectoryStep {
   const { steps } = trajectory
   if (typeof ref === 'number') {
     if (!Number.isSafeInteger(ref) || ref < 0 || ref >= steps.length) {
