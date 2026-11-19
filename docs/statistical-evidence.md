@@ -6,7 +6,9 @@ Repeating one incident 100 times supplies one incident, even when every executio
 
 ## Declare the independent unit
 
-Pass `independentUnitByScenarioId` to `defaultProductionGate`, `heldoutSignificance`, or `dimensionRegressions` when scenarios share a source.
+Observations that share a parent run or task are one unit.
+Several decision points taken from one historical run are one observation of that run, however many cells they fill.
+Pass `independentUnitByScenarioId` to `defaultProductionGate`, `heldOutGate`, `heldoutSignificance`, or `dimensionRegressions` when scenarios share a source.
 The map assigns each scenario to the incident, document, task family, or other unit sampled independently.
 Choose this assignment before examining scores.
 
@@ -33,8 +35,9 @@ const gate = defaultProductionGate({
 
 This example has two independent units and cannot meet its observation minimum.
 More repetitions of these scenarios will not change that count.
-The default gate copies the map when it is constructed.
-Later mutations cannot change the grouping used by that gate.
+`defaultProductionGate` and `heldOutGate` copy the map when they are constructed.
+Later mutations cannot change the grouping either gate uses.
+The minimum observation count, `minProductiveRuns` included, counts units, not cells.
 
 Pairing precedes aggregation.
 Candidate and baseline must contain the same full cell identifiers and the same selected judges within each cell.
@@ -50,6 +53,9 @@ Reports distinguish the following counts:
 | `pairedCellN` | Matched execution cells before grouping |
 | `observationUnit` | `registered` when a supplied map defines units; `cell` on an ungrouped fixed-roster path |
 | `unitIds` | The units represented in a held-out significance result |
+
+`heldOutGate` adds `pairedCellN`, `observationUnit` and `unitIds` to its detail only when a map is supplied.
+Its reason then names both counts, as in `n=2 independent units from 12 paired cells`.
 
 Without a map, fixed-roster significance uses execution cells as observations.
 Its uncertainty concerns independently sampled execution outcomes conditional on that roster.

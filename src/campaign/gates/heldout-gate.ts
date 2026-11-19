@@ -10,6 +10,16 @@
  * Tango's score interval, McNemar's exact test vetoes at a non-negative
  * threshold, and a zero-width interval is refused rather than promoted.
  *
+ * Observations that share a parent run or task are one unit. Several decision
+ * points taken from one historical run share that run's state, so they carry
+ * one run's evidence however many cells they fill. Pass
+ * `independentUnitByScenarioId` to map every scenario to its unit: the gate
+ * then averages the paired cells within each unit, gives units equal weight,
+ * and counts units, not cells, as the observations `minProductiveRuns` and the
+ * decision rule see. A scored scenario missing from a supplied map is an
+ * error. Without a map each paired cell is its own observation, which holds
+ * only when cells are sampled independently.
+ *
  * Use when you want held-out significance as ONE of N composed gates instead
  * of the full `defaultProductionGate` stack (which adds critical-dimension
  * regression + reward-hacking guards on top).
@@ -20,14 +30,22 @@ import { heldoutSignificance, pairHoldout, TIE_WARN_FRACTION } from './statistic
 
 export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   scenarios: TScenario[]
+  /**
+   * Independent unit for every held-out scenario, such as the historical run
+   * a decision point was taken from. Cells pair first, then their scores are
+   * averaged within each unit and every unit counts once. Omit only when each
+   * execution cell is an independent observation. The gate copies the map
+   * when it is built.
+   */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
   /** Effect-size threshold the CI lower bound must clear, in the judge's native
    *  scale. Default 0.5. Equality holds; CI.low must be greater than this value. */
   deltaThreshold?: number
   /** Bootstrap CI confidence. Default 0.95. */
   confidence?: number
-  /** Minimum paired holdout observations to claim significance. The exact
-   *  small-sample test may require more observations at the selected
-   *  confidence. Default 3. */
+  /** Minimum paired independent units (or paired cells when no unit map is
+   *  supplied) to claim significance. The exact small-sample test may require
+   *  more observations at the selected confidence. Default 3. */
   minProductiveRuns?: number
   /** Bootstrap resamples. Default 2000. */
   resamples?: number
@@ -49,6 +67,10 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
   const minProductiveRuns = options.minProductiveRuns ?? 3
   const resamples = options.resamples ?? 2000
   const seed = options.bootstrapSeed ?? 1337
+  const independentUnitByScenarioId =
+    options.independentUnitByScenarioId === undefined
+      ? undefined
+      : new Map(options.independentUnitByScenarioId)
   return {
     name: 'heldOutGate',
     async decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult> {
@@ -66,6 +88,7 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
           minProductiveRuns,
           resamples,
           seed,
+          independentUnitByScenarioId,
         },
       )
       // Report the interval that DECIDED, not the diagnostic bootstrap: on a
@@ -76,22 +99,28 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
       const delta = dec.delta
       const passed = sig.significant
       const status = sig.fewRuns ? 'not_evaluated' : passed ? 'pass' : 'fail'
+      // With a unit map, n counts units. Name both counts so a reader cannot
+      // take the number of cells for the number of independent observations.
+      const registered = sig.observationUnit === 'registered'
+      const units = `${sig.n} independent units from ${sig.pairedCellN} paired cells`
+      const observed = registered ? units : `${sig.n} paired runs`
+      const count = registered ? `n=${units}` : `n=${sig.n}`
       const tieNote =
         sig.tieFraction >= TIE_WARN_FRACTION ? `, ${(sig.tieFraction * 100).toFixed(0)}% tied` : ''
       const ci = `${(dec.confidence * 100).toFixed(0)}% CI [${dec.low.toFixed(3)}, ${dec.high.toFixed(3)}]`
       const held = `held-out ${dec.label} Δ ${delta.toFixed(3)}`
       const holdReason = sig.fewRuns
-        ? `held-out: only ${sig.n} paired runs; ${sig.minimumRequired} required — too few to claim significance`
+        ? `held-out: only ${observed}; ${sig.minimumRequired} required — too few to claim significance`
         : dec.indeterminate
-          ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear ${deltaThreshold} on evidence (n=${sig.n}${tieNote})`
+          ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear ${deltaThreshold} on evidence (${count}${tieNote})`
           : dec.exactTestVetoes
-            ? `${held}, McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${ci}, n=${sig.n}${tieNote})`
-            : `${held}, CI.low ${dec.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`
+            ? `${held}, McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${ci}, ${count}${tieNote})`
+            : `${held}, CI.low ${dec.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, ${count}${tieNote})`
       return {
         decision: passed ? 'ship' : 'hold',
         reasons: passed
           ? [
-              `${held}, CI.low ${dec.low.toFixed(3)} > ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
+              `${held}, CI.low ${dec.low.toFixed(3)} > ${deltaThreshold} (${ci}, ${count}${tieNote})`,
             ]
           : [holdReason],
         contributingGates: [
@@ -114,6 +143,15 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
               bootstrapCiHigh: sig.bootstrap.high,
               confidence: dec.confidence,
               n: sig.n,
+              // Present only with a unit map, so the detail a caller without
+              // one receives is unchanged.
+              ...(registered
+                ? {
+                    pairedCellN: sig.pairedCellN,
+                    observationUnit: sig.observationUnit,
+                    unitIds: sig.unitIds,
+                  }
+                : {}),
               deltaThreshold,
               fewRuns: sig.fewRuns,
               seed,
