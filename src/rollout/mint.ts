@@ -29,6 +29,8 @@
  * Records without spans or an explicit full capture become labeled GAP LINES (messages: [],
  * provenance.gap) — present in the output AND surfaced in
  * `missingTraces`; a capture gap is a finding, never a silent omission.
+ * A span whose parent is missing from the capture stays a step, and its line
+ * carries a gap naming how many such spans there are and is marked lossy.
  */
 
 import { ValidationError } from '../errors'
@@ -121,9 +123,12 @@ const asText = (v: unknown, scrub: RolloutScrubber): string => {
 }
 
 function projectStep(span: Span, scrub: RolloutScrubber): RolloutStep {
+  // Span ids are opaque linkage back to the trace, not generated text, so they are not scrubbed.
   const base: RolloutStep = {
     kind: span.kind,
     name: scrub(span.name),
+    spanId: span.spanId,
+    ...(span.parentSpanId ? { parentSpanId: span.parentSpanId } : {}),
     status: span.status,
     durationMs: span.endedAt !== undefined ? span.endedAt - span.startedAt : undefined,
   }
@@ -617,6 +622,10 @@ export async function mintRolloutRows(
       gaps.push('messages project only the last LLM context; full transcript was not captured')
     }
     if (omittedSteps > 0) gaps.push(`${omittedSteps} middle trace steps omitted by maxSteps`)
+    // A span whose ancestry reaches no captured root is kept as a step, but the
+    // capture lost at least one span above it, so the line is not complete.
+    const unrooted = trajectory.missingParents.length
+    if (unrooted > 0) gaps.push(`${unrooted} trace span(s) have a parent missing from the capture`)
     for (const attempt of attempts ?? []) {
       if (attempt.missingReasons.length > 0) {
         gaps.push(`provider attempt ${attempt.ordinal}: ${attempt.missingReasons.join(', ')}`)
@@ -634,6 +643,7 @@ export async function mintRolloutRows(
         attempts,
         (conversation.length > 0 && !options.messagesOf) ||
           omittedSteps > 0 ||
+          unrooted > 0 ||
           (attempts?.some((attempt) => attempt.missingReasons.length > 0) ?? false),
         toolDefs,
       ),
