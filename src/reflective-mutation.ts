@@ -24,6 +24,51 @@ import { autoCloseTruncatedJson } from './json-recovery'
  *  the two drifted, the tighter side would silently re-clip carried evidence. */
 export const EMITTED_EVIDENCE_MAX_CHARS = 2000
 
+/**
+ * Bound a text to `maxChars` by keeping its head and its tail with an explicit
+ * omitted-count marker between them. The middle of a long output is the least
+ * informative part: the task setup is at the start and the failure is usually
+ * at the end. The result, marker included, is never longer than `maxChars`, so
+ * excerpting an excerpt returns it unchanged and the producer and the renderer
+ * can both apply it.
+ */
+export function excerptEvidence(text: string, maxChars = EMITTED_EVIDENCE_MAX_CHARS): string {
+  if (text.length <= maxChars) return text
+  let kept = maxChars
+  let marker = omittedMarker(text.length - kept)
+  while (kept > 0 && kept + marker.length > maxChars) {
+    kept = maxChars - marker.length
+    marker = omittedMarker(text.length - kept)
+  }
+  if (kept < 2) return text.slice(0, maxChars)
+  let headEnd = Math.ceil(kept / 2)
+  let tailStart = text.length - (kept - headEnd)
+  // Never split a surrogate pair: a lone half renders as a replacement character.
+  if (isHighSurrogate(text.charCodeAt(headEnd - 1))) headEnd -= 1
+  if (isLowSurrogate(text.charCodeAt(tailStart))) tailStart += 1
+  const join = () =>
+    `${text.slice(0, headEnd)}${omittedMarker(tailStart - headEnd)}${text.slice(tailStart)}`
+  let excerpt = join()
+  // Moving a cut can lengthen the count by a digit; give that character back from the head.
+  while (excerpt.length > maxChars && headEnd > 0) {
+    headEnd -= isHighSurrogate(text.charCodeAt(headEnd - 2)) ? 2 : 1
+    excerpt = join()
+  }
+  return excerpt
+}
+
+function omittedMarker(omitted: number): string {
+  return `\n… [${omitted} characters omitted] …\n`
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff
+}
+
 export interface TrialTrace {
   /** Stable id for the trial — surfaces in the prompt for grounding. */
   id: string
@@ -102,10 +147,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       )
       if (trial.failureNote) {
         sections.push('')
-        // 1500 chars fits a real traceback / failing-assertion note; clipping
-        // mid-traceback would hide the executable-judge evidence the
-        // reflection targets.
-        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 1500)}`)
+        // 1500 chars fits a real traceback / failing-assertion note; the
+        // excerpt keeps its end, where the failing assertion is.
+        sections.push(`**Why it scored low:** ${excerptEvidence(trial.failureNote, 1500)}`)
       }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
@@ -119,7 +163,7 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
         sections.push('')
         sections.push('**What the agent emitted:**')
         sections.push('```')
-        sections.push(truncate(trial.emitted, EMITTED_EVIDENCE_MAX_CHARS))
+        sections.push(excerptEvidence(trial.emitted))
         sections.push('```')
       }
       sections.push('')
@@ -164,11 +208,6 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
   sections.push('```')
 
   return sections.join('\n')
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s
-  return `${s.slice(0, max)}… [truncated]`
 }
 
 function quote(s: string): string {

@@ -23,30 +23,87 @@ import type {
 import type { CampaignCellResult } from './types'
 
 /**
- * What `cell-settled` records for one campaign cell: `passed` with the
- * composite (and each judge's) when every judge scored it, else `errored`,
- * never retryable, because `runCampaign` already applied its own retry policy;
- * its tokens and cost, with an uncaptured cost kept as a lower bound; the
- * model the cell resolved, else the declared one.
+ * The facts `cell-settled` records about one campaign cell, without its
+ * artifact. JSON-safe, so a producer that measures cells out of process (the
+ * external-optimizer evaluation callback) can keep them in its observation log
+ * and record them later through the same mapping as an in-process executor.
  */
-export function campaignCellSearchResult<TArtifact>(
+export interface CampaignCellMeasurement {
+  /** The campaign's cell id, `<scenarioId>:<rep>`; unique within one campaign only. */
+  cellId: string
+  scenarioId: string
+  rep: number
+  /** The attempt that produced the result; null on a historical cached record without one. */
+  attempt: { runAttemptId: string; number: number } | null
+  /** runCampaign read this result from its cache instead of dispatching it. */
+  cached: boolean
+  outcome: SearchTaskOutcome
+  accounting: SearchAttemptAccounting
+  /** The model every agent receipt in the cell reported; absent for none or several. */
+  resolvedModel?: string
+  durationMs: number
+}
+
+/**
+ * Project a campaign cell onto what `cell-settled` records: `passed` with the
+ * composite, each judge's composite and each judge dimension when every judge
+ * scored it, else `errored`, never retryable, because `runCampaign` already
+ * applied its own retry policy; its tokens and cost, with an uncaptured cost
+ * kept as a lower bound; the attempt that produced it.
+ */
+export function campaignCellMeasurement<TArtifact>(
   cell: CampaignCellResult<TArtifact>,
-  input: { execution: SearchExecutionIdentity; lane: string },
-): SearchCellResult {
+): CampaignCellMeasurement {
   return {
+    cellId: cell.cellId,
+    scenarioId: cell.scenarioId,
+    rep: cell.rep,
+    attempt: cell.attempt
+      ? { runAttemptId: cell.attempt.runAttemptId, number: cell.attempt.number }
+      : null,
+    cached: cell.cached,
     outcome: campaignCellOutcome(cell),
     accounting: campaignCellAccounting(cell),
+    ...(cell.resolvedModel === undefined ? {} : { resolvedModel: cell.resolvedModel }),
+    durationMs: cell.durationMs,
+  }
+}
+
+/**
+ * What `cell-settled` records for one campaign cell, or for its measurement:
+ * the outcome and accounting of `campaignCellMeasurement`, the model the cell
+ * resolved, else the declared one, and its duration. `runCampaign` assigns no
+ * trace id, so the trace reference stays unknown and names the attempt whose
+ * trace writer received the cell's spans.
+ */
+export function campaignCellSearchResult<TArtifact>(
+  cell: CampaignCellResult<TArtifact> | CampaignCellMeasurement,
+  input: { execution: SearchExecutionIdentity; lane: string },
+): SearchCellResult {
+  const measurement = 'outcome' in cell ? cell : campaignCellMeasurement(cell)
+  return {
+    outcome: measurement.outcome,
+    accounting: measurement.accounting,
     identity: {
       ...input.execution,
       model:
-        cell.resolvedModel === undefined
+        measurement.resolvedModel === undefined
           ? input.execution.model
-          : searchModelIdentity(cell.resolvedModel, input.execution.model.provider),
+          : searchModelIdentity(measurement.resolvedModel, input.execution.model.provider),
     },
-    wallMs: cell.durationMs,
+    wallMs: measurement.durationMs,
     placement: { lane: input.lane, boxId: null },
-    traceRef: { unknown: 'runCampaign reports no trace id per cell' },
+    traceRef: { unknown: campaignCellTraceReason(measurement) },
   }
+}
+
+function campaignCellTraceReason(measurement: CampaignCellMeasurement): string {
+  const cell = `campaign cell ${measurement.cellId}`
+  if (measurement.attempt === null) {
+    return `runCampaign assigns no trace id, and ${cell} records no attempt`
+  }
+  const { runAttemptId, number } = measurement.attempt
+  return `runCampaign assigns no trace id; ${cell} wrote its spans through the trace writer of attempt ${runAttemptId}/attempt-${number}`
 }
 
 /** A provider-reported model: a snapshot when its name pins one, else a moving alias. */
@@ -70,8 +127,19 @@ function campaignCellOutcome<TArtifact>(cell: CampaignCellResult<TArtifact>): Se
     }
   }
   const metrics: Record<string, number> = { composite: quality.score }
+  const addMetric = (key: string, value: number): void => {
+    if (Object.hasOwn(metrics, key)) {
+      throw new Error(
+        `campaign cell ${cell.cellId}: metric '${key}' names two measurements; rename the judge or dimension`,
+      )
+    }
+    metrics[key] = value
+  }
   for (const [judge, score] of Object.entries(quality.successfulJudgeScores)) {
-    metrics[`judge.${judge}`] = score.composite
+    addMetric(`judge.${judge}`, score.composite)
+    for (const [dimension, value] of Object.entries(score.dimensions)) {
+      addMetric(`dimension.${judge}.${dimension}`, value)
+    }
   }
   return { status: 'passed', score: quality.score, metrics }
 }
@@ -88,7 +156,7 @@ function campaignCellAccounting<TArtifact>(
             status: 'known',
             inputTokens: usage.input,
             outputTokens: usage.output,
-            cachedTokens: 0,
+            cachedTokens: usage.cached ?? 0,
           },
     cost:
       cell.costProvenance.kind === 'uncaptured'

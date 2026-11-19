@@ -1,6 +1,7 @@
 import type { CostLedgerHandle } from '../cost-ledger'
 import {
   assertJsonValue,
+  type ExternalEvaluationMeasurement,
   type ExternalTextCandidate,
   type ExternalTextEvaluationRequest,
   isCandidateText,
@@ -8,7 +9,13 @@ import {
 } from './external-optimizer-process'
 import type { OptimizationMethodInput } from './optimization-method'
 import { runCampaign } from './run-campaign'
-import { campaignBreakdown } from './score-utils'
+import {
+  campaignBreakdown,
+  cellArtifactEvidence,
+  type DescribeArtifact,
+  evidenceCellByScenario,
+} from './score-utils'
+import { type CampaignCellMeasurement, campaignCellMeasurement } from './search-campaign-cell'
 import { surfaceContentHash } from './surface-identity'
 import type { MutableSurface, Scenario } from './types'
 
@@ -52,9 +59,12 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
 }): (
   request: ExternalTextEvaluationRequest,
   signal?: AbortSignal,
+  measured?: (measurement: ExternalEvaluationMeasurement) => void,
 ) => Promise<ExternalTextEvaluationResponse> {
-  const cached = new Map<string, Promise<ExternalTextEvaluationResponse>>()
-  return async ({ candidate, exampleId }, signal) => {
+  // One entry per candidate and case: a repeated request is answered from the
+  // cells the first request measured, and reports them as reused.
+  const cached = new Map<string, Promise<ScoredScenario>>()
+  return async ({ candidate, exampleId }, signal, measured) => {
     if (!args.scenarioById.has(exampleId)) {
       throw new Error(`${args.label} requested unknown train or selection case '${exampleId}'`)
     }
@@ -77,7 +87,11 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
     const scenario = args.scenarioById.get(exampleId)!
     const cacheKey = `${args.compatibleRunId}:${surfaceContentHash(surface)}:${exampleId}`
     const existing = cached.get(cacheKey)
-    if (existing) return existing
+    if (existing) {
+      const reused = await existing
+      measured?.({ source: 'reused', cells: reused.cells })
+      return reused.response
+    }
 
     const result = scoreOneScenario({
       input: args.input,
@@ -95,7 +109,7 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
     })
     cached.set(cacheKey, result)
     void result.then(
-      (response) => {
+      ({ response }) => {
         // Failed cells are durable diagnostics, not reusable scores. Leave
         // the successful path cached, but let a later GEPA request retry the
         // failed or missing cell on resume.
@@ -107,8 +121,16 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
         if (cached.get(cacheKey) === result) cached.delete(cacheKey)
       },
     )
-    return result
+    const scored = await result
+    measured?.({ source: 'measured', cells: scored.cells })
+    return scored.response
   }
+}
+
+/** One evaluation's optimizer response and the campaign cells it came from. */
+interface ScoredScenario {
+  response: ExternalTextEvaluationResponse
+  cells: CampaignCellMeasurement[]
 }
 
 export function mapExternalScenarios<TScenario extends Scenario>(
@@ -170,9 +192,9 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
   costTags?: Readonly<Record<string, string>>
   costLedger: CostLedgerHandle
   maxEvidenceChars: number
-  describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   signal?: AbortSignal
-}): Promise<ExternalTextEvaluationResponse> {
+}): Promise<ScoredScenario> {
   const campaign = await runCampaign<TScenario, TArtifact>({
     ...args.input.runOptions,
     scenarios: [structuredClone(args.scenario)],
@@ -188,6 +210,9 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
     maxConcurrency: 1,
     ...(args.signal ? { signal: args.signal } : {}),
   })
+  const cells = [...campaign.cells]
+    .sort((left, right) => left.rep - right.rep)
+    .map(campaignCellMeasurement)
   const failedCell = campaign.cells.find((cell) => cell.error !== undefined)
   if (failedCell) {
     const stage = failedCell.errorStage ?? 'unknown'
@@ -209,18 +234,17 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
         `${args.label} failed evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars`,
       )
     }
-    return response
+    return { response, cells }
   }
   const breakdown = campaignBreakdown(campaign)
   const row = breakdown.scenarios[0]
   if (!row) throw new Error(`${args.label} evaluation produced no score for '${args.scenario.id}'`)
-  const artifact =
-    args.describeArtifact && campaign.cells[0]
-      ? args.describeArtifact(campaign.cells[0].artifact, args.scenario)
-      : undefined
-  if (artifact !== undefined) {
-    assertJsonValue(artifact, `${args.label} described artifact for '${args.scenario.id}'`)
-  }
+  // The same cell and the same evidence the native reflective path shows,
+  // kept as a JSON value so a described artifact may carry inline images.
+  const evidenceCell = evidenceCellByScenario(campaign.cells).get(args.scenario.id)
+  const artifact = evidenceCell
+    ? cellArtifactEvidence(evidenceCell.artifact, args.scenario, args.describeArtifact)
+    : undefined
   const response: ExternalTextEvaluationResponse = {
     score: row.composite,
     info: {
@@ -237,7 +261,7 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
       `${args.label} evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars`,
     )
   }
-  return response
+  return { response, cells }
 }
 
 function cloneExternalTextCandidate(candidate: ExternalTextCandidate): ExternalTextCandidate {

@@ -5,10 +5,11 @@
  * the optimizers cannot drift on how a surface's score is computed.
  */
 
-import { EMITTED_EVIDENCE_MAX_CHARS } from '../reflective-mutation'
+import { excerptEvidence } from '../reflective-mutation'
+import { assertJsonValue } from './external-optimizer-contracts'
 import { aggregatePairedHoldout, pairHoldout } from './gates/statistical-heldout'
 import { projectCampaignCellQuality } from './run-record'
-import type { CampaignResult, JudgeScore, Scenario } from './types'
+import type { CampaignCellResult, CampaignResult, JudgeScore, Scenario } from './types'
 
 export interface CampaignComparisonUnits {
   pairedCellN: number
@@ -115,16 +116,95 @@ export interface CampaignBreakdown {
   scenarios: Array<{ scenarioId: string; composite: number; notes?: string; emitted?: string }>
 }
 
+/** How a caller describes a non-string artifact to an optimizer. The same hook
+ *  serves the native reflective path and the GEPA and SkillOpt callbacks. */
+export type DescribeArtifact<TArtifact, TScenario extends Scenario> = (
+  artifact: TArtifact,
+  scenario: TScenario,
+) => unknown
+
+export interface ArtifactEvidenceOptions<TArtifact, TScenario extends Scenario> {
+  /** Describes a non-string artifact. Without it, a non-string artifact shows nothing. */
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
+  /** The scenarios the campaign ran, which `describeArtifact` receives. Required with it. */
+  scenarios?: readonly TScenario[]
+}
+
+/**
+ * What a scored cell shows an optimizer about what the agent did. A string
+ * artifact is the evidence itself, excerpted to its head and tail; any other
+ * artifact is what `describeArtifact` returns for it, a JSON value kept whole
+ * (it may carry structure such as inline images); without the hook a
+ * non-string artifact, and a blank string, show nothing.
+ */
+export function cellArtifactEvidence<TArtifact, TScenario extends Scenario>(
+  artifact: TArtifact,
+  scenario: TScenario,
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>,
+): unknown {
+  if (typeof artifact === 'string') {
+    return artifact.trim().length > 0 ? excerptEvidence(artifact) : undefined
+  }
+  if (!describeArtifact) return undefined
+  const described = structuredClone(describeArtifact(artifact, scenario))
+  if (described === undefined) return undefined
+  assertJsonValue(described, `described artifact for '${scenario.id}'`)
+  return typeof described === 'string' ? excerptEvidence(described) : described
+}
+
+/** Evidence as reflection-prompt text: a string as is, a described value as its
+ *  JSON, excerpted to the same bound. */
+export function artifactEvidenceText(evidence: unknown): string | undefined {
+  if (evidence === undefined) return undefined
+  const text = typeof evidence === 'string' ? evidence : JSON.stringify(evidence)
+  return text.trim().length > 0 ? excerptEvidence(text) : undefined
+}
+
+/** Each scenario's lowest-composite scored cell: the one whose output the
+ *  scenario's evidence shows, because reflection grounds on the failure. */
+export function evidenceCellByScenario<TArtifact>(
+  cells: ReadonlyArray<CampaignCellResult<TArtifact>>,
+): Map<string, CampaignCellResult<TArtifact>> {
+  const worst = new Map<string, { composite: number; cell: CampaignCellResult<TArtifact> }>()
+  for (const cell of cells) {
+    const score = projectCampaignCellQuality(cell).score
+    if (score === undefined) continue
+    const previous = worst.get(cell.scenarioId)
+    if (!previous || score < previous.composite) {
+      worst.set(cell.scenarioId, { composite: score, cell })
+    }
+  }
+  return new Map([...worst].map(([scenarioId, { cell }]) => [scenarioId, cell]))
+}
+
 /** Per-candidate evidence a reflective/patch proposer grounds its next proposal
- *  on: mean score per judge dimension + per-scenario composite. */
+ *  on: mean score per judge dimension + per-scenario composite, notes and the
+ *  evidence of the scenario's worst cell (`cellArtifactEvidence`). */
 export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
+  options: ArtifactEvidenceOptions<TArtifact, TScenario> = {},
 ): CampaignBreakdown {
   const dimSums: Record<string, number> = {}
   const dimCounts: Record<string, number> = {}
   const byScenario = new Map<string, number[]>()
   const notesByScenario = new Map<string, Set<string>>()
-  const emittedByScenario = new Map<string, { composite: number; text: string }>()
+  const scenarioById = new Map((options.scenarios ?? []).map((scenario) => [scenario.id, scenario]))
+  const emittedByScenario = new Map<string, string>()
+  for (const [scenarioId, cell] of evidenceCellByScenario(campaign.cells)) {
+    let scenario = scenarioById.get(scenarioId)
+    if (scenario === undefined) {
+      if (options.describeArtifact && typeof cell.artifact !== 'string') {
+        throw new Error(
+          `campaignBreakdown: describeArtifact needs scenario '${scenarioId}', which the supplied scenarios lack`,
+        )
+      }
+      scenario = { id: scenarioId } as TScenario
+    }
+    const text = artifactEvidenceText(
+      cellArtifactEvidence(cell.artifact, scenario, options.describeArtifact),
+    )
+    if (text !== undefined) emittedByScenario.set(scenarioId, text)
+  }
   for (const cell of campaign.cells) {
     const quality = projectCampaignCellQuality(cell)
     if (quality.score === undefined) continue
@@ -133,19 +213,6 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
     const arr = byScenario.get(cell.scenarioId) ?? []
     arr.push(cellComposite)
     byScenario.set(cell.scenarioId, arr)
-    // Carry the candidate's raw output as trajectory evidence when the artifact
-    // is a string (the common prompt-tier shape). Across reps, keep the
-    // LOWEST-composite cell's output — reflection grounds on the failure, and
-    // the bottom-trial excerpt is the one buildReflectionPrompt renders.
-    if (typeof cell.artifact === 'string' && cell.artifact.trim().length > 0) {
-      const prev = emittedByScenario.get(cell.scenarioId)
-      if (!prev || cellComposite < prev.composite) {
-        emittedByScenario.set(cell.scenarioId, {
-          composite: cellComposite,
-          text: cell.artifact.slice(0, EMITTED_EVIDENCE_MAX_CHARS),
-        })
-      }
-    }
     // Collect the judges' free-form notes per scenario (deduped) — the failure
     // evidence the reflective proposer grounds on. Generalizable by contract;
     // the judge must not put case-specific ground truth here.
@@ -172,7 +239,7 @@ export function campaignBreakdown<TArtifact, TScenario extends Scenario>(
   const scenarios = [...byScenario.entries()].map(([scenarioId, comps]) => {
     const notesSet = notesByScenario.get(scenarioId)
     const notes = notesSet && notesSet.size > 0 ? [...notesSet].join(' | ') : undefined
-    const emitted = emittedByScenario.get(scenarioId)?.text
+    const emitted = emittedByScenario.get(scenarioId)
     return {
       scenarioId,
       composite: comps.reduce((a, b) => a + b, 0) / comps.length,

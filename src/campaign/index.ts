@@ -120,6 +120,7 @@ export type {
 } from './external-optimizer-observations'
 export { readExternalOptimizerObservationArtifact } from './external-optimizer-observations'
 export type {
+  ExternalEvaluationMeasurement,
   ExternalOptimizerCallbackLimits,
   ExternalOptimizerChatRequest,
   ExternalOptimizerEndpointFormat,
@@ -368,11 +369,17 @@ export {
   scoreDiscrimination,
 } from './scenario-selection'
 export {
+  type ArtifactEvidenceOptions,
+  artifactEvidenceText,
   type CampaignBreakdown,
   campaignBreakdown,
   campaignMeanComposite,
+  cellArtifactEvidence,
+  type DescribeArtifact,
 } from './score-utils'
 export {
+  type CampaignCellMeasurement,
+  campaignCellMeasurement,
   campaignCellSearchResult,
   searchModelIdentity,
   searchProposalExecution,
