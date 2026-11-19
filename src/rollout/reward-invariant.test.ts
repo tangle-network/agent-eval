@@ -882,6 +882,7 @@ describe('the gate lookup names an INVOCATION, and cannot depend on array order'
   }
 
   const prmTriple: PrmTrainingTriple = {
+    contextDigest: `sha256:${'0'.repeat(64)}`,
     prefixRunId: 'run-episode',
     prefixStepIndex: 0,
     chosenSpanId: 'span-chosen',

@@ -159,14 +159,21 @@ describe('process-reward pairs from recorded runs', () => {
     })
 
     const byRun = await stepRewardsOf(store, scorer, ['refund-run', 'shipping-run'])
-    const triples = prmTrainingPairs(byRun, { minMargin: 0.2 })
+    const paired = prmTrainingPairs(byRun, { minMargin: 0.2 })
     const lines = await mintFullyCaptured(store, [
       runRecord('refund-run', 'refund-policy', 0.9),
       runRecord('shipping-run', 'shipping-times', 0.2),
     ])
-    const rows = await toPrmRows(triples, storeLookups(store), { lines })
+    const rows = await toPrmRows(paired.triples, storeLookups(store), { lines })
 
     expect(rows).toEqual([])
+    // Every step was fully recorded; no context was reached by two runs.
+    expect(paired).toMatchObject({
+      stepsWithoutContextDigest: 0,
+      stepsWithoutActionDigest: 0,
+      singleRunContexts: 4,
+      sameActionContexts: 0,
+    })
   })
 
   it('pairs the two answers of one scenario after an identical recorded prefix', async () => {
@@ -205,20 +212,119 @@ describe('process-reward pairs from recorded runs', () => {
     })
 
     const byRun = await stepRewardsOf(store, scorer, ['rollout-1', 'rollout-2'])
-    const triples = prmTrainingPairs(byRun, { minMargin: 0.2 })
+    const paired = prmTrainingPairs(byRun, { minMargin: 0.2 })
     const lines = await mintFullyCaptured(store, [
       runRecord('rollout-1', 'refund-policy', 0.9),
       runRecord('rollout-2', 'refund-policy', 0.1),
     ])
-    const rows = await toPrmRows(triples, storeLookups(store), { lines })
+    const rows = await toPrmRows(paired.triples, storeLookups(store), { lines })
 
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       prompt: 'What is the refund window?',
+      // The unscored search call is part of the prefix: `stepIndex` counts every span.
+      prefixStepText: ['Search the policy.', '{"hits":["Refunds within 30 days of delivery."]}'],
       chosenStep: 'Refunds are accepted within 30 days of delivery.',
       rejectedStep: 'Refunds are not accepted.',
       chosenReward: 0.9,
       rejectedReward: 0.1,
+      meta: { prefixRunId: 'rollout-1', rejectedRunId: 'rollout-2', prefixStepIndex: 1 },
+    })
+    expect(rows[0]?.meta?.contextDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
+    const answers = [...byRun.values()].map((steps) => steps.find((s) => s.name === 'answer'))
+    expect(rows[0]?.meta?.contextDigest).toBe(answers[0]?.contextDigest)
+    expect(answers[1]?.contextDigest).toBe(answers[0]?.contextDigest)
+    // Both plans: the same context and the same action, which is no preference.
+    expect(paired.sameActionContexts).toBe(1)
+  })
+
+  it('reports the steps it could not pair instead of pairing them', async () => {
+    const store = new InMemoryTraceStore()
+    const question = user('What is the refund window?')
+    const answer = (output: string): RecordedStep => ({
+      kind: 'llm',
+      name: 'answer',
+      messages: [question],
+      output,
+    })
+    // Same context, same action, different rewards: scorer noise.
+    await recordRun(store, 'same-1', 'refund-policy', [answer('Thirty days.')])
+    await recordRun(store, 'same-2', 'refund-policy', [answer('Thirty days.')])
+    // An earlier llm span whose output was not recorded: later contexts are unknown.
+    for (const runId of ['lost-1', 'lost-2']) {
+      await recordRun(store, runId, 'refund-policy', [
+        { kind: 'llm', name: 'plan', messages: [question] },
+        answer(runId === 'lost-1' ? 'Thirty days.' : 'No refunds.'),
+      ])
+    }
+    // Arguments observed but not captured: the call is not a recorded action.
+    const blind = new TraceEmitter(store, { runId: 'blind', now: () => 1 })
+    await blind.startRun({ scenarioId: 'refund-policy' })
+    await (
+      await blind.tool({ name: 'search', toolName: 'search', args: {}, argsCaptured: false })
+    ).end({ result: [] })
+    // Spans of a run the store never recorded: no scenario, so no context.
+    const orphan = new TraceEmitter(store, { runId: 'orphan', now: () => 1 })
+    await (await orphan.llm({ name: 'answer', model: 'm', messages: [question] })).end({
+      output: 'Thirty days.',
+    })
+    const scorer: StepScorer = {
+      appliesTo: ['llm', 'tool'],
+      score: (span) => ({
+        kind: span.kind,
+        name: span.name,
+        reward: span.runId.endsWith('1') ? 0.9 : 0.1,
+        determinism: 'deterministic',
+      }),
+    }
+
+    const runIds = ['same-1', 'same-2', 'lost-1', 'lost-2', 'blind', 'orphan']
+    const paired = prmTrainingPairs(await stepRewardsOf(store, scorer, runIds))
+
+    expect(paired.triples).toEqual([])
+    expect(paired).toMatchObject({
+      // the two answers after an unrecorded plan, and the orphan's answer
+      stepsWithoutContextDigest: 3,
+      // the two plans with no recorded output, and the uncaptured tool call
+      stepsWithoutActionDigest: 3,
+      // 'same-1' and 'same-2' gave the same answer in one context
+      sameActionContexts: 1,
+      singleRunContexts: 0,
+      pairsBelowMargin: 0,
+    })
+  })
+
+  it('pairs on a context digest the scorer supplies', async () => {
+    // A caller that forked both runs from one checkpoint knows they share a
+    // context even though the traces record different plans.
+    const store = new InMemoryTraceStore()
+    for (const [runId, plan] of [
+      ['fork-a', 'Search the policy.'],
+      ['fork-b', 'Ask a colleague.'],
+    ] as const) {
+      await recordRun(store, runId, 'refund-policy', [
+        { kind: 'llm', name: 'plan', messages: [user('Refund window?')], output: plan },
+      ])
+    }
+    const scorer: StepScorer = {
+      appliesTo: ['llm'],
+      score: (span) => ({
+        kind: span.kind,
+        name: span.name,
+        reward: span.runId === 'fork-a' ? 0.8 : 0.3,
+        determinism: 'probabilistic',
+        contextDigest: 'checkpoint:refund-policy/turn-0',
+      }),
+    }
+
+    const { triples } = prmTrainingPairs(await stepRewardsOf(store, scorer, ['fork-a', 'fork-b']))
+
+    expect(triples).toHaveLength(1)
+    expect(triples[0]).toMatchObject({
+      contextDigest: 'checkpoint:refund-policy/turn-0',
+      prefixRunId: 'fork-a',
+      rejectedRunId: 'fork-b',
+      prefixStepIndex: -1,
     })
   })
 })
@@ -269,6 +375,8 @@ describe('extractStepRewards', () => {
     })
     expect(stepRewards).toHaveLength(1)
     expect(stepRewards[0]?.name).toBe('step-1')
+    // The dropped span still holds its position.
+    expect(stepRewards[0]?.stepIndex).toBe(1)
   })
 })
 
@@ -315,106 +423,5 @@ describe('runwiseStepRewardSummary', () => {
     const out = runwiseStepRewardSummary([])
     expect(out.totalSteps).toBe(0)
     expect(out.worstStepIndex).toBeNull()
-  })
-})
-
-describe('prmTrainingPairs', () => {
-  it('pairs runs that share a prefix and diverge at a step with sufficient margin', () => {
-    const stepRewards = new Map<
-      string,
-      Array<{
-        spanId: string
-        runId: string
-        stepIndex: number
-        kind: 'tool'
-        name: string
-        reward: number
-        determinism: 'deterministic'
-      }>
-    >()
-    stepRewards.set('runA', [
-      {
-        spanId: 'a-0',
-        runId: 'runA',
-        stepIndex: 0,
-        kind: 'tool',
-        name: 'plan',
-        reward: 0.7,
-        determinism: 'deterministic',
-      },
-      {
-        spanId: 'a-1',
-        runId: 'runA',
-        stepIndex: 1,
-        kind: 'tool',
-        name: 'edit',
-        reward: 0.9,
-        determinism: 'deterministic',
-      },
-    ])
-    stepRewards.set('runB', [
-      {
-        spanId: 'b-0',
-        runId: 'runB',
-        stepIndex: 0,
-        kind: 'tool',
-        name: 'plan',
-        reward: 0.7,
-        determinism: 'deterministic',
-      },
-      {
-        spanId: 'b-1',
-        runId: 'runB',
-        stepIndex: 1,
-        kind: 'tool',
-        name: 'edit',
-        reward: 0.3,
-        determinism: 'deterministic',
-      },
-    ])
-    const triples = prmTrainingPairs(stepRewards, { minMargin: 0.2, minPrefixLength: 1 })
-    expect(triples).toHaveLength(1)
-    expect(triples[0]?.chosenSpanId).toBe('a-1')
-    expect(triples[0]?.rejectedSpanId).toBe('b-1')
-    expect(triples[0]?.marginScore).toBeCloseTo(0.6, 5)
-  })
-
-  it('drops pairs below minMargin', () => {
-    const stepRewards = new Map<
-      string,
-      Array<{
-        spanId: string
-        runId: string
-        stepIndex: number
-        kind: 'tool'
-        name: string
-        reward: number
-        determinism: 'deterministic'
-      }>
-    >()
-    stepRewards.set('a', [
-      {
-        spanId: 'a-0',
-        runId: 'a',
-        stepIndex: 0,
-        kind: 'tool',
-        name: 'x',
-        reward: 0.55,
-        determinism: 'deterministic',
-      },
-    ])
-    stepRewards.set('b', [
-      {
-        spanId: 'b-0',
-        runId: 'b',
-        stepIndex: 0,
-        kind: 'tool',
-        name: 'x',
-        reward: 0.5,
-        determinism: 'deterministic',
-      },
-    ])
-    const triples = prmTrainingPairs(stepRewards, { minMargin: 0.2, minPrefixLength: 0 })
-    expect(triples).toHaveLength(0)
   })
 })

@@ -405,7 +405,10 @@ export interface PrmLookups {
   promptOf: (runId: string) => string | Promise<string>
   /** Resolve the trajectory step text for a (runId, spanId) pair. */
   stepTextOf: (runId: string, spanId: string) => string | Promise<string>
-  /** Optional: sequence of prefix span ids leading up to the divergence. */
+  /**
+   * Optional: the span ids of the shared prefix — spans `0..prefixStepIndex` of
+   * `runId` in started order, the `StepReward.stepIndex` positions.
+   */
   prefixOf?: (runId: string, prefixStepIndex: number) => string[] | Promise<string[]>
 }
 
@@ -439,6 +442,12 @@ export interface PrmLineContext extends RolloutLineContext {
  * Convert PRM training triples to JSONL rows. Caller's `stepTextOf`
  * callback resolves span text from the consumer's trace store.
  *
+ * A triple is two different actions taken in the same context by two runs —
+ * the rule `prmTrainingPairs` enforces — and its `contextDigest` names that
+ * context. A triple with no context digest is refused before anything else,
+ * because no row may be built from two steps that are not known to share one.
+ * The digest is carried on `meta.contextDigest`.
+ *
  * Every referenced run is checked against its minted line before any row is
  * emitted, and the export FAILS LOUD on a trajectory that was never fully
  * captured (see `assertPrmTrainableLine`). Triples whose chosen or rejected
@@ -459,6 +468,13 @@ export async function toPrmRows(
   lookups: PrmLookups,
   context: PrmLineContext,
 ): Promise<PrmExportRow[]> {
+  for (const t of triples) {
+    if (typeof t.contextDigest !== 'string' || t.contextDigest.length === 0) {
+      throw new Error(
+        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} carries no context digest — refusing to build a process-reward row from two steps not known to share a context`,
+      )
+    }
+  }
   const admitted = admitPrmTriples(triples, context)
   const rows: PrmExportRow[] = []
   for (const t of admitted) {
@@ -484,6 +500,7 @@ export async function toPrmRows(
       rejectedReward: t.rejectedReward,
       marginScore: t.marginScore,
       meta: {
+        contextDigest: t.contextDigest,
         prefixRunId: t.prefixRunId,
         rejectedRunId: t.rejectedRunId,
         prefixStepIndex: t.prefixStepIndex,

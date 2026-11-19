@@ -127,8 +127,11 @@ export * from './predictive-validity-researcher'
 export * from './preferences'
 export type {
   ExtractStepRewardsOptions,
+  PrmPairingResult,
+  PrmTrainingPairsOptions,
   PrmTrainingTriple,
   RunwiseStepSummary,
+  ScoredStep,
   StepReward,
   StepScorer,
 } from './process-reward'
