@@ -595,6 +595,7 @@ export async function recordGepaSearchHistory<TScenario extends Scenario, TArtif
         trainScenarios: input.trainScenarios,
         selectionScenarios: input.selectionScenarios,
         evaluationLimit,
+        repsPerEvaluation: input.runOptions.reps ?? 1,
         ...(population
           ? { population }
           : { population: null, selected: decodeExternalTextCandidate(result.bestCandidate) }),

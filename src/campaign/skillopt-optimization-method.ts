@@ -523,6 +523,7 @@ async function finishSkillOptRun<TScenario extends Scenario, TArtifact>(
         trainScenarios: input.trainScenarios,
         selectionScenarios: input.selectionScenarios,
         evaluationLimit: config.maxEvaluations,
+        repsPerEvaluation: input.runOptions.reps ?? 1,
         observations: readExternalOptimizerObservationArtifact({
           summary: observationLog.summary(),
           storage: context.storage,

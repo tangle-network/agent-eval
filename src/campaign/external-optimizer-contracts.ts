@@ -4,6 +4,7 @@ import type { CustomTokenPricing } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
 import { deepFreezeCanonicalJson as deepFreezeJson } from '../ledger-core/deep-freeze'
 import { canonicalJson } from '../verdict-cache'
+import type { CampaignCellMeasurement } from './search-campaign-cell'
 
 import { isRecord } from '../llm-client/json'
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -200,6 +201,17 @@ export type ExternalOptimizerModelExecutionObservation =
       readonly execution: unknown
     }
 
+/**
+ * Which campaign cells answered one evaluation request. `measured`: this
+ * request ran them. `reused`: an earlier request for the same candidate and
+ * case ran them, and this one was answered from its result. The search ledger
+ * records each distinct cell once, so a reused request adds no cell.
+ */
+export interface ExternalEvaluationMeasurement {
+  readonly source: 'measured' | 'reused'
+  readonly cells: readonly CampaignCellMeasurement[]
+}
+
 export type ExternalOptimizerEvaluationRefusalReason =
   | 'invalid-request'
   | 'evaluation-limit'
@@ -226,6 +238,9 @@ export type ExternalOptimizerEvaluationObservation =
       /** One-based accepted evaluation number for this optimizer attempt. */
       readonly evaluationNumber: number
       readonly response: unknown
+      /** The campaign cells behind `response`. Absent in logs written before
+       *  the callback recorded them, and for an evaluator that reports none. */
+      readonly measurement?: ExternalEvaluationMeasurement
     }
   | {
       readonly kind: 'refusal'

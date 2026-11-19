@@ -166,7 +166,7 @@ Five of the eight feed a shipped consumer today: four (`operatorYield`, `landsca
 Every lens is a pure function of `SearchStateView` — no clock, no `Math.random`, no record type but the ledger's own (`editCredit` also reads content blobs, and the caller verifies them against their digest).
 `agent-eval search show <ledger>` takes any combination of the first seven flags in one call; `--meta` takes one or more ledger paths in place of a single lens flag, because a meta-search score compares searches, not nodes within one.
 
-**Verified on a real ledger** (`scripts/import-vb-climb.ts` import of `climb-gen1-20260924T151217Z`, a real VerticalBench GEPA climb — 2 nodes, 4 settled cells, every cell's cost unknown because the GEPA callback path meters per batch, not per cell):
+**Verified on a real ledger** (`scripts/import-vb-climb.ts` import of `climb-gen1-20260924T151217Z`, a real VerticalBench GEPA climb — 2 nodes, 4 settled cells, every cell's cost unknown because that climb's observation log predates per-cell measurements):
 
 ```
 $ agent-eval search show search-ledger.jsonl --tree --operator-yield --front --task-matrix --edit-credit --landscape --skill-manifold
@@ -297,7 +297,11 @@ The loop's scenarios are its proposer's feedback, so they are the train split; i
 
 `gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's search when it finishes, and `skillOptOptimizationMethod({ searchLedger: { identity } })` records SkillOpt's.
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
-`importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
+`importExternalEvaluations` turns the callback's evaluations into `external` cells; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
+The evaluation callback runs each request as a campaign and keeps a `CampaignCellMeasurement` of every campaign cell on the request's observation (`measurement`), never in the optimizer's response.
+The importer records each distinct measured cell once, through `campaignCellSearchResult`, so an imported cell has the campaign cell's own outcome and dimensions, tokens, cost, model, duration and attempt; every rep of a multi-rep evaluation is its own cell, and the search's `maxCells` is the evaluation limit times the reps.
+A request the callback answered from an earlier request's cells is `reused` in the observation log and adds no cell; the import reports `measuredCells` and `reusedRequests`.
+An observation log written before measurements were recorded, and a failed evaluation (logged as a refusal), still record one cell per evaluation, with unknown tokens and cost.
 SkillOpt reports no parents, so every candidate it evaluated gets an `unknown` edge; its choice is `selected` and the others are `rejected`.
 A composed GEPA recipe reports no population either, so its candidates are recorded the same way; every GEPA recipe writes a ledger.
 
@@ -345,6 +349,8 @@ The ports:
 - **Executor:** `lanes()` declares pools of slots, each `hard` (it enforces `cellUsd` per cell) or `estimate` (it cannot); `place(cell)` picks a cell's lane; `run(work)` runs one attempt and returns its outcome, accounting and identity; `adopt(work)` returns an attempt an earlier process finished, or null.
   An environment fault is an `errored` outcome; a rejection stops the search.
   An executor that measures a cell with a one-cell `runCampaign` maps the campaign cell with `campaignCellSearchResult(cell, { execution, lane })`, as `runOptimization` does.
+  Its metrics are `composite`, `judge.<judge>` for each judge and `dimension.<judge>.<dimension>` for each judge dimension; a failed judge contributes none and leaves the cell `errored`.
+  `runCampaign` assigns no trace id, so the trace reference is unknown and its reason names the attempt (`<runAttemptId>/attempt-<n>`) whose trace writer received the cell's spans; a dispatcher that wants a known `traceRef` needs a trace id `runCampaign` can carry on the cell.
 - **Proposer:** `propose({ parents, operator, leader })` returns children with a label, a rationale and optional typed `attribution`, plus the operation's accounting.
   Its output is stored as a `proposal` blob on `operation-recorded` before any child is registered.
 - **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.

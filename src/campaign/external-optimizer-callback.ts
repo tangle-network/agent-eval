@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { contentHash } from '../verdict-cache'
 import {
+  type ExternalEvaluationMeasurement,
   type ExternalOptimizerCallback,
   type ExternalOptimizerCallbackLimits,
   type ExternalOptimizerEvaluationObservation,
@@ -17,6 +18,17 @@ import {
   waitForActiveHandlers,
 } from './external-optimizer-http'
 
+/**
+ * Scores one callback request. An evaluator that measures with campaign cells
+ * reports them through `measured`; the callback keeps them on the evaluation
+ * observation, never in the optimizer's response.
+ */
+export type ExternalOptimizerEvaluate<TResponse> = (
+  request: ExternalTextEvaluationRequest,
+  signal: AbortSignal,
+  measured: (measurement: ExternalEvaluationMeasurement) => void,
+) => Promise<TResponse>
+
 type UnsequencedObservation = ExternalOptimizerEvaluationObservation extends infer T
   ? T extends ExternalOptimizerEvaluationObservation
     ? Omit<T, 'sequence'>
@@ -27,7 +39,7 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
-  evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
+  evaluate: ExternalOptimizerEvaluate<TResponse>
   observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   /** Loopback JSON byte limits. Omitted fields use finite defaults. */
   limits?: Partial<ExternalOptimizerCallbackLimits>
@@ -129,7 +141,7 @@ async function handleCallback<TResponse>(
     token: string
     maxEvaluations: number
     acceptEvaluation?: () => number | undefined
-    evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
+    evaluate: ExternalOptimizerEvaluate<TResponse>
     observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   },
   limits: ExternalOptimizerCallbackLimits,
@@ -182,8 +194,11 @@ async function handleCallback<TResponse>(
       return
     }
     let result: TResponse
+    const reported: { measurement?: ExternalEvaluationMeasurement } = {}
     try {
-      result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal)
+      result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal, (measured) => {
+        reported.measurement = structuredClone(measured)
+      })
     } catch (error) {
       observe({
         kind: 'refusal',
@@ -231,6 +246,7 @@ async function handleCallback<TResponse>(
       exampleId: body.exampleId,
       evaluationNumber: count,
       response: structuredClone(result),
+      ...(reported.measurement ? { measurement: reported.measurement } : {}),
     })
     sendEncodedJsonIfOpen(response, 200, encoded)
   } catch {
@@ -281,7 +297,7 @@ function assertCallbackConfig(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
-  evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<unknown>
+  evaluate: ExternalOptimizerEvaluate<unknown>
   observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   limits?: Partial<ExternalOptimizerCallbackLimits>
   signal?: AbortSignal

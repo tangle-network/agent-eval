@@ -129,6 +129,11 @@ export function readExternalOptimizerObservationArtifact(input: {
       evaluationNumbers.add(observation.evaluationNumber)
       assertObservedCandidate(observation, proposed)
       assertJsonValue(observation.response, 'external optimizer evaluation response')
+      if (observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)) {
+        throw new Error(
+          `external optimizer observation artifact measures another case than it evaluated at sequence ${observation.sequence}`,
+        )
+      }
       continue
     }
 
@@ -315,19 +320,22 @@ function assertObservationShape(
     return
   }
   if (observation.kind === 'evaluation') {
+    const required = [
+      'candidate',
+      'candidateHash',
+      'evaluationNumber',
+      'exampleId',
+      'kind',
+      'response',
+      'sequence',
+    ]
+    // A log written before the callback recorded measurements has none.
     assertExactKeys(
       observation,
-      [
-        'candidate',
-        'candidateHash',
-        'evaluationNumber',
-        'exampleId',
-        'kind',
-        'response',
-        'sequence',
-      ],
+      'measurement' in observation ? [...required, 'measurement'] : required,
       line,
     )
+    if ('measurement' in observation) assertMeasurement(observation.measurement, line)
     assertCandidateFields(observation, line)
     if (typeof observation.exampleId !== 'string') {
       throw new Error(
@@ -362,6 +370,56 @@ function assertObservationShape(
     return
   }
   throw new Error(`external optimizer observation artifact line ${line} has an invalid kind`)
+}
+
+/**
+ * The reference an evaluation keeps to its campaign cells. This checks what
+ * the importer reads to tell cells apart; the search ledger's own event schema
+ * checks each cell's outcome and accounting when the importer records it.
+ */
+function assertMeasurement(value: unknown, line: number): void {
+  const cells = isPlainRecord(value) && Array.isArray(value.cells) ? value.cells : []
+  const valid =
+    isPlainRecord(value) &&
+    (value.source === 'measured' || value.source === 'reused') &&
+    cells.length > 0 &&
+    cells.every(
+      (cell) =>
+        isPlainRecord(cell) &&
+        typeof cell.cellId === 'string' &&
+        typeof cell.scenarioId === 'string' &&
+        Number.isSafeInteger(cell.rep) &&
+        typeof cell.cached === 'boolean' &&
+        typeof cell.durationMs === 'number' &&
+        (cell.resolvedModel === undefined || typeof cell.resolvedModel === 'string') &&
+        (cell.attempt === null ||
+          (isPlainRecord(cell.attempt) &&
+            typeof cell.attempt.runAttemptId === 'string' &&
+            Number.isSafeInteger(cell.attempt.number))),
+    )
+  if (!valid) {
+    throw new Error(`external optimizer observation artifact line ${line} has an invalid measurement`)
+  }
+  assertAllowedKeys(value as Record<string, unknown>, ['cells', 'source'], line)
+  for (const cell of cells as Record<string, unknown>[]) {
+    assertAllowedKeys(cell, [...MEASUREMENT_CELL_KEYS], line)
+  }
+}
+
+const MEASUREMENT_CELL_KEYS = [
+  'accounting',
+  'attempt',
+  'cached',
+  'cellId',
+  'durationMs',
+  'outcome',
+  'rep',
+  'resolvedModel',
+  'scenarioId',
+] as const
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function assertCandidateFields(observation: Record<string, unknown>, line: number): void {
