@@ -214,7 +214,9 @@ describe('a step’s context is what was observable when it started', () => {
       'rooted-2': { answer: 0.1 },
     })
 
-    const { triples } = prmTrainingPairs(await stepRewardsOf(store, scorer, ['rooted-1', 'rooted-2']))
+    const { triples } = prmTrainingPairs(
+      await stepRewardsOf(store, scorer, ['rooted-1', 'rooted-2']),
+    )
 
     expect(triples).toHaveLength(1)
     expect(triples[0]).toMatchObject({ prefixRunId: 'rooted-1', rejectedRunId: 'rooted-2' })
@@ -281,7 +283,10 @@ describe('a step’s context is what was observable when it started', () => {
         await llmStep(e, 'answer', planned, answer)
       })
     }
-    const scorer = tableScorer(['llm'], { 'traced-1': { answer: 0.9 }, 'traced-2': { answer: 0.1 } })
+    const scorer = tableScorer(['llm'], {
+      'traced-1': { answer: 0.9 },
+      'traced-2': { answer: 0.1 },
+    })
     const runIds = ['traced-1', 'traced-2']
 
     const strict = prmTrainingPairs(await stepRewardsOf(store, scorer, runIds))

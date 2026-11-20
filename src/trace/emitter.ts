@@ -28,12 +28,12 @@ import type {
   RetrievalSpan,
   Run,
   RunCaptureReport,
-  TraceRunOutcome,
   SandboxSpan,
   Span,
   SpanKind,
   ToolSpan,
   TraceEvent,
+  TraceRunOutcome,
 } from './schema'
 import type { TraceStore } from './store'
 
