@@ -4,21 +4,38 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [2.0.1] — 2026-11-20
 
-No caller of 2.0.0 must change code; every change is a fix or an optional member. One behavior changes:
+No caller of 2.0.0 must change code. The public surface gains two optional members and loses none. Two behaviors change, and a run directory written by 2.0.1 has a downgrade limit.
 
-- A call declared free is work at a known $0. `runCampaign`'s `expectUsage` (and `selfImprove`'s, whose default is `'assert'`) and the per-loop provenance verdict read the cell's agent receipts: a call counts as work when it reports tokens, or a positive charge, or it was declared free before it ran (`ctx.cost.runPaidCall` with `maximumCharge: { externallyEnforcedMaximumUsd: 0 }`, as a local retrieval or an in-process search records one) and settled without error at a known $0. Before, every zero-token call was stub-mode, and a cell whose only call was free was refused with a message saying no call was made. The declaration is the evidence, not what the receipt reports afterwards: a zero-token call that reports $0, observed or estimated, without it is still refused, because a model call through a provider or proxy that drops usage reports exactly that. The message says so and names the fix (report the call's usage, or declare a call that cannot spend with a zero maximum). A cell that records no agent call is still refused, and its message now says that no call was recorded. The ledger keeps the declaration as the new optional `declaredFree: true` on the pending call and its settled receipt (`CostCallBase`), in the persisted journal and so in the cell cache; a journal written before this release carries none, so a zero-token call in it is stub-mode, as in 2.0.0. A caller that set `expectUsage: 'off'` only because its free calls were refused can declare them free and set `'assert'` again.
+Behavior changes:
 
-`summarizeBackendIntegrity`, `assertRealBackend` and `runProfileMatrix`'s integrity assertion keep the 2.0.0 rule: they read run records, which carry no declaration, so a record with zero tokens is stub-mode whatever its cost. A matrix of free calls sets `integrity: 'off'`.
+- A zero-token call counts as work only when it was declared free before it ran. `runCampaign`'s `expectUsage` (and `selfImprove`'s, whose default is `'assert'`) and the per-loop provenance verdict read the cell's agent receipts. A call counts as work when it reports tokens, or a positive charge, or it was declared free and settled without error at a known $0. To declare a call free, pass `maximumCharge: { externallyEnforcedMaximumUsd: 0 }` to `ctx.cost.runPaidCall`, as a local retrieval or an in-process search does. In 2.0.0 every zero-token call was stub-mode, so a cell whose only call was free was refused with a message saying no call was made. Now it passes if the call was declared free.
+- A zero-token call that reports $0, observed or estimated, without that declaration is still refused. A model call through a provider or proxy that drops usage reports exactly that, and the receipt cannot tell it from a free call. Fix it by reporting the call's usage, or by declaring a call that cannot spend with the zero maximum above. A caller that set `expectUsage: 'off'` only because its free calls were refused can declare them free and set `'assert'` again.
+- The `expectUsage` error text changed. A cell that records no agent call now says that no call was recorded through `ctx.cost.runPaidCall`. A cell whose recorded calls all lack tokens, a charge and a free declaration now names the call count and gives the two fixes. A caller or test that matched the 2.0.0 text ("reported zero cost and zero tokens", "made no paid call") must match the new text or the cell's verdict instead.
 
-Additions:
+`summarizeBackendIntegrity`, `assertRealBackend` and `runProfileMatrix`'s integrity assertion keep the 2.0.0 rule. They read run records, which carry no declaration, so a record with zero tokens is stub-mode whatever its cost. A matrix of free calls sets `integrity: 'off'`.
 
-- `OptimizationMethod` gains optional `ownsArtifactDescription`. A method that describes artifacts to its optimizer itself (to redact what it shows, or to bind the description into its evaluation identity) declares it, and then never receives its caller's `describeArtifact`: `compareOptimizationMethods` and `selfImprove` refuse a caller's `describeArtifact` beside it before any spend, naming the method (`method '<name>' describes its own artifacts, and its caller also set describeArtifact; set it once`), and the shared method boundary refuses an input that carries one before the method runs. `scopedOptimizationMethod` and `sequentialOptimizationMethod` declare it when a method they compose does. A method without it is unchanged, and so is the 2.0.0 rule for the GEPA, SkillOpt and external-text methods configured with their own `describeArtifact`: a different caller hook is refused, the same function is accepted.
+Additions (both optional, so a caller or method that ignores them is unchanged):
+
+- `CostCallBase.declaredFree?: true` records the declaration on the pending call and on its settled receipt, in the persisted journal and so in the cell cache.
+- `OptimizationMethod.ownsArtifactDescription` marks a method that describes artifacts to its optimizer itself, to redact what it shows or to bind the description into its evaluation identity. Such a method never receives its caller's `describeArtifact`. `compareOptimizationMethods` and `selfImprove` refuse a caller's `describeArtifact` beside it before any spend, with `method '<name>' describes its own artifacts, and its caller also set describeArtifact; set it once`, and the shared method boundary refuses an input that carries one before the method runs. `scopedOptimizationMethod` and `sequentialOptimizationMethod` declare it when a method they compose does. A method without it is unchanged, and so is the 2.0.0 rule for the GEPA, SkillOpt and external-text methods configured with their own `describeArtifact`: a different caller hook is refused, the same function is accepted.
+
+Downgrade limit: a journal written before 2.0.1 carries no declaration, so a zero-token call in it stays stub-mode, as in 2.0.0. A run directory whose journal holds a declared-free call written by 2.0.1 cannot be resumed by 2.0.0. Finish or discard such a run before moving back to 2.0.0.
 
 Fixes:
 
 - The Python client passes `ruff check` (`gepa_bridge_proof.py` import order and two long lines), and the client's documented checks and the publish workflow run it.
+
+Commits in this release:
+
+- test(campaign): name the dropped-usage dispatch and repin the analyst benchmark implementation
+- fix(campaign): count a zero-token call as work only when it was declared free before it ran
+- test(campaign): a model call that reports zero tokens and $0 without declaring it free is a stub
+- test(campaign): the sibling-drain refusal names the missing agent call; regenerate the API census
+- fix(campaign): count a recorded free call as work and keep a caller's describeArtifact off a method that owns it
+- test(campaign): give the free-call scenarios a kind
+- test(campaign): a recorded free call and a method that owns artifact description
 
 ## [2.0.0] — 2026-11-20
 
