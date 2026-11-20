@@ -149,6 +149,66 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
     })
   })
 
+  // A model call through a provider or proxy that drops usage and reports a
+  // cost of 0: what the receipt says afterwards is not evidence the model
+  // answered, so without a declaration made before the call it is a stub.
+  const MODEL = 'gpt-4.1-2025-04-14'
+  const droppedUsageCall =
+    (maximumCharge?: { externallyEnforcedMaximumUsd: number }) =>
+    async (scenario: Question, ctx: DispatchContext): Promise<string> => {
+      const call = await ctx.cost.runPaidCall({
+        actor: 'model',
+        model: MODEL,
+        ...(maximumCharge ? { maximumCharge } : {}),
+        execute: async () => CORPUS[scenario.id]!,
+        receipt: () => ({ model: MODEL, inputTokens: 0, outputTokens: 0, actualCostUsd: 0 }),
+      })
+      if (!call.succeeded) throw call.error
+      return call.value
+    }
+
+  it.each([
+    ['no maximum', undefined],
+    ['a nonzero maximum', { externallyEnforcedMaximumUsd: 0.05 }],
+  ])('refuses a model call that reports zero tokens and $0 under %s', async (_label, maximum) => {
+    const error = await runCampaign({
+      ...freeCampaign(mkdtempSync(join(tmpdir(), 'dropped-usage-'))),
+      scenarios: scenarios.slice(0, 1),
+      dispatch: droppedUsageCall(maximum),
+    }).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(BackendIntegrityError)
+    expect((error as Error).message).toMatch(
+      /recorded 1 agent call through ctx\.cost\.runPaidCall, and none reports tokens or a charge or was declared free/,
+    )
+    expect((error as Error).message).toContain('externallyEnforcedMaximumUsd: 0')
+  })
+
+  it('lets runProfileMatrix refuse a matrix whose model calls report zero tokens and $0', async () => {
+    const error = await runProfileMatrix({
+      profiles: [{ name: 'model', model: { default: MODEL } }],
+      scenarios,
+      dispatch: (_profile, scenario, ctx) => droppedUsageCall()(scenario, ctx),
+      judges: [answers],
+      runDir: mkdtempSync(join(tmpdir(), 'dropped-usage-matrix-')),
+      commitSha: 'dropped-usage-matrix',
+      storage: inMemoryCampaignStorage(),
+    }).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(BackendIntegrityError)
+    expect((error as BackendIntegrityError).report).toMatchObject({
+      totalRecords: 2,
+      stubRecords: 2,
+      verdict: 'stub',
+    })
+  })
+
   it('lets runProfileMatrix, which asserts a real backend by default, accept a matrix of free calls', async () => {
     const result = await runProfileMatrix({
       profiles: [{ name: 'retriever', model: { default: RETRIEVER_MODEL } }],
