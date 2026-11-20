@@ -4,6 +4,64 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.0] — 2026-11-20
+
+Breaking changes first. Each names what a caller must do.
+
+- `Trajectory` gains a required `missingParents: TrajectoryMissingParent[]`. `buildTrajectory` fills it; a caller that builds a `Trajectory` literal (a test fixture, a replay) adds `missingParents: []`. A span whose parent is absent from the capture used to vanish from `steps` and from every count; it is now kept as a root and listed in `missingParents` with the parent id it names. A trace with no such hole is unchanged.
+- `CounterfactualMutation.at` is a `TrajectoryStepRef`: a step index as before, or `{ spanId }`. A caller that only passes numbers changes nothing. A caller that reads `mutation.at` as a number must handle the span-id form. A runner implementing the counterfactual runner contract receives a required `inFlight: TrajectoryStep[]` on its context and a result now carries `targetSpanId: string`; a caller that builds either literal adds the field. The prefix before a mutation is no longer `steps.slice(0, index)`: it is the target's ancestors plus every step that ended before the target started, so a parallel branch's later steps no longer reach the replay. Steps still running at the target's start are `inFlight`, and `SandboxCounterfactualRunner` refuses a target with steps in flight before it opens a sandbox. A sequential trace's prefix is unchanged. `trajectoryTimingBoundary` is exported.
+- `prmTrainingPairs` returns a `PrmPairingResult` (`triples` plus counts of the steps and contexts it could not use), not an array. A caller reads `.triples`. Its option `minPrefixLength` is removed; `minMargin` stays. A pair is now two actions taken in the same recorded context, represented by steps from two different runs: steps are grouped by context digest across runs, grouped again by action, and compared on mean reward, so two unrelated tasks that share span names no longer pair. `PrmTrainingTriple` gains required `contextDigest`, `chosenStepCount`, `chosenRunIds`, `rejectedStepCount` and `rejectedRunIds`; a caller that builds a triple by hand supplies them.
+- `toPrmRows` refuses a triple with no `contextDigest`, and a triple that names no runs behind its means, instead of building a row. It checks the realness gate of every run behind either mean, and carries the digest, step counts and run ids on `meta`. A caller that built triples outside `prmTrainingPairs` must supply a `contextDigest` that names the shared context.
+- `StepReward.stepIndex` is the span's position among all spans of the run, not a count of scored steps. `StepScorer.score` returns a `ScoredStep` (`StepReward` without identity, adds optional `contextDigest` and `actionDigest`). `extractStepRewards` gives each step a context digest (the run's scenario id, the recorded content of every span before the step, and the step's own input) and an action digest. A step's context is what was observable when it started: each span contributes its start content at `startedAt` and its end content at `endedAt`, so the end state of a span still open at that moment is no longer part of the context. A run whose scenario id is the emitter's default has no task identity and gets no context digest, and missing content yields no digest. `extractStepRewards` takes `contextAttributes` to name the attribute keys that count as context. `extractStepRewards` and `runwiseStepRewardSummary` are exported from `/rl`. A caller that relied on position among scored steps reads the new index.
+- `campaignBreakdown` takes an optional second argument (`ArtifactEvidenceOptions`, with `describeArtifact`). A caller that passes one argument is unaffected. The per-scenario evidence it shows is now `campaignEvidence`: the lowest-scoring cell's artifact, as is for a string or as `describeArtifact` returns it, and nothing without the hook. Long text keeps its head and tail around an omitted-character count (`excerptEvidence`) in `campaignBreakdown` and `buildReflectionPrompt`, so the end of an output, where a failure usually is, reaches the reflection prompt; the head-only clip is gone. `runOptimization` takes the same `describeArtifact` hook, and the GEPA and SkillOpt callbacks send the same evidence as a JSON value (a described artifact may still carry inline images).
+- The type re-exports `Span`, `TraceEvent` and `TraceStore` at the foot of `src/trajectory.ts` and `src/counterfactual.ts` are removed. No package entry exported them from there; a deep import of those paths takes them from `src/trace`.
+
+Behavior and additions:
+
+- `heldOutGate` counts each independent unit once. `HeldOutGateOptions` gains optional `independentUnitByScenarioId`; paired cells are averaged within a unit, and units count toward `n` and `minProductiveRuns`, so many decision points from one historical run cannot read as many independent tasks. A scored scenario missing from a supplied map raises the shared `aggregatePairedHoldout` error. With a map the reason names both counts and the detail adds `pairedCellN`, `observationUnit` and `unitIds`. Without a map nothing changes.
+- Imported search cells carry the campaign cells that measured them. The GEPA and SkillOpt evaluation callback keeps a `CampaignCellMeasurement` of every campaign cell behind a request on that request's observation (optional `measurement`), and `importExternalEvaluations` records each distinct measured cell once, with its outcome, dimensions, tokens, cost, model, duration and attempt. A request answered from an earlier request's cells is logged as reused and adds no cell; every rep of a multi-rep evaluation is its own cell, and `maxCells` is the evaluation limit times the reps. `GepaEvaluationImport` reports `measuredCells` and `reusedRequests`. An observation log without measurements imports as before. Every campaign cell records `dimension.<judge>.<dimension>` for each successful judge, its cached prompt tokens, and a trace reason naming the attempt whose trace writer received its spans.
+- `mintRolloutRows` reads `Trajectory.missingParents`: a line from a trace with a missing parent span keeps that span as a step, carries a `provenance.gap` naming how many spans are affected and is marked lossy, so training sinks exclude it. Each minted step carries the source `spanId` and, below a root, the `parentSpanId`; both are optional in `tangle.rollout.v1`, so earlier lines still validate.
+- `jsonDocument` refuses a reference cycle with `LedgerCanonicalizationError`.
+- `fix(harbor)`: a released case prunes its build records even when BuildKit reports them shared (#1298).
+- Every campaign cell names its trace (#1309). `CampaignTraceWriter` gains an optional method `traceRef?(): SearchTraceRef`, and `CampaignCellResult` and `CampaignCellMeasurement` gain an optional `traceRef`. `runCampaign` reads `traceRef` once, after the attempt's final flush, and records it on the cell, on the failure receipt and in the cache, so a cached cell keeps the trace of the attempt that measured it. A writer without `traceRef`, or one that returns `{ unknown: <reason> }`, leaves the trace unknown with that reason. The default writer's trace id is the W3C id of `<runAttemptId>/<cellId>/attempt-<n>`; every span it writes carries it as `traceId`, and `traceRef` counts a span opened and never ended as dropped. Records written before this change have no `traceRef` and import as before. A caller must act on none of this: the fields and method are optional, and the cell's `traceRef` in the search ledger is now the real reference where it was unknown.
+- `RunCampaignOptions.buildTraceWriter` is called with a third argument, the attempt (`runAttemptId` and `number`). A function that takes two parameters still works; a custom writer that wants its trace id derived from the attempt reads the third.
+- An evaluation refused after it measured keeps its spend. When the GEPA or SkillOpt evaluation callback measures cells and then refuses (evidence no excerpt fits, no score for the case), the refusal observation carries `measurement` (only on `evaluation-failed`), `importExternalEvaluations` records those cells with their real tokens, cost and trace and an `evaluation-refused` outcome, and the failed evaluation is not cached, so a later request retries it. Before, the spend was lost. Observation logs written earlier import as before.
+- Evidence over `maxEvidenceChars` is excerpted instead of refused. The judge notes, the error message and a text artifact keep their head and tail around an omitted-count marker, sharing the room the other fields leave. A described (non-string) artifact stays whole when the text fields alone can make room; otherwise it is sent as its excerpted JSON text, so a consumer of the evidence that expected a structured `artifact` must also accept a string there. Only a response whose scores, dimensions and ids alone exceed the bound is still refused. A caller that raised `maxEvidenceChars` to avoid the refusal can lower it again.
+- `describeArtifact?` is accepted by `OptimizationMethodInput`, `CompareOptimizationMethodsOptions` and `SelfImproveOptions`, and forwarded through `selfImprove`, `compareOptimizationMethods` and the GEPA, SkillOpt and external-text methods, so every method's optimizer sees the same described evidence as the native proposer. A caller that already gave a method its own `describeArtifact` and now also passes one through `selfImprove`, `compareOptimizationMethods` or `OptimizationMethodInput` that is a different function gets an error naming the label (`describeArtifact is set both on the method and by its caller; set it once`) before the method runs: set it once, on the caller. The same function in both places is accepted.
+- The maintainer skill, the public API census and the analyst benchmark pin are regenerated for these changes; tests for the removed head-only clip are deleted with it.
+
+Commits in this release:
+
+- chore(analyst): repin the benchmark implementation after merging main; format touched tests
+- fix(campaign): read a run refusal's measurement without a dead kind check; repin analyst benchmark
+- fix(campaign): name each cell's trace, keep a refused evaluation's spend, forward describeArtifact
+- test(campaign): trace identity, refused-evaluation spend and describeArtifact forwarding
+- chore(rl): regenerate the analyst pin and public API listing after merging main
+- docs(skill): the maintainer skill states the current rules and routes multi-component optimization
+- docs(rl): extractStepRewards states its context rule and its timing limit
+- docs(census): regenerate the public API census with the rl step-reward exports
+- chore(analyst): refresh the benchmark implementation pin for the canonical cycle refusal
+- fix(rl): a step's context is what was observable when it started; pairs compare mean rewards
+- test(rl): a realness-gated run behind a mean keeps its PRM row out
+- chore(analyst): pin the benchmark implementation digest over the callback's measurement
+- test(rl): contexts end at a step's start, pairs use mean reward, unknown tasks and cycles get no digest
+- fix(campaign): native and external optimizers see the same cell evidence
+- test(campaign): optimizers see the end of a long output and the same evidence
+- fix(campaign): imported search cells carry the campaign cells that measured them
+- test(campaign): imported search cells are the campaign cells that measured them
+- fix(rollout): a minted line from a trace with a missing parent span says so
+- feat(campaign): heldOutGate counts each independent unit once
+- style(rl): keep the formatter's parentheses on the llm input default
+- test(rollout): a minted line from a trace with a missing parent span carries no gap today
+- fix(trajectory): keep orphan spans and draw the counterfactual prefix by span timing
+- test(rl): the PRM exporter refuses a pipeline triple stripped of its context digest
+- test(trajectory): orphan spans and a parallel counterfactual prefix fail today
+- test(campaign): heldOutGate counts wakes from one historical run as one unit
+- refactor(rl): a span's record is every field but identity, timing and accounting
+- fix(rl): a process-reward pair is two actions taken in the same recorded context
+- test(rl): a PRM row from two runs of different scenarios that share span names
+- fix(harbor): a released case prunes its build records even when BuildKit reports them shared (#1298)
+
 ## [1.0.40] — 2026-11-18
 
 - fix(cost): selfImprove, compareOptimizationMethods and trace analysts report agent spend the ledger missed (#1296)
