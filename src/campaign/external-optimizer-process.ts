@@ -5,6 +5,7 @@ export {
   assertNoCredentialValues,
   DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
   DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS,
+  type ExternalEvaluationMeasurement,
   type ExternalOptimizerCallback,
   type ExternalOptimizerCallbackLimits,
   type ExternalOptimizerChatRequest,

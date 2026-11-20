@@ -120,6 +120,7 @@ export type {
 } from './external-optimizer-observations'
 export { readExternalOptimizerObservationArtifact } from './external-optimizer-observations'
 export type {
+  ExternalEvaluationMeasurement,
   ExternalOptimizerCallbackLimits,
   ExternalOptimizerChatRequest,
   ExternalOptimizerEndpointFormat,
@@ -373,6 +374,8 @@ export {
   campaignMeanComposite,
 } from './score-utils'
 export {
+  type CampaignCellMeasurement,
+  campaignCellMeasurement,
   campaignCellSearchResult,
   searchModelIdentity,
   searchProposalExecution,
