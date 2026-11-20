@@ -231,7 +231,8 @@ export async function importExternalEvaluations(input: {
       unrecorded.push(registered.nodeId)
     }
     const split = input.splitOf(exampleId)
-    const measurement = observation.kind === 'proposal' ? undefined : observation.measurement
+    // A refusal that ran carries the cells it measured before it was refused.
+    const { measurement } = observation
     const refused = observation.kind === 'refusal'
     const allocate = async (): Promise<string> => {
       const repKey = `${registered.nodeId}\u0000${exampleId}`
