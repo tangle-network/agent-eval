@@ -399,6 +399,31 @@ describe('one triple per pair of actions, decided on mean reward', () => {
     expect(triples[0]?.marginScore).toBeCloseTo(0.5, 10)
   })
 
+  it('builds no PRM row when a run behind a mean is realness-gated, even one not shown', async () => {
+    const store = new InMemoryTraceStore()
+    await answers(store, { 'x-1': 'Thirty days.', 'x-2': 'Thirty days.', 'y-1': 'No refunds.' })
+    const scorer = tableScorer(['llm'], {
+      'x-1': { answer: 0.9 },
+      'x-2': { answer: 0.7 },
+      'y-1': { answer: 0.3 },
+    })
+    const gamed: RunRecord = {
+      ...runRecord('x-2', 'refund-policy', 0.7),
+      outcome: { searchScore: 0.7, raw: {}, realness: { score: 0, gated: true } },
+    }
+    const lines = await mintFullyCaptured(store, [
+      runRecord('x-1', 'refund-policy', 0.9),
+      gamed,
+      runRecord('y-1', 'refund-policy', 0.3),
+    ])
+
+    const { triples } = prmTrainingPairs(await stepRewardsOf(store, scorer, ['x-1', 'x-2', 'y-1']))
+    const rows = await toPrmRows(triples, storeLookups(store), { lines })
+
+    // x-2's gamed 0.7 is half of X's mean, though the row would show x-1's step.
+    expect(rows).toEqual([])
+  })
+
   it('counts a pair of actions that only one run took', async () => {
     // A caller's checkpoint identity puts two steps of one run in one context.
     const store = new InMemoryTraceStore()
