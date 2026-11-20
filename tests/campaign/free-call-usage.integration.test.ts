@@ -21,8 +21,8 @@ const CORPUS: Record<string, string> = {
   beta: 'beta is the second letter of the Greek alphabet',
 }
 const scenarios = [
-  { id: 'alpha', term: 'first' },
-  { id: 'beta', term: 'second' },
+  { id: 'alpha', kind: 'lookup', term: 'first' },
+  { id: 'beta', kind: 'lookup', term: 'second' },
 ]
 type Question = (typeof scenarios)[number]
 
