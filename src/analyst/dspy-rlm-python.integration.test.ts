@@ -25,7 +25,8 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
     const provider = createServer(async (request, response) => {
       let body = ''
       for await (const chunk of request) body += chunk
-      requests.push(JSON.parse(body))
+      const payload = JSON.parse(body) as { model: string }
+      requests.push(payload)
       authorizations.push(request.headers.authorization ?? '')
       let batchAnswer: string | undefined
       if (body.includes('subquery-alpha') || body.includes('subquery-beta')) {
@@ -42,7 +43,7 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
         JSON.stringify({
           id: `completion-${requests.length}`,
           object: 'chat.completion',
-          model: 'model-a',
+          model: payload.model,
           choices: [
             {
               index: 0,
@@ -103,7 +104,13 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
         'import os\nassert os.environ.get("OPENAI_API_KEY") is None\n' +
         'assert getDatasetOverview()["total_traces"] == 1\n' +
         'SUBMIT(answer="Inspected one retained trace.", findings_json="[]")'
-      const result = await engine.analyze({
+      const reasoningModel = 'gpt-5'
+      const reasoningEngine = createDspyRlmTraceEngine({
+        ...options,
+        model: reasoningModel,
+        maxOutputTokens: 16_384,
+      })
+      const result = await reasoningEngine.analyze({
         analystId: 'official-rlm',
         question: 'Inspect one trace.',
         instructions: 'Read the count.',
@@ -135,7 +142,7 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
           channel: 'analyst',
           phase: 'compatibility',
           actor: 'official-rlm',
-          model: 'model-a',
+          model: reasoningModel,
           inputTokens: 13,
           outputTokens: 7,
           usageUnknown: false,

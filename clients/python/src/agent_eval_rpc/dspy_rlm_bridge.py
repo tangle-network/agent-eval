@@ -217,9 +217,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             cache=False,
             num_retries=0,
             max_tokens=model_proxy["maxOutputTokens"],
-            # The owner supplies the model execution policy. Pin the bridge's
-            # Chat-only wire and native engine; no provider-specific options or
-            # implicit backend/API-family fallback may change that contract.
+            # RLM requests a short plan. None keeps the plan in the text signature
+            # and leaves the provider's reasoning policy to the execution AgentProfile.
+            reasoning_effort=None,
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
 
