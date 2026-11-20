@@ -11,13 +11,20 @@
  *   const report = summarizeBackendIntegrity(records)
  *   assertRealBackend(records)   // throws BackendIntegrityError if 100% stub
  *
- * A record is "stub-mode" if its `tokenUsage.input === 0 && tokenUsage.output === 0`.
- * (`costUsd` alone is unreliable — some backends successfully call LLMs but
- *  don't propagate pricing, producing real tokens with $0 cost.)
+ * A record or call shows work when it reports tokens, a charge, or an
+ * observed cost: a cost its executor stated (`actualCostUsd`), a stated $0
+ * included. A free call (a local retrieval, an in-process search) records zero
+ * tokens and `actualCostUsd: 0` and is real work at a known $0. A record that
+ * shows none of the three is "stub-mode": a placeholder receipt, usage the
+ * call dropped, or no call at all. An estimated $0 is not evidence, because
+ * pricing zero tokens is what dropped usage produces; a $0 cost beside real
+ * tokens still shows work, because some backends call LLMs without
+ * propagating pricing. `runCampaign`'s `expectUsage` applies the same rule to
+ * each cell's agent receipts.
  *
  * Verdicts:
- *   - `real`   — at least one record has nonzero token usage
- *   - `stub`   — every record is stub-mode (eval ran blind)
+ *   - `real`   — every record shows work
+ *   - `stub`   — no record shows work (eval ran blind)
  *   - `mixed`  — some records real, some stub (partial backend failure;
  *                often the 429-cascade or auth-half-failed case)
  */
@@ -29,9 +36,9 @@ import type { RunRecord } from '../run-record'
 export interface BackendIntegrityReport {
   /** Total records inspected. */
   totalRecords: number
-  /** Records with input=0 AND output=0 (a stub fingerprint). */
+  /** Records with zero tokens, no charge and no observed cost (a stub fingerprint). */
   stubRecords: number
-  /** Records with nonzero token usage (real LLM activity). */
+  /** Records that show work: tokens, a charge, or an observed cost, a stated $0 included. */
   realRecords: number
   /** Records where output>0 but costUsd=0 (real LLM, broken cost ledger). */
   uncostedRecords: number
@@ -74,6 +81,8 @@ export function summarizeBackendIntegrity(
       inputTokens: record.tokenUsage.input,
       outputTokens: record.tokenUsage.output,
       costUsd: record.costUsd,
+      // A record written before cost provenance existed carries none.
+      costObserved: record.costProvenance?.kind === 'observed',
     })),
   )
 }
@@ -89,6 +98,7 @@ export function summarizeAgentReceiptIntegrity(
         inputTokens: receipt.inputTokens,
         outputTokens: receipt.outputTokens,
         costUsd: receipt.costUsd,
+        costObserved: receipt.actualCostUsd !== undefined,
       })),
   )
 }
@@ -97,6 +107,17 @@ interface BackendUsage {
   inputTokens: number
   outputTokens: number
   costUsd: number | null
+  /** The cost was stated by its executor, not estimated from tokens. */
+  costObserved: boolean
+}
+
+function showsWork(usage: BackendUsage): boolean {
+  return (
+    usage.inputTokens > 0 ||
+    usage.outputTokens > 0 ||
+    (usage.costUsd ?? 0) > 0 ||
+    usage.costObserved
+  )
 }
 
 function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegrityReport {
@@ -111,8 +132,8 @@ function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegri
     totalInputTokens += rec.inputTokens
     totalOutputTokens += rec.outputTokens
     totalCostUsd += rec.costUsd ?? 0
-    if (rec.inputTokens === 0 && rec.outputTokens === 0) stubRecords++
-    else realRecords++
+    if (showsWork(rec)) realRecords++
+    else stubRecords++
     if (rec.outputTokens > 0 && (rec.costUsd === null || rec.costUsd === 0)) uncostedRecords++
   }
   const verdict: BackendIntegrityReport['verdict'] =
@@ -152,7 +173,7 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
   }
   if (r.verdict === 'stub') {
     return [
-      `all ${r.totalRecords} records have zero token usage — the LLM backend was never called.`,
+      `all ${r.totalRecords} records have zero token usage, no charge and no observed cost — the LLM backend was never called.`,
       'common causes: --backend sandbox without a sandbox bridge running; stub model returning hard-coded strings;',
       'auth misconfigured so requests were silently dropped before the LLM. Re-run with --backend tcloud and TANGLE_API_KEY set,',
       'or boot the cli-bridge / sandbox before invoking the eval.',
@@ -161,12 +182,15 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
   if (r.verdict === 'mixed') {
     const pct = ((r.stubRecords / r.totalRecords) * 100).toFixed(0)
     return [
-      `${r.stubRecords}/${r.totalRecords} records (${pct}%) have zero token usage — the backend partially failed.`,
+      `${r.stubRecords}/${r.totalRecords} records (${pct}%) have zero token usage, no charge and no observed cost — the backend partially failed.`,
       'common causes: rate-limit cascade (429s after the first N personas);',
       'transient auth expiry mid-run; provider outage. Treat the affected records as missing data, not agent failures.',
     ].join(' ')
   }
   // verdict === 'real'
+  if (r.totalInputTokens === 0 && r.totalOutputTokens === 0) {
+    return `${r.totalRecords} records show work at a known cost without tokens ($${r.totalCostUsd.toFixed(4)}): free calls, or calls billed without usage.`
+  }
   if (r.uncostedRecords > 0) {
     const pct = ((r.uncostedRecords / r.totalRecords) * 100).toFixed(0)
     return [
@@ -181,8 +205,8 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
 }
 
 /**
- * Throw BackendIntegrityError if the verdict is 'stub' — i.e. every record
- * shows zero LLM activity. Non-strict callers can pass `{ allowMixed: false }`
+ * Throw BackendIntegrityError if the verdict is 'stub' — i.e. no record
+ * shows work. Non-strict callers can pass `{ allowMixed: false }`
  * to also reject mixed verdicts (recommended for CI gates).
  *
  * Real backends pass through silently.

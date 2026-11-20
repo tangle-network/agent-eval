@@ -120,7 +120,8 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
    * How the caller shows a non-string artifact to the method's optimizer, the
    * same for every method. The GEPA, SkillOpt and external-text methods send
    * it as each evaluation's evidence and refuse a different hook configured on
-   * the method itself; a custom method forwards it to `runOptimization`.
+   * the method itself; a custom method forwards it to `runOptimization`. It is
+   * never given to a method that declares `ownsArtifactDescription`.
    */
   readonly describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   /** Method-specific artifacts are written below this directory. */
@@ -168,9 +169,36 @@ export interface OptimizationMethodResult {
 export interface OptimizationMethod<TScenario extends Scenario = Scenario, TArtifact = unknown> {
   /** Unique, trimmed display name. Its normalized form must also be unique. */
   name: string
+  /**
+   * True when the method describes artifacts to its optimizer itself, for
+   * example to redact what it shows or to bind the description into its
+   * evaluation identity. Such a method takes no `describeArtifact` from its
+   * caller: `compareOptimizationMethods` and `selfImprove` refuse a caller's
+   * hook beside it before any spend, and the shared execution boundary refuses
+   * an input that carries one before the method runs, composed stages
+   * included. `scopedOptimizationMethod` and `sequentialOptimizationMethod`
+   * declare it when a method they compose does.
+   */
+  ownsArtifactDescription?: boolean
   optimize: (
     input: OptimizationMethodInput<TScenario, TArtifact>,
   ) => Promise<OptimizationMethodResult>
+}
+
+/**
+ * `describeArtifact` is set once. A method that owns its artifact description
+ * takes none from its caller, so a caller's hook beside it is refused.
+ */
+export function assertArtifactDescriptionSetOnce(
+  label: string,
+  method: Pick<OptimizationMethod, 'name' | 'ownsArtifactDescription'>,
+  describeArtifact: unknown,
+): void {
+  if (method.ownsArtifactDescription === true && describeArtifact !== undefined) {
+    throw new Error(
+      `${label}: method '${method.name}' describes its own artifacts, and its caller also set describeArtifact; set it once`,
+    )
+  }
 }
 
 /** Both complete-method workflows use the same detached inputs, accounting, and evidence admission. */
@@ -183,6 +211,7 @@ export async function executeOptimizationMethod<S extends Scenario, A>(
 ) {
   assertSearchHistoryAdmissionOptions(options)
   const { method, input } = options
+  assertArtifactDescriptionSetOnce('optimization method input', method, input.describeArtifact)
   const costScope = createMethodCostScope(input.costLedger, method.name)
   const cloneScenarios = (scenarios: readonly S[]) =>
     Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))

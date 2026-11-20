@@ -151,9 +151,11 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   tracing?: 'on' | 'off'
   /**
    * Per-cell usage expectation — the early, fine-grained sibling of the
-   * batch `assertRealBackend` guard. A cell that produced an artifact (no
-   * error) but reported `costUsd === 0` AND zero tokens is a stub: the
-   * dispatch never reported LLM activity via `ctx.cost`. Modes:
+   * batch `assertRealBackend` guard, with the same rule. A cell that produced
+   * an artifact (no error) is a stub when it recorded no agent call through
+   * `ctx.cost.runPaidCall`, or recorded only calls that report no tokens, no
+   * charge and no observed cost. A free call (a local retrieval) that records
+   * zero tokens and `actualCostUsd: 0` is work at a known $0 and passes. Modes:
    *   - `'warn'` (default) — log the offending cell loudly, keep going.
    *   - `'assert'` — throw `BackendIntegrityError` on the first such cell
    *     (fail-fast; recommended for CI campaigns expecting real LLM calls).

@@ -7,11 +7,19 @@
 
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { toW3CTraceId } from '@tangle-network/agent-trace-contract'
-import { CostAccountingIncompleteError, type CostLedgerHandle } from '../cost-ledger'
-import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
+import {
+  CostAccountingIncompleteError,
+  type CostLedgerHandle,
+  type CostReceipt,
+} from '../cost-ledger'
+import {
+  BackendIntegrityError,
+  summarizeAgentReceiptIntegrity,
+} from '../integrity/backend-integrity'
 import {
   cachedCellReceiptProblem,
   cacheIssueRequiresExplicitRerun,
+  cellAgentReceipts,
   invalidCachedCellsError,
   readCachedCell,
   withCurrentAgentEvidence,
@@ -98,7 +106,11 @@ function reuseCachedCell<TScenario extends Scenario, TArtifact>(
     const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
     if (receiptProblem === undefined) {
       const cell = withCurrentAgentEvidence(cached.cell, args.costLedger, stableCostTags)
-      enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
+      enforceDispatchUsage(
+        cell,
+        cellAgentReceipts(cell, args.costLedger, stableCostTags),
+        args.opts.expectUsage ?? 'warn',
+      )
       return { cell: { ...cell, cached: true }, artifactsByPath: {} }
     }
     if (!args.opts.rerunInvalidCachedCells) {
@@ -457,13 +469,8 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   const { agentCost, tokenUsage } = measureAgentUsage(args, costTags)
   try {
     enforceDispatchUsage(
-      {
-        cellId: args.slot.cellId,
-        artifact,
-        error: dispatch.errorMessage,
-        costUsd: agentCost.totalCostUsd,
-        tokenUsage,
-      },
+      { cellId: args.slot.cellId, artifact },
+      args.costLedger.list({ channel: 'agent', tags: costTags }),
       args.opts.expectUsage ?? 'warn',
     )
   } catch (error) {
@@ -606,36 +613,31 @@ function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<bo
 }
 
 /**
- * Per-dispatch stub guard. An artifact produced with `costUsd === 0` AND zero
- * tokens means the dispatch never called `ctx.cost` —
- * i.e. it ran against a stub or silently dropped its usage. `'warn'` logs it,
- * `'assert'` throws (fail-fast), and `'off'` skips the check.
+ * Per-dispatch stub guard over the cell's agent receipts, by the rule
+ * `summarizeAgentReceiptIntegrity` applies: a call shows work when it reports
+ * tokens, a charge, or an observed cost (`actualCostUsd`, a stated $0
+ * included). A cell that produced an artifact fails the guard when it
+ * recorded no agent call through `ctx.cost.runPaidCall`, or recorded only
+ * calls that show no work. A free call that records zero tokens and
+ * `actualCostUsd: 0` passes. `'warn'` logs a failure, `'assert'` throws it
+ * (fail-fast), and `'off'` skips the check.
  */
 function enforceDispatchUsage(
-  cell: Pick<
-    CampaignCellResult<unknown>,
-    'cellId' | 'artifact' | 'error' | 'costUsd' | 'tokenUsage'
-  >,
+  cell: Pick<CampaignCellResult<unknown>, 'cellId' | 'artifact'>,
+  agentReceipts: readonly CostReceipt[],
   mode: 'assert' | 'warn' | 'off',
 ): void {
   if (mode === 'off') return
   if (cell.artifact === null || cell.artifact === undefined) return
-  const zeroTokens = cell.tokenUsage.input === 0 && cell.tokenUsage.output === 0
-  if (cell.costUsd !== 0 || !zeroTokens) return
-  const msg = `cell '${cell.cellId}' produced an artifact but reported zero cost and zero tokens — the dispatch made no paid call through ctx.cost.runPaidCall (a stub cell)`
+  const report = summarizeAgentReceiptIntegrity(agentReceipts)
+  if (report.realRecords > 0) return
+  const calls = report.totalRecords
+  const msg =
+    calls === 0
+      ? `cell '${cell.cellId}' produced an artifact but recorded no agent call through ctx.cost.runPaidCall, so nothing shows the dispatch did work (a stub, or calls paid outside the ledger); record each call, a free one with actualCostUsd: 0`
+      : `cell '${cell.cellId}' recorded ${calls} agent call${calls === 1 ? '' : 's'} through ctx.cost.runPaidCall, and none reports tokens, a charge or an observed cost (a placeholder receipt, or usage the call dropped); a free call states actualCostUsd: 0`
   if (mode === 'assert') {
-    const report: BackendIntegrityReport = {
-      totalRecords: 1,
-      stubRecords: 1,
-      realRecords: 0,
-      uncostedRecords: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCostUsd: 0,
-      verdict: 'stub',
-      diagnosis: msg,
-    }
-    throw new BackendIntegrityError(`expectUsage: ${msg}`, report)
+    throw new BackendIntegrityError(`expectUsage: ${msg}`, { ...report, diagnosis: msg })
   }
   // eslint-disable-next-line no-console
   console.warn(`[runCampaign] expectUsage: ${msg}`)

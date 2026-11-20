@@ -28,8 +28,9 @@
  *
  * Dispatch contract: a dispatch that calls an LLM MUST report usage via
  * `ctx.cost.runPaidCall({ execute, receipt })`.
- * A dispatch that reports zero tokens is indistinguishable from a stub and the
- * integrity guard treats it as one.
+ * A dispatch that reports zero tokens and states no cost is indistinguishable
+ * from a stub and the integrity guard treats it as one; a free call states
+ * `actualCostUsd: 0` in its receipt and counts as work at a known $0.
  */
 
 import { createHash } from 'node:crypto'

@@ -121,6 +121,10 @@ jobs:
         working-directory: clients/python
         run: uv sync --frozen --extra dev --group skillopt-source --group gepa-source
 
+      - name: Lint Python client
+        working-directory: clients/python
+        run: uv run --frozen --extra dev --group skillopt-source --group gepa-source ruff check .
+
       - name: Test Python client with official GEPA
         working-directory: clients/python
         run: uv run --frozen --extra dev --group skillopt-source --group gepa-source pytest -v

@@ -6,16 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
-No caller of 2.0.0 must change code. Two behaviors change:
+No caller of 2.0.0 must change code; every change is a fix or an optional member. Two behaviors change:
 
-- `RunCampaignOptions.tracing: 'off'` now does what it documented: every attempt gets a writer that keeps no span, and each cell's `traceRef` is unknown with that reason. Before, `'off'` was ignored and spans were captured. Combining it with `buildTraceWriter` is refused. A caller that passed `'off'` and still reads the spans removes `'off'`.
-- The SkillOpt bridge checks each callback response against `maxEvidenceChars` by the TypeScript rule (the response's JSON length in UTF-16 code units), not the case and the response together, so it no longer refuses a response the callback excerpted to the bound.
+- A free call is work at a known $0. `runCampaign`'s `expectUsage` (and `selfImprove`'s, whose default is `'assert'`) now reads the cell's agent receipts: a call counts as work when it reports tokens, a charge, or an observed cost (`actualCostUsd`, a stated $0 included). A cell whose dispatch records a call that costs nothing (a local retrieval, an in-process search: `ctx.cost.runPaidCall` with `maximumCharge: { externallyEnforcedMaximumUsd: 0 }` and a receipt of zero tokens and `actualCostUsd: 0`) passes `'assert'` and reports an observed $0. Before, it was refused with a message saying no call was made. A cell that records no agent call is still refused, and its message now says that no call was recorded; a cell whose calls report no tokens, no charge and no observed cost (an estimated $0 from zero tokens, an unknown cost) is still refused, with a message saying so. A caller that set `expectUsage: 'off'` only because its free calls were refused can set `'assert'` again.
+- `summarizeBackendIntegrity`, `assertRealBackend`, the per-loop provenance verdict and `runProfileMatrix`'s default integrity assertion apply the same rule: a record with zero tokens counts as real when its cost is observed (`costProvenance.kind: 'observed'`) or positive. Before, every zero-token record was stub-mode, so a matrix of free calls was refused as a stub backend and a zero-token record with a sandbox bill read as stub. The report's fields are unchanged; `stubRecords` and `realRecords` count by this rule, and the diagnosis names it.
+
+Additions:
+
+- `OptimizationMethod` gains optional `ownsArtifactDescription`. A method that describes artifacts to its optimizer itself (to redact what it shows, or to bind the description into its evaluation identity) declares it, and then never receives its caller's `describeArtifact`: `compareOptimizationMethods` and `selfImprove` refuse a caller's `describeArtifact` beside it before any spend, naming the method (`method '<name>' describes its own artifacts, and its caller also set describeArtifact; set it once`), and the shared method boundary refuses an input that carries one before the method runs. `scopedOptimizationMethod` and `sequentialOptimizationMethod` declare it when a method they compose does. A method without it is unchanged, and so is the 2.0.0 rule for the GEPA, SkillOpt and external-text methods configured with their own `describeArtifact`: a different caller hook is refused, the same function is accepted.
 
 Fixes:
 
-- An external evaluation (GEPA or SkillOpt) whose campaign throws keeps what it spent: the refusal's `measurement` carries every cell that settled before the throw with its real accounting, and each cell the throw interrupted (`campaign-threw`, unknown tokens and cost, with the agent spend its receipts proved as the lower bound). Before, the evaluation was one cell with unknown cost and a $0 floor.
-- `campaignToRunRecords`, `selfImprove`'s run records and `runProfileMatrix` records carry the campaign cell's known trace as `RunRecord.traceRef`; a cell whose trace is unknown leaves it absent.
-- `pnpm lint` passes and the documented local gate runs it.
+- The Python client passes `ruff check` (`gepa_bridge_proof.py` import order and two long lines), and the client's documented checks and the publish workflow run it.
 
 ## [2.0.0] — 2026-11-20
 
@@ -42,8 +44,18 @@ Behavior and additions:
 - Evidence over `maxEvidenceChars` is excerpted instead of refused. The judge notes, the error message and a text artifact keep their head and tail around an omitted-count marker, sharing the room the other fields leave. A described (non-string) artifact stays whole when the text fields alone can make room; otherwise it is sent as its excerpted JSON text, so a consumer of the evidence that expected a structured `artifact` must also accept a string there. Only a response whose scores, dimensions and ids alone exceed the bound is still refused. A caller that raised `maxEvidenceChars` to avoid the refusal can lower it again.
 - `describeArtifact?` is accepted by `OptimizationMethodInput`, `CompareOptimizationMethodsOptions` and `SelfImproveOptions`, and forwarded through `selfImprove`, `compareOptimizationMethods` and the GEPA, SkillOpt and external-text methods, so every method's optimizer sees the same described evidence as the native proposer. A caller that already gave a method its own `describeArtifact` and now also passes one through `selfImprove`, `compareOptimizationMethods` or `OptimizationMethodInput` that is a different function gets an error naming the label (`describeArtifact is set both on the method and by its caller; set it once`) before the method runs: set it once, on the caller. The same function in both places is accepted.
 - The maintainer skill, the public API census and the analyst benchmark pin are regenerated for these changes; tests for the removed head-only clip are deleted with it.
+- `RunCampaignOptions.tracing: 'off'` does what it documented (#1311): every attempt gets a writer that keeps no span, and each cell's `traceRef` is unknown with that reason. Before, `'off'` was ignored and spans were captured. Combining it with `buildTraceWriter` is refused. A caller that passed `'off'` and still reads the spans removes `'off'`.
+- The SkillOpt bridge checks each callback response against `maxEvidenceChars` by the TypeScript rule (the response's JSON length in UTF-16 code units), not the case and the response together, so it no longer refuses a response the callback excerpted to the bound (#1311).
+- An external evaluation (GEPA or SkillOpt) whose campaign throws keeps what it spent (#1311): the refusal's `measurement` carries every cell that settled before the throw with its real accounting, and each cell the throw interrupted (`campaign-threw`, unknown tokens and cost, with the agent spend its receipts proved as the lower bound). Before, the evaluation was one cell with unknown cost and a $0 floor.
+- `campaignToRunRecords`, `selfImprove`'s run records and `runProfileMatrix` records carry the campaign cell's known trace as `RunRecord.traceRef`; a cell whose trace is unknown leaves it absent (#1311).
+- `pnpm lint` passes and the documented local gate runs it (#1311).
 
 Commits in this release:
+
+- chore(analyst): repin the benchmark implementation and regenerate the API census
+- fix(campaign): keep a thrown evaluation's spend, carry cell traces onto run records, wire tracing off
+- test(campaign): prove the #1310 accounting, trace and evidence-bound gaps
+- chore(lint): make biome check src pass and run it in the documented gate
 
 - chore(analyst): repin the benchmark implementation after merging main; format touched tests
 - fix(campaign): read a run refusal's measurement without a dead kind check; repin analyst benchmark

@@ -6,6 +6,16 @@ import { fsCampaignStorage } from './storage'
 import { surfaceContentHash } from './surface-identity'
 import type { MutableSurface, Scenario } from './types'
 
+/** A composition owns artifact description when a method it composes does, so the
+ *  entry points refuse a caller's `describeArtifact` before the first stage spends. */
+function ownedArtifactDescription(
+  methods: readonly Pick<OptimizationMethod, 'ownsArtifactDescription'>[],
+): { ownsArtifactDescription?: true } {
+  return methods.some((method) => method.ownsArtifactDescription === true)
+    ? { ownsArtifactDescription: true }
+    : {}
+}
+
 /** Optimize a projection while evaluating every proposal in the complete candidate. */
 export function scopedOptimizationMethod<S extends Scenario, A>(options: {
   name: string
@@ -15,6 +25,7 @@ export function scopedOptimizationMethod<S extends Scenario, A>(options: {
 }): OptimizationMethod<S, A> {
   return {
     name: options.name,
+    ...ownedArtifactDescription([options.method]),
     async optimize(input) {
       const baseline = structuredClone(input.baselineSurface)
       const projected = options.project(structuredClone(baseline))
@@ -76,6 +87,7 @@ export function sequentialOptimizationMethod<S extends Scenario, A>(options: {
   const methods = [...options.methods]
   return {
     name: options.name,
+    ...ownedArtifactDescription(methods),
     async optimize(input) {
       const started = Date.now()
       const stages: OptimizationMethodComposition['stages'] = []

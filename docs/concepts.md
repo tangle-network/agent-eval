@@ -98,6 +98,9 @@ A profile experiment normally freezes one task model for both arms. Opt in to `m
 Live and resumed campaign cells derive failed-call accounting from their agent receipts, independently of served-model identity.
 A failed call with a complete usage receipt retains its measured tokens and cost, including an explicit zero, even when no served model was reported.
 A failed cell without agent receipts carries unknown usage and uncaptured cost; profile matrices consume this same cell evidence without reinterpreting accounting from model names.
+A call that costs nothing (a local retrieval, an in-process search) is recorded through `ctx.cost.runPaidCall` with `maximumCharge: { externallyEnforcedMaximumUsd: 0 }` and a receipt of zero tokens and `actualCostUsd: 0`; its cell reports an observed $0.
+`expectUsage` and `assertRealBackend` count a call as work when it reports tokens, a charge, or an observed cost (`actualCostUsd`, $0 included), so such a cell passes `expectUsage: 'assert'`.
+A cell with no agent call, or only calls that report no tokens, no charge and no observed cost, is a stub: an estimated $0 is not evidence, because pricing zero tokens is what dropped usage produces.
 The OTLP run-record readers also set this flag when reconciled model-call input or output coverage is incomplete or a call explicitly reports unknown usage. Existing parent-aggregate inheritance still applies to unflagged calls. A failed call remains counted and measured zero remains zero. An explicit unknown-call marker remains incomplete when a parent aggregate supplies numbers; reasoning-only output remains a subtotal.
 
 This API never activates a candidate or runs an agent itself.

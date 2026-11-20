@@ -49,6 +49,7 @@ import {
   costFromLedgerSummary,
 } from '../optimization-cost'
 import {
+  assertArtifactDescriptionSetOnce,
   executeOptimizationMethod,
   type OptimizationMethod,
   type OptimizationMethodComposition,
@@ -237,6 +238,9 @@ function normalizeComparisonOptions<TScenario extends Scenario, TArtifact>(prev:
     finalEvidence: rawOpts.finalEvidence && captureFinalEvidencePolicy(rawOpts.finalEvidence),
   }
   assertOptimizationMethods(opts.methods)
+  for (const method of opts.methods) {
+    assertArtifactDescriptionSetOnce('compareOptimizationMethods', method, opts.describeArtifact)
+  }
   assertComparisonPartitions(opts)
   const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'
   assertSearchHistoryAdmissionOptions(opts)

@@ -70,6 +70,7 @@ import type { RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 import {
+  assertSelfImproveMethod,
   runSelfImproveMethod,
   type SelfImproveMethodProvenance,
   type SelfImproveMethodResult,
@@ -297,9 +298,9 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
   captureSource?: 'production-trace' | 'eval-run' | 'manual' | 'red-team' | 'synthetic'
 
   /**
-   * Per-cell backend-integrity expectation — the fail-loud guard. A cell that
-   * produced an artifact but reported `costUsd === 0` AND zero tokens is a
-   * stub. Modes: `'assert'` throws on the first such cell, `'warn'` logs it,
+   * Per-cell backend-integrity expectation — the fail-loud guard, by `runCampaign`'s
+   * rule: a cell with an artifact and no recorded call that shows work is a stub;
+   * a free call recorded with `actualCostUsd: 0` passes. Modes: `'assert'` throws on the first such cell, `'warn'` logs it,
    * `'off'` skips the check (offline/replay). Default `'assert'` — `selfImprove`
    * is the real-run path, so a stub fails loud rather than scoring a clean 0.
    */
@@ -477,14 +478,7 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
     }
     return
   }
-  if (
-    typeof opts.method.name !== 'string' ||
-    !opts.method.name.trim() ||
-    opts.method.name.trim() !== opts.method.name ||
-    typeof opts.method.optimize !== 'function'
-  ) {
-    throw new Error('selfImprove: method must have a trimmed name and optimize(input)')
-  }
+  assertSelfImproveMethod(opts.method, opts.describeArtifact)
   const budget = opts.budget
   if (budget?.generations !== undefined) {
     throw new Error(
