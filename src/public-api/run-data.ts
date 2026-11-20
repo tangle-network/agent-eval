@@ -116,4 +116,10 @@ export type {
   TraceContract,
   TraceContractSpec,
 } from '../trace-contracts'
-export type { Trajectory, TrajectoryStep } from '../trajectory'
+export type {
+  Trajectory,
+  TrajectoryMissingParent,
+  TrajectoryStep,
+  TrajectoryStepRef,
+  TrajectoryTimingBoundary,
+} from '../trajectory'

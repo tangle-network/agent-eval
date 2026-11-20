@@ -126,6 +126,10 @@ A row whose commands cannot be reconstructed exactly as recorded is rejected, be
 Only trajectories that record their image are replayable.
 A task whose environment needs external compose peers cannot be replayed this way.
 
+The prefix comes from `runCounterfactual`, which draws it by span timing (`trajectoryTimingBoundary`): the target's ancestors and every step that ended before step `k` started.
+A recorded shell trajectory is sequential, so that is steps `1..k-1`.
+`SandboxCounterfactualRunner` refuses a target that another step was still running beside, before it opens a sandbox, because replaying finished commands one at a time cannot rebuild a half-run one.
+
 A pure submit decision is never a replay target.
 A submit command that also changes state stays in the trajectory; without a recorded exit, it is excluded as `no-recorded-returncode-at-k`.
 The same exclusion prevents shell replay of SWE-agent ACI editor commands whose recordings carry no shell returncode.
