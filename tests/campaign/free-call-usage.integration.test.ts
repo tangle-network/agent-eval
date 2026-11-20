@@ -170,11 +170,12 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
   it.each([
     ['no maximum', undefined],
     ['a nonzero maximum', { externallyEnforcedMaximumUsd: 0.05 }],
-  ])('refuses a model call that reports zero tokens and $0 under %s', async (_label, maximum) => {
+  ])('refuses a model call that reports zero tokens and zero cost with %s', async (_label, maximum) => {
     const error = await runCampaign({
       ...freeCampaign(mkdtempSync(join(tmpdir(), 'dropped-usage-'))),
       scenarios: scenarios.slice(0, 1),
       dispatch: droppedUsageCall(maximum),
+      dispatchRef: 'dropped-usage-model-call',
     }).then(
       () => undefined,
       (thrown: unknown) => thrown,
