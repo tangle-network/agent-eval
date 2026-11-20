@@ -129,7 +129,9 @@ export function readExternalOptimizerObservationArtifact(input: {
       evaluationNumbers.add(observation.evaluationNumber)
       assertObservedCandidate(observation, proposed)
       assertJsonValue(observation.response, 'external optimizer evaluation response')
-      if (observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)) {
+      if (
+        observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)
+      ) {
         throw new Error(
           `external optimizer observation artifact measures another case than it evaluated at sequence ${observation.sequence}`,
         )
@@ -148,6 +150,11 @@ export function readExternalOptimizerObservationArtifact(input: {
       )
     }
     if (observation.reason === 'evaluation-failed') failedEvaluations += 1
+    if (observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)) {
+      throw new Error(
+        `external optimizer observation artifact measures another case than it refused at sequence ${observation.sequence}`,
+      )
+    }
     const candidateFields = [observation.candidate, observation.candidateHash]
     if (
       observation.reason !== 'invalid-request' &&
@@ -354,10 +361,27 @@ function assertObservationShape(
     return
   }
   if (observation.kind === 'refusal') {
-    const allowed = ['candidate', 'candidateHash', 'exampleId', 'kind', 'reason', 'sequence']
+    const allowed = [
+      'candidate',
+      'candidateHash',
+      'exampleId',
+      'kind',
+      'measurement',
+      'reason',
+      'sequence',
+    ]
     assertAllowedKeys(observation, allowed, line)
     if (typeof observation.reason !== 'string') {
       throw new Error(`external optimizer observation artifact line ${line} has an invalid reason`)
+    }
+    // Only a refusal after the evaluation ran can have measured cells.
+    if ('measurement' in observation) {
+      if (observation.reason !== 'evaluation-failed') {
+        throw new Error(
+          `external optimizer observation artifact line ${line} measures a refusal that never ran`,
+        )
+      }
+      assertMeasurement(observation.measurement, line)
     }
     if (observation.candidate !== undefined || observation.candidateHash !== undefined) {
       assertCandidateFields(observation, line)
@@ -392,13 +416,20 @@ function assertMeasurement(value: unknown, line: number): void {
         typeof cell.cached === 'boolean' &&
         typeof cell.durationMs === 'number' &&
         (cell.resolvedModel === undefined || typeof cell.resolvedModel === 'string') &&
+        // Absent in logs written before cells carried their trace.
+        (cell.traceRef === undefined ||
+          (isPlainRecord(cell.traceRef) &&
+            (typeof cell.traceRef.traceId === 'string' ||
+              typeof cell.traceRef.unknown === 'string'))) &&
         (cell.attempt === null ||
           (isPlainRecord(cell.attempt) &&
             typeof cell.attempt.runAttemptId === 'string' &&
             Number.isSafeInteger(cell.attempt.number))),
     )
   if (!valid) {
-    throw new Error(`external optimizer observation artifact line ${line} has an invalid measurement`)
+    throw new Error(
+      `external optimizer observation artifact line ${line} has an invalid measurement`,
+    )
   }
   assertAllowedKeys(value as Record<string, unknown>, ['cells', 'source'], line)
   for (const cell of cells as Record<string, unknown>[]) {
@@ -416,6 +447,7 @@ const MEASUREMENT_CELL_KEYS = [
   'rep',
   'resolvedModel',
   'scenarioId',
+  'traceRef',
 ] as const
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

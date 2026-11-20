@@ -30,6 +30,7 @@ import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
 import type { SeriesDistribution } from '../statistics'
 import type { VerdictCertification } from '../verdict'
+import type { SearchTraceRef } from './search-ledger-types'
 import type { SearchProposerView } from './search-summary'
 
 /** Stable identifier + kind tag for any scenario. Consumers
@@ -477,6 +478,15 @@ export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario
 export interface CampaignTraceWriter {
   span(name: string, attributes?: Record<string, unknown>): TraceSpan
   flush(): Promise<void>
+  /**
+   * The trace the flushed spans went to: the id a reader retrieves them by,
+   * and how many spans the writer wrote and dropped. `runCampaign` reads it
+   * once, after the attempt's final flush, and records it on the cell. A
+   * writer whose spans have no retrievable identity, such as a no-op writer,
+   * omits it or returns `{ unknown: <reason> }`, and the cell's trace stays
+   * unknown with that reason.
+   */
+  traceRef?(): SearchTraceRef
 }
 
 export interface TraceSpan {
@@ -651,6 +661,11 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
+  /** The trace the producing attempt's spans went to, as its trace writer
+   *  names it, or unknown with the reason. A cached cell keeps the trace of
+   *  the attempt that measured it. Absent on records written before cells
+   *  carried it. */
+  traceRef?: SearchTraceRef
   /** Failed attempts dispatched before this result under `cellRetry`.
    *  Missing when the first attempt produced this result. Each earlier
    *  attempt keeps its own artifacts, trace, result, and failure receipt. */

@@ -476,6 +476,14 @@ Do not place credentials in `engineConfig` because run settings are persisted.
 Agent Eval calls these callbacks only for train and selection cases; caller-owned context must respect the same boundary.
 The evidence is the case's lowest-scoring cell: a string artifact is sent as is when it fits the 2,000-character bound and otherwise as its head and tail around an omitted-character count; any other artifact is sent as `describeArtifact()` returns it, and without the hook it sends nothing.
 `runOptimization({ describeArtifact })` takes the same hook, so a reflective proposer reads the same evidence in `scenarios[].emitted` (a described value as its JSON text).
+`selfImprove({ describeArtifact })` forwards the hook to whichever optimizer it runs: its reflective proposer, or a `method` through `OptimizationMethodInput.describeArtifact`.
+`compareOptimizationMethods({ describeArtifact })` gives every method the same hook the same way.
+A method configured with its own `describeArtifact` refuses a different hook from its caller, so one evaluation never has two descriptions.
+
+`maxEvidenceChars` bounds the JSON of each evaluation response the optimizer reads.
+A response over the bound is excerpted, not refused: the judge notes, the error message and a text artifact keep their head and tail around an omitted-character count and share the room the other fields leave.
+A described artifact stays whole when excerpting those texts makes room; otherwise it is sent as its excerpted JSON text, as the native reflective path shows it, which drops any inline image.
+Only fields no excerpt can shorten (the score, the dimensions and the ids) can exceed the bound; that evaluation is refused, and its observation keeps the cells it measured, so the search ledger still records what they cost.
 
 A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
 Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.
@@ -658,5 +666,6 @@ Use the upstream hybrid frontier configuration to retain objective specialists.
 The Python bridge converts exactly this shape to `gepa.Image` so the upstream
 reflection prompt contains an image part. It never reads a caller path or fetches
 an image URL. Include only train/selection artifacts, keep them in the run record,
-and size `maxEvidenceChars` and callback limits for their base64 payloads.
+and size `maxEvidenceChars` and callback limits for their base64 payloads: a
+described artifact over the bound is sent as excerpted JSON text, without its images.
 The reflection executor must itself support image parts; delivery is not a taste score.
