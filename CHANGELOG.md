@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.2] — 2026-11-20
+
+- Keep DSPy trace analysis reasoning with the execution profile
+
 ## [2.0.1] — 2026-11-20
 
 No caller of 2.0.0 must change code. The public surface gains two optional members and loses none. Two behaviors change, and a run directory written by 2.0.1 has a downgrade limit.
