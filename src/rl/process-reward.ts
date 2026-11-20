@@ -141,6 +141,16 @@ export interface ExtractStepRewardsOptions {
   contextAttributes?: readonly string[]
 }
 
+/**
+ * Score a recorded run's spans and attach to each step the digest of its
+ * context and of its action.
+ *
+ * The context is built from a time-ordered chain of events: each span adds its
+ * start content at `startedAt` and its end content (`END_FIELDS`) at
+ * `endedAt`. A step's context digest is the chain just before its own start,
+ * plus its own input. This is a timing boundary: it says what had been
+ * recorded when the step began, not that the policy read it.
+ */
 export async function extractStepRewards(
   store: TraceStore,
   runId: string,
