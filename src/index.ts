@@ -115,7 +115,7 @@ export {
   lintTraceContractSpec,
   traceContract,
 } from './trace-contracts'
-export { buildTrajectory } from './trajectory'
+export { buildTrajectory, trajectoryTimingBoundary } from './trajectory'
 export { proposeSynthesisTargets } from './active-learning'
 export { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS, runBoundedProcess } from './bounded-process'
 export { runCampaign } from './campaign/run-campaign'

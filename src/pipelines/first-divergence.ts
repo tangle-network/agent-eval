@@ -18,6 +18,7 @@
  */
 
 import type { DiagnosisSpan } from '../diagnosis/spans'
+import { containmentOrder } from '../trace/containment-order'
 import type { TrajectoryStep } from '../trajectory'
 
 /** One step of a run, as the diff reads it. */
@@ -227,21 +228,12 @@ export interface DivergenceReport {
 // ── flat OTLP spans ───────────────────────────────────────────────────
 
 /**
- * One run's spans as diff steps, in containment order: depth first, siblings
- * by start time, the same order `buildTrajectory` gives a trace store run.
+ * One run's spans as diff steps, in containment order (`containmentOrder`, the
+ * traversal `buildTrajectory` uses too): depth first, siblings by start time.
  * Spans whose parent is absent, or whose parents form a cycle, start their own
  * subtree, so every span appears exactly once.
  */
 export function diffStepsFromSpans(spans: readonly DiagnosisSpan[]): DiffStep[] {
-  const ids = new Set(spans.map((span) => span.spanId))
-  const children = new Map<string | null, DiagnosisSpan[]>()
-  for (const span of spans) {
-    const parent =
-      span.parentSpanId !== null && ids.has(span.parentSpanId) ? span.parentSpanId : null
-    const list = children.get(parent)
-    if (list) list.push(span)
-    else children.set(parent, [span])
-  }
   // Span ids are random per run, so two runs of the same logical trace can carry
   // different ids for "the same" span. Siblings that share a start time (a common
   // case: parallel steps a driver starts together) must still sort the same way
@@ -254,21 +246,15 @@ export function diffStepsFromSpans(spans: readonly DiagnosisSpan[]): DiffStep[] 
     x.kind.localeCompare(y.kind) ||
     x.name.localeCompare(y.name) ||
     x.spanId.localeCompare(y.spanId)
-  for (const list of children.values()) list.sort(byStart)
-  const ordered: DiffStep[] = []
-  const visited = new Set<string>()
-  const visit = (span: DiagnosisSpan) => {
-    if (visited.has(span.spanId)) return
-    visited.add(span.spanId)
-    ordered.push({
-      id: span.spanId,
-      name: span.name,
-      kind: span.kind,
-      fields: { status: span.status, tool: span.toolName, model: span.model },
-    })
-    for (const child of children.get(span.spanId) ?? []) visit(child)
-  }
-  for (const root of children.get(null) ?? []) visit(root)
-  for (const span of [...spans].sort(byStart)) visit(span)
-  return ordered
+  const ordered = containmentOrder(spans, {
+    id: (span) => span.spanId,
+    parentId: (span) => span.parentSpanId,
+    compare: byStart,
+  })
+  return ordered.map(({ item: span }) => ({
+    id: span.spanId,
+    name: span.name,
+    kind: span.kind,
+    fields: { status: span.status, tool: span.toolName, model: span.model },
+  }))
 }

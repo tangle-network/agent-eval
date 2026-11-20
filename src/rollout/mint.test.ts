@@ -284,6 +284,42 @@ describe('mintRolloutRows', () => {
     expect(gap.provenance.gap).toMatch(/no trace spans/)
   })
 
+  it('mints a trace with a span whose parent was never captured as a lossy gap line', async () => {
+    // Full capture is supplied, so the only hole is the span tree itself.
+    const store = await seededStore()
+    const orphan: ToolSpan = {
+      spanId: 's3',
+      parentSpanId: 'agent-never-captured',
+      runId: 'run-1',
+      kind: 'tool',
+      name: 'write',
+      startedAt: 300,
+      endedAt: 400,
+      toolName: 'write',
+      args: { path: 'out.txt' },
+      result: { ok: true },
+    }
+    await store.appendSpan(orphan)
+    const { rows } = await mintRolloutRows([record({ splitTag: 'search' })], store, {
+      messagesOf: () => [
+        { role: 'user', content: 'Start the task.' },
+        { role: 'assistant', content: 'Task complete.' },
+      ],
+    })
+    const line = rows[0]!
+    expect(line.provenance.gap).toMatch(/1 trace span\(s\) have a parent missing from the capture/)
+    expect(line.provenance.lossy_projection).toBe(true)
+    expect(line.steps!.map((s) => s.name)).toEqual(['coder', 'bash', 'write'])
+    // Each step names the span it came from, so the hole can be traced back.
+    expect(line.steps!.map((s) => [s.spanId, s.parentSpanId])).toEqual([
+      ['s1', undefined],
+      ['s2', 's1'],
+      ['s3', 'agent-never-captured'],
+    ])
+    expect(validateRolloutLine(line)).toEqual([])
+    expect(toSftRows(rows)).toEqual([])
+  })
+
   it('reports an uncaptured cost as null, never a fake zero', async () => {
     const { rows } = await mintRolloutRows(
       [record({ costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } })],

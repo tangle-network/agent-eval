@@ -60,7 +60,8 @@ export interface IngestedTrajectory {
 /**
  * Emit one tool span per trajectory step, in order, with a monotonic
  * injected clock so `buildTrajectory` ordering is deterministic even when
- * two spans would share a Date.now() millisecond.
+ * two spans would share a Date.now() millisecond. Each step ends before the
+ * next starts, so the counterfactual prefix of step k is steps 1..k-1.
  */
 export async function ingestRecordedTrajectory(
   store: TraceStore,
@@ -223,6 +224,16 @@ export class SandboxCounterfactualRunner implements CounterfactualRunner {
 
   async executeFrom(ctx: CounterfactualContext, emitter: TraceEmitter): Promise<void> {
     const { cwd, stepTimeoutMs, prefixLimit, onProgress } = this.options
+    // Replaying the prefix one command at a time rebuilds settled state only; a
+    // command still running when step k started left effects no replay can
+    // reproduce, so the replay is refused rather than run from a guessed state.
+    if (ctx.inFlight.length > 0) {
+      const running = `${ctx.inFlight.length} step(s) were still running`
+      throw new Error(
+        `trajectory-replay: ${running} when ${ctx.mutatedStep.span.name} started; ` +
+          'a sequential shell replay cannot rebuild that state',
+      )
+    }
     const session = await this.backend.open()
     try {
       const toolSteps = ctx.prefix.filter(

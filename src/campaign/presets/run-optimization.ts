@@ -34,7 +34,7 @@ import {
 } from '../coverage'
 import type { RunCampaignOptions } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
-import { campaignMeanCompositeOrNull } from '../score-utils'
+import { campaignMeanCompositeOrNull, type DescribeArtifact } from '../score-utils'
 import { searchProposalExecution, searchReceiptAccounting } from '../search-campaign-cell'
 import type { SearchHistoryReceipt } from '../search-history-receipt'
 import {
@@ -631,6 +631,10 @@ export interface RunOptimizationOptions<TScenario extends Scenario, TArtifact>
    *  the filesystem, whose identities are the dispatch ref's and proposer's
    *  digests. */
   searchLedger?: SearchLedgerBinding
+  /** Describes a non-string artifact as the evidence each scenario's worst
+   *  cell shows the proposer (`scenarios[].emitted`, as JSON text). The same
+   *  hook the GEPA and SkillOpt callbacks take; a string artifact needs none. */
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
 }
 
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {

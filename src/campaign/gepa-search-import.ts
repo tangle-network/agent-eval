@@ -6,7 +6,8 @@
  * GEPA's candidate population also names each candidate's parents by index.
  * The importer turns both into ledger events: one node per distinct candidate,
  * one `correlated` edge per population entry (joined by content digest from
- * GEPA's own parent record), and one cell per evaluation. Nothing is inferred
+ * GEPA's own parent record), and one cell per campaign cell an evaluation
+ * measured (one per evaluation for a log that names no cells). Nothing is inferred
  * from timing or order: a candidate with no parent record (every SkillOpt
  * candidate, and a candidate GEPA kept out of its population) has an `unknown`
  * edge and no parents.
@@ -19,6 +20,7 @@ import type {
   GepaCandidatePopulationArtifact,
   GepaCandidatePopulationCandidate,
 } from './gepa-candidate-population'
+import { campaignCellSearchResult } from './search-campaign-cell'
 import type { SearchHistoryReceipt } from './search-history-receipt'
 import { openSearchLedger } from './search-ledger'
 import {
@@ -156,14 +158,26 @@ export async function importGepaPopulation(input: {
 }
 
 export interface GepaEvaluationImport {
+  /** Ledger cells recorded: one per distinct measured campaign cell, plus one
+   *  per evaluation logged without its cells. */
   cells: number
+  /** Distinct campaign cells the evaluations' measurements named. */
+  measuredCells: number
+  /** Evaluations answered from cells an earlier request measured; each adds no cell. */
+  reusedRequests: number
   /** Nodes of candidates GEPA evaluated but kept out of its population. */
   unrecordedParentNodeIds: string[]
 }
 
 /**
- * Record every evaluation in the callback's observation log as an `external`
- * cell attempt. A candidate that is not yet a node (GEPA evaluated it on a
+ * Record the callback's evaluations as `external` cells. An evaluation that
+ * carries its measurement records each campaign cell it names once, through
+ * `campaignCellSearchResult`, so the ledger holds the cell's own outcome,
+ * dimensions, tokens, cost, model, duration and attempt; a request answered
+ * from an earlier request's cells adds none. An evaluation logged without its
+ * cells (a log written before the callback recorded them, or a failed
+ * evaluation, logged as a refusal) records one cell whose accounting is
+ * unknown. A candidate that is not yet a node (GEPA evaluated it on a
  * minibatch and discarded it, or SkillOpt, which reports no parents, proposed
  * it) is registered with an `unknown` edge.
  */
@@ -179,9 +193,12 @@ export async function importExternalEvaluations(input: {
 }): Promise<GepaEvaluationImport> {
   const { recorder } = input
   const optimizer = input.optimizer ?? 'GEPA'
+  const lane = `${optimizer.toLowerCase()}-evaluation-callback`
   const reps = new Map<string, number>()
+  const recordedCells = new Set<string>()
   const unrecorded: string[] = []
   let cells = 0
+  let reusedRequests = 0
   for (const observation of input.observations.observations) {
     // A failed evaluation is logged as a refusal, but it ran and consumed an
     // evaluation, so it is an unscored cell. Other refusals never ran.
@@ -190,6 +207,7 @@ export async function importExternalEvaluations(input: {
       (observation.kind === 'refusal' && observation.reason === 'evaluation-failed')
     if (!ran || observation.candidate === undefined || observation.exampleId === undefined) continue
     const candidateHash = observation.candidateHash!
+    const exampleId = observation.exampleId
     const surface = externalSurface(observation.candidate)
     const registered = await recorder.registerNode(surfaceNode(recorder, surface))
     const state = await recorder.state()
@@ -210,19 +228,45 @@ export async function importExternalEvaluations(input: {
       })
       unrecorded.push(registered.nodeId)
     }
-    const split = input.splitOf(observation.exampleId)
-    const repKey = `${registered.nodeId}\u0000${observation.exampleId}`
-    const rep = reps.get(repKey) ?? 0
-    reps.set(repKey, rep + 1)
-    const cellId = await recorder.allocateCell({
-      nodeId: registered.nodeId,
-      taskId: observation.exampleId,
-      split,
-      rep,
-      stage: 'external',
-    })
+    const split = input.splitOf(exampleId)
+    const measurement = observation.kind === 'evaluation' ? observation.measurement : undefined
+    const allocate = async (): Promise<string> => {
+      const repKey = `${registered.nodeId}\u0000${exampleId}`
+      const rep = reps.get(repKey) ?? 0
+      reps.set(repKey, rep + 1)
+      return recorder.allocateCell({
+        nodeId: registered.nodeId,
+        taskId: exampleId,
+        split,
+        rep,
+        stage: 'external',
+        ...(measurement === undefined ? {} : { lane }),
+      })
+    }
+    if (measurement !== undefined) {
+      if (measurement.source === 'reused') reusedRequests += 1
+      for (const cell of measurement.cells) {
+        // A campaign cell id is unique within its campaign only; the
+        // candidate, the case and the attempt name the measurement.
+        const key = hashCanonical({
+          candidateHash,
+          exampleId,
+          cellId: cell.cellId,
+          attempt: cell.attempt,
+        })
+        if (recordedCells.has(key)) continue
+        recordedCells.add(key)
+        await recorder.settleCell({
+          cellId: await allocate(),
+          attempt: 1,
+          ...campaignCellSearchResult(cell, { execution: input.identity, lane }),
+        })
+        cells += 1
+      }
+      continue
+    }
     await recorder.settleCell({
-      cellId,
+      cellId: await allocate(),
       attempt: 1,
       outcome:
         observation.kind === 'evaluation'
@@ -248,7 +292,12 @@ export async function importExternalEvaluations(input: {
     })
     cells += 1
   }
-  return { cells, unrecordedParentNodeIds: unrecorded }
+  return {
+    cells,
+    measuredCells: recordedCells.size,
+    reusedRequests,
+    unrecordedParentNodeIds: unrecorded,
+  }
 }
 
 /** GEPA's callback response. A `failed` evaluation carries a penalty score for
@@ -296,6 +345,8 @@ interface ExternalSearchRecordInput {
   trainScenarios: readonly Scenario[]
   selectionScenarios: readonly Scenario[]
   evaluationLimit: number
+  /** Campaign cells one evaluation runs: the evaluation campaign's `reps`. Default 1. */
+  repsPerEvaluation?: number
   observations: ExternalOptimizerObservationArtifact
   generationAccounting: SearchAttemptAccounting
 }
@@ -356,6 +407,10 @@ async function recordExternalSearch(
 ): Promise<SearchHistoryReceipt> {
   const { identity, population, optimizer } = input
   const policyName = optimizer.toLowerCase()
+  const repsPerEvaluation = input.repsPerEvaluation ?? 1
+  if (!Number.isSafeInteger(repsPerEvaluation) || repsPerEvaluation <= 0) {
+    throw new Error(`${input.name}: repsPerEvaluation must be a positive safe integer`)
+  }
   const tasks = (scenarios: readonly Scenario[]): SearchTask[] =>
     scenarios.map((scenario) => ({
       taskId: scenario.id,
@@ -387,7 +442,9 @@ async function recordExternalSearch(
       policy: { expansion: policyName, allocation: policyName, seed: input.seed },
       budget: {
         maxUsd: null,
-        maxCells: input.evaluationLimit,
+        // Each accepted evaluation measures at most one cell per rep; a reused
+        // request measures none.
+        maxCells: input.evaluationLimit * repsPerEvaluation,
         maxNodes: null,
         deadline: null,
         maxConcurrency: null,

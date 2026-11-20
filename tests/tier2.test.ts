@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { type CounterfactualRunner, runCounterfactual } from '../src/counterfactual'
+import { ValidationError } from '../src/errors'
 import {
   evaluateHypothesis,
   type HypothesisManifest,
@@ -10,8 +11,9 @@ import {
   signManifest,
   verifyManifest,
 } from '../src/pre-registration'
-import type { ToolSpan } from '../src/trace'
+import type { LlmSpan, ToolSpan } from '../src/trace'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
+import { buildTrajectory, trajectoryTimingBoundary } from '../src/trajectory'
 
 /** Produce a correctly hashed retired record to exercise scheme rejection. */
 function sortKeysDeep(value: unknown): unknown {
@@ -86,6 +88,168 @@ describe('runCounterfactual', () => {
     expect(cfRun?.parentRunId).toBe(originalId)
     expect(cfRun?.layer).toBe('meta')
     expect(cfRun?.tags?.counterfactual).toBe('true')
+  })
+
+  it('never hands the replayed agent a step that started after the decision it changes', async () => {
+    // Two parallel branches under one supervisor: A starts at t=1, B at t=2,
+    // B decides at t=3, and A writes at t=40. Depth-first order lists A's whole
+    // branch, write included, before B.
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const e = new TraceEmitter(store, { now: () => t })
+    await e.startRun({ scenarioId: 's' })
+    const root = await e.span({ kind: 'agent', name: 'supervisor' })
+    t = 1
+    const a = await e.span({ kind: 'agent', name: 'agent-a', parentSpanId: root.span.spanId })
+    t = 2
+    const b = await e.span({ kind: 'agent', name: 'agent-b', parentSpanId: root.span.spanId })
+    t = 3
+    const decide = await e.span({
+      kind: 'llm',
+      name: 'b-decide',
+      model: 'm',
+      messages: [],
+      parentSpanId: b.span.spanId,
+    })
+    t = 5
+    await decide.end()
+    t = 40
+    const write = await e.span({
+      kind: 'tool',
+      name: 'a-write',
+      toolName: 'write',
+      args: { path: 'out.txt' },
+      parentSpanId: a.span.spanId,
+    })
+    t = 41
+    await write.end()
+    t = 42
+    await a.end()
+    t = 43
+    await b.end()
+    t = 50
+    await root.end()
+    await e.endRun({ pass: true, score: 0.5 })
+
+    let prefix: string[] = []
+    let inFlight: string[] = []
+    const runner: CounterfactualRunner = {
+      async executeFrom(ctx, emitter) {
+        expect(ctx.mutatedStep.span.name).toBe('b-decide')
+        expect((ctx.mutatedStep.span as LlmSpan).model).toBe('other')
+        const startedAt = ctx.mutatedStep.span.startedAt
+        prefix = ctx.prefix.map((s) => s.span.name)
+        inFlight = ctx.inFlight.map((s) => s.span.name)
+        expect(ctx.prefix.filter((s) => s.span.startedAt > startedAt)).toHaveLength(0)
+        await emitter.endRun({ pass: true, score: 0.5 })
+      },
+    }
+    const result = await runCounterfactual(
+      store,
+      e.runId,
+      { kind: 'swap-model', at: 4, newModel: 'other' },
+      runner,
+    )
+    // a-write (t=40) is in neither list; agent-a was running when B decided.
+    expect(prefix).toEqual(['supervisor', 'agent-b'])
+    expect(inFlight).toEqual(['agent-a'])
+    expect(result.delta.deltaScore).toBe(0)
+    expect(result.targetSpanId).toBe(decide.span.spanId)
+    const byIndex = await store.getRun(result.counterfactualRunId)
+    expect(byIndex?.variantId).toBe('cf:swap-model@4')
+    expect(byIndex?.tags).toMatchObject({ mutationAt: '4', mutationSpanId: decide.span.spanId })
+
+    // The same target named by span id draws the same boundary.
+    prefix = []
+    inFlight = []
+    const bySpan = await runCounterfactual(
+      store,
+      e.runId,
+      { kind: 'swap-model', at: { spanId: decide.span.spanId }, newModel: 'other' },
+      runner,
+    )
+    expect(prefix).toEqual(['supervisor', 'agent-b'])
+    expect(inFlight).toEqual(['agent-a'])
+    expect(bySpan.targetSpanId).toBe(decide.span.spanId)
+    const bySpanRun = await store.getRun(bySpan.counterfactualRunId)
+    expect(bySpanRun?.variantId).toBe(`cf:swap-model@span:${decide.span.spanId}`)
+    expect(bySpanRun?.tags).toMatchObject({ mutationAt: '4', mutationSpanId: decide.span.spanId })
+
+    // Drawn at A's write instead: B's decision had settled, B itself had not.
+    const boundary = trajectoryTimingBoundary(await buildTrajectory(store, e.runId), {
+      spanId: write.span.spanId,
+    })
+    expect(boundary.target.span.name).toBe('a-write')
+    expect(boundary.prefix.map((s) => s.span.name)).toEqual(['supervisor', 'agent-a', 'b-decide'])
+    expect(boundary.inFlight.map((s) => s.span.name)).toEqual(['agent-b'])
+  })
+
+  it('draws the same prefix as the step list for a sequential trace, at every step', async () => {
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const e = new TraceEmitter(store, { now: () => t++ })
+    await e.startRun({ scenarioId: 's' })
+    await e.within({ kind: 'agent', name: 'plan' }, async () => {
+      const llm = await e.llm({ name: 'think', model: 'm', messages: [] })
+      await llm.end()
+      const tool = await e.tool({ name: 'search', toolName: 'search', args: {} })
+      await tool.end()
+    })
+    const answer = await e.llm({ name: 'answer', model: 'm', messages: [] })
+    await answer.end()
+    await e.recordJudge({
+      judgeId: 'j',
+      targetSpanId: answer.span.spanId,
+      dimension: 'quality',
+      score: 1,
+      name: 'grade',
+    })
+    await e.endRun({ pass: true, score: 1 })
+    // Real-clock runs share milliseconds; ties must not reorder anything.
+    const realClock = await seed(store, 0.5, [
+      { kind: 'llm', name: 'plan' },
+      { kind: 'tool', name: 'search' },
+      { kind: 'llm', name: 'answer' },
+      { kind: 'tool', name: 'write' },
+    ])
+
+    for (const runId of [e.runId, realClock]) {
+      const trajectory = await buildTrajectory(store, runId)
+      expect(trajectory.steps.length).toBeGreaterThanOrEqual(4)
+      for (const step of trajectory.steps) {
+        const prefixes: string[][] = []
+        await runCounterfactual(
+          store,
+          runId,
+          { kind: 'truncate-after', at: step.index },
+          {
+            async executeFrom(ctx, emitter) {
+              expect(ctx.inFlight).toEqual([])
+              prefixes.push(ctx.prefix.map((s) => s.span.spanId))
+              await emitter.endRun({ pass: true })
+            },
+          },
+        )
+        expect(prefixes).toEqual([trajectory.steps.slice(0, step.index).map((s) => s.span.spanId)])
+      }
+    }
+  })
+
+  it('rejects a span id no step carries', async () => {
+    const store = new InMemoryTraceStore()
+    const originalId = await seed(store, 0.5, [{ kind: 'llm', name: 'one' }])
+    const attempt = runCounterfactual(
+      store,
+      originalId,
+      { kind: 'swap-model', at: { spanId: 'not-in-this-run' }, newModel: 'x' },
+      {
+        async executeFrom(_c, e) {
+          await e.endRun({ pass: true })
+        },
+      },
+    )
+    await expect(attempt).rejects.toBeInstanceOf(ValidationError)
+    await expect(attempt).rejects.toThrow(/no step has span id "not-in-this-run"/)
   })
 
   it('rejects out-of-range mutation index — regression: silent OOB would produce bogus replays', async () => {

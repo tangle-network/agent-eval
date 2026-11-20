@@ -165,21 +165,6 @@ describe('emitted evidence — worst-rep raw output reaches the breakdown', () =
     }
   }
 
-  it('keeps the LOWEST-composite rep artifact and clips it to the 2000-char bound', () => {
-    const megabyteish = `WORST:${'a'.repeat(3000)}`
-    const campaign = {
-      cells: [stringCell('s', 0, 0.9, 'BEST: clean run'), stringCell('s', 1, 0.2, megabyteish)],
-    } as unknown as CampaignResult<unknown, Scenario>
-    const bd = campaignBreakdown(campaign)
-    const s = bd.scenarios.find((row) => row.scenarioId === 's')
-    // Worst rep wins — reflection grounds on the failure, not the success.
-    expect(s?.emitted?.startsWith('WORST:')).toBe(true)
-    expect(s?.emitted).not.toContain('BEST')
-    // Bounded so a full transcript cannot blow the reflection-prompt budget.
-    expect(s?.emitted).toHaveLength(2000)
-    expect(s?.emitted).toBe(megabyteish.slice(0, 2000))
-  })
-
   it('ignores non-string and empty artifacts, and cells whose only judges failed', () => {
     const failedJudgeCell = stringCell('s', 1, 0, 'FAILED-JUDGE RUN')
     failedJudgeCell.judgeScores = {

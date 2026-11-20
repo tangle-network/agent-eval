@@ -5,170 +5,137 @@ description: Maintain agent-eval cases, judges, records, traces, campaigns, comp
 
 # Agent Eval
 
-Use this only when changing `@tangle-network/agent-eval` itself.
-For product adoption, use the public package README and adoption skill.
-This file defines maintainer procedure; source and generated types define the API.
+Use this when changing `@tangle-network/agent-eval` itself; a product adopting the package reads the README.
+`AGENTS.md` owns the path map, shared helpers, the gate and delivery. Source and generated types own the API. This file owns the maintainer procedure.
 
-## Read First
+Scope a change to the whole defect or capability: every path and caller it touches, in one pull request, at whatever size that takes.
+Reuse or replace the existing implementation and delete what the change makes dead; a second runner, result format or traversal for one concept is the defect.
 
-1. Read `README.md` and `docs/concepts.md` for the public model.
-2. Read the target subpath barrel and implementation.
-3. Search the repository for an existing primitive, adapter, and regression test.
-4. Check `package.json` exports before adding or changing an import path.
-5. Read the nearest runnable example only when it exercises the same public path.
-6. Read `docs/trace-analysis.md` before changing analyst kinds, engines, or benchmarks.
+## Read first
 
-Useful starting points:
+1. `docs/concepts.md` for the public model, then the target subpath barrel and its implementation.
+2. The existing primitive, adapter and integration test for the behavior, found by search before anything is added.
+3. `package.json` exports before adding or changing an import path.
+4. `docs/trace-analysis.md` before changing analyst kinds, engines or benchmarks.
 
 | Concern | Start |
 |---|---|
 | Stable product API | `src/contract/index.ts` |
-| Candidate search and promotion | `src/campaign/index.ts` |
+| Candidate search, optimizers and promotion | `src/campaign/index.ts`, `docs/campaign-proposers.md` |
 | Canonical run data | `src/run-record.ts` |
-| Trace capture and replay | `src/trace/index.ts` |
-| Trace analysis / recursive analyst engine | `src/analyst/index.ts` |
+| Trace capture, containment order and replay | `src/trace/index.ts`, `src/trajectory.ts`, `docs/trajectory-replay.md` |
+| Trace analysis and the recursive analyst engine | `src/analyst/index.ts` |
 | Comparisons and reports | `src/reporting.ts` |
 | Benchmark adapters | `src/benchmarks/index.ts` |
-| Training-data exports | `src/rl/index.ts` |
+| Training-data exports and rollout lines | `src/rl/index.ts`, `src/rollout/`, `docs/rollout.md` |
 | Recorded-trajectory replay and executed proofs | `src/trajectory-replay/index.ts` |
-| Repair grading: five-tier funnel, action budget, Delta-repair | `src/trace-repair/index.ts` |
+| Repair grading | `src/trace-repair/index.ts` |
 
-Treat source as authoritative when prose disagrees, then correct the nearest stale document in the same change.
+When prose and source disagree, source wins; correct the stale document in the same change.
 
-## Package Boundaries
+## Package boundaries
 
-This package must not depend on `agent-runtime` or `agent-knowledge`, including type-only and development dependencies.
-A concept belongs here when it makes sense without a running agent loop: cases, scores, run records, comparisons, statistics, promotion decisions, and trace analysis.
-Execution profiles, worker control, streaming turns, and product storage transactions belong elsewhere.
+This package never depends on `agent-runtime` or `agent-knowledge`, type-only and development dependencies included.
+A concept belongs here when it makes sense without a running agent loop: cases, scores, run records, comparisons, statistics, promotion decisions and trace analysis.
+Execution profiles, worker control, streaming turns and product storage belong elsewhere; accept execution through a callback.
+Use the canonical `AgentProfile` from `@tangle-network/agent-interface`; never a package-local profile or run-record shape.
+No product's file names, naming conventions or verdict rules enter this package.
 
-Use the canonical `AgentProfile` from `@tangle-network/agent-interface`.
-Do not create package-local profile or run-record shapes.
+## Optimization
 
-## Optimization Surface
+Route by intent; `docs/campaign-proposers.md` is the canonical doc.
 
-Three public entry points improve or benchmark a surface. Route by intent.
+| Intent | Call |
+|---|---|
+| Improve one surface against scenarios, with a release decision | `selfImprove({ method })` from `/contract` |
+| Benchmark two or more optimizers at equal budget | `compareOptimizationMethods()` from `/campaign` |
+| Wrap an official optimizer for either entry | `gepaOptimizationMethod()`, `skillOptOptimizationMethod()` from `/campaign` |
+| Change one component of a multi-component surface while scoring the whole candidate | `scopedOptimizationMethod()` |
+| Feed each method's selected candidate into the next | `sequentialOptimizationMethod()` |
 
-| Intent | Call | Required pieces |
-|---|---|---|
-| Improve one surface against scenarios, with a release decision, in one call | `selfImprove({ method })` from `/contract` | agent dispatch, judge, scenarios, baseline surface, budget |
-| Benchmark two or more optimizers at equal budget | `compareOptimizationMethods()` from `/campaign` | methods, dispatch, judges, train + selection + final cases, cost ceiling |
-| Compose an official optimizer for either entry above | `gepaOptimizationMethod()` / `skillOptOptimizationMethod()` from `/campaign` | objective, `evaluationId`, recipe or trainer, execution owner (`optimizer.call` + `callRef`), optimizer-model budget |
+`selfImprove()` gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
+`compareOptimizationMethods()` gives every method equal inputs and scores the selected surfaces on final cases no method received.
+Neither passes final cases to a method.
+The model-call owner is caller code: `profileOptimizerModelCall` from `@tangle-network/agent-runtime/kernel`, or an `ExternalOptimizerModelCall` (copy `examples/_shared/openai-compatible-owner.ts`).
+A graph of agents is a `components` surface; build multi-node optimization from the scoped and sequential methods, never a second optimizer loop.
+Runnable paths: `examples/self-improve-optimizer/` and `examples/compare-optimization-methods/`.
 
-`selfImprove()` is the agent entry: it gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
-`compareOptimizationMethods()` is the measurement entry: it gives every method equal inputs and scores the selected surfaces on final cases no method received.
-Neither entry ever passes final comparison cases to a method.
-The execution owner is always caller code: `profileOptimizerModelCall` from `@tangle-network/agent-runtime/kernel`, or your own `ExternalOptimizerModelCall` (copy `examples/_shared/openai-compatible-owner.ts`).
+## Integrity rules
 
-The canonical doc is `docs/campaign-proposers.md`.
-Runnable paths: `examples/self-improve-optimizer/` (selfImprove + official GEPA) and `examples/compare-optimization-methods/` (method comparison).
+- Missing backend use, output, trace evidence, usage or required identity fails loudly; unknown stays distinct from a measured zero.
+- Record pinned model versions; a moving alias is not release evidence.
+- Preserve unknown provider fields and redact secrets at ingestion.
+- Code decides objective facts; a model judge decides only semantic facts and never overrides a deterministic failure.
+- Service and measurement failure stay distinct from agent failure.
+- Compare candidates on paired cases under equivalent conditions, with generation cases kept apart from final decision cases.
+- Count independent units, not rows: cells that share a run, task or wake are one unit, and `heldOutGate` takes `independentUnitByScenarioId` to say so.
+- Report sample count, uncertainty, failures, cost and latency with quality.
+- Search and analysis produce detached candidates; they never mutate live product state.
 
-## Integrity Rules
+Trace order:
 
-- Missing backend use, output, trace evidence, usage, or required identity fails loudly.
-- Record pinned model versions; bare moving aliases are not release evidence.
-- Preserve unknown provider fields and redact secrets at ingestion boundaries.
-- Use code for objective facts and model judges only for semantic facts.
-- Deterministic failures cannot be overridden by a model score.
-- Keep service and measurement failures distinct from agent failure.
-- Compare candidates on paired cases under equivalent conditions.
-- Keep candidate-generation cases separate from final decision cases.
-- Report sample count, uncertainty, failures, cost, and latency with quality.
-- Search and analysis produce detached candidates; they do not mutate live product state.
+- `Trajectory.steps` is containment order, never time order. Code that needs what had happened by a step reads `trajectoryTimingBoundary`, not a slice of `steps`.
+- Every captured span appears once. A span whose parent is missing stays, and `Trajectory.missingParents` and the minted line's `provenance.gap` say so.
+- `src/trace/containment-order.ts` is the one span-tree traversal; order through it.
 
-Do not add silent fallbacks, parallel result formats, duplicate runners, or product-specific policy to the shared package.
+Search ledger and optimizer evidence:
 
-## Change Patterns
+- A ledger cell is the campaign cell that measured it. Record it through `campaignCellSearchResult`, from the cell or its `CampaignCellMeasurement`, so dimensions, tokens, cost, model, duration and attempt arrive whole, in process or through an observation log.
+- A request answered from an earlier measurement adds no cell; it is counted as reused.
+- Native and external optimizers see the same evidence: `campaignEvidence` with the caller's `describeArtifact`, bounded by `excerptEvidence`, which keeps the head and the tail. Never clip to the head; the failure is at the end.
 
-### Public Primitive
+Training pairs:
 
-Define the smallest reusable type and behavior in the owning module.
-Export it from the narrowest public subpath.
-Add focused behavior, error, serialization, and public-import tests.
-Update the README or relevant concept doc and changelog when users must act on the change.
+- A process-reward pair is two actions taken in the same recorded context. Pair on the context digest, never on span name or position, and never across tasks.
+- A row without the identity that proves a shared context is refused, not exported.
 
-### Case Or Judge
+## Change patterns
 
-Name the user behavior and independently observable success.
-Prove a known good fixture passes and a realistic bad fixture fails.
-Bound untrusted target output and keep scoring instructions unavailable to the target.
-Record judge model, inputs, evidence, output, and errors.
+**Public primitive.** Define the reusable type and behavior in the owning module and export it from the narrowest public subpath. Regenerate `docs/public-api.md` with `pnpm api:census`. Update the nearest concept doc, and the changelog when users must act.
 
-### Campaign Or Promotion Rule
+**Case or judge.** Name the user behavior and an independently observable success. Prove a known good fixture passes and a realistic bad fixture fails. Bound untrusted target output and keep scoring instructions away from the target. Record judge model, inputs, evidence, output and errors.
 
-Retain every attempted slot, including service failures and rejected candidates.
-Pair baseline and candidate by case and seed.
-Test ties, missing pairs, zero variance, small samples, interrupted runs, and deterministic failures.
-Never promote from development scores alone.
+**Campaign or promotion rule.** Retain every attempted slot, service failures and rejected candidates included. Pair baseline and candidate by case and seed. Cover ties, missing pairs, zero variance, small samples, interrupted runs and deterministic failures. Never promote from development scores alone.
 
-### Removing A Public Symbol
+**Trace or intake adapter.** Preserve identity, timestamps, parent links, raw provenance, unknown fields and error state. Cover redaction and incomplete capture. Replay from saved artifacts instead of making new model calls.
 
-Derive the caller set mechanically. Never grep a hand-written list of repositories.
-A repository missing from a list returns zero matches, which reads exactly like a repository that has no callers.
+**Removing or changing a public symbol.** Derive the caller set mechanically; a repository missing from a hand-written list returns zero matches, which reads exactly like no callers.
 
-Select repositories by structure, so a naming convention cannot go stale:
-
-```bash
-# canonical checkout = .git is a DIRECTORY; a worktree clone's .git is a FILE
-cd ~/code
-for d in */; do d=${d%/}; [ -d "$d/.git" ] && echo "$d"; done
-```
-
-Grep each repository on its **default branch ref**, not its working tree.
-A repository is usually sitting on unrelated in-flight work.
+- Start from `scripts/public-api-consumers.json`, then sweep every canonical checkout (`.git` is a directory; a worktree's is a file).
+- Grep each repository on its default branch ref, resolved per repository, never its working tree:
 
 ```bash
 ref=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)
 git -C "$repo" grep -n -w -I -- "$SYMBOL" "$ref" -- ':(exclude)*/node_modules/*'
 ```
 
-Do not assume the default branch is `main`; resolve it per repository.
-Use `git grep -w` so a lookalike identifier cannot match.
-
-For published dependents, union the registry scope search with every non-private `package.json` name in those repositories — the search index is incomplete.
-Download each package's `latest` tarball and grep the built `dist/` output, which is what a consumer resolves.
-
-Read the `from` clause of every hit before calling it a caller.
-A property key, a local definition of the same name, and a doc comment all look like calls to a grep.
-
-Report every repository the sweep could not cover, such as one with no remote default branch.
-Silence about a gap is the defect this procedure exists to prevent.
-
-Record each caller's **pinned version**, then read what that pinned version's implementation did.
-It is not always what `main` does, and a port copied from `main` into a repository pinned below it changes behavior silently.
-
-Migrate every caller before the deletion lands, each in its own repository and its own pull request.
-
-When verifying a migration in a consumer repository, run the tsconfig that covers the changed file.
-A repository's `typecheck` script often excludes its `eval/` directory.
-
-### Trace Or Intake Adapter
-
-Preserve identity, timestamps, ordering, raw provenance, unknown fields, and error state.
-Test redaction and incomplete capture.
-Round-trip or replay from saved artifacts instead of making new model calls when possible.
+- For published dependents, union the registry scope search with every non-private `package.json` name in those repositories, download each `latest` tarball and grep its `dist/`.
+- Read the `from` clause of every hit: a property key, a local definition of the same name and a doc comment all match.
+- Report every repository the sweep could not cover.
+- Record each caller's pinned version and read what that version did; it is not always what `main` does.
+- Migrate every caller, each in its own repository's pull request, and verify with the tsconfig that covers the changed file: a `typecheck` script often excludes `eval/`.
 
 ## Verification
 
-Run the focused tests while iterating.
-Before completion run:
+Tests are integration tests through the public entry; never unit or mock tests.
+Write the failing case first and keep its gate id.
+Nothing installs, builds or runs a suite on a workstation: every check runs through the gate `AGENTS.md` names, on a pushed commit.
 
-```bash
-pnpm typecheck
-pnpm build
-pnpm verify:package
-```
+| Change | Gate command |
+|---|---|
+| Any | `pnpm typecheck` and the touched integration test |
+| Shared contracts, campaign logic, statistics, trace capture or public exports | add `pnpm build && pnpm test && pnpm verify:package` |
+| Stable serialization | add `pnpm check:canonical-json` |
+| Examples or their imports | add `pnpm typecheck:examples` |
 
-Run the full test suite for shared contracts, campaign logic, statistics, trace capture, or public exports.
-Run example typechecking when examples or their imports change.
-Report exact commands, result counts, and any check not run.
+Report the gate id, exit code, result counts and any check not run.
 
-If `pnpm build` or `pnpm verify:package` reports an analyst-benchmark digest or source-manifest mismatch, run `pnpm analyst:pin`.
-It rewrites `ANALYST_BENCHMARK_IMPLEMENTATION_FILES` from the import graph and both live digests from the sources, then re-run the check.
-Never hand-edit those three values, and never touch `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` or `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256`: they state facts about already-published evidence, and `pnpm analyst:pin` does not write them.
+If the build or `pnpm verify:package` reports an analyst-benchmark digest or source-manifest mismatch, run `pnpm analyst:pin` and re-run the check.
+It rewrites `ANALYST_BENCHMARK_IMPLEMENTATION_FILES` from the import graph and both live digests from the sources.
+Never hand-edit those values, and never touch `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` or `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256`: they state facts about already-published evidence.
 
 ## Then consider
 
-- `eval-engineering` when the change needs a new production-derived case.
-- `eval-agent` when adding or calibrating a model judge.
-- `harden` when changing redaction, credentials, wire input, or release authority.
+- `eval-engineering` when the change needs a production-derived case or a judge to add or calibrate.
+- `harden` when changing redaction, credentials, wire input or release authority.
 - `verify` before publishing.

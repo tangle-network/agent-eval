@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { ingestSpans } from '../src/diagnosis'
+import { diffStepsFromSpans } from '../src/pipelines'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { buildTrajectory } from '../src/trajectory'
 
@@ -50,6 +52,106 @@ describe('buildTrajectory', () => {
     const traj = await buildTrajectory(store, 'missing')
     expect(traj.steps).toHaveLength(0)
     expect(traj.totalDurationMs).toBe(0)
+  })
+
+  it('keeps a span whose parent is missing from the capture and counts it', async () => {
+    // A parent's appendSpan was dropped: its child still names it.
+    const store = new InMemoryTraceStore()
+    let t = 0
+    const e = new TraceEmitter(store, { now: () => t++ })
+    await e.startRun({ scenarioId: 's' })
+    const llm = await e.span({ kind: 'llm', name: 'plan', model: 'm', messages: [] })
+    await llm.end()
+    const orphan = await e.span({
+      kind: 'tool',
+      name: 'write',
+      toolName: 'write',
+      args: { path: 'a.txt' },
+      parentSpanId: 'agent-never-captured',
+    })
+    await orphan.end()
+
+    const traj = await buildTrajectory(store, e.runId)
+    expect(traj.toolCalls).toBe(1)
+    expect(traj.steps.map((s) => s.span.name)).toEqual(['plan', 'write'])
+    expect(traj.steps[1]!.depth).toBe(0)
+    expect(traj.missingParents).toEqual([
+      {
+        index: 1,
+        spanId: orphan.span.spanId,
+        parentSpanId: 'agent-never-captured',
+        cause: 'absent',
+      },
+    ])
+  })
+
+  it('reports no missing parents for a complete capture', async () => {
+    const store = new InMemoryTraceStore()
+    const e = new TraceEmitter(store)
+    await e.startRun({ scenarioId: 's' })
+    await e.within({ kind: 'agent', name: 'outer' }, async () => {
+      const tool = await e.tool({ name: 'ls', toolName: 'ls', args: {} })
+      await tool.end()
+    })
+    const traj = await buildTrajectory(store, e.runId)
+    expect(traj.steps.map((s) => [s.span.name, s.depth])).toEqual([
+      ['outer', 0],
+      ['ls', 1],
+    ])
+    expect(traj.missingParents).toEqual([])
+  })
+
+  it('orders spans as diffStepsFromSpans does, orphans and parent cycles included', async () => {
+    const base = 1_700_000_000_000
+    const captured = [
+      { spanId: 'root', startedAt: 0, endedAt: 50 },
+      { spanId: 'late-child', parentSpanId: 'root', startedAt: 20, endedAt: 30 },
+      { spanId: 'early-child', parentSpanId: 'root', startedAt: 10, endedAt: 15 },
+      { spanId: 'orphan', parentSpanId: 'never-captured', startedAt: 5, endedAt: 6 },
+      { spanId: 'loop-a', parentSpanId: 'loop-b', startedAt: 40, endedAt: 41 },
+      { spanId: 'loop-b', parentSpanId: 'loop-a', startedAt: 42, endedAt: 43 },
+    ]
+    const store = new InMemoryTraceStore()
+    for (const span of captured) {
+      await store.appendSpan({
+        ...span,
+        runId: 'r',
+        kind: 'custom',
+        name: span.spanId,
+        startedAt: base + span.startedAt,
+        endedAt: base + span.endedAt,
+      })
+    }
+
+    const traj = await buildTrajectory(store, 'r')
+    expect(traj.steps.map((s) => [s.span.spanId, s.depth])).toEqual([
+      ['root', 0],
+      ['early-child', 1],
+      ['late-child', 1],
+      ['orphan', 0],
+      ['loop-a', 0],
+      ['loop-b', 1],
+    ])
+    expect(traj.missingParents).toEqual([
+      { index: 3, spanId: 'orphan', parentSpanId: 'never-captured', cause: 'absent' },
+      { index: 4, spanId: 'loop-a', parentSpanId: 'loop-b', cause: 'cycle' },
+    ])
+    expect(traj.steps.length).toBe(captured.length)
+
+    const { spans } = ingestSpans(
+      captured.map((span) => ({
+        trace_id: 't',
+        span_id: span.spanId,
+        parent_span_id: span.parentSpanId,
+        name: span.spanId,
+        start_time: base + span.startedAt,
+        end_time: base + span.endedAt,
+      })),
+      { contentIncluded: false },
+    )
+    expect(diffStepsFromSpans(spans).map((step) => step.id)).toEqual(
+      traj.steps.map((s) => s.span.spanId),
+    )
   })
 
   it('attaches events to their spans', async () => {

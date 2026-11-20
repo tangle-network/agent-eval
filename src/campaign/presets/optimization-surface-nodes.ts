@@ -18,6 +18,7 @@ import {
   runCampaign,
 } from '../run-campaign'
 import {
+  type ArtifactEvidenceOptions,
   campaignBreakdown,
   campaignMeanComposite,
   campaignMeanCompositeOrNull,
@@ -226,7 +227,17 @@ export class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       campaign,
       coverage,
       expansion,
+      this.evidence(),
     )
+  }
+
+  /** How a breakdown shows each scenario's evidence: the hook the external
+   *  optimizers' callbacks use, with the scenarios it receives. */
+  private evidence(): ArtifactEvidenceOptions<TArtifact, TScenario> {
+    return {
+      scenarios: this.opts.scenarios,
+      ...(this.opts.describeArtifact ? { describeArtifact: this.opts.describeArtifact } : {}),
+    }
   }
 
   /** The Pareto frontier over every measured, complete node. */
@@ -306,7 +317,7 @@ export class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       this.opts.reps ?? 1,
       (this.opts.judges?.length ?? 0) > 0,
     )
-    const breakdown = campaignBreakdown(campaign)
+    const breakdown = campaignBreakdown(campaign, this.evidence())
     const child = this.proposal(state, expansion)!.children.find(
       (entry) => state.nodeIdForDigest(entry.node.artifactDigest) === nodeId,
     )!
@@ -378,6 +389,7 @@ export class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       analyzeGeneration: _analyzeGeneration,
       policy: _policy,
       searchLedger: _searchLedger,
+      describeArtifact: _describeArtifact,
       ...campaignOptions
     } = this.opts
     return runCampaign<TScenario, TArtifact>({
@@ -501,8 +513,9 @@ function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   campaign: CampaignResult<TArtifact, TScenario>,
   coverage: CampaignCoverage,
   generation: number,
+  evidence: ArtifactEvidenceOptions<TArtifact, TScenario>,
 ): ScoredSurfaceOutcome {
-  const breakdown = campaignBreakdown(campaign)
+  const breakdown = campaignBreakdown(campaign, evidence)
   return {
     split: 'search',
     generation,
