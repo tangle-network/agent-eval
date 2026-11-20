@@ -434,12 +434,17 @@ function preferenceTripleOf(chosenRunId: string, rejectedRunId: string): Prefere
 
 function prmTripleOf(prefixRunId: string, rejectedRunId: string): PrmTrainingTriple {
   return {
+    contextDigest: `sha256:${'0'.repeat(64)}`,
     prefixRunId,
     prefixStepIndex: 0,
     chosenSpanId: 'span-a',
     chosenReward: 42.1337,
+    chosenStepCount: 1,
+    chosenRunIds: [prefixRunId],
     rejectedSpanId: 'span-b',
     rejectedReward: 0.8675309,
+    rejectedStepCount: 1,
+    rejectedRunIds: [rejectedRunId],
     rejectedRunId,
     marginScore: 42.1337,
   }

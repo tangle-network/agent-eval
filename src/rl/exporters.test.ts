@@ -185,12 +185,17 @@ function prmLine(overrides: Partial<RolloutLine> & { run_id: string }): MintedRo
 }
 
 const prmTriple: PrmTrainingTriple = {
+  contextDigest: `sha256:${'0'.repeat(64)}`,
   prefixRunId: 'chosen-run',
   prefixStepIndex: 1,
   chosenSpanId: 'chosen-step',
   chosenReward: 0.9,
+  chosenStepCount: 1,
+  chosenRunIds: ['chosen-run'],
   rejectedSpanId: 'rejected-step',
   rejectedReward: 0.3,
+  rejectedStepCount: 1,
+  rejectedRunIds: ['rejected-run'],
   rejectedRunId: 'rejected-run',
   marginScore: 0.6,
 }

@@ -122,8 +122,18 @@ event log and join it back to the run records by `runId`.
 - **GRPO training:** wrap agent-eval's `MultiLayerVerifier` as a
   `verifiers.Environment` and let prime-rl's online GRPO call into it. Larger
   integration; out of scope for this example.
-- **PRM training:** route `prmTrainingPairs` to a custom PRM trainer
-  (HuggingFace TRL or in-house). Out of scope here.
+- **PRM training:** build step rewards with `extractStepRewards`, then route
+  `prmTrainingPairs` through `toPrmRows` to a custom PRM trainer (HuggingFace TRL
+  or in-house). Out of scope here. A step's `StepReward.contextDigest` covers what
+  was observable when it started: the run's scenario id, the start of every
+  earlier span, the end of every span that had already ended, and its own input.
+  `prmTrainingPairs` groups steps by that digest, then by `actionDigest`, takes
+  each action's mean reward, and emits one triple for two actions whose means
+  differ by at least `minMargin`, represented by steps from two different runs.
+  A step without a context digest (including any step of a run with no scenario
+  id of its own) is counted in the result and never paired, so runs from
+  unrelated tasks never form a pair. `toPrmRows` checks the realness gate of
+  every run behind both means.
 
 ## Files
 

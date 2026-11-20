@@ -96,7 +96,12 @@ const ROOT_RUNTIME_SYMBOLS = [
   'summarizePreferenceMemory',
 ] as const
 
-const RL_SYMBOLS = ['campaignToRunRecords'] as const
+const RL_SYMBOLS = [
+  'campaignToRunRecords',
+  // Process rewards: a consumer builds `prmTrainingPairs` input with these.
+  'extractStepRewards',
+  'runwiseStepRewardSummary',
+] as const
 describe('public-surface contract for consumers', () => {
   it('exports every load-bearing runtime symbol from the root entry', () => {
     const missing = ROOT_RUNTIME_SYMBOLS.filter(

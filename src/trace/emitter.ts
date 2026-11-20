@@ -28,12 +28,12 @@ import type {
   RetrievalSpan,
   Run,
   RunCaptureReport,
-  TraceRunOutcome,
   SandboxSpan,
   Span,
   SpanKind,
   ToolSpan,
   TraceEvent,
+  TraceRunOutcome,
 } from './schema'
 import type { TraceStore } from './store'
 
@@ -175,14 +175,14 @@ export class TraceEmitter {
    * `scenarioId` is required on the persisted Run shape — every Run downstream
    * gets a non-empty scenarioId so filters and aggregations stay simple — but
    * the INPUT here accepts it as optional. When omitted, startRun substitutes
-   * a sensible default (`run.layer ?? run.tags?.['kind'] ?? 'runtime'`) so
-   * runtime / operator / meta-eval runs that have no curated-scenario corpus
-   * to anchor to don't have to invent placeholder strings at the call site.
+   * `defaultScenarioId(run)` so runtime / operator / meta-eval runs that have
+   * no curated-scenario corpus to anchor to don't have to invent placeholder
+   * strings at the call site.
    */
   async startRun(
     run: Omit<Run, 'runId' | 'scenarioId' | 'startedAt' | 'status'> & { scenarioId?: string },
   ): Promise<Run> {
-    const scenarioId = run.scenarioId ?? run.layer ?? run.tags?.kind ?? 'runtime'
+    const scenarioId = run.scenarioId ?? defaultScenarioId(run)
     const full: Run = {
       ...run,
       scenarioId,
@@ -444,6 +444,16 @@ export class TraceEmitter {
 }
 
 // Helpers -------------------------------------------------------------
+
+/**
+ * The scenario id `startRun` records for a run that names none: the run's
+ * layer, else its `kind` tag, else `'runtime'`. It says where the run came
+ * from, not which task it ran, so a reader that needs a task identity treats
+ * a run carrying it as having none.
+ */
+export function defaultScenarioId(run: Pick<Run, 'layer' | 'tags'>): string {
+  return run.layer ?? run.tags?.kind ?? 'runtime'
+}
 
 function warnOnFirstCaptureError(runId: string): CaptureErrorHandler {
   let warned = false
