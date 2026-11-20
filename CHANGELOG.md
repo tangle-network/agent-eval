@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.3] — 2026-11-20
+
+- Trace analysis and optimizer calls now keep their reserved maximum against the individual model budget when the provider reports tokens and omits its price. The receipt preserves the unknown price.
+
 ## [2.0.2] — 2026-11-20
 
 - Keep DSPy trace analysis reasoning with the execution profile

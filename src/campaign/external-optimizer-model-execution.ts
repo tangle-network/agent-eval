@@ -143,7 +143,6 @@ export async function forwardModelProxyRequest(args: {
       contentType: encoded.contentType,
       body: encoded.body,
       receipt: authoritativeReceipt,
-      usageComplete: authoritativeReceipt.usageUnknown !== true,
       ...(usageRejected ? { usageRejected } : {}),
     }
   } else {
@@ -167,7 +166,6 @@ export async function forwardModelProxyRequest(args: {
       contentType: 'application/json',
       body: new TextEncoder().encode(JSON.stringify({ error: called.error })),
       receipt: failedReceipt,
-      usageComplete: failedReceipt.usageUnknown !== true,
       modelCallFailed: called.error,
     }
   }

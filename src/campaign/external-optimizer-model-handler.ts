@@ -215,7 +215,11 @@ export async function handleModelProxyRequest(args: {
         respondError(502, paid.value.modelCallFailed)
         return
       }
-      chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
+      // A token count does not establish a dollar charge. Keep the reservation
+      // when either is unknown, as the shared ledger does for unreported spend.
+      if (!paid.receipt.usageUnknown && !paid.receipt.costUnknown) {
+        chargedForBudget = paid.receipt.costUsd
+      }
       // A response that violated the output or reasoning limit is rejected. A
       // response the provider merely under-reported is forwarded with its cost
       // charged at the reservation maximum, so the analysis keeps its usable
