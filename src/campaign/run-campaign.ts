@@ -33,6 +33,7 @@ import type {
   JudgeConfig,
   LabeledScenarioStore,
   Scenario,
+  TraceSpan,
 } from './types'
 
 export {
@@ -138,9 +139,15 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   /** Subject repo for the shared run-dir root (defaults to the CWD basename).
    *  Only consulted when `runDir` is a bare name. */
   repo?: string
-  /** Tracing posture. Default is the substrate's `FileSystemTraceStore` rooted
-   *  at `<runDir>/traces/`. `'off'` disables capture entirely — substrate
-   *  refuses this when the caller wires `autoOnPromote !== 'none'`. */
+  /**
+   * Span capture. `'on'` (default) gives each execution attempt the trace
+   * writer from `buildTraceWriter`, else one that keeps the attempt's spans in
+   * `<attempt>/trace/spans.jsonl` in `storage`. `'off'` captures none: every
+   * span a dispatch, paid call or judge opens is discarded, and each cell's
+   * `traceRef` is unknown with that reason. It cannot be combined with
+   * `buildTraceWriter`, and `runImprovementLoop` refuses it when a proposer is
+   * wired, because candidates could not be traced back to their spans.
+   */
   tracing?: 'on' | 'off'
   /**
    * Per-cell usage expectation — the early, fine-grained sibling of the
@@ -187,6 +194,18 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
     rep: number
     generation?: number
   }) => string | undefined
+}
+
+/** The writer `tracing: 'off'` gives every attempt: it keeps no span and names no trace. */
+function discardingTraceWriter(cellId: string): CampaignTraceWriter {
+  const span: TraceSpan = { end: () => undefined, setAttribute: () => undefined }
+  return {
+    span: () => span,
+    flush: async () => undefined,
+    traceRef: () => ({
+      unknown: `tracing is off for the campaign that measured cell ${cellId}`,
+    }),
+  }
 }
 
 /** Durable `<attempt>/failure-receipt.json` written before a failed cell can
@@ -264,6 +283,19 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
     }
   }
 
+  if (opts.tracing !== undefined && opts.tracing !== 'on' && opts.tracing !== 'off') {
+    throw new Error("runCampaign: tracing must be 'on' or 'off'")
+  }
+  if (opts.tracing === 'off' && opts.buildTraceWriter !== undefined) {
+    throw new Error(
+      "runCampaign: tracing 'off' discards every span, so it cannot be combined with buildTraceWriter; set one",
+    )
+  }
+  const buildTraceWriter =
+    opts.tracing === 'off'
+      ? discardingTraceWriter
+      : (opts.buildTraceWriter ?? defaultBuildTraceWriter(storage))
+
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runCampaign: runDir is required and must be a non-empty string')
   }
@@ -339,7 +371,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
               resumable,
               now,
               storage,
-              buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
+              buildTraceWriter,
               signal,
               dispatchTimeoutMs: opts.dispatchTimeoutMs,
               dispatchShutdownTimeoutMs,

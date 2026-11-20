@@ -251,7 +251,9 @@ export type ExternalOptimizerEvaluationObservation =
       readonly exampleId?: string
       /** The campaign cells an `evaluation-failed` refusal measured before it
        *  was refused, such as evidence no excerpt fits the bound; their spend
-       *  is real. Absent for a refusal that measured nothing, and in logs
+       *  is real. When the evaluation's campaign threw, these are the cells it
+       *  settled, then each cell the throw interrupted, whose accounting is
+       *  unknown. Absent for a refusal that measured nothing, and in logs
        *  written before refusals recorded them. */
       readonly measurement?: ExternalEvaluationMeasurement
     }

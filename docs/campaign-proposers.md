@@ -484,6 +484,8 @@ A method configured with its own `describeArtifact` refuses a different hook fro
 A response over the bound is excerpted, not refused: the judge notes, the error message and a text artifact keep their head and tail around an omitted-character count and share the room the other fields leave.
 A described artifact stays whole when excerpting those texts makes room; otherwise it is sent as its excerpted JSON text, as the native reflective path shows it, which drops any inline image.
 Only fields no excerpt can shorten (the score, the dimensions and the ids) can exceed the bound; that evaluation is refused, and its observation keeps the cells it measured, so the search ledger still records what they cost.
+The bound applies to the response alone, counted as JavaScript counts the JSON's length (UTF-16 code units); each case is checked against it when it is described.
+The SkillOpt bridge checks the response body it receives by that same rule, so it accepts every response the callback sends.
 
 A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
 Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.

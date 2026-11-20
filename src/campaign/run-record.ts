@@ -32,7 +32,6 @@ interface CampaignCellRunRecordOptions {
   agentProfile?: AgentProfileCell
   raw?: Record<string, number>
   search?: RunSearchCoordinates
-  traceRef?: RunTraceRef
 }
 
 interface CampaignCellQualityProjection {
@@ -157,8 +156,27 @@ export function campaignCellToRunRecord<TArtifact>(
     scenarioId: options.scenarioId ?? cell.scenarioId,
     ...(options.agentProfile ? { agentProfile: options.agentProfile } : {}),
     ...(options.search ? { search: options.search } : {}),
-    ...(options.traceRef ? { traceRef: options.traceRef } : {}),
+    ...campaignCellRunTraceRef(cell),
   })
+}
+
+/**
+ * The trace the cell's measuring attempt wrote, as a RunRecord names it. A
+ * cell whose trace is unknown (a writer with no trace identity, tracing off,
+ * a record from before cells named their trace) leaves the record without
+ * one, so an unknown trace never reads as a known one.
+ */
+function campaignCellRunTraceRef<TArtifact>(
+  cell: CampaignCellResult<TArtifact>,
+): { traceRef?: RunTraceRef } {
+  const ref = cell.traceRef
+  if (ref === undefined || !('traceId' in ref)) return {}
+  return {
+    traceRef: {
+      traceId: ref.traceId,
+      ...(ref.execRunId === null ? {} : { execRunId: ref.execRunId }),
+    },
+  }
 }
 
 /**

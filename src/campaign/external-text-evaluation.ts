@@ -13,7 +13,13 @@ import { runCampaign } from './run-campaign'
 import { campaignBreakdown, campaignEvidence, type DescribeArtifact } from './score-utils'
 import { type CampaignCellMeasurement, campaignCellMeasurement } from './search-campaign-cell'
 import { surfaceContentHash } from './surface-identity'
-import type { MutableSurface, Scenario } from './types'
+import type {
+  CampaignCellResult,
+  CampaignResult,
+  DispatchContext,
+  MutableSurface,
+  Scenario,
+} from './types'
 
 export interface ExternalOptimizationExample {
   id: string
@@ -207,24 +213,46 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
   describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   signal?: AbortSignal
 }): Promise<ScoredScenario> {
-  const campaign = await runCampaign<TScenario, TArtifact>({
-    ...args.input.runOptions,
-    scenarios: [structuredClone(args.scenario)],
-    dispatch: (scenario, context) =>
-      args.input.dispatchWithSurface(args.candidate, scenario, context),
-    dispatchRef: `external-text:${args.compatibleRunId}:${surfaceContentHash(args.candidate)}`,
-    judges: [...args.input.judges],
-    runDir: `${args.runDir}/evaluations/${safePathComponent(args.compatibleRunId)}/${safePathComponent(surfaceContentHash(args.candidate))}/${safePathComponent(args.scenario.id)}`,
-    seed: args.input.seed,
-    costLedger: args.costLedger,
-    costPhase: args.costPhase,
-    ...(args.costTags ? { costTags: args.costTags } : {}),
-    maxConcurrency: 1,
-    ...(args.signal ? { signal: args.signal } : {}),
-  })
-  const cells = [...campaign.cells]
-    .sort((left, right) => left.rep - right.rep)
-    .map(campaignCellMeasurement)
+  const { runOptions } = args.input
+  // runCampaign reports each cell as it persists it, so when the campaign
+  // throws, the cells it finished are still known; the dispatches name the
+  // cells it started, so a cell the throw interrupted is known too.
+  const settled: CampaignCellResult<TArtifact>[] = []
+  const started = new Map<string, StartedCell>()
+  let campaign: CampaignResult<TArtifact, TScenario>
+  try {
+    campaign = await runCampaign<TScenario, TArtifact>({
+      ...runOptions,
+      scenarios: [structuredClone(args.scenario)],
+      dispatch: (scenario, context) => {
+        noteDispatch(started, scenario.id, context)
+        return args.input.dispatchWithSurface(args.candidate, scenario, context)
+      },
+      onCellSettled: async (cell, scenario) => {
+        settled.push(cell)
+        await runOptions.onCellSettled?.(cell, scenario)
+      },
+      dispatchRef: `external-text:${args.compatibleRunId}:${surfaceContentHash(args.candidate)}`,
+      judges: [...args.input.judges],
+      runDir: `${args.runDir}/evaluations/${safePathComponent(args.compatibleRunId)}/${safePathComponent(surfaceContentHash(args.candidate))}/${safePathComponent(args.scenario.id)}`,
+      seed: args.input.seed,
+      costLedger: args.costLedger,
+      costPhase: args.costPhase,
+      ...(args.costTags ? { costTags: args.costTags } : {}),
+      maxConcurrency: 1,
+      ...(args.signal ? { signal: args.signal } : {}),
+    })
+  } catch (error) {
+    const refusal = error instanceof Error ? error : new Error(String(error))
+    return {
+      cells: [
+        ...measureByRep(settled),
+        ...interruptedCells(started, settled, args.costLedger, refusal.message),
+      ],
+      refusal,
+    }
+  }
+  const cells = measureByRep(campaign.cells)
   // From here every refusal keeps `cells`: they were measured and paid for.
   const respond = (response: ExternalTextEvaluationResponse): ScoredScenario => {
     const bounded = boundEvidence(response, args.maxEvidenceChars)
@@ -278,6 +306,94 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
       ...(artifact !== undefined ? { artifact } : {}),
     },
   })
+}
+
+function measureByRep<TArtifact>(
+  cells: readonly CampaignCellResult<TArtifact>[],
+): CampaignCellMeasurement[] {
+  return [...cells].sort((left, right) => left.rep - right.rep).map(campaignCellMeasurement)
+}
+
+/** A campaign cell whose dispatch started, by the context runCampaign gave it. */
+interface StartedCell {
+  cellId: string
+  scenarioId: string
+  rep: number
+  runAttemptId: string
+  /** Dispatches of this cell in this run attempt: its execution attempt number. */
+  dispatches: number
+  startedMs: number
+}
+
+function noteDispatch(
+  started: Map<string, StartedCell>,
+  scenarioId: string,
+  context: DispatchContext,
+): void {
+  const known = started.get(context.cellId)
+  if (known) {
+    known.dispatches += 1
+    return
+  }
+  started.set(context.cellId, {
+    cellId: context.cellId,
+    scenarioId,
+    rep: context.rep,
+    runAttemptId: context.runAttemptId,
+    dispatches: 1,
+    startedMs: Date.now(),
+  })
+}
+
+/**
+ * Every cell that started but never settled before runCampaign threw. No cell
+ * result exists for it, so its outcome is the throw and its accounting is
+ * unknown: the agent spend the cost ledger holds for its attempt is a lower
+ * bound, since a dispatch that ignored cancellation may still be paying.
+ */
+function interruptedCells(
+  started: ReadonlyMap<string, StartedCell>,
+  settled: readonly CampaignCellResult<unknown>[],
+  costLedger: CostLedgerHandle,
+  thrown: string,
+): CampaignCellMeasurement[] {
+  const settledIds = new Set(settled.map((cell) => cell.cellId))
+  return [...started.values()]
+    .filter((cell) => !settledIds.has(cell.cellId))
+    .sort((left, right) => left.rep - right.rep)
+    .map((cell): CampaignCellMeasurement => {
+      const reason = `runCampaign threw before campaign cell ${cell.cellId} settled`
+      const spent = costLedger.summary({
+        channel: 'agent',
+        tags: { runAttemptId: cell.runAttemptId, cellId: cell.cellId },
+      })
+      return {
+        cellId: cell.cellId,
+        scenarioId: cell.scenarioId,
+        rep: cell.rep,
+        attempt: { runAttemptId: cell.runAttemptId, number: cell.dispatches },
+        cached: false,
+        outcome: {
+          status: 'errored',
+          metrics: {},
+          error: {
+            code: 'campaign-threw',
+            message: `${reason}: ${thrown.slice(0, 2_000)}`,
+            retryable: false,
+          },
+        },
+        accounting: {
+          tokens: { status: 'unknown', reason },
+          cost: {
+            status: 'unknown',
+            knownLowerBoundUsd: spent.totalCostUsd,
+            reason: `${reason}; the agent spend its receipts proved by then is a lower bound`,
+          },
+        },
+        durationMs: Date.now() - cell.startedMs,
+        traceRef: { unknown: `${reason}, so no trace was named for it` },
+      }
+    })
 }
 
 /**
