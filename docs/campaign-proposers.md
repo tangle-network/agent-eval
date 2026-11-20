@@ -474,6 +474,8 @@ Do not place credentials in `engineConfig` because run settings are persisted.
 `describeScenario()` controls the train and selection data sent to GEPA.
 `describeArtifact()` controls the execution evidence returned after a candidate is scored.
 Agent Eval calls these callbacks only for train and selection cases; caller-owned context must respect the same boundary.
+The evidence is the case's lowest-scoring cell: a string artifact is sent as is when it fits the 2,000-character bound and otherwise as its head and tail around an omitted-character count; any other artifact is sent as `describeArtifact()` returns it, and without the hook it sends nothing.
+`runOptimization({ describeArtifact })` takes the same hook, so a reflective proposer reads the same evidence in `scenarios[].emitted` (a described value as its JSON text).
 
 A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
 Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.

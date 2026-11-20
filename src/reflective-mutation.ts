@@ -24,6 +24,30 @@ import { autoCloseTruncatedJson } from './json-recovery'
  *  the two drifted, the tighter side would silently re-clip carried evidence. */
 export const EMITTED_EVIDENCE_MAX_CHARS = 2000
 
+/**
+ * Bound a text to `maxChars` by keeping its head and its tail with an explicit
+ * omitted-count marker between them. The middle of a long output is the least
+ * informative part: the task setup is at the start and the failure is usually
+ * at the end. The result, marker included, is never longer than `maxChars`, so
+ * excerpting an excerpt returns it unchanged and the producer and the renderer
+ * can both apply it.
+ */
+export function excerptEvidence(text: string, maxChars = EMITTED_EVIDENCE_MAX_CHARS): string {
+  if (text.length <= maxChars) return text
+  const marker = (omitted: number) => `\n… [${omitted} characters omitted] …\n`
+  // The omitted count never has more digits than the text's length, so this
+  // marker is at least as long as the one written.
+  const kept = maxChars - marker(text.length).length
+  if (kept < 2) return text.slice(0, maxChars)
+  // Never split a surrogate pair: a lone half renders as a replacement character.
+  const surrogate = (index: number) => (text.charCodeAt(index) & 0xfc00) === 0xdc00
+  let headEnd = Math.ceil(kept / 2)
+  let tailStart = text.length - (kept - headEnd)
+  if (surrogate(headEnd)) headEnd -= 1
+  if (surrogate(tailStart)) tailStart += 1
+  return `${text.slice(0, headEnd)}${marker(tailStart - headEnd)}${text.slice(tailStart)}`
+}
+
 export interface TrialTrace {
   /** Stable id for the trial — surfaces in the prompt for grounding. */
   id: string
@@ -102,10 +126,9 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
       )
       if (trial.failureNote) {
         sections.push('')
-        // 1500 chars fits a real traceback / failing-assertion note; clipping
-        // mid-traceback would hide the executable-judge evidence the
-        // reflection targets.
-        sections.push(`**Why it scored low:** ${truncate(trial.failureNote, 1500)}`)
+        // 1500 chars fits a real traceback / failing-assertion note; the
+        // excerpt keeps its end, where the failing assertion is.
+        sections.push(`**Why it scored low:** ${excerptEvidence(trial.failureNote, 1500)}`)
       }
       const missed = (trial.expectations ?? []).filter((e) => !e.matched)
       if (missed.length > 0) {
@@ -119,7 +142,7 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
         sections.push('')
         sections.push('**What the agent emitted:**')
         sections.push('```')
-        sections.push(truncate(trial.emitted, EMITTED_EVIDENCE_MAX_CHARS))
+        sections.push(excerptEvidence(trial.emitted))
         sections.push('```')
       }
       sections.push('')
@@ -164,11 +187,6 @@ export function buildReflectionPrompt(ctx: ReflectionContext): string {
   sections.push('```')
 
   return sections.join('\n')
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s
-  return `${s.slice(0, max)}… [truncated]`
 }
 
 function quote(s: string): string {
