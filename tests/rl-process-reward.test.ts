@@ -122,13 +122,306 @@ async function mintFullyCaptured(store: InMemoryTraceStore, records: RunRecord[]
   return rows
 }
 
-async function stepRewardsOf(store: InMemoryTraceStore, scorer: StepScorer, runIds: string[]) {
+async function stepRewardsOf(
+  store: InMemoryTraceStore,
+  scorer: StepScorer,
+  runIds: string[],
+  options: { contextAttributes?: readonly string[] } = {},
+) {
   const byRun = new Map<string, StepReward[]>()
   for (const runId of runIds) {
-    byRun.set(runId, await extractStepRewards(store, runId, { scorers: [scorer] }))
+    byRun.set(runId, await extractStepRewards(store, runId, { scorers: [scorer], ...options }))
   }
   return byRun
 }
+
+const POLICY_MODEL = 'policy-model@2026-01-01'
+
+/** Record one run whose spans the body opens and closes in any order, on a ticking clock. */
+async function episode(
+  store: InMemoryTraceStore,
+  runId: string,
+  scenarioId: string | undefined,
+  body: (emitter: TraceEmitter) => Promise<void>,
+): Promise<void> {
+  let clock = 0
+  const emitter = new TraceEmitter(store, { runId, now: () => ++clock })
+  await emitter.startRun(
+    scenarioId === undefined ? { layer: 'app-runtime' } : { scenarioId, layer: 'app-runtime' },
+  )
+  await body(emitter)
+  await emitter.endRun({ pass: true })
+}
+
+async function llmStep(
+  emitter: TraceEmitter,
+  name: string,
+  messages: Message[],
+  output: string,
+  attributes?: Record<string, unknown>,
+): Promise<void> {
+  const span = await emitter.llm({
+    name,
+    model: POLICY_MODEL,
+    messages,
+    ...(attributes === undefined ? {} : { attributes }),
+  })
+  await span.end({ output })
+}
+
+/** Rewards every span of the listed kinds from a table keyed by run id and span name. */
+function tableScorer(
+  kinds: StepScorer['appliesTo'],
+  rewards: Record<string, Record<string, number>>,
+  contextDigest?: string,
+): StepScorer {
+  return {
+    appliesTo: kinds,
+    score: (span) => {
+      const reward = rewards[span.runId]?.[span.name]
+      if (reward === undefined) return null
+      return {
+        kind: span.kind,
+        name: span.name,
+        reward,
+        determinism: 'deterministic',
+        ...(contextDigest === undefined ? {} : { contextDigest }),
+      }
+    },
+  }
+}
+
+describe('a step’s context is what was observable when it started', () => {
+  const question = user('What is the refund window?')
+  const planned = [question, assistant('Check the policy.')]
+
+  it('pairs two runs that share a prefix inside a root span that ends differently', async () => {
+    const store = new InMemoryTraceStore()
+    for (const [runId, answer, rootFails] of [
+      ['rooted-1', 'Refunds are accepted within 30 days.', false],
+      ['rooted-2', 'Refunds are not accepted.', true],
+    ] as const) {
+      await episode(store, runId, 'refund-policy', async (e) => {
+        const root = await e.span({ kind: 'agent', name: 'episode' })
+        await llmStep(e, 'plan', [question], 'Check the policy.')
+        await llmStep(e, 'answer', planned, answer)
+        if (rootFails) await root.fail('the user rejected the answer')
+        else await root.end()
+      })
+    }
+    const scorer = tableScorer(['llm'], {
+      'rooted-1': { answer: 0.9 },
+      'rooted-2': { answer: 0.1 },
+    })
+
+    const { triples } = prmTrainingPairs(await stepRewardsOf(store, scorer, ['rooted-1', 'rooted-2']))
+
+    expect(triples).toHaveLength(1)
+    expect(triples[0]).toMatchObject({ prefixRunId: 'rooted-1', rejectedRunId: 'rooted-2' })
+  })
+
+  it('pairs two runs whose parallel tool call ends with different results after the step starts', async () => {
+    const store = new InMemoryTraceStore()
+    for (const [runId, fetched, answer] of [
+      ['parallel-1', 'Refunds: 30 days.', 'Refunds are accepted within 30 days.'],
+      ['parallel-2', 'Refunds: none.', 'Refunds are not accepted.'],
+    ] as const) {
+      await episode(store, runId, 'refund-policy', async (e) => {
+        await llmStep(e, 'plan', [question], 'Check the policy.')
+        const fetch = await e.tool({ name: 'fetch', toolName: 'fetch', args: { page: 'refunds' } })
+        const step = await e.llm({ name: 'answer', model: POLICY_MODEL, messages: planned })
+        await fetch.end({ result: fetched })
+        await step.end({ output: answer })
+      })
+    }
+    const scorer = tableScorer(['llm'], {
+      'parallel-1': { answer: 0.9 },
+      'parallel-2': { answer: 0.1 },
+    })
+
+    const { triples } = prmTrainingPairs(
+      await stepRewardsOf(store, scorer, ['parallel-1', 'parallel-2']),
+    )
+
+    expect(triples).toHaveLength(1)
+  })
+
+  it('does not pair two runs whose tool call ended with different results before the step', async () => {
+    const store = new InMemoryTraceStore()
+    for (const [runId, fetched, answer] of [
+      ['ended-1', 'Refunds: 30 days.', 'Refunds are accepted within 30 days.'],
+      ['ended-2', 'Refunds: none.', 'Refunds are not accepted.'],
+    ] as const) {
+      await episode(store, runId, 'refund-policy', async (e) => {
+        await llmStep(e, 'plan', [question], 'Check the policy.')
+        const fetch = await e.tool({ name: 'fetch', toolName: 'fetch', args: { page: 'refunds' } })
+        await fetch.end({ result: fetched })
+        await llmStep(e, 'answer', planned, answer)
+      })
+    }
+    const scorer = tableScorer(['llm'], { 'ended-1': { answer: 0.9 }, 'ended-2': { answer: 0.1 } })
+
+    const paired = prmTrainingPairs(await stepRewardsOf(store, scorer, ['ended-1', 'ended-2']))
+
+    expect(paired.triples).toEqual([])
+    expect(paired.singleRunContexts).toBe(2)
+  })
+
+  it('counts only the attributes the caller names as context', async () => {
+    const store = new InMemoryTraceStore()
+    for (const [runId, answer] of [
+      ['traced-1', 'Refunds are accepted within 30 days.'],
+      ['traced-2', 'Refunds are not accepted.'],
+    ] as const) {
+      await episode(store, runId, 'refund-policy', async (e) => {
+        await llmStep(e, 'plan', [question], 'Check the policy.', {
+          requestId: `req-${runId}`,
+          phase: 'plan',
+        })
+        await llmStep(e, 'answer', planned, answer)
+      })
+    }
+    const scorer = tableScorer(['llm'], { 'traced-1': { answer: 0.9 }, 'traced-2': { answer: 0.1 } })
+    const runIds = ['traced-1', 'traced-2']
+
+    const strict = prmTrainingPairs(await stepRewardsOf(store, scorer, runIds))
+    const named = prmTrainingPairs(
+      await stepRewardsOf(store, scorer, runIds, { contextAttributes: ['phase'] }),
+    )
+
+    // A per-run request id in a span's attributes keeps every later context apart.
+    expect(strict.triples).toEqual([])
+    expect(named.triples).toHaveLength(1)
+  })
+
+  it('gives a run with no scenario id no context, so unrelated tool-first runs never pair', async () => {
+    const store = new InMemoryTraceStore()
+    for (const [runId, query] of [
+      ['anonymous-1', 'refund window'],
+      ['anonymous-2', 'shipping times'],
+    ] as const) {
+      await episode(store, runId, undefined, async (e) => {
+        const search = await e.tool({ name: 'search', toolName: 'search', args: { query } })
+        await search.end({ result: [] })
+      })
+    }
+    const scorer = tableScorer(['tool'], {
+      'anonymous-1': { search: 0.9 },
+      'anonymous-2': { search: 0.1 },
+    })
+
+    const paired = prmTrainingPairs(
+      await stepRewardsOf(store, scorer, ['anonymous-1', 'anonymous-2']),
+    )
+
+    expect(paired.triples).toEqual([])
+    expect(paired.stepsWithoutContextDigest).toBe(2)
+  })
+
+  it('gives a span whose arguments refer to themselves no digest instead of throwing', async () => {
+    const store = new InMemoryTraceStore()
+    const cyclic: Record<string, unknown> = { path: 'policy.md' }
+    cyclic.self = cyclic
+    const shared = { path: 'policy.md' }
+    for (const [runId, args] of [
+      ['cyclic', cyclic],
+      ['shared', { first: shared, second: shared }],
+    ] as const) {
+      await episode(store, runId, 'refund-policy', async (e) => {
+        const read = await e.tool({ name: 'read', toolName: 'read', args })
+        await read.end({ result: 'Refunds: 30 days.' })
+        await llmStep(e, 'answer', [question], 'Refunds are accepted within 30 days.')
+      })
+    }
+    const scorer = tableScorer(['tool', 'llm'], {
+      cyclic: { read: 0.5, answer: 0.5 },
+      shared: { read: 0.5, answer: 0.5 },
+    })
+
+    const byRun = await stepRewardsOf(store, scorer, ['cyclic', 'shared'])
+
+    const [read, answer] = byRun.get('cyclic') ?? []
+    expect(read?.actionDigest).toBeUndefined()
+    expect(answer?.contextDigest).toBeUndefined()
+    // A value reached twice without a cycle still encodes.
+    const [sharedRead, sharedAnswer] = byRun.get('shared') ?? []
+    expect(sharedRead?.actionDigest).toMatch(/^sha256:/)
+    expect(sharedAnswer?.contextDigest).toMatch(/^sha256:/)
+  })
+})
+
+describe('one triple per pair of actions, decided on mean reward', () => {
+  const question = user('What is the refund window?')
+
+  async function answers(store: InMemoryTraceStore, outputs: Record<string, string>) {
+    for (const [runId, output] of Object.entries(outputs)) {
+      await episode(store, runId, 'refund-policy', (e) => llmStep(e, 'answer', [question], output))
+    }
+  }
+
+  it('emits nothing when the means are closer than the margin', async () => {
+    const store = new InMemoryTraceStore()
+    await answers(store, { 'x-1': 'Thirty days.', 'x-2': 'Thirty days.', 'y-1': 'No refunds.' })
+    const scorer = tableScorer(['llm'], {
+      'x-1': { answer: 0.9 },
+      'x-2': { answer: 0.3 },
+      'y-1': { answer: 0.5 },
+    })
+
+    const paired = prmTrainingPairs(await stepRewardsOf(store, scorer, ['x-1', 'x-2', 'y-1']))
+
+    // X averages 0.6 and Y 0.5: one per-step pair says X > Y and another Y > X.
+    expect(paired.triples).toEqual([])
+    expect(paired.actionPairsBelowMargin).toBe(1)
+  })
+
+  it('emits one triple carrying each action’s mean and the steps behind it', async () => {
+    const store = new InMemoryTraceStore()
+    await answers(store, { 'x-2': 'Thirty days.', 'x-1': 'Thirty days.', 'y-1': 'No refunds.' })
+    const scorer = tableScorer(['llm'], {
+      'x-1': { answer: 0.9 },
+      'x-2': { answer: 0.7 },
+      'y-1': { answer: 0.3 },
+    })
+
+    const { triples } = prmTrainingPairs(await stepRewardsOf(store, scorer, ['x-2', 'x-1', 'y-1']))
+
+    expect(triples).toHaveLength(1)
+    expect(triples[0]).toMatchObject({
+      prefixRunId: 'x-1',
+      rejectedRunId: 'y-1',
+      chosenStepCount: 2,
+      rejectedStepCount: 1,
+      chosenRunIds: ['x-1', 'x-2'],
+      rejectedRunIds: ['y-1'],
+    })
+    expect(triples[0]?.chosenReward).toBeCloseTo(0.8, 10)
+    expect(triples[0]?.marginScore).toBeCloseTo(0.5, 10)
+  })
+
+  it('counts a pair of actions that only one run took', async () => {
+    // A caller's checkpoint identity puts two steps of one run in one context.
+    const store = new InMemoryTraceStore()
+    await episode(store, 'forked', 'refund-policy', async (e) => {
+      await llmStep(e, 'first', [question], 'Thirty days.')
+      await llmStep(e, 'second', [question], 'No refunds.')
+    })
+    await episode(store, 'other', 'refund-policy', (e) =>
+      llmStep(e, 'first', [question], 'Ask support.'),
+    )
+    const scorer = tableScorer(
+      ['llm'],
+      { forked: { first: 0.9, second: 0.1 }, other: { first: 0.5 } },
+      'checkpoint:refund-policy/turn-0',
+    )
+
+    const paired = prmTrainingPairs(await stepRewardsOf(store, scorer, ['forked', 'other']))
+
+    // 'Thirty days.' vs 'No refunds.' has no second run; each against 'Ask support.' does.
+    expect(paired.actionPairsInOneRun).toBe(1)
+    expect(paired.triples).toHaveLength(2)
+  })
+})
 
 describe('process-reward pairs from recorded runs', () => {
   it('builds no PRM row from two runs of different scenarios whose steps share kind and name', async () => {
