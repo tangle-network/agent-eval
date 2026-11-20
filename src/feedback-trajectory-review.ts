@@ -11,6 +11,7 @@ import { canonicalString, hashCanonical } from './ledger-core/canonical'
 import { deepFreezeCanonicalJson } from './ledger-core/deep-freeze'
 
 import { isRecord } from './llm-client/json'
+
 type AnalystReviewSource = Exclude<FeedbackLabelSource, 'system'>
 export type AnalystFindingDigest = `sha256:${string}`
 export type AnalystRunDigest = `sha256:${string}`

@@ -166,8 +166,6 @@ describe('authenticity — dead-code / decorative artifact (general)', () => {
   })
 })
 
-
-
 describe('authenticity — blended pipeline (gray-band-only LLM)', () => {
   let calls = 0
   const spyComplete = (resp: string) => async () => {

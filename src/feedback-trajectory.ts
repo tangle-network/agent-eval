@@ -563,9 +563,7 @@ export function withAssignedFeedbackSplit(
   }
 }
 
-function feedbackTrajectoryToDatasetScenario(
-  trajectory: FeedbackTrajectory,
-): DatasetScenario {
+function feedbackTrajectoryToDatasetScenario(trajectory: FeedbackTrajectory): DatasetScenario {
   const withSplit = withAssignedFeedbackSplit(trajectory)
   return {
     id: withSplit.scenarioId ?? withSplit.id,

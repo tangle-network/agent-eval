@@ -166,4 +166,4 @@ export function symmetricTwoSampleSeed(a: readonly number[], b: readonly number[
   return Math.min(forward, reversed)
 }
 
-export { clusterBootstrap, DEFAULT_BOOTSTRAP_SEED, type BootstrapInterval } from './cluster'
+export { type BootstrapInterval, clusterBootstrap, DEFAULT_BOOTSTRAP_SEED } from './cluster'

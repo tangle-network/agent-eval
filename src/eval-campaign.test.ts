@@ -61,8 +61,6 @@ function baseOpts(
   }
 }
 
-
-
 describe('runEvalCampaign — genuine-error orphan handling', () => {
   // A genuine (non-CellExecutionError) error from a worker — here a profile/model
   // contradiction surfaced AFTER the runner already completed and finalized its

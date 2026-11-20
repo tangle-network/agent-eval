@@ -51,10 +51,10 @@ import {
   evaluatePopulationReproducibilityGate,
   evaluatePowerFloorGate,
   evaluateProvenanceGate,
-  type ValidityGateResult,
   type Obligation,
   powerFloorProblems,
   type ValidityGate,
+  type ValidityGateResult,
 } from './ast/validity'
 import { type ArmRealizedBudget, type MatchedBudgetVerdict, verifyMatchedBudgets } from './budget'
 import {
@@ -499,7 +499,8 @@ export async function openSealedExperiment(
           return evaluateOracleDeterminismGate(
             name,
             gate,
-            (evidence as Extract<ExperimentGateEvidence, { kind: 'oracle-determinism' }>).repsByState,
+            (evidence as Extract<ExperimentGateEvidence, { kind: 'oracle-determinism' }>)
+              .repsByState,
           )
         case 'population-reproducibility': {
           const populations = evidence as Extract<
@@ -512,7 +513,8 @@ export async function openSealedExperiment(
           return evaluateProvenanceGate(
             name,
             gate,
-            (evidence as Extract<ExperimentGateEvidence, { kind: 'provenance-assertion' }>).provenance,
+            (evidence as Extract<ExperimentGateEvidence, { kind: 'provenance-assertion' }>)
+              .provenance,
           )
         case 'identity':
           return evaluateIdentityGate(

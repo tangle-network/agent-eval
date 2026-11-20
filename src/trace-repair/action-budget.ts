@@ -49,13 +49,7 @@ export const SCAFFOLD_INTERVENTION_BUDGET: InterventionBudget = Object.freeze({
  * identical to the no-op control, and paying rollouts to rediscover that
  * wastes the corpus.
  */
-const NO_OP_ACTIONS: readonly string[] = Object.freeze([
-  ':',
-  'true',
-  '/bin/true',
-  'exit',
-  'exit 0',
-])
+const NO_OP_ACTIONS: readonly string[] = Object.freeze([':', 'true', '/bin/true', 'exit', 'exit 0'])
 
 interface HeredocMark {
   delimiter: string

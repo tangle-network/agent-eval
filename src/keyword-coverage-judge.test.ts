@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  runKeywordCoverageJudge,
-  runKeywordCoverageJudgeUrl,
-} from './keyword-coverage-judge'
+import { runKeywordCoverageJudge, runKeywordCoverageJudgeUrl } from './keyword-coverage-judge'
 
 describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
   it('counts concept as found when any keyword is in haystack', () => {
@@ -73,10 +70,6 @@ describe('keyword-coverage — runKeywordCoverageJudge (content)', () => {
     expect(r.findings[0]!.found).toBe(true)
   })
 })
-
-
-
-
 
 describe('keyword-coverage — runKeywordCoverageJudgeUrl', () => {
   it('fetches HTML + assets and scores', async () => {

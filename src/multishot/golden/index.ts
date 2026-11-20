@@ -30,7 +30,7 @@
  * Regenerating: `docs/multishot-golden-records.md`.
  */
 
-export { type CompareOptions } from './compare'
+export type { CompareOptions } from './compare'
 export type { MultishotGoldenEngine, MultishotMatrixGoldenEngine } from './engine'
 export {
   assertMultishotGoldenScenario,

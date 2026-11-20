@@ -3,6 +3,7 @@ import { type CostReceiptInput, costForTokenPricing } from '../cost-ledger'
 import { errorMessage as toErrorMessage } from '../errors'
 import { assertServedModel } from '../integrity/served-model'
 import { deepFreezeCanonicalJson as deepFreezeJson } from '../ledger-core/deep-freeze'
+import { isRecord } from '../llm-client/json'
 import { isNonnegativeFiniteNumber } from '../math/nonnegative-number'
 import { canonicalJson } from '../verdict-cache'
 import {
@@ -11,7 +12,6 @@ import {
   type ExternalOptimizerModelCall,
   freezeJsonSnapshot,
 } from './external-optimizer-contracts'
-import { isRecord } from '../llm-client/json'
 import {
   MissingModelExecutionError,
   type ModelProxyPath,

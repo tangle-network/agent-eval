@@ -37,8 +37,6 @@ const RECORDED_TIMEOUT_OBSERVATION =
 const RECORDED_FORMAT_ERROR_OBSERVATION =
   'Please always provide EXACTLY ONE action in triple backticks, found 0 actions.\nIf you want to end the task, please issue the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`\nwithout any other command.\nElse, please format your response exactly as follows:\n\n<response_example>\nHere are some thoughts about why you want to perform the action.\n\n```bash\n<action>\n```\n</response_example>\n\nNote: In rare cases, if you need to reference a similar format in your command, you might have\nto proceed in two steps, first writing TRIPLEBACKTICKSBASH, then replacing them with ```bash.'
 
-
-
 describe('mini-swe-agent scaffold templates', () => {
   it('renders the recorded system message byte for byte', () => {
     expect(MINI_SWE_SYSTEM_MESSAGE).toBe(RECORDED_SYSTEM_MESSAGE)
@@ -98,8 +96,6 @@ describe('parseAction', () => {
     })
   })
 })
-
-
 
 describe('submissionOf', () => {
   it('submits when the sentinel is the first line of a clean exit', () => {

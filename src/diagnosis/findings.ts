@@ -9,8 +9,6 @@
 
 import { isRecord } from '../llm-client/json'
 
-
-
 export type DiagnosisSeverity = 'critical' | 'high' | 'medium' | 'low'
 
 /** `observed` is read directly off the trace; `inferred` is a model's reading of it. */

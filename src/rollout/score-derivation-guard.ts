@@ -37,11 +37,7 @@ import { type Node, parseSync, visitorKeys } from 'oxc-parser'
 const GUARDED_FIELDS: readonly string[] = ['holdoutScore', 'searchScore']
 
 /** How the read was spelled. Reported so a failure names the bypass shape. */
-type ScoreReadKind =
-  | 'property-access'
-  | 'element-access'
-  | 'destructure'
-  | 'dynamic-field-name'
+type ScoreReadKind = 'property-access' | 'element-access' | 'destructure' | 'dynamic-field-name'
 
 interface ScoreReadSite {
   /** Path relative to the scanned root, with `/` separators. */

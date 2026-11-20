@@ -1,11 +1,7 @@
 /** Campaign binding of the generic journal file layer to search-ledger errors. */
 
+import { type FileLockResult, type LedgerFileContext, tryWithLedgerFileLock } from '../ledger-core'
 import { appendLedgerLine } from '../ledger-core/journal-file'
-import {
-  type FileLockResult,
-  type LedgerFileContext,
-  tryWithLedgerFileLock,
-} from '../ledger-core'
 import { SearchLedgerIntegrityError } from './search-ledger-errors'
 
 export const SEARCH_LEDGER_FILE_CONTEXT: LedgerFileContext = {
@@ -16,8 +12,6 @@ export const SEARCH_LEDGER_FILE_CONTEXT: LedgerFileContext = {
 export function appendSearchLedgerLine(path: string, line: string): void {
   appendLedgerLine(path, line, SEARCH_LEDGER_FILE_CONTEXT)
 }
-
-
 
 export type { FileLockResult }
 

@@ -57,6 +57,7 @@
  * concrete consumer that reads Letta and cannot read ATIF.
  */
 
+import { isRecord } from '../../llm-client/json'
 import {
   assertRolloutLine,
   type ChatMessage,
@@ -79,7 +80,6 @@ import {
   type ToolDef,
 } from '../schema'
 
-import { isRecord } from '../../llm-client/json'
 const ATIF_SCHEMA_VERSION = 'ATIF-v1.7'
 
 /** Gap note on every imported line — ATIF carries no verdict, so nothing is scored. */

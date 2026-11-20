@@ -176,7 +176,9 @@ export interface GepaEvaluationImport {
  * dimensions, tokens, cost, model, duration, attempt and trace; a request
  * answered from an earlier request's cells adds none. A refusal that measured
  * cells before it was refused records them the same way, with their real
- * accounting and an `evaluation-refused` outcome. An evaluation logged
+ * accounting and an `evaluation-refused` outcome; for an evaluation whose
+ * campaign threw, that is every cell it settled, and each cell the throw
+ * interrupted with unknown accounting. An evaluation logged
  * without cells (a log written before the callback recorded them, or a
  * refusal that measured nothing) records one cell whose accounting is
  * unknown. A candidate that is not yet a node (GEPA evaluated it on a

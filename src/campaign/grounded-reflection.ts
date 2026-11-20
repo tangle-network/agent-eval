@@ -55,13 +55,9 @@ export interface RolloutArgumentDiff {
   readonly failingValues: ReadonlySet<string>
 }
 
-
-
 export interface UngroundedLiteralReport {
   /** Quoted single-word literals in the text that no passing rollout used. */
   readonly ungrounded: readonly string[]
   /** The subset failing rollouts actually used - prescribing these is proven harmful. */
   readonly harmful: readonly string[]
 }
-
-

@@ -165,9 +165,10 @@ export function otlpTextToTraceAnalysisStore(
   text: string | Uint8Array,
   opts: ToolSpansToTraceAnalysisStoreOptions = {},
 ): TraceAnalysisStore {
-  const source = typeof text === 'string'
-    ? Buffer.from(text, 'utf8')
-    : Buffer.from(text.buffer, text.byteOffset, text.byteLength)
+  const source =
+    typeof text === 'string'
+      ? Buffer.from(text, 'utf8')
+      : Buffer.from(text.buffer, text.byteOffset, text.byteLength)
   // Any byte other than ASCII whitespace ends the scan, so this stays O(1).
   if (!source.some((byte) => byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d)) {
     throw new CaptureIntegrityError('OTLP trace text must not be empty')

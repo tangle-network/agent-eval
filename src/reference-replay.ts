@@ -9,7 +9,6 @@
 
 export type ReferenceReplaySplit = 'train' | 'dev' | 'test' | 'holdout'
 
-
 interface ReferenceReplayItem {
   id: string
   title: string
@@ -27,20 +26,6 @@ interface ReferenceReplayCandidate {
   tags?: string[]
   metadata?: Record<string, unknown>
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 interface ReferenceReplayMatch {
   scenarioId: string
@@ -83,18 +68,6 @@ interface ReferenceReplayScore {
   aggregate: ReferenceReplayAggregate
   bySplit: Partial<Record<ReferenceReplaySplit, ReferenceReplayAggregate>>
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 export interface ReferenceReplayCaseRun<Input = unknown> {
   caseId: string

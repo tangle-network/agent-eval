@@ -4,6 +4,7 @@ import { link, lstat, mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { arch, platform } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { resolveExternalOptimizerProcessLimits } from '../campaign/external-optimizer-contracts'
+import { isRecord } from '../llm-client/json'
 import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkObservation } from './benchmark'
 import {
@@ -23,7 +24,6 @@ import {
   observationKey,
   parseJsonText,
 } from './benchmark-command-artifact'
-import { isRecord } from '../llm-client/json'
 import {
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CampaignCellFailureReceipt } from './run-campaign'
-import {
-  isTransientTransportFailure,
-  transientDispatchFailure,
-} from './transient-failure'
+import { isTransientTransportFailure, transientDispatchFailure } from './transient-failure'
 
 describe('isTransientTransportFailure', () => {
   it.each([
@@ -62,5 +59,3 @@ describe('transientDispatchFailure', () => {
     expect(transientDispatchFailure()(failure('dispatch', 'agent gave a wrong answer'))).toBe(false)
   })
 })
-
-

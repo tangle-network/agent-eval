@@ -93,10 +93,6 @@ describe('ingest', () => {
   })
 })
 
-
-
-
-
 describe('contract edges', () => {
   it('honours a top-level kind and the contract name patterns when classifying spans', () => {
     const { spans } = ingestSpans(

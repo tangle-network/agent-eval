@@ -1,10 +1,5 @@
-
-
 import { describe, expect, it } from 'vitest'
-import {
-  type EvidenceRegistryRecord,
-  renderEvidenceIndex,
-} from './evidence-record'
+import { type EvidenceRegistryRecord, renderEvidenceIndex } from './evidence-record'
 
 const valid: EvidenceRegistryRecord = {
   id: 'sample-claim',
@@ -22,10 +17,6 @@ const valid: EvidenceRegistryRecord = {
   confounds: ['CI crosses zero'],
   sourceRepo: 'agent-eval',
 }
-
-
-
-
 
 describe('renderEvidenceIndex', () => {
   it('is deterministic and carries every load-bearing field', () => {
@@ -50,5 +41,3 @@ describe('renderEvidenceIndex', () => {
     expect(rendered).toContain('not captured')
   })
 })
-
-

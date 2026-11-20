@@ -3,10 +3,10 @@ import type { ChatRequest, ChatResponse } from '../analyst/chat-client'
 import type { CustomTokenPricing } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
 import { deepFreezeCanonicalJson as deepFreezeJson } from '../ledger-core/deep-freeze'
+import { isRecord } from '../llm-client/json'
 import { canonicalJson } from '../verdict-cache'
 import type { CampaignCellMeasurement } from './search-campaign-cell'
 
-import { isRecord } from '../llm-client/json'
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAXIMUM_JSON_BYTES = Math.min(
   bufferConstants.MAX_LENGTH - 1,
@@ -251,7 +251,9 @@ export type ExternalOptimizerEvaluationObservation =
       readonly exampleId?: string
       /** The campaign cells an `evaluation-failed` refusal measured before it
        *  was refused, such as evidence no excerpt fits the bound; their spend
-       *  is real. Absent for a refusal that measured nothing, and in logs
+       *  is real. When the evaluation's campaign threw, these are the cells it
+       *  settled, then each cell the throw interrupted, whose accounting is
+       *  unknown. Absent for a refusal that measured nothing, and in logs
        *  written before refusals recorded them. */
       readonly measurement?: ExternalEvaluationMeasurement
     }

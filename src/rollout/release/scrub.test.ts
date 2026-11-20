@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-
 import { emptyScrubCounts, scrubText } from './scrub'
 
 function scrub(text: string): { text: string; counts: Record<string, number> } {
@@ -101,7 +100,7 @@ describe('hostname scrubbing', () => {
 describe('determinism and idempotency', () => {
   const dirty = [
     '/home/drew/x with HF_TOKEN=hf_secret1234 calling Bearer abcdefgh12345678',
-    'sk-abcdefghijklmnop1234 at router.tangle.tools via /Users/bob/y',
+    'sk-abcdefghijklmnop1234 at router.tangle.tools via /Users/bob/y', // dummy key
     '-rw-rw-r--  1 drew drew  842 Jul 22 12:39 /tmp/pytest-of-drew/conftest.py',
   ].join('\n')
 
@@ -117,5 +116,3 @@ describe('determinism and idempotency', () => {
     expect(Object.values(second.counts).every((count) => count === 0)).toBe(true)
   })
 })
-
-

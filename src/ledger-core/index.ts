@@ -11,7 +11,14 @@
  * binding.
  */
 
-export { type AtomicFileLock, type AtomicFileLockAcquisition, type AtomicFileLockOptions, type AtomicFileLockOwner, type AtomicFileLockUnavailable, tryAcquireAtomicFileLock } from './atomic-file-lock'
+export {
+  type AtomicFileLock,
+  type AtomicFileLockAcquisition,
+  type AtomicFileLockOptions,
+  type AtomicFileLockOwner,
+  type AtomicFileLockUnavailable,
+  tryAcquireAtomicFileLock,
+} from './atomic-file-lock'
 export {
   canonicalString,
   hashCanonical,
@@ -20,8 +27,40 @@ export {
   LedgerCanonicalizationError,
   type LedgerHash,
 } from './canonical'
-export { FileLedgerJournal, type FileLedgerJournalOptions, type LedgerAppendOptions, type LedgerAppendResult, type LedgerChainFields, type LedgerEntryOf, type LedgerEventBase, type LedgerJournalCodec, type LedgerLineContext, type LedgerProjector, type LedgerProjectorSnapshotCodec, type LedgerTextStore } from './journal'
-export { type FileLockResult, type LedgerFileContext, tryWithLedgerFileLock, writeLedgerFileAtomically } from './journal-file'
-export { type MerkleConsistencyProof, type MerkleInclusionProof, type MerkleVerification, merkleInclusionProof, merkleLeafHash, merkleRoot, merkleSalt, verifyMerkleInclusion } from './merkle'
-export { type LedgerProjectorSnapshot } from './projector-snapshot'
-export { type LedgerAnchoredEntry, type LedgerTrustedHead, type LedgerTrustedHeadRemoval, type LedgerTrustedHeadSubject } from './trusted-head'
+export {
+  FileLedgerJournal,
+  type FileLedgerJournalOptions,
+  type LedgerAppendOptions,
+  type LedgerAppendResult,
+  type LedgerChainFields,
+  type LedgerEntryOf,
+  type LedgerEventBase,
+  type LedgerJournalCodec,
+  type LedgerLineContext,
+  type LedgerProjector,
+  type LedgerProjectorSnapshotCodec,
+  type LedgerTextStore,
+} from './journal'
+export {
+  type FileLockResult,
+  type LedgerFileContext,
+  tryWithLedgerFileLock,
+  writeLedgerFileAtomically,
+} from './journal-file'
+export {
+  type MerkleConsistencyProof,
+  type MerkleInclusionProof,
+  type MerkleVerification,
+  merkleInclusionProof,
+  merkleLeafHash,
+  merkleRoot,
+  merkleSalt,
+  verifyMerkleInclusion,
+} from './merkle'
+export type { LedgerProjectorSnapshot } from './projector-snapshot'
+export type {
+  LedgerAnchoredEntry,
+  LedgerTrustedHead,
+  LedgerTrustedHeadRemoval,
+  LedgerTrustedHeadSubject,
+} from './trusted-head'

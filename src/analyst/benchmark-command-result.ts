@@ -154,7 +154,9 @@ export function assertCompletedArtifactMatchesRun(
       observations.filter((observation) => observation.runnerId === runnerId),
     ),
   )
-  if (canonicalJsonDocument(artifact.result.summaries) !== canonicalJsonDocument(expectedSummaries)) {
+  if (
+    canonicalJsonDocument(artifact.result.summaries) !== canonicalJsonDocument(expectedSummaries)
+  ) {
     throw new Error('completed benchmark summaries do not match durable observations')
   }
 
@@ -179,7 +181,9 @@ export function assertCompletedArtifactMatchesRun(
     }
   } else if (
     canonicalJsonDocument(artifact.agentRxCalibration) !==
-      canonicalJsonDocument(summarizeAgentRxCalibration(artifact.result, AGENT_RX_UPSTREAM_REVISION)) ||
+      canonicalJsonDocument(
+        summarizeAgentRxCalibration(artifact.result, AGENT_RX_UPSTREAM_REVISION),
+      ) ||
     artifact.codeTraceCalibration !== undefined
   ) {
     throw new Error('completed AgentRx calibration does not match durable observations')
@@ -196,7 +200,10 @@ export function assertSameObservations(
     )
   }
   const expectedByKey = new Map(
-    expected.map((observation) => [observationKey(observation), canonicalJsonDocument(observation)]),
+    expected.map((observation) => [
+      observationKey(observation),
+      canonicalJsonDocument(observation),
+    ]),
   )
   for (const observation of actual) {
     const key = observationKey(observation)

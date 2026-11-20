@@ -149,4 +149,3 @@ export function safeInteger(value: number, field: string): number {
   if (!Number.isSafeInteger(value)) throw new RangeError(`${field} must be a safe integer`)
   return value
 }
-

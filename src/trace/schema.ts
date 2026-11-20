@@ -10,8 +10,6 @@
  * entities that OTEL leaves as free-form attributes.
  */
 
-
-
 // ── Run ──────────────────────────────────────────────────────────────
 
 export type RunStatus = 'running' | 'completed' | 'failed' | 'aborted'

@@ -1,6 +1,8 @@
 /** Statistics surface; internal module paths are not public. */
 
 export * from './agreement-irr'
+export * from './cluster'
+export * from './clustered-paired'
 export * from './comparison-effects'
 export * from './descriptive'
 export * from './distribution-summary'
@@ -14,5 +16,3 @@ export * from './random'
 export * from './rank-tests'
 export * from './samples'
 export * from './sequential-eprocess'
-export * from './cluster'
-export * from './clustered-paired'

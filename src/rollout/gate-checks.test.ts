@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  GATE_CHECK_IDS,
-  GATE_POLICIES,
-  type GateCheckId,
-  type GateEntryPoint,
-} from './gate-checks'
-
+import { GATE_CHECK_IDS, GATE_POLICIES, type GateCheckId, type GateEntryPoint } from './gate-checks'
 
 /**
  * The mechanism suite: it does not test what the three checks say, it tests that
@@ -19,14 +13,6 @@ import {
  * because a cast (`as GatePolicy`) or a hand-written `Record<string, …>` can get
  * around the compiler and a silent gap is exactly what must not survive.
  */
-
-
-
-
-
-
-
-
 
 describe('every entry point declares a disposition for every check', () => {
   const entryPoints = Object.keys(GATE_POLICIES) as GateEntryPoint[]
@@ -69,14 +55,6 @@ describe('every entry point declares a disposition for every check', () => {
     }
   })
 })
-
-
-
-
-
-
-
-
 
 /**
  * `GATE_CHECK_IDS` is the enumeration everything iterates, so it is also the

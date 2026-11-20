@@ -11,8 +11,6 @@ import {
   runPrimeExchange,
 } from './prime-protocol'
 
-
-
 const URL = 'http://bridge.test:4181/v1/chat/completions'
 const MODEL = 'prime/zai/glm-5.2'
 
@@ -154,10 +152,6 @@ describe('buildPrimeRepairPrompt', () => {
     expect(prompt).not.toContain('TRAJECTORY')
   })
 })
-
-
-
-
 
 describe('runPrimeExchange', () => {
   it('decodes a well-formed reply and reports the raw row count beside the accepted rows', async () => {
@@ -377,10 +371,6 @@ describe('runPrimeExchange', () => {
     expect(outcome.failure.cause).toBe(cancelled)
   })
 })
-
-
-
-
 
 describe('projectPrimeTrajectory', () => {
   function source(

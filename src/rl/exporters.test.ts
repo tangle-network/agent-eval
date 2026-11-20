@@ -138,7 +138,9 @@ describe('toSftRowsWithLookups', () => {
     }
     const lines = await mint([search, holdout])
     // Default: trainable splits only — holdout must not ship in train.sft.jsonl.
-    expect((await toSftRowsWithLookups(lines, lookups)).map((r) => r.meta?.runId)).toEqual(['train-me'])
+    expect((await toSftRowsWithLookups(lines, lookups)).map((r) => r.meta?.runId)).toEqual([
+      'train-me',
+    ])
     // Named opt-in: the same rule the rollout exporters use.
     expect(
       (await toSftRowsWithLookups(lines, { ...lookups, allowHeldOutTrainingData: true })).map(
@@ -147,7 +149,9 @@ describe('toSftRowsWithLookups', () => {
     ).toEqual(['train-me', 'held-out'])
     // Explicit selection replaces the default rule (e.g. a holdout eval bundle).
     expect(
-      (await toSftRowsWithLookups(lines, { ...lookups, splitFilter: ['holdout'] })).map((r) => r.meta?.runId),
+      (await toSftRowsWithLookups(lines, { ...lookups, splitFilter: ['holdout'] })).map(
+        (r) => r.meta?.runId,
+      ),
     ).toEqual(['held-out'])
   })
 

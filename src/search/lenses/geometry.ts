@@ -11,11 +11,10 @@
  * score or a cost: a value the ledger cannot support is null, with the reason.
  */
 
+import { DEFAULT_MAX_ATTEMPTS } from '../../campaign/search-kernel-contract'
 import type { SearchStateView } from '../../campaign/search-state'
 import { medianInPlace } from '../../statistics/internal'
 import type { LensResult, LensSignal } from './shared'
-
-import { DEFAULT_MAX_ATTEMPTS } from '../../campaign/search-kernel-contract'
 /** The one number a geometry lens exposes to policies: the shared
  * `LensSignal`, with the noise model and sample it rests on. */
 export interface GeometrySignal extends LensSignal<number | null> {

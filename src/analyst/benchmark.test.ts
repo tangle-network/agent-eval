@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import {
-  traceStoreEvidenceResolver,
-} from './benchmark'
-
-
-
-
-
+import { traceStoreEvidenceResolver } from './benchmark'
 
 describe('traceStoreEvidenceResolver', () => {
   it('resolves encoded canonical span URIs and rejects unsupported locations', async () => {

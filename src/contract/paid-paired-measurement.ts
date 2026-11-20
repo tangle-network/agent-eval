@@ -41,8 +41,12 @@ interface RunPaidPairedMeasurementOptions<T> {
  * batch reservation prevents a complete comparison from turning into a partial
  * one after earlier analysis or search has used the remaining budget.
  */
-export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete: true }): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }>
-export function runPaidPairedMeasurement<T>(options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete?: false }): Promise<PaidPairedMeasurementResult<T>>
+export function runPaidPairedMeasurement<T>(
+  options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete: true },
+): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }>
+export function runPaidPairedMeasurement<T>(
+  options: RunPaidPairedMeasurementOptions<T> & { allowIncomplete?: false },
+): Promise<PaidPairedMeasurementResult<T>>
 export async function runPaidPairedMeasurement<T>(
   options: RunPaidPairedMeasurementOptions<T>,
 ): Promise<Omit<PaidPairedMeasurementResult<T>, 'cost'> & { cost: CostProvenance }> {
@@ -76,8 +80,9 @@ export async function runPaidPairedMeasurement<T>(
   return {
     measurements: paid.value,
     wallDurationMs,
-    cost: paid.receipt.costUnknown ? { kind: "uncaptured", usd: null } :
-      paid.receipt.actualCostUsd === undefined
+    cost: paid.receipt.costUnknown
+      ? { kind: 'uncaptured', usd: null }
+      : paid.receipt.actualCostUsd === undefined
         ? { kind: 'estimated', usd: paid.receipt.costUsd }
         : { kind: 'observed', usd: paid.receipt.costUsd },
   }

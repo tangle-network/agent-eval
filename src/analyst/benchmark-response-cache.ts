@@ -3,11 +3,7 @@ import * as nodePath from 'node:path'
 import { z } from 'zod'
 import type { CostReceiptInput } from '../cost-ledger'
 import { ValidationError } from '../errors'
-import {
-  canonicalString,
-  hashCanonical,
-  writeLedgerFileAtomically,
-} from '../ledger-core'
+import { canonicalString, hashCanonical, writeLedgerFileAtomically } from '../ledger-core'
 import { withLedgerFileLock } from '../ledger-core/journal-file'
 import type { AnalystBenchmarkError } from './benchmark'
 

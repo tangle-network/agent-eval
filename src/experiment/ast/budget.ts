@@ -14,7 +14,10 @@ export interface HaltOutcome {
   failedGates: string[]
 }
 
-export function evaluateHaltRule(halt: HaltRule, gates: readonly ValidityGateResult[]): HaltOutcome {
+export function evaluateHaltRule(
+  halt: HaltRule,
+  gates: readonly ValidityGateResult[],
+): HaltOutcome {
   const seen = new Map(gates.map((g) => [g.id, g]))
   const missing = halt.when.gates.filter((id) => !seen.has(id))
   if (missing.length > 0) {

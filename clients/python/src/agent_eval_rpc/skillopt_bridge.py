@@ -201,6 +201,16 @@ def _build_adapter(env_adapter_class: type, input_value: dict[str, Any]) -> Any:
                 timeout=1800.0,
             )
             response.raise_for_status()
+            # The TypeScript callback bounds each response, not the case with
+            # it: `boundEvidence` excerpts long notes, errors and artifacts until
+            # the response's JSON is within maxEvidenceChars, and each case is
+            # bounded when it is described. Check the body by that same rule.
+            evidence_chars = _javascript_length(response.text)
+            if evidence_chars > input_value["maxEvidenceChars"]:
+                raise ValueError(
+                    "agent-eval callback response exceeds maxEvidenceChars "
+                    f"({evidence_chars} > {input_value['maxEvidenceChars']})"
+                )
             payload = response.json()
             score = payload.get("score")
             if (
@@ -228,8 +238,6 @@ def _build_adapter(env_adapter_class: type, input_value: dict[str, Any]) -> Any:
             encoded_evidence = json.dumps(
                 evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")
             )
-            if len(encoded_evidence) > input_value["maxEvidenceChars"]:
-                raise ValueError("SkillOpt evaluation evidence exceeds maxEvidenceChars")
             prediction_dir = out_dir / "predictions" / item["id"]
             prediction_dir.mkdir(parents=True, exist_ok=True)
             conversation = [
@@ -270,6 +278,11 @@ def _build_adapter(env_adapter_class: type, input_value: dict[str, Any]) -> Any:
             return ["tangle"]
 
     return TangleEnvAdapter()
+
+
+def _javascript_length(text: str) -> int:
+    """`text.length` in JavaScript: UTF-16 code units, so an astral character counts twice."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def _bridge_items(examples: list[dict[str, Any]]) -> list[dict[str, Any]]:

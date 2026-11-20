@@ -1,10 +1,10 @@
+import { isRecord } from '../llm-client/json'
 import { translateAnthropicMessagesRequest } from './external-optimizer-anthropic'
 import {
   type ExternalOptimizerChatRequest,
   type ExternalOptimizerModelBudget,
   freezeJsonSnapshot,
 } from './external-optimizer-contracts'
-import { isRecord } from '../llm-client/json'
 import type { ModelProxyPath } from './external-optimizer-model-contract'
 
 export function parseModelProxyRequest(

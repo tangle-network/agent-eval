@@ -3,8 +3,6 @@ import { estimateCost, resolveModelPricing } from '../metrics'
 import type { CostReceipt, CostUsage, CustomTokenPricing } from './contract'
 import { assertNonNegative, assertTokenCount, assertUsage } from './validation'
 
-
-
 export interface CostResult {
   costUsd: number
   costUnknown: boolean

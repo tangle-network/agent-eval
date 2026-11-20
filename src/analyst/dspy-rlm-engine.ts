@@ -12,6 +12,7 @@ import { startExternalOptimizerModelProxy } from '../campaign/external-optimizer
 import { runWithCleanup } from '../campaign/external-optimizer-resources'
 import { runExternalOptimizerProcess } from '../campaign/external-optimizer-subprocess'
 import type { CustomTokenPricing } from '../cost-ledger'
+import { isRecord } from '../llm-client/json'
 import { resolveModelPricing } from '../metrics'
 import {
   DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS,
@@ -21,7 +22,6 @@ import {
 import { decodeRawFindingArray } from './finding-codec'
 import { startTraceToolCallback, type TraceToolCallbackLimits } from './trace-tool-callback'
 
-import { isRecord } from '../llm-client/json'
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_MAX_COST_USD = 1
 const DEFAULT_MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
@@ -386,4 +386,3 @@ function sanitizedRunner(
     ...(runner.limits ? { limits: { ...runner.limits } } : {}),
   }
 }
-

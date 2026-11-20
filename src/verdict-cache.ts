@@ -31,8 +31,6 @@ import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 // ── canonical JSON + content hash ─────────────────────────────────────────
 
-
-
 /**
  * Canonical JSON (RFC 8785): object keys sorted recursively, so two
  * semantically equal values produce byte-identical output regardless of key
@@ -58,8 +56,6 @@ export interface VerdictCacheStore {
   get(key: string): Promise<JudgeScore | undefined> | JudgeScore | undefined
   set(key: string, score: JudgeScore): Promise<void> | void
 }
-
-
 
 interface VerdictCacheLine {
   key: string
@@ -120,11 +116,3 @@ export function fileVerdictCache(path: string): VerdictCacheStore {
 }
 
 // ── cached judge wrapper ───────────────────────────────────────────────────
-
-
-
-
-
-
-
-

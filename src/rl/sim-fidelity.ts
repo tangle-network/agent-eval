@@ -29,11 +29,7 @@
  *     `readCorpus` — tag sim vs production by `experimentId`
  */
 
-
-
 import type { RunRecord } from '../run-record'
-
-
 
 /** Extracts a flat behavioral feature map from one record. `string` values
  *  are categorical, `number` values are quantile-bucketed over the union of
@@ -41,27 +37,7 @@ import type { RunRecord } from '../run-record'
  *  counted explicitly as its own category (never silently dropped). */
 export type BehaviorFeatures = (record: RunRecord) => Record<string, string | number | null>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Divergence core ──────────────────────────────────────────────────
-
-
-
-
 
 /** Stable half-open bucket label for a value against quantile edges:
  *  `[-inf,e0)`, `[e0,e1)`, …, `[eLast,+inf)`. */
@@ -120,14 +96,6 @@ export interface SimFidelityOptions {
   minNPerFeature?: number
 }
 
-
-
-
-
-
-
-
-
 // ── Easy-mode check ──────────────────────────────────────────────────
 
 export interface EasyModeOptions {
@@ -148,5 +116,3 @@ export interface EasyModeReport {
    *  simulator overstate production performance. */
   inflated: boolean
 }
-
-

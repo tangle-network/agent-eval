@@ -18,8 +18,6 @@ import type { ChatMessage } from '../schema'
 
 export const DEFAULT_OPENCODE_DB = join(homedir(), '.local', 'share', 'opencode', 'opencode.db')
 
-
-
 /** One session, normalized. */
 async function readOpencodeSession(
   sessionId: string,

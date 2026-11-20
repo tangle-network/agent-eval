@@ -8,10 +8,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  parseClaudeTranscript,
-  readClaudeTranscript,
-} from './claude-jsonl'
+import { parseClaudeTranscript, readClaudeTranscript } from './claude-jsonl'
 
 const FIXTURE = join(
   import.meta.dirname,
@@ -25,10 +22,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
-
-
-
-
 
 describe('readClaudeTranscript', () => {
   it('reads a real transcript: one message per response, usage counted once per response', async () => {

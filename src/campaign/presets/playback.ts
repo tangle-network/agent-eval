@@ -19,9 +19,8 @@ import {
   type ProducedState,
   verifyCompletion,
 } from '../../completion-verifier'
-import { type RuntimeEventLike } from '../../produced-state'
+import type { RuntimeEventLike } from '../../produced-state'
 import type { DispatchContext, Scenario } from '../types'
-
 
 /** One step of a user story — what the user does. The driver interprets
  *  `payload` (a Playwright selector + action, or a sandbox chat turn). */
@@ -63,8 +62,6 @@ export interface PlaybackContext extends DispatchContext {
 export interface PlaybackDriver<TStory extends UserStory = UserStory> {
   run(story: TStory, ctx: PlaybackContext): Promise<readonly RuntimeEventLike[]>
 }
-
-
 
 /** A scored user story — the completion verdict plus its human title. */
 export interface UserStoryVerdict extends CompletionVerdict {

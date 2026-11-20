@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+No caller of 2.0.0 must change code. Two behaviors change:
+
+- `RunCampaignOptions.tracing: 'off'` now does what it documented: every attempt gets a writer that keeps no span, and each cell's `traceRef` is unknown with that reason. Before, `'off'` was ignored and spans were captured. Combining it with `buildTraceWriter` is refused. A caller that passed `'off'` and still reads the spans removes `'off'`.
+- The SkillOpt bridge checks each callback response against `maxEvidenceChars` by the TypeScript rule (the response's JSON length in UTF-16 code units), not the case and the response together, so it no longer refuses a response the callback excerpted to the bound.
+
+Fixes:
+
+- An external evaluation (GEPA or SkillOpt) whose campaign throws keeps what it spent: the refusal's `measurement` carries every cell that settled before the throw with its real accounting, and each cell the throw interrupted (`campaign-threw`, unknown tokens and cost, with the agent spend its receipts proved as the lower bound). Before, the evaluation was one cell with unknown cost and a $0 floor.
+- `campaignToRunRecords`, `selfImprove`'s run records and `runProfileMatrix` records carry the campaign cell's known trace as `RunRecord.traceRef`; a cell whose trace is unknown leaves it absent.
+- `pnpm lint` passes and the documented local gate runs it.
+
 ## [2.0.0] — 2026-11-20
 
 Breaking changes first. Each names what a caller must do.

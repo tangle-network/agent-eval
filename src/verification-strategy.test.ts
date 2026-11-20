@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { type DefaultVerdict, type VerdictCertification } from './verdict'
+import type { DefaultVerdict, VerdictCertification } from './verdict'
 import type {
   CheckerOutcome,
   EquivalenceArm,
@@ -197,8 +197,6 @@ const armB: EquivalenceArm = {
 const kernelEvidenceDigest =
   'sha256:aa11bb22cc33dd44ee55ff667788990011223344556677889900aabbccddeeff'
 
-
-
 const kernelChecker = (
   outcome: Awaited<ReturnType<EquivalenceChecker['check']>>,
 ): EquivalenceChecker => ({
@@ -249,8 +247,6 @@ describe('defineEquivalenceCheck', () => {
     )
   })
 })
-
-
 
 describe('runEquivalenceCheck — execution binds through the strategy-checker port', () => {
   it('discharges a proved obligation from a succeeded checker outcome', async () => {
@@ -307,5 +303,3 @@ describe('runEquivalenceCheck — execution binds through the strategy-checker p
     expect(checker.check).not.toHaveBeenCalled()
   })
 })
-
-

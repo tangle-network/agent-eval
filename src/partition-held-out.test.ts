@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { partitionHeldOut } from './partition-held-out'
 
-
-
 describe('partitionHeldOut', () => {
   it('produces disjoint, exhaustive search/holdout sets', () => {
     const ids = Array.from({ length: 50 }, (_, i) => `s${i}`)
@@ -37,5 +35,3 @@ describe('partitionHeldOut', () => {
     expect(() => partitionHeldOut(['a'], { holdoutFraction: 1 })).toThrow(/holdoutFraction/)
   })
 })
-
-

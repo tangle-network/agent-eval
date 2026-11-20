@@ -603,8 +603,6 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
   })
 }
 
-
-
 /** SHA-256 over the RFC 8785 canonical JSON of `value`. Throws
  * `LedgerCanonicalizationError` for a value with no canonical form. */
 export function canonicalDigest(value: unknown): `sha256:${string}` {

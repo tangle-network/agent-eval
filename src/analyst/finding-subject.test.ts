@@ -352,5 +352,3 @@ describe('KIND_EXPECTED_SUBJECTS', () => {
     expect(() => findingSubjectGrammarPromptFor('unknown')).toThrow(/unknown analyst kind/)
   })
 })
-
-

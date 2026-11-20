@@ -3,11 +3,7 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { assertValidAnalystScoringCase, scoreAnalystFindings } from './benchmark-scoring'
 import { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 
-import type {
-  AnalystFinding,
-  AnalystUsageReceipt,
-  EvidenceRef,
-} from './types'
+import type { AnalystFinding, AnalystUsageReceipt, EvidenceRef } from './types'
 import { assertValidAnalystUsageReceipt } from './usage-receipt'
 
 export { scoreAnalystFindings } from './benchmark-scoring'
@@ -329,8 +325,6 @@ export async function runAnalystBenchmark<TInput>(
   }
 }
 
-
-
 async function runBenchmarkJob<TInput>(
   job: {
     runner: AnalystBenchmarkRunner<TInput>
@@ -414,8 +408,6 @@ function resolveBenchmarkLatency(
   }
   return { value: observedLatencyMs, source: 'runner-reported' }
 }
-
-
 
 function benchmarkJobs<TInput>(
   cases: readonly AnalystBenchmarkCase<TInput>[],
@@ -667,5 +659,3 @@ function stableHash(value: string): number {
   }
   return hash >>> 0
 }
-
-

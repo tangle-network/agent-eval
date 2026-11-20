@@ -188,8 +188,6 @@ describe('stratumOf', () => {
   })
 })
 
-
-
 describe('runAdmission — boundary failures never read as verdicts', () => {
   it('excludes on a replay error and keeps the message', async () => {
     const { report, fakes: built } = await admit([row()], {
@@ -327,10 +325,6 @@ describe('runAdmission — boundary failures never read as verdicts', () => {
   })
 })
 
-
-
-
-
 describe('denominator chain', () => {
   it('reconciles overall and per stratum across every exclusion path', async () => {
     const { report } = await admit(
@@ -430,8 +424,6 @@ describe('denominator chain', () => {
   })
 })
 
-
-
 describe('assertDenominatorIntact', () => {
   async function admittedReport(): Promise<AdmissionReport> {
     const { report } = await admit([
@@ -510,5 +502,3 @@ describe('assertDenominatorIntact', () => {
     ).toThrow(/denominator shrank by 1 row/)
   })
 })
-
-

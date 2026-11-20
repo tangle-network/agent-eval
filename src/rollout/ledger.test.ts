@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fixtureRolloutLine, malformedRolloutLine } from './fixtures'
 
-
 import { assertRolloutLine, validateRolloutLine } from './schema'
 
 let dir: string
@@ -95,5 +94,3 @@ describe('validateRolloutLine', () => {
     expect(errors.some((e) => e.includes('messages[2].tool_calls[0]'))).toBe(true)
   })
 })
-
-

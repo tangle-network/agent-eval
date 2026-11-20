@@ -143,8 +143,6 @@ export const FINDING_SUBJECT_PATTERNS: ReadonlyArray<{
   { kind: 'cluster', pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' },
 ]
 
-
-
 // ── parser ────────────────────────────────────────────────────────────
 
 /**

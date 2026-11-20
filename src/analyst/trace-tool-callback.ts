@@ -10,9 +10,9 @@ import {
   sendJsonIfOpen,
   waitForActiveHandlers,
 } from '../campaign/external-optimizer-http'
+import { isRecord } from '../llm-client/json'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 
-import { isRecord } from '../llm-client/json'
 interface TraceToolCallback {
   url: string
   token: string

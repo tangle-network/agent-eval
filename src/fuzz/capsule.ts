@@ -10,7 +10,14 @@
 
 import type { EvalRecord } from './cube'
 import { buildCoverage, distribution } from './cube'
-import type { ArchiveEntry, CapsuleData, Cell, CoverageCell, Distribution, FuzzFinding } from './types'
+import type {
+  ArchiveEntry,
+  CapsuleData,
+  Cell,
+  CoverageCell,
+  Distribution,
+  FuzzFinding,
+} from './types'
 
 export interface BuildCapsuleInput<S> {
   target: string

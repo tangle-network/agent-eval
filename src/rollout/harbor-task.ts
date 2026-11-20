@@ -190,8 +190,8 @@ export async function writeHarborTask(options: WriteHarborTaskOptions): Promise<
     'tests/production-delta.sh': commands.productionDelta,
     'tests/dangling-references.sh': commands.danglingReferences,
     'tests/test.sh':
-      '#!/bin/sh\nset -eu\nproject=${1:-/workspace/repo}\n' +
-      'tests=${2:-/tests}\nrewards=${3:-/logs/verifier}\nmkdir -p "$rewards"\n' +
+      `#!/bin/sh\nset -eu\nproject=\${1:-/workspace/repo}\n` +
+      `tests=\${2:-/tests}\nrewards=\${3:-/logs/verifier}\nmkdir -p "$rewards"\n` +
       'printf "0\\n" > "$rewards/reward.txt"\ncd "$project"\n' +
       `git cat-file -e ${baseCommit}^{commit}\ngit merge-base --is-ancestor ${baseCommit} HEAD\n` +
       'sh "$tests/acceptance.sh"\nsh "$tests/production-delta.sh"\nsh "$tests/dangling-references.sh"\n' +

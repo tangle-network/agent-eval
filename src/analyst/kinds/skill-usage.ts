@@ -22,9 +22,6 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-
-
-
 // ── Input model ──────────────────────────────────────────────────────
 
 type SkillKind = 'public' | 'private'
@@ -75,8 +72,6 @@ export interface SkillUsageScanConfig {
 }
 
 // ── Deterministic thresholds ─────────────────────────────────────────
-
-
 
 const TANGLE_PRIVATE_RE =
   /\b(cli-bridge|tangletools|ops-board|drew-gtr-pro|@tangle-network\/|~\/company|tangle\.tools|gtm-agent)\b|\bkimi\b|\btcloud\b/gi
@@ -227,14 +222,4 @@ export function buildSkillUsageReport(config: SkillUsageScanConfig): SkillUsageR
 
 // ── Finding emission (pure — unit-testable, no LLM, no fs) ────────────
 
-
-
-
-
-
-
 // ── The Analyst ──────────────────────────────────────────────────────
-
-
-
-

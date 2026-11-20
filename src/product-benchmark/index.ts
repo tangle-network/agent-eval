@@ -558,9 +558,7 @@ function sum<T>(items: readonly T[], fn: (item: T) => number): number {
   return items.reduce((total, item) => total + fn(item), 0)
 }
 
-function findProductBenchmarkArtifacts(
-  runDir: string,
-): ProductBenchmarkArtifactPaths | null {
+function findProductBenchmarkArtifacts(runDir: string): ProductBenchmarkArtifactPaths | null {
   const manifestPath = join(runDir, 'product-benchmark-manifest.json')
   const recordsPath = join(runDir, 'product-benchmark-records.jsonl')
   if (
@@ -603,5 +601,7 @@ export type {
   ProductBenchmarkSingleRunExportOptions,
 } from './export'
 export {
-  exportProductBenchmark, exportProductBenchmarkRuns, productBenchmarkRepoIdentity,
+  exportProductBenchmark,
+  exportProductBenchmarkRuns,
+  productBenchmarkRepoIdentity,
 } from './export'

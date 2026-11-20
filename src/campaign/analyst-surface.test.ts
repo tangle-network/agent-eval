@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeFinding } from '../analyst/types'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import {
-  type TraceAnalystScenario,
-  traceAnalystQualityJudge,
-} from './analyst-surface'
-
+import { type TraceAnalystScenario, traceAnalystQualityJudge } from './analyst-surface'
 
 const signal = new AbortController().signal
 
@@ -41,8 +37,6 @@ function finding(input: { subject?: string; uri: string; claim?: string }) {
     evidence_refs: [{ kind: 'span', uri: input.uri }],
   })
 }
-
-
 
 describe('traceAnalystQualityJudge', () => {
   const judge = traceAnalystQualityJudge()

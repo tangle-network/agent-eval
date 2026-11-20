@@ -8,13 +8,32 @@
  * For the conceptual overview, see `docs/wire-protocol.md`.
  */
 
-export { WireError } from './handlers'
 export type { HandleJudgeOptions, IngestionStores } from './handlers'
+export { WireError } from './handlers'
 
 export { dispatchRpc, type RpcOptions } from './rpc'
-
-export { ErrorResponseSchema, FeedbackTrajectorySchema, TraceEventSchema, WIRE_VERSION } from './schemas'
-export type { ErrorResponse, WireFailureMode, FeedbackIngestResponse, WireFeedbackTrajectory, JudgeRequest, JudgeResult, ListRubricsResponse, Rubric, WireRubricDimension, RubricInfo, WireTraceEvent, TracesIngestRequest, TracesIngestResponse, VersionResponse } from './schemas'
+export type {
+  ErrorResponse,
+  FeedbackIngestResponse,
+  JudgeRequest,
+  JudgeResult,
+  ListRubricsResponse,
+  Rubric,
+  RubricInfo,
+  TracesIngestRequest,
+  TracesIngestResponse,
+  VersionResponse,
+  WireFailureMode,
+  WireFeedbackTrajectory,
+  WireRubricDimension,
+  WireTraceEvent,
+} from './schemas'
+export {
+  ErrorResponseSchema,
+  FeedbackTrajectorySchema,
+  TraceEventSchema,
+  WIRE_VERSION,
+} from './schemas'
 export {
   createApp,
   type ServeOptions,

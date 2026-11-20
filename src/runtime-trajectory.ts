@@ -1,6 +1,5 @@
-import type { RunSplitTag } from './run-record'
-
 import { isRecord } from './llm-client/json'
+import type { RunSplitTag } from './run-record'
 export interface RuntimeTrajectoryHookEvent {
   id: string
   runId: string

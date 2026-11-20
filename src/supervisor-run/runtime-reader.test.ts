@@ -3,39 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-
 import { analyzeSupervisorRunSources } from './analyze'
-
-
 
 import { readRuntimeSupervisorRun } from './runtime-reader'
 
 import { isUnavailable } from './types'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 describe('journal-less Runtime run dirs — absence is a modeled result', () => {
   it('returns the absent source shape instead of throwing', async () => {

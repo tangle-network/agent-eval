@@ -1,7 +1,16 @@
 export * from './budget-breach'
 export * from './failure-cluster'
+export type {
+  DiffStep,
+  DivergenceReport,
+  FieldDifference,
+  StepDiff,
+  StepDivergence,
+  StepDivergenceKind,
+  StepPair,
+  StepPairing,
+} from './first-divergence'
 export { diffSteps, diffStepsFromSpans } from './first-divergence'
-export type { DiffStep, DivergenceReport, FieldDifference, StepDiff, StepDivergence, StepDivergenceKind, StepPair, StepPairing } from './first-divergence'
 export * from './judge-agreement'
 export type { RegressionOptions, RegressionSpec } from './regression'
 export * from './stuck-loop'

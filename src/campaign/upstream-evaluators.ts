@@ -1,6 +1,3 @@
-
-
-
 export interface PhoenixEvaluationResultLike {
   score?: number
   label?: string
@@ -32,19 +29,3 @@ interface UpstreamEvaluationContext {
   readonly signal: AbortSignal
   readonly callId?: string
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

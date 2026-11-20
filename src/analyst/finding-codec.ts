@@ -152,5 +152,3 @@ function describe(value: unknown): string {
   if (Array.isArray(value)) return 'an array'
   return `a ${typeof value}`
 }
-
-

@@ -38,9 +38,6 @@
  * fail-closed for harnesses where tool capture is guaranteed.
  */
 
-
-
-
 /** A tool-name matcher: does this tool name belong to the treatment under test?
  *  The caller supplies it — the substrate ships no `search` (or any) literal. */
 type ToolMatcher = (toolName: string) => boolean
@@ -124,7 +121,3 @@ export function gateTreatmentApplied(
 
   return { applied: true, gated: false, matchedCalls, observedTools }
 }
-
-
-
-

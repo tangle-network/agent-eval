@@ -104,8 +104,6 @@ describe('askTraceQuestions', () => {
   })
 })
 
-
-
 function result(answer: string, findings: RawAnalystFinding[] = []) {
   return { answer, findings, trajectory: [], modelCalls: 1, toolCalls: 1, runtime: {} }
 }

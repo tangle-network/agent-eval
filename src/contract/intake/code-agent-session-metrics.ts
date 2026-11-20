@@ -1,9 +1,8 @@
 import { estimateCost, isModelPriced } from '../../metrics'
 import type { RunCostProvenance, RunTokenUsage } from '../../run-record'
+import { clamp01 } from '../../run-score'
 import { extractUsage } from '../../trace/extract-usage'
 import type { CodeAgentSessionMetrics } from './code-agent-session-types'
-
-import { clamp01 } from '../../run-score'
 export function emptyMetrics(entries: number): CodeAgentSessionMetrics {
   return {
     entries,
@@ -141,4 +140,3 @@ export function resolveSessionCost(
 
   return { costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } }
 }
-

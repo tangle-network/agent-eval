@@ -86,7 +86,7 @@ export type {
   SearchPlateauView,
 } from './plateau'
 export { draftOnPlateau, searchPlateau } from './plateau'
-export type { LensResult, LensSignal, LensSampleSummary } from './shared'
+export type { LensResult, LensSampleSummary, LensSignal } from './shared'
 export { rankingSplit, summarizeSamples } from './shared'
 export type {
   SkillCalibration,

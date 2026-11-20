@@ -21,7 +21,6 @@
 
 import type { EvidenceRef } from './analyst/types'
 
-
 /** Verdict for one candidate relative to its parent. ITERATE is the neutral
  *  "keep collecting reps / no parent to compare against" state. */
 type ExperimentVerdict = 'KEEP' | 'ITERATE' | 'NOISE' | 'REGRESSION'
@@ -84,9 +83,3 @@ export interface ImprovementVerdictResult {
   /** Human-readable reason for the verdict — for dashboards and logs. */
   reason: string
 }
-
-
-
-
-
-

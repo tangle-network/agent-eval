@@ -3,7 +3,6 @@ import { validateAgentProfileCell } from '../agent-profile-cell'
 import { ValidationError } from '../errors'
 import { hashCanonical } from '../ledger-core/canonical'
 
-
 import type { AnalystFinding, EvidenceRef } from './types'
 
 export type PolicyEditSchemaVersion = 'policy-edit/v1'
@@ -143,11 +142,7 @@ export interface PolicyEditAdmission {
   reasons: string[]
 }
 
-
-
 const POLICY_EDIT_ID = /^policy-edit:sha256:[0-9a-f]{64}$/
-
-
 
 function computePolicyEditId(edit: Omit<PolicyEdit, 'editId'> | PolicyEdit): string {
   const { editId: _editId, schemaVersion, ...material } = edit as PolicyEdit
@@ -214,42 +209,6 @@ function validatePolicyEditCandidateRecord(input: unknown): PolicyEditCandidateR
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<object>()): void {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return
   if (typeof value === 'number') {
@@ -284,14 +243,6 @@ function assertJsonSafe(value: unknown, path: string, ancestors = new WeakSet<ob
   }
   ancestors.delete(value)
 }
-
-
-
-
-
-
-
-
 
 function validateTarget(target: unknown): asserts target is PolicyEditTarget {
   if (!target || typeof target !== 'object')
@@ -391,8 +342,6 @@ function assertJson(value: unknown, path: string): asserts value is AgentProfile
   throw new PolicyEditValidationError('expected JSON-compatible value', path)
 }
 
-
-
 // Assigning through these keys on a plain object mutates the prototype chain
 // instead of writing an own property: the edit silently no-ops after
 // JSON.stringify, or crashes the canonical hasher. Edits are analyst- and
@@ -431,17 +380,11 @@ function expectString(value: unknown, path: string): asserts value is string {
   }
 }
 
-
-
 function expectConfidence(value: unknown, path: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     throw new PolicyEditValidationError('expected finite number in [0,1]', path)
   }
 }
-
-
-
-
 
 function expectOneOf<const T extends readonly string[]>(
   value: unknown,
@@ -462,7 +405,3 @@ function expectNonEmptyStringArray(value: unknown, path: string): asserts value 
   expectStringArray(value, path)
   if (value.length === 0) throw new PolicyEditValidationError('expected non-empty array', path)
 }
-
-
-
-
