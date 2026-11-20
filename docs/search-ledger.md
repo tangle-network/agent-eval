@@ -299,9 +299,11 @@ The loop's scenarios are its proposer's feedback, so they are the train split; i
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
 `importExternalEvaluations` turns the callback's evaluations into `external` cells; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
 The evaluation callback runs each request as a campaign and keeps a `CampaignCellMeasurement` of every campaign cell on the request's observation (`measurement`), never in the optimizer's response.
-The importer records each distinct measured cell once, through `campaignCellSearchResult`, so an imported cell has the campaign cell's own outcome and dimensions, tokens, cost, model, duration and attempt; every rep of a multi-rep evaluation is its own cell, and the search's `maxCells` is the evaluation limit times the reps.
+The importer records each distinct measured cell once, through `campaignCellSearchResult`, so an imported cell has the campaign cell's own outcome and dimensions, tokens, cost, model, duration, attempt and trace; every rep of a multi-rep evaluation is its own cell, and the search's `maxCells` is the evaluation limit times the reps.
 A request the callback answered from an earlier request's cells is `reused` in the observation log and adds no cell; the import reports `measuredCells` and `reusedRequests`.
-An observation log written before measurements were recorded, and a failed evaluation (logged as a refusal), still record one cell per evaluation, with unknown tokens and cost.
+An evaluation refused after it measured, such as one whose evidence no excerpt fits `maxEvidenceChars`, keeps its cells on the refusal's `measurement`: the importer records them with their real tokens and cost and an `errored` outcome with code `evaluation-refused`, which keeps the measured metrics and is unscored because the optimizer received no score.
+An observation log written before measurements were recorded, and a refusal that measured nothing, still record one cell per evaluation, with unknown tokens and cost.
+A measurement logged before cells carried their trace imports as before, with an unknown trace that names the measuring attempt.
 SkillOpt reports no parents, so every candidate it evaluated gets an `unknown` edge; its choice is `selected` and the others are `rejected`.
 A composed GEPA recipe reports no population either, so its candidates are recorded the same way; every GEPA recipe writes a ledger.
 
@@ -350,7 +352,10 @@ The ports:
   An environment fault is an `errored` outcome; a rejection stops the search.
   An executor that measures a cell with a one-cell `runCampaign` maps the campaign cell with `campaignCellSearchResult(cell, { execution, lane })`, as `runOptimization` does.
   Its metrics are `composite`, `judge.<judge>` for each judge and `dimension.<judge>.<dimension>` for each judge dimension; a failed judge contributes none and leaves the cell `errored`.
-  `runCampaign` assigns no trace id, so the trace reference is unknown and its reason names the attempt (`<runAttemptId>/attempt-<n>`) whose trace writer received the cell's spans; a dispatcher that wants a known `traceRef` needs a trace id `runCampaign` can carry on the cell.
+  Its `traceRef` is the one the cell carries: after an attempt's final flush, `runCampaign` asks the attempt's trace writer for `traceRef()` and records the answer as `CampaignCellResult.traceRef`.
+  The default writer answers with the W3C trace id of the attempt's run `<runAttemptId>/<cellId>/attempt-<n>` (the trace contract's `toW3CTraceId`), the spans it wrote to `<attempt>/trace/spans.jsonl`, each of which carries that id as `traceId`, and the spans opened but never ended as dropped.
+  A `buildTraceWriter` that sends spans elsewhere implements `traceRef` with that store's id; a writer without it, such as a no-op writer, leaves the trace unknown with that reason.
+  A cached cell keeps the trace of the attempt that measured it, and a cell cached before cells carried a trace stays unknown, naming its attempt.
 - **Proposer:** `propose({ parents, operator, leader })` returns children with a label, a rationale and optional typed `attribution`, plus the operation's accounting.
   Its output is stored as a `proposal` blob on `operation-recorded` before any child is registered.
 - **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.

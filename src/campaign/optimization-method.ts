@@ -19,6 +19,7 @@ import {
   type OptimizationTokenUsage,
 } from './optimization-cost'
 import type { RunCampaignOptions } from './run-campaign'
+import type { DescribeArtifact } from './score-utils'
 import {
   assertCompleteSearchHistory,
   assertSearchHistoryAdmissionOptions,
@@ -115,6 +116,13 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   ) => Promise<TArtifact>
   /** Scores artifacts produced by `dispatchWithSurface`. */
   readonly judges: readonly JudgeConfig<TArtifact, TScenario>[]
+  /**
+   * How the caller shows a non-string artifact to the method's optimizer, the
+   * same for every method. The GEPA, SkillOpt and external-text methods send
+   * it as each evaluation's evidence and refuse a different hook configured on
+   * the method itself; a custom method forwards it to `runOptimization`.
+   */
+  readonly describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   /** Method-specific artifacts are written below this directory. */
   readonly runDir: string
   readonly seed: number

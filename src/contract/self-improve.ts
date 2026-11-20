@@ -40,6 +40,7 @@ import {
 } from '../campaign/provenance'
 import type { CampaignCellRetryPolicy } from '../campaign/run-campaign'
 import { resolveRunDir } from '../campaign/run-dir'
+import type { DescribeArtifact } from '../campaign/score-utils'
 import type { SearchHistoryReceipt } from '../campaign/search-history-receipt'
 import {
   assertSearchHistoryAdmissionOptions,
@@ -164,6 +165,16 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
 
   /** Judge that scores artifacts. Bring your own, or wrap `llmJudge`. */
   judge: JudgeConfig<TArtifact, TScenario>
+
+  /**
+   * How the optimizer is shown a non-string artifact. The reflective proposer
+   * reads the described value as its JSON text in `scenarios[].emitted`; a
+   * `method` receives it as `OptimizationMethodInput.describeArtifact`, which
+   * GEPA and SkillOpt return as each evaluation's evidence. Without it a
+   * non-string artifact shows the optimizer nothing; a string artifact is its
+   * own evidence.
+   */
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
 
   /** Starting surface — system prompt, JSON config, anything `MutableSurface`
    *  accepts. The proposer mutates this each generation. */
@@ -814,6 +825,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     dispatchRef: opts.dispatchRef,
     proposer,
     judges: [opts.judge],
+    describeArtifact: opts.describeArtifact,
     populationSize,
     maxGenerations: generations,
     candidateConcurrency: budget.candidateConcurrency,

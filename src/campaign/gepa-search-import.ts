@@ -173,10 +173,12 @@ export interface GepaEvaluationImport {
  * Record the callback's evaluations as `external` cells. An evaluation that
  * carries its measurement records each campaign cell it names once, through
  * `campaignCellSearchResult`, so the ledger holds the cell's own outcome,
- * dimensions, tokens, cost, model, duration and attempt; a request answered
- * from an earlier request's cells adds none. An evaluation logged without its
- * cells (a log written before the callback recorded them, or a failed
- * evaluation, logged as a refusal) records one cell whose accounting is
+ * dimensions, tokens, cost, model, duration, attempt and trace; a request
+ * answered from an earlier request's cells adds none. A refusal that measured
+ * cells before it was refused records them the same way, with their real
+ * accounting and an `evaluation-refused` outcome. An evaluation logged
+ * without cells (a log written before the callback recorded them, or a
+ * refusal that measured nothing) records one cell whose accounting is
  * unknown. A candidate that is not yet a node (GEPA evaluated it on a
  * minibatch and discarded it, or SkillOpt, which reports no parents, proposed
  * it) is registered with an `unknown` edge.
@@ -229,7 +231,8 @@ export async function importExternalEvaluations(input: {
       unrecorded.push(registered.nodeId)
     }
     const split = input.splitOf(exampleId)
-    const measurement = observation.kind === 'evaluation' ? observation.measurement : undefined
+    const measurement = observation.kind === 'proposal' ? undefined : observation.measurement
+    const refused = observation.kind === 'refusal'
     const allocate = async (): Promise<string> => {
       const repKey = `${registered.nodeId}\u0000${exampleId}`
       const rep = reps.get(repKey) ?? 0
@@ -256,10 +259,12 @@ export async function importExternalEvaluations(input: {
         })
         if (recordedCells.has(key)) continue
         recordedCells.add(key)
+        const result = campaignCellSearchResult(cell, { execution: input.identity, lane })
         await recorder.settleCell({
           cellId: await allocate(),
           attempt: 1,
-          ...campaignCellSearchResult(cell, { execution: input.identity, lane }),
+          ...result,
+          ...(refused ? { outcome: refusedAfterMeasurement(result.outcome) } : {}),
         })
         cells += 1
       }
@@ -297,6 +302,29 @@ export async function importExternalEvaluations(input: {
     measuredCells: recordedCells.size,
     reusedRequests,
     unrecordedParentNodeIds: unrecorded,
+  }
+}
+
+/**
+ * A cell the callback measured and then refused to return to the optimizer,
+ * for example because its evidence did not fit the bound. Its accounting and
+ * metrics are the measurement's, since the spend was real; it is unscored,
+ * because the optimizer received no score, and the error names what the
+ * measurement found.
+ */
+function refusedAfterMeasurement(measured: SearchTaskOutcome): SearchTaskOutcome {
+  const found =
+    measured.status === 'errored'
+      ? `an unscored cell (${measured.error.code}: ${measured.error.message})`
+      : `a ${measured.status} cell scoring ${measured.score}`
+  return {
+    status: 'errored',
+    metrics: measured.metrics,
+    error: {
+      code: 'evaluation-refused',
+      message: `the evaluation callback refused the evaluation after measuring ${found}; the optimizer received no score`,
+      retryable: false,
+    },
   }
 }
 

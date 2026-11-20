@@ -155,8 +155,16 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   expectUsage?: 'assert' | 'warn' | 'off'
   /** Test seam — override the wall clock for deterministic tests. */
   now?: () => Date
-  /** Override the trace writer. The supplied directory belongs to this attempt. */
-  buildTraceWriter?: (cellId: string, dir: string) => CampaignTraceWriter
+  /**
+   * Override the trace writer. The supplied directory and attempt belong to
+   * this execution attempt. Implement `traceRef` so each cell names the trace
+   * its spans went to; without it the cell's trace is unknown.
+   */
+  buildTraceWriter?: (
+    cellId: string,
+    dir: string,
+    attempt: { runAttemptId: string; number: number },
+  ) => CampaignTraceWriter
   /** Storage backend for run/cell dirs, the resumability cache, artifacts,
    *  and trace spans. Default: the Node filesystem (`fsCampaignStorage`).
    *  Pass `inMemoryCampaignStorage()` to run in a filesystem-less runtime
