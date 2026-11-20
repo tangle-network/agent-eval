@@ -381,7 +381,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `RunRecordValidationError` | production | starter-foundry:src/lib/index.ts |
 | `runSemanticConceptJudge` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-router.ts |
 | `runsForScenario` | production | ph0ny:products/builder/api/src/eval/gate.ts |
-| `runTaskScore` | production | this package: src/campaign/presets/run-profile-matrix.ts:54 |
+| `runTaskScore` | production | this package: src/campaign/presets/run-profile-matrix.ts:55 |
 | `sampleMedian` | production | agent-dev-container:products/sandbox/evals/run.ts |
 | `scoreKnowledgeReadiness` | production | agent-builder:src/lib/.server/runtime/agent-task-readiness.ts |
 | `scoreRedTeamOutput` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-gate.ts |
@@ -414,7 +414,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `trajectoryTimingBoundary` | production | this package: src/counterfactual.ts:23 |
 | `transientDispatchFailure` | planned | doc: docs/eval-surface-map.md |
 | `twoByTwoPValue` | production | agent-dev-container:packages/sdk-data/src/analysis/recommendations/statistics.ts |
-| `UNKNOWN_MODEL` | production | this package: src/campaign/presets/run-profile-matrix.ts:54 |
+| `UNKNOWN_MODEL` | production | this package: src/campaign/presets/run-profile-matrix.ts:55 |
 | `userQuestionsForKnowledgeGaps` | production | agent-dev-container:products/intelligence/api/src/routes/project-engines.ts |
 | `validateRunRecord` | production | agent-builder:src/lib/.server/eval/stores/run-record-store.ts |
 | `ValidationError` | production | agent-runtime:src/errors.ts |
