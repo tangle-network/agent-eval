@@ -33,6 +33,7 @@
 import type { TraceAnalysisEngine, TraceAnalystLimits } from '../analyst/engine'
 import type { CostLedgerHandle } from '../cost-ledger'
 import { ValidationError } from '../errors'
+import { isRecord } from '../llm-client/json'
 import {
   type ActionPayloadKind,
   type InterventionBudget,
@@ -46,8 +47,6 @@ import type {
   RepairArmUsage,
 } from './analyst-arm'
 import { REPAIR_QUESTION, repairTaskPolicy } from './repair-prompt'
-
-import { isRecord } from '../llm-client/json'
 /**
  * Token the bridge reads to select the typed repair signature.
  *

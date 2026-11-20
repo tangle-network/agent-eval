@@ -40,10 +40,6 @@ export interface Oracle {
   check(obs: OracleObservation): OracleResult
 }
 
-
-
-
-
 export function jsonShape(expected: Record<string, unknown>): Oracle {
   const id = `json-shape(${Object.keys(expected).join(',')})`
   return {
@@ -73,10 +69,6 @@ export function jsonShape(expected: Record<string, unknown>): Oracle {
     },
   }
 }
-
-
-
-
 
 /** Extends the substrate verdict spine: `valid` = every oracle passed (and
  *  at least one ran); `score` = ratio of oracles passed; `scores` = per-
@@ -110,5 +102,3 @@ export function evaluateOracles(obs: OracleObservation, oracles: Oracle[]): Orac
     },
   }
 }
-
-

@@ -194,8 +194,6 @@ describe('fuzzAgent (adversarial preset)', () => {
   })
 })
 
-
-
 describe('capsule rendering', () => {
   it('renders heat-map, dimension chips, and gate-verified findings', async () => {
     const { capsule } = await fuzzAgent(base)

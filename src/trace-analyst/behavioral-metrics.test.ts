@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-
 import {
   LLM_CACHE_WRITE_TOKENS,
   LLM_CACHED_TOKENS,
@@ -634,5 +633,3 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(codes).not.toContain('output-length-decay')
   })
 })
-
-

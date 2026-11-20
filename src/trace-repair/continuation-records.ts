@@ -12,7 +12,6 @@ import type { CostProvenance } from '../cost-ledger'
 import type { RunTokenUsage } from '../run-record'
 import { contentHash } from '../verdict-cache'
 
-
 /** Which arm produced a rollout. The policy is identical across all three. */
 export type ContinuationArm = 'intervention' | 'no-fix-control' | 'no-op-control'
 
@@ -134,8 +133,6 @@ export interface RecordedStep {
   tools: RecordedToolCall[] | null
   obs: string | null
 }
-
-
 
 /** Corpus steps for the continuation alone, excluding the prefix it inherited. */
 export function rolloutRecordedSteps(rollout: ContinuationRollout): RecordedStep[] {

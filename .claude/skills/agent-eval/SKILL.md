@@ -123,7 +123,7 @@ Nothing installs, builds or runs a suite on a workstation: every check runs thro
 
 | Change | Gate command |
 |---|---|
-| Any | `pnpm typecheck` and the touched integration test |
+| Any | `pnpm typecheck`, `pnpm lint` and the touched integration test |
 | Shared contracts, campaign logic, statistics, trace capture or public exports | add `pnpm build && pnpm test && pnpm verify:package` |
 | Stable serialization | add `pnpm check:canonical-json` |
 | Examples or their imports | add `pnpm typecheck:examples` |

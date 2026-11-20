@@ -1,25 +1,6 @@
-
 import { describe, expect, it } from 'vitest'
 
-
-
-import {
-  type ScoreboardRow,
-  scoreboardSummary,
-} from './playback'
-
-
-
-
-
-
-
-
-
-
-
-
-
+import { type ScoreboardRow, scoreboardSummary } from './playback'
 
 // Two stories: s1 fully passes (2/2), s2 fails its only requirement. A pipe in
 // s2's requirement title exercises markdown-cell escaping.
@@ -73,5 +54,3 @@ describe('scoreboardSummary', () => {
     })
   })
 })
-
-

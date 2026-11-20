@@ -1,14 +1,6 @@
-
-
 import { describe, expect, it } from 'vitest'
 
-
-
 import { assertAnalystBenchmarkObservation } from './benchmark-command-artifact'
-
-
-
-
 
 describe('the observation gate accepts every usage receipt a runner can emit', () => {
   const observation = (usage: unknown) => ({

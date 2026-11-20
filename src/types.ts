@@ -216,8 +216,6 @@ export type JudgeFn = (chat: ChatClient, input: JudgeInput) => Promise<Dimension
 
 // ── E2E Test Types ──
 
-
-
 export interface CheckResult {
   name: string
   passed: boolean

@@ -32,8 +32,6 @@ export interface BuildTraceAnalystSurfaceDispatchOptions {
   }): Promise<TraceAnalystArtifact>
 }
 
-
-
 export function traceAnalystQualityJudge(): JudgeConfig<
   TraceAnalystArtifact,
   TraceAnalystScenario

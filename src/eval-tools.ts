@@ -13,12 +13,6 @@
  * `toOpenAiTool` converts a definition to the OpenAI function-tool wire shape.
  */
 
-
-
-
-
-
-
 /** One agent-callable tool. `parameters` is a JSON Schema (draft-07+) object. */
 export interface EvalToolDef {
   name: string
@@ -27,24 +21,8 @@ export interface EvalToolDef {
   handler: (args: unknown, ctx?: { signal?: AbortSignal }) => Promise<unknown>
 }
 
-
-
-
-
-
-
 // ── run_judges ───────────────────────────────────────────────────────────
-
-
 
 // ── verify_completion ────────────────────────────────────────────────────
 
-
-
 // ── analyze_runs ─────────────────────────────────────────────────────────
-
-
-
-
-
-

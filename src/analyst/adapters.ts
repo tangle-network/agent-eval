@@ -12,20 +12,9 @@
  * The adapter owns no state. Calling the factory twice is safe.
  */
 
-
-
-import {
-  type SemanticConceptJudgeOptions,
-} from '../semantic-concept-judge'
-
-
-
-
-
+import type { SemanticConceptJudgeOptions } from '../semantic-concept-judge'
 
 // ── Severity bridges ───────────────────────────────────────────────
-
-
 
 // ── SemanticConceptJudge → Analyst ─────────────────────────────────
 
@@ -37,5 +26,3 @@ export interface SemanticConceptJudgeAdapterOpts {
   /** Maximum post-cancellation wait for a provider receipt. Default 5 seconds. */
   settlementTimeoutMs?: number
 }
-
-

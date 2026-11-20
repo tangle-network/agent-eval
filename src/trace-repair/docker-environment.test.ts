@@ -26,8 +26,6 @@ function recordingRunner(results: ProcessResult[]): RecordingRunner {
   }
 }
 
-
-
 describe('createDockerContinuationEnvironment', () => {
   it('reports the network mode the daemon holds, not the one requested', async () => {
     const runner = recordingRunner([

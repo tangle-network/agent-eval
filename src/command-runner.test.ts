@@ -234,5 +234,3 @@ describe('localCommandRunner on runBoundedProcess', () => {
     expect(timerFired).toBe(true)
   }, 20_000)
 })
-
-

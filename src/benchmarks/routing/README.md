@@ -9,14 +9,14 @@ route label.
 
 Every item in `dataset.ts` has six fields:
 
-| Field | Type | Notes |
-|---|---|---|
-| `id` | string | Stable per-task ID. Used for deterministic split assignment. |
-| `category` | `'file' \| 'math' \| 'search' \| 'chat'` | Coarse intent. |
-| `prompt` | string | The user-facing request the router must classify. |
-| `route` | string | Canonical correct route label, format `category.action`. |
-| `synonyms` | string[] | Alternate route labels that count as correct. |
-| `hardNegatives` | string[] | Wrong-but-tempting labels (analysis only). |
+| Field           | Type                                     | Notes                                                        |
+| --------------- | ---------------------------------------- | ------------------------------------------------------------ |
+| `id`            | string                                   | Stable per-task ID. Used for deterministic split assignment. |
+| `category`      | `'file' \| 'math' \| 'search' \| 'chat'` | Coarse intent.                                               |
+| `prompt`        | string                                   | The user-facing request the router must classify.            |
+| `route`         | string                                   | Canonical correct route label, format `category.action`.     |
+| `synonyms`      | string[]                                 | Alternate route labels that count as correct.                |
+| `hardNegatives` | string[]                                 | Wrong-but-tempting labels (analysis only).                   |
 
 ## Splits
 

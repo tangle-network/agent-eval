@@ -14,7 +14,7 @@
  * any `JudgeFn` array transparently.
  */
 
-import type { JudgeFn, JudgeInput, DimensionJudgeScore } from './types'
+import type { DimensionJudgeScore, JudgeFn, JudgeInput } from './types'
 
 interface AntiSlopConfig {
   /** Domain label — appears in the DimensionJudgeScore output */

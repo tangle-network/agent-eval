@@ -33,7 +33,6 @@
  * scorecard/grading concept that makes sense without a running agent loop.
  */
 
-
 import { ValidationError } from './errors'
 
 // ── 1. field routing by destination ──────────────────────────────────────────
@@ -85,8 +84,6 @@ export interface RoutedField {
   value: string
   destination: FieldDestination
 }
-
-
 
 /** A single detected leak: a hidden field whose value appears in the agent context. */
 export interface HiddenLeak {
@@ -169,10 +166,6 @@ export type HiddenCriteriaGrader<TArtifact, THidden> = (
   signal?: AbortSignal,
 ) => Promise<HiddenGradeResult> | HiddenGradeResult
 
-
-
-
-
 // ── the composite: hidden correctness (PRIMARY) + judge quality (secondary) ────
 
 /** Weights for the held-out / judge blend. Must be finite and non-negative;
@@ -227,8 +220,6 @@ export function blendHeldout(
   const judge = clampUnit(judgeScore)
   return w.heldout * heldout + w.judge * judge
 }
-
-
 
 function clampUnit(value: number): number {
   if (!Number.isFinite(value)) return 0

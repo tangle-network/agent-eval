@@ -157,7 +157,7 @@ function openAttempt<TScenario extends Scenario, TArtifact>(
       if (
         !artifactPath ||
         artifactPath === '..' ||
-        artifactPath.startsWith('..' + sep) ||
+        artifactPath.startsWith(`..${sep}`) ||
         isAbsolute(artifactPath)
       ) {
         throw new Error('Artifact path must remain inside this execution attempt')

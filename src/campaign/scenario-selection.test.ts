@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  type ScenarioSignal,
-  scoreDiscrimination,
-} from './scenario-selection'
+import { type ScenarioSignal, scoreDiscrimination } from './scenario-selection'
 
 describe('scoreDiscrimination', () => {
   it('ranks a high-variance scenario above a low-variance one', () => {
@@ -55,5 +52,3 @@ describe('scoreDiscrimination', () => {
     expect(scoreDiscrimination(signals, { saturationCeiling: 0.95 })[0]!.tied).toBe(false)
   })
 })
-
-

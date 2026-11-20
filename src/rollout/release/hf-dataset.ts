@@ -230,7 +230,8 @@ function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {
     } else if (arg === '--formats') {
       args.formats = (argv[++i] ?? '').split(',').filter(Boolean) as ReleaseFormat[]
       const unknown = args.formats.find((format) => !RELEASE_FORMATS.includes(format))
-      if (unknown) throw new Error(`unknown format "${unknown}" — expected one of ${RELEASE_FORMATS}`)
+      if (unknown)
+        throw new Error(`unknown format "${unknown}" — expected one of ${RELEASE_FORMATS}`)
     } else if (arg === '--include-proposers') {
       args.includeProposers = true
     } else if (arg === '--denylist') {

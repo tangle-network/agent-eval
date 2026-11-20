@@ -6,7 +6,8 @@ export {
   expandCodeTraceFailureBlocks,
 } from './benchmark-public-adapters'
 export {
-  loadPublicBenchmarkRows, preparePublicAnalystBenchmark,
+  loadPublicBenchmarkRows,
+  preparePublicAnalystBenchmark,
 } from './benchmark-public-data'
 export { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 export {

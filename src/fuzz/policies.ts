@@ -8,12 +8,7 @@
  */
 
 import type { AdversarialMutation } from '../rl/adversarial'
-import type {
-  Cell,
-  MutationProposer,
-  FuzzObjective,
-  FuzzProposeContext,
-} from './types'
+import type { Cell, FuzzObjective, FuzzProposeContext, MutationProposer } from './types'
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x))
 
@@ -57,7 +52,3 @@ export function mutationProposer<S>(opts: {
 export function adversarialObjective(threshold = 0.5): FuzzObjective {
   return { kind: 'adversarial', threshold, interest: (ev) => clamp01(1 - ev.score) }
 }
-
-
-
-

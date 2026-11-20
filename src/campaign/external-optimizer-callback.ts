@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { isRecord } from '../llm-client/json'
 import { contentHash } from '../verdict-cache'
 import {
   type ExternalEvaluationMeasurement,
@@ -10,7 +11,6 @@ import {
   isExternalTextCandidate,
   resolveExternalOptimizerCallbackLimits,
 } from './external-optimizer-contracts'
-import { isRecord } from '../llm-client/json'
 import {
   closeServer,
   listenLocal,

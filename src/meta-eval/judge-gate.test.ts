@@ -169,8 +169,6 @@ describe('registerCalibrationSet and addCalibrationVerdicts', () => {
   })
 })
 
-
-
 describe('veto judges', () => {
   // Owners reject for reasons a copy check never sees, so its misses are expected; blocking what they approved is not.
   const owner = {

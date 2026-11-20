@@ -41,7 +41,9 @@ describe('OtlpFileTraceStore', () => {
     const fromBytes = otlpTextToTraceAnalysisStore(pooled.subarray(8, 8 + bytes.byteLength))
 
     expect(await fromBytes.getOverview()).toEqual(await fromText.getOverview())
-    expect(() => otlpTextToTraceAnalysisStore(new Uint8Array([0x20, 0x0a]))).toThrow(/must not be empty/)
+    expect(() => otlpTextToTraceAnalysisStore(new Uint8Array([0x20, 0x0a]))).toThrow(
+      /must not be empty/,
+    )
   })
 
   it('throws TraceFileMissingError synchronously for a missing path so callers fail fast', async () => {

@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { type FileHandle, open, readdir, realpath } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 import { compareCodeUnits } from '../ledger-core/canonical'
+import { isRecord } from '../llm-client/json'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import {
   BufferTraceStore,
@@ -28,7 +29,6 @@ import {
   positiveSafeInteger,
   safeInteger,
 } from './benchmark-public-types'
-import { isRecord } from '../llm-client/json'
 import {
   appendVerificationArtifactsToOtlp,
   DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,

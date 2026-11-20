@@ -57,21 +57,6 @@
  * | driverSteerCalls, brainTruncations | full | NONE | no outer driver log, no per-call finish_reason tap |
  */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export interface ClaudeCodeReaderOptions {
   /** The main session transcript: `~/.claude/projects/<slug>/<sessionId>.jsonl`. */
   readonly transcriptPath: string
@@ -87,33 +72,3 @@ export interface ClaudeCodeReaderOptions {
   readonly steerTools?: readonly string[]
   readonly cancelTools?: readonly string[]
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

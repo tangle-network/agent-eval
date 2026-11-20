@@ -295,8 +295,6 @@ function clampPct(v: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0
 }
 
-
-
 // ── Realness-direct LLM judge ─────────────────────────────────────────────────
 
 export interface RealnessJudgment {

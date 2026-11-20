@@ -47,8 +47,6 @@ vi.mock('node:fs/promises', async () => {
   }
 })
 
-
-
 describe('public analyst benchmark output adapters', () => {
   it('expands a subject-encoded failure block into one incorrect-step finding per member', async () => {
     const { findings, diagnostics } = await adaptPublicBenchmarkFindings({

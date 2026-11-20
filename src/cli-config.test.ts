@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveCliLlmConfig } from './cli-config'
 
-
-
 describe('resolveCliLlmConfig', () => {
   it('binds the resolved route into the transport the wire handlers take', () => {
     const config = resolveCliLlmConfig({

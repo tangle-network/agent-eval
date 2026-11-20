@@ -20,14 +20,6 @@ import { ValidationError } from './errors'
 
 import { isRunRecord, type RunRecord, validateRunRecord } from './run-record'
 
-
-
-
-
-
-
-
-
 /**
  * Backing persistence for `EvalTraceStore`. The in-memory store is the default;
  * the JSONL file store appends one validated `RunRecord` per line. Both keep an
@@ -37,8 +29,6 @@ export interface RunRecordBackend {
   append(record: RunRecord): Promise<void>
   load(): Promise<RunRecord[]>
 }
-
-
 
 /**
  * JSONL-backed store at `path`, one `RunRecord` per line. Malformed lines fail
@@ -93,5 +83,3 @@ export function jsonlRunRecordBackend(
     },
   }
 }
-
-

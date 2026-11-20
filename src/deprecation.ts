@@ -12,5 +12,3 @@ export function warnDeprecatedOnce(key: string, message: string): void {
   warned.add(key)
   console.warn(`[agent-eval deprecation] ${message}`)
 }
-
-

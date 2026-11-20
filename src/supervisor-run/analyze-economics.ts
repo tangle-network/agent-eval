@@ -96,11 +96,7 @@ export function buildPerWorker(a: Analysis, f: SpendFacts, t: TotalUsd): PerWork
 }
 
 /** The supervisor brain's tokens, cache and USD. */
-function buildBrainSpend(
-  a: Analysis,
-  f: SpendFacts,
-  t: TotalUsd,
-): EconomicsMetrics['brain'] {
+function buildBrainSpend(a: Analysis, f: SpendFacts, t: TotalUsd): EconomicsMetrics['brain'] {
   const { src, gap, journalMissing, haveJournal, tree } = a
   const { brainTokensUnreported, brainUsdUnreported } = f
   const { usdLimit } = t

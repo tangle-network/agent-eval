@@ -171,7 +171,7 @@ describe('Codex retained rollout intake through the public rollout boundary', ()
   it('keeps corruption evidence and rejects malformed middle records in strict mode', async () => {
     const lines = (await readFile(FIXTURE, 'utf8')).trimEnd().split('\n')
     const path = join(dir, `rollout-${SESSION_ID}.jsonl`)
-    await writeFile(path, [...lines.slice(0, 3), '{bad json', ...lines.slice(3)].join('\n') + '\n')
+    await writeFile(path, `${[...lines.slice(0, 3), '{bad json', ...lines.slice(3)].join('\n')}\n`)
     const recovered = await readCodexRollout(path)
     expect(recovered.usage).toEqual({
       input: 300,
@@ -220,7 +220,7 @@ describe('Codex retained rollout intake through the public rollout boundary', ()
   it('does not invent usage or tool results for an incomplete capture, and marks a torn tail', async () => {
     const lines = (await readFile(FIXTURE, 'utf8')).trimEnd().split('\n')
     const pendingPath = join(dir, `pending-${SESSION_ID}.jsonl`)
-    await writeFile(pendingPath, lines.slice(0, 6).join('\n') + '\n')
+    await writeFile(pendingPath, `${lines.slice(0, 6).join('\n')}\n`)
     const pending = await readCodexRollout(pendingPath)
     expect(pending.ending.status).toBe('open')
     expect(pending.usage).toBeNull()
@@ -229,7 +229,7 @@ describe('Codex retained rollout intake through the public rollout boundary', ()
     ).toEqual([CALL_IDS[0]])
     expect(pending.messages.some((message) => message.role === 'tool')).toBe(false)
     const tornPath = join(dir, `torn-${SESSION_ID}.jsonl`)
-    await writeFile(tornPath, lines.join('\n') + '\n{')
+    await writeFile(tornPath, `${lines.join('\n')}\n{`)
     const torn = await readCodexRollout(tornPath)
     expect(torn.integrity.truncated).toBe(true)
     expect(torn.integrity.gaps).toContain(

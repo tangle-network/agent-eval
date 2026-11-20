@@ -94,8 +94,6 @@ export class VerificationError extends AgentEvalError {
   }
 }
 
-
-
 /** Preserve an arbitrary thrown value as a public diagnostic message. */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

@@ -16,7 +16,6 @@
 
 import type { Span } from '../trace/schema'
 
-
 const EDIT_TOOLS =
   /(edit|write|patch|apply|str_replace|create.*file|save|insert|update.*file|multi_edit)/i
 
@@ -125,8 +124,6 @@ export function extractCodeEdits(spans: readonly Span[]): CodeEdit[] {
     .filter((e): e is CodeEdit => e != null)
     .sort((a, b) => a.startedAt - b.startedAt)
 }
-
-
 
 /** The text the animation types for an edit: prefer the full new file body,
  *  then the added lines of a diff, then a minimal placeholder so the scene is

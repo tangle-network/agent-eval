@@ -221,7 +221,8 @@ function tryLinkOwner(lockPath: string, owner: AtomicFileLockOwner, suffix: stri
 function ownerState(lockPath: string): OwnerState {
   const current = readOwner(lockPath)
   if (!current) return { state: 'missing' }
-  const dead = current.torn || lockHolderVerdict(current.record, current.identity).liveness === 'dead'
+  const dead =
+    current.torn || lockHolderVerdict(current.record, current.identity).liveness === 'dead'
   return { state: dead ? 'stale' : 'held', owner: current.owner }
 }
 

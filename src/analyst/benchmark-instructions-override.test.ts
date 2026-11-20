@@ -2,20 +2,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import {
-  readAnalystInstructionsOverride,
-} from './benchmark-instructions-override'
-
-
+import { readAnalystInstructionsOverride } from './benchmark-instructions-override'
 
 import { sha256Digest } from './benchmark-verification-artifacts'
-
-
-
-
-
-
-
 
 describe('readAnalystInstructionsOverride', () => {
   it('reads override text and its digest from a file', async () => {
@@ -44,7 +33,3 @@ describe('readAnalystInstructionsOverride', () => {
     expect(() => readAnalystInstructionsOverride(path)).toThrow(/is empty/)
   })
 })
-
-
-
-

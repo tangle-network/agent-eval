@@ -1,11 +1,8 @@
 import { createHash } from 'node:crypto'
 import { deepFreezeCanonicalJson } from '../ledger-core/deep-freeze'
-import { contentHash } from '../verdict-cache'
-import {
-  type ExternalTextCandidate,
-  isExternalTextCandidate,
-} from './external-optimizer-contracts'
 import { isRecord } from '../llm-client/json'
+import { contentHash } from '../verdict-cache'
+import { type ExternalTextCandidate, isExternalTextCandidate } from './external-optimizer-contracts'
 import { type CampaignStorage, fsCampaignStorage } from './storage'
 
 export interface GepaCandidatePopulationSummary {

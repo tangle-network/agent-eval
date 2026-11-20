@@ -635,10 +635,6 @@ async function mapOrdered<T, R>(
 
 // ── Reading the report ───────────────────────────────────────────────
 
-
-
-
-
 export interface DenominatorIntactInput {
   report: AdmissionReport
   /** Strata the campaign drew from. Rows outside them are not expected. */

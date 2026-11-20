@@ -6,7 +6,11 @@ import type {
   AgentProfileImprovementRunReceipt,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { agentProfileImprovementExpectedModel, agentProfileImprovementMeasuredComparisonSchema, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  agentProfileImprovementExpectedModel,
+  agentProfileImprovementMeasuredComparisonSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentProfileImprovementExperimentExecutionInput,
@@ -260,12 +264,37 @@ describe('profile improvement measured comparison', () => {
   })
 
   it('routes exact per-arm models over HTTP and retains unavailable facts only as an explicit hold', async () => {
-    const baselineAuthored = { default: model.requested, provider: model.provider, reasoningEffort: model.reasoningEffort }
-    const candidateAuthored = { ...baselineAuthored, default: 'anthropic/candidate-model-2026-11-12', reasoningEffort: 'high' as const }
-    const candidateResolved = { ...model, requested: candidateAuthored.default, model: 'candidate-model-2026-11-12', snapshot: '2026-11-12', reasoningEffort: candidateAuthored.reasoningEffort }
-    const base = experiment(3, [profileTask()], [{ kind: 'agent-profile-diff', set: { model: candidateAuthored } }])
+    const baselineAuthored = {
+      default: model.requested,
+      provider: model.provider,
+      reasoningEffort: model.reasoningEffort,
+    }
+    const candidateAuthored = {
+      ...baselineAuthored,
+      default: 'anthropic/candidate-model-2026-11-12',
+      reasoningEffort: 'high' as const,
+    }
+    const candidateResolved = {
+      ...model,
+      requested: candidateAuthored.default,
+      model: 'candidate-model-2026-11-12',
+      snapshot: '2026-11-12',
+      reasoningEffort: candidateAuthored.reasoningEffort,
+    }
+    const base = experiment(
+      3,
+      [profileTask()],
+      [{ kind: 'agent-profile-diff', set: { model: candidateAuthored } }],
+    )
     const { digest: _digest, ...material } = base
-    const frozen = sealAgentProfileImprovementExperiment({ ...material, modelBinding: { kind: 'profile-default', baseline: { authored: baselineAuthored, resolved: model }, candidate: { authored: candidateAuthored, resolved: candidateResolved } } })
+    const frozen = sealAgentProfileImprovementExperiment({
+      ...material,
+      modelBinding: {
+        kind: 'profile-default',
+        baseline: { authored: baselineAuthored, resolved: model },
+        candidate: { authored: candidateAuthored, resolved: candidateResolved },
+      },
+    })
     const requested: string[] = []
     let substitute = false
     const server = createServer(async (request, response) => {
@@ -277,27 +306,81 @@ describe('profile improvement measured comparison', () => {
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(substitute ? model : resolved))
     })
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const port = (server.address() as { port: number }).port
     const execute = async (input: AgentProfileImprovementExperimentExecutionInput) => {
       const expected = agentProfileImprovementExpectedModel(input.experiment, input.task, input.arm)
-      const response = await fetch(`http://127.0.0.1:${port}/run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: expected.requested }) })
+      const response = await fetch(`http://127.0.0.1:${port}/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: expected.requested }),
+      })
       const resolvedModel = await response.json()
-      const { digest: _oldDigest, ...material } = receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
+      const { digest: _oldDigest, ...material } = receipt(
+        input,
+        input.arm === 'baseline' ? 0.2 : 0.8,
+      )
       return signed({ ...material, resolvedModel })
     }
     try {
       const complete = await runAgentProfileImprovementExperiment({ experiment: frozen, execute })
       expect(new Set(requested)).toEqual(new Set([model.requested, candidateResolved.requested]))
-      expect(complete.measurements.every(pair => pair.baseline.resolvedModel.model !== pair.candidate.resolvedModel.model)).toBe(true)
-      const comparison = measuredComparisonFromAgentProfileImprovementExperiment({ experiment: frozen, measurements: complete.measurements, ...comparisonAccounting(complete), runId: 'actual-http-model-treatment' })
+      expect(
+        complete.measurements.every(
+          (pair) => pair.baseline.resolvedModel.model !== pair.candidate.resolvedModel.model,
+        ),
+      ).toBe(true)
+      const comparison = measuredComparisonFromAgentProfileImprovementExperiment({
+        experiment: frozen,
+        measurements: complete.measurements,
+        ...comparisonAccounting(complete),
+        runId: 'actual-http-model-treatment',
+      })
       expect(verifyAgentProfileImprovementExperimentComparison(comparison)).toEqual(comparison)
       const unavailable = async (input: AgentProfileImprovementExperimentExecutionInput) => {
         const observed = await execute(input)
         const { digest: _oldDigest, ...material } = observed
-        return signed({ ...material, grading: { ...observed.grading, usage: input.arm === 'candidate' ? { availability: 'unavailable' as const, reason: 'Grader usage unavailable', facts: { inputTokens: null, outputTokens: null, cachedInputTokens: null, reasoningTokens: null, modelCalls: null, costUsdNanos: null, costProvenance: null } } : observed.grading.usage }, usage: { availability: 'unavailable' as const, reason: 'Native cache, reasoning and billed cost unavailable', facts: { inputTokens: observed.usage.inputTokens, outputTokens: observed.usage.outputTokens, cachedInputTokens: null, reasoningTokens: null, modelCalls: 1, costUsdNanos: null, costProvenance: null } } })
+        return signed({
+          ...material,
+          grading: {
+            ...observed.grading,
+            usage:
+              input.arm === 'candidate'
+                ? {
+                    availability: 'unavailable' as const,
+                    reason: 'Grader usage unavailable',
+                    facts: {
+                      inputTokens: null,
+                      outputTokens: null,
+                      cachedInputTokens: null,
+                      reasoningTokens: null,
+                      modelCalls: null,
+                      costUsdNanos: null,
+                      costProvenance: null,
+                    },
+                  }
+                : observed.grading.usage,
+          },
+          usage: {
+            availability: 'unavailable' as const,
+            reason: 'Native cache, reasoning and billed cost unavailable',
+            facts: {
+              inputTokens: observed.usage.inputTokens,
+              outputTokens: observed.usage.outputTokens,
+              cachedInputTokens: null,
+              reasoningTokens: null,
+              modelCalls: 1,
+              costUsdNanos: null,
+              costProvenance: null,
+            },
+          },
+        })
       }
-      const recorded = await runAgentProfileImprovementExperiment({ experiment: frozen, allowIncomplete: true, execute: unavailable })
+      const recorded = await runAgentProfileImprovementExperiment({
+        experiment: frozen,
+        allowIncomplete: true,
+        execute: unavailable,
+      })
       if (!('status' in recorded)) throw new Error('Missing explicit incomplete outcome')
       expect(recorded.status).toBe('incomplete')
       expect(recorded.decision).toBe('hold')
@@ -309,13 +392,27 @@ describe('profile improvement measured comparison', () => {
       expect(accounting.facts.inputTokens).toBe(10)
       expect(accounting.facts.costUsdNanos).toBeNull()
       expect(accounting.facts.cachedInputTokens).toBeNull()
-      expect(agentProfileImprovementMeasuredComparisonSchema.safeParse({ ...comparison, measurements: recorded.measurements }).success).toBe(false)
-      await expect(runAgentProfileImprovementExperiment({ experiment: frozen, execute: async input => JSON.parse(JSON.stringify(await unavailable(input))) })).rejects.toThrow()
+      expect(
+        agentProfileImprovementMeasuredComparisonSchema.safeParse({
+          ...comparison,
+          measurements: recorded.measurements,
+        }).success,
+      ).toBe(false)
+      await expect(
+        runAgentProfileImprovementExperiment({
+          experiment: frozen,
+          execute: async (input) => JSON.parse(JSON.stringify(await unavailable(input))),
+        }),
+      ).rejects.toThrow()
       substitute = true
-      await expect(runAgentProfileImprovementExperiment({ experiment: frozen, execute })).rejects.toThrow('task contract')
+      await expect(
+        runAgentProfileImprovementExperiment({ experiment: frozen, execute }),
+      ).rejects.toThrow('task contract')
     } finally {
       server.closeAllConnections()
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
     }
   })
 

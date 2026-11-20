@@ -75,7 +75,12 @@ function seededLoadings(units: number, rank: number): number[][] {
  * loadings, then each unit's loading and (unpenalized) bias given the
  * coordinates, until the objective moves by less than 1e-7 of itself.
  */
-function factorLinear(units: number, cells: readonly ManifoldCell[], rank: number, ridge: number): Fit {
+function factorLinear(
+  units: number,
+  cells: readonly ManifoldCell[],
+  rank: number,
+  ridge: number,
+): Fit {
   const { byUnit, byRow: rowIds } = groupCells(units, cells)
   const bias = byUnit.map((list) =>
     list.length === 0 ? 0 : list.reduce((sum, cell) => sum + cell.z, 0) / list.length,
@@ -149,7 +154,12 @@ function factorLinear(units: number, cells: readonly ManifoldCell[], rank: numbe
  * loadings (scaled by `ridge`), N(0, 10²) on each intercept, which keeps a
  * unit every node passed finite. A step moves no parameter by more than 4.
  */
-function factorLogistic(units: number, cells: readonly ManifoldCell[], rank: number, ridge: number): Fit {
+function factorLogistic(
+  units: number,
+  cells: readonly ManifoldCell[],
+  rank: number,
+  ridge: number,
+): Fit {
   const { byUnit, byRow: rowIds } = groupCells(units, cells)
   const bias = byUnit.map((list) => {
     let k = 0

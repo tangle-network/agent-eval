@@ -439,8 +439,6 @@ describe('verifyCompletion — anti-game: structural match is not completion', (
   })
 })
 
-
-
 describe('createLlmCorrectnessChecker', () => {
   it('returns the parsed verdict from the model response', async () => {
     const check = createLlmCorrectnessChecker(mockChat('{"correct": true, "reason": "fulfils it"}'))

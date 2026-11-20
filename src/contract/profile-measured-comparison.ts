@@ -14,9 +14,8 @@ import {
   type AgentProfileImprovementTaskMaterial,
   agentProfileImprovementExpectedModel,
   agentProfileImprovementExperimentSchema,
-  agentProfileImprovementRecordedRunReceiptSchema,
-  isAgentProfileImprovementAccountingUnavailable,
   agentProfileImprovementMeasuredComparisonSchema,
+  agentProfileImprovementRecordedRunReceiptSchema,
   agentProfileImprovementRunCellSchema,
   agentProfileImprovementRunReceiptSchema,
   agentProfileImprovementSuiteInputsSchema,
@@ -24,6 +23,7 @@ import {
   agentProfileImprovementTaskSchema,
   canonicalCandidateDigest,
   canonicalCandidateJson,
+  isAgentProfileImprovementAccountingUnavailable,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
@@ -70,9 +70,12 @@ export interface AgentProfileImprovementExperimentRun {
 }
 
 /** Explicit opt-in records incomplete native facts without creating promotion evidence. */
-export interface RecordAgentProfileImprovementExperimentOptions extends Omit<RunAgentProfileImprovementExperimentOptions, 'execute'> {
+export interface RecordAgentProfileImprovementExperimentOptions
+  extends Omit<RunAgentProfileImprovementExperimentOptions, 'execute'> {
   allowIncomplete: true
-  execute(input: AgentProfileImprovementExperimentExecutionInput): Promise<AgentProfileImprovementRecordedRunReceipt>
+  execute(
+    input: AgentProfileImprovementExperimentExecutionInput,
+  ): Promise<AgentProfileImprovementRecordedRunReceipt>
 }
 export interface AgentProfileImprovementIncompleteExperimentRun {
   status: 'incomplete'
@@ -154,13 +157,19 @@ function verifyAgentProfileImprovementExperiment(
  * Eval owns only the cell schedule and receipt checks; the host resolves each
  * state digest and captures its own run, billing, trace, and grader evidence.
  */
-export function runAgentProfileImprovementExperiment(options: RecordAgentProfileImprovementExperimentOptions): Promise<AgentProfileImprovementExperimentRun | AgentProfileImprovementIncompleteExperimentRun>
-export function runAgentProfileImprovementExperiment(options: RunAgentProfileImprovementExperimentOptions): Promise<AgentProfileImprovementExperimentRun>
+export function runAgentProfileImprovementExperiment(
+  options: RecordAgentProfileImprovementExperimentOptions,
+): Promise<AgentProfileImprovementExperimentRun | AgentProfileImprovementIncompleteExperimentRun>
+export function runAgentProfileImprovementExperiment(
+  options: RunAgentProfileImprovementExperimentOptions,
+): Promise<AgentProfileImprovementExperimentRun>
 export async function runAgentProfileImprovementExperiment(
-  options: RunAgentProfileImprovementExperimentOptions | RecordAgentProfileImprovementExperimentOptions,
+  options:
+    | RunAgentProfileImprovementExperimentOptions
+    | RecordAgentProfileImprovementExperimentOptions,
 ): Promise<AgentProfileImprovementExperimentRun | AgentProfileImprovementIncompleteExperimentRun> {
   const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
-  const allowIncomplete = "allowIncomplete" in options && options.allowIncomplete === true
+  const allowIncomplete = 'allowIncomplete' in options && options.allowIncomplete === true
   const expectedCount =
     experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
   const run = await runPaidPairedMeasurement({
@@ -182,23 +191,69 @@ export async function runAgentProfileImprovementExperiment(
     ...(options.signal ? { signal: options.signal } : {}),
     async execute(index, arm, signal) {
       const expected = profileExecutionInput(experiment, arm, index, signal)
-      const receipt = (allowIncomplete ? agentProfileImprovementRecordedRunReceiptSchema : agentProfileImprovementRunReceiptSchema).parse(await options.execute(expected))
+      const receipt = (
+        allowIncomplete
+          ? agentProfileImprovementRecordedRunReceiptSchema
+          : agentProfileImprovementRunReceiptSchema
+      ).parse(await options.execute(expected))
       verifyProfileReceiptContract(receipt, expected, index)
       return receipt
     },
     receipt(measurements) {
-      if (measurements.some(pair => [pair.baseline, pair.candidate].some(receipt => isAgentProfileImprovementAccountingUnavailable(receipt.usage) || isAgentProfileImprovementAccountingUnavailable(receipt.grading.usage))))
+      if (
+        measurements.some((pair) =>
+          [pair.baseline, pair.candidate].some(
+            (receipt) =>
+              isAgentProfileImprovementAccountingUnavailable(receipt.usage) ||
+              isAgentProfileImprovementAccountingUnavailable(receipt.grading.usage),
+          ),
+        )
+      )
         // CostLedger's explicit unknown receipt conserves the reservation. Exact known
         // facts remain in the signed profile records, never become measured zeros.
-        return { model: profileMeasurementModel(experiment), inputTokens: 0, outputTokens: 0, costUnknown: true, usageUnknown: true }
-      return profileMeasurementCostReceipt(measurements.map(pair => ({ baseline: agentProfileImprovementRunReceiptSchema.parse(pair.baseline), candidate: agentProfileImprovementRunReceiptSchema.parse(pair.candidate) })), profileMeasurementModel(experiment))
+        return {
+          model: profileMeasurementModel(experiment),
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        }
+      return profileMeasurementCostReceipt(
+        measurements.map((pair) => ({
+          baseline: agentProfileImprovementRunReceiptSchema.parse(pair.baseline),
+          candidate: agentProfileImprovementRunReceiptSchema.parse(pair.candidate),
+        })),
+        profileMeasurementModel(experiment),
+      )
     },
   })
-  const gaps = run.measurements.flatMap(pair => [pair.baseline, pair.candidate].flatMap(receipt => ([['execution', receipt.usage], ['grading', receipt.grading.usage]] as const).flatMap(([phase, accounting]) => isAgentProfileImprovementAccountingUnavailable(accounting) ? [{ executionId: receipt.executionId, phase, reason: accounting.reason }] : [])))
+  const gaps = run.measurements.flatMap((pair) =>
+    [pair.baseline, pair.candidate].flatMap((receipt) =>
+      (
+        [
+          ['execution', receipt.usage],
+          ['grading', receipt.grading.usage],
+        ] as const
+      ).flatMap(([phase, accounting]) =>
+        isAgentProfileImprovementAccountingUnavailable(accounting)
+          ? [{ executionId: receipt.executionId, phase, reason: accounting.reason }]
+          : [],
+      ),
+    ),
+  )
   if (gaps.length > 0 || run.cost.kind === 'uncaptured') {
-    if (!allowIncomplete) throw new Error('profile improvement experiment did not capture complete accounting')
-    const measurements = run.measurements.map((pair, index) => verifyProfileMeasurement(experiment, pair, index, true))
-    return { status: 'incomplete', decision: 'hold', measurements, measurement: { wallDurationMs: run.wallDurationMs, cost: null }, gaps }
+    if (!allowIncomplete)
+      throw new Error('profile improvement experiment did not capture complete accounting')
+    const measurements = run.measurements.map((pair, index) =>
+      verifyProfileMeasurement(experiment, pair, index, true),
+    )
+    return {
+      status: 'incomplete',
+      decision: 'hold',
+      measurements,
+      measurement: { wallDurationMs: run.wallDurationMs, cost: null },
+      gaps,
+    }
   }
   return {
     measurements: run.measurements.map((measurement, index) =>
@@ -299,7 +354,15 @@ function profileMeasurementMaximumCostUsd(experiment: AgentProfileImprovementExp
 }
 
 function profileMeasurementModel(experiment: AgentProfileImprovementExperiment): string {
-  const models = [...new Set(experiment.benchmark.tasks.flatMap((task) => (["baseline", "candidate"] as const).map(arm => agentProfileImprovementExpectedModel(experiment, task, arm).model)))]
+  const models = [
+    ...new Set(
+      experiment.benchmark.tasks.flatMap((task) =>
+        (['baseline', 'candidate'] as const).map(
+          (arm) => agentProfileImprovementExpectedModel(experiment, task, arm).model,
+        ),
+      ),
+    ),
+  ]
   return models.length === 1 ? models[0]! : 'multiple-models'
 }
 
@@ -354,8 +417,17 @@ function profileExecutionInput(
   }
 }
 
-function verifyProfileMeasurement(experiment: AgentProfileImprovementExperiment, input: unknown, index: number, allowIncomplete: true): AgentProfileImprovementRecordedMeasurement
-function verifyProfileMeasurement(experiment: AgentProfileImprovementExperiment, input: unknown, index: number): AgentProfileImprovementMeasurement
+function verifyProfileMeasurement(
+  experiment: AgentProfileImprovementExperiment,
+  input: unknown,
+  index: number,
+  allowIncomplete: true,
+): AgentProfileImprovementRecordedMeasurement
+function verifyProfileMeasurement(
+  experiment: AgentProfileImprovementExperiment,
+  input: unknown,
+  index: number,
+): AgentProfileImprovementMeasurement
 function verifyProfileMeasurement(
   experiment: AgentProfileImprovementExperiment,
   input: unknown,
@@ -368,7 +440,9 @@ function verifyProfileMeasurement(
   const material = input as { baseline?: unknown; candidate?: unknown }
   const expectedBaseline = profileExecutionInput(experiment, 'baseline', index, undefined)
   const expectedCandidate = profileExecutionInput(experiment, 'candidate', index, undefined)
-  const schema = allowIncomplete ? agentProfileImprovementRecordedRunReceiptSchema : agentProfileImprovementRunReceiptSchema
+  const schema = allowIncomplete
+    ? agentProfileImprovementRecordedRunReceiptSchema
+    : agentProfileImprovementRunReceiptSchema
   const baseline = schema.parse(material.baseline)
   const candidate = schema.parse(material.candidate)
   if (
@@ -392,7 +466,10 @@ function verifyProfileReceiptContract(
 ): void {
   const task = expected.task
   if (
-    canonicalCandidateDigest(receipt.resolvedModel) !== canonicalCandidateDigest(agentProfileImprovementExpectedModel(expected.experiment, task, expected.arm)) ||
+    canonicalCandidateDigest(receipt.resolvedModel) !==
+      canonicalCandidateDigest(
+        agentProfileImprovementExpectedModel(expected.experiment, task, expected.arm),
+      ) ||
     canonicalCandidateDigest(receipt.limits) !== canonicalCandidateDigest(task.limits) ||
     canonicalCandidateDigest(receipt.grading.grader) !== canonicalCandidateDigest(task.grader)
   ) {

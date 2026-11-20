@@ -1010,7 +1010,9 @@ describe('the runtime backstop composes EVERY check, not the ones it remembered'
   })
 
   it('refuses it on the rl/ reward reader and the SFT path built on it', async () => {
-    await expect(toSftRowsWithLookups([forged], lookups)).rejects.toThrow(/realness_screened: false/)
+    await expect(toSftRowsWithLookups([forged], lookups)).rejects.toThrow(
+      /realness_screened: false/,
+    )
   })
 
   it('refuses it when it arrives as CONTEXT to a line-less exporter', () => {

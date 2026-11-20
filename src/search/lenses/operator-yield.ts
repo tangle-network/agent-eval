@@ -43,7 +43,7 @@ import type {
   SearchNodeStatus,
 } from '../../campaign/search-ledger-types'
 import type { SearchNode, SearchStateView } from '../../campaign/search-state'
-import { rankingSplit, type LensSampleSummary, summarizeSamples } from './shared'
+import { type LensSampleSummary, rankingSplit, summarizeSamples } from './shared'
 
 /** The operators an expansion may choose (`SearchExpansion.operator` in
  * `search-policy.ts`): every edge operator except `seed` (the search's own

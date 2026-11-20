@@ -89,8 +89,6 @@ export function merkleInclusionProof(
   return { leafIndex, treeSize: nodes.length, path: path.map(toLedgerHash) }
 }
 
-
-
 /** Check that `leaf` is in the tree with `root` at the proof's index (RFC 9162 §2.1.3.2). */
 export function verifyMerkleInclusion(
   leaf: LedgerHash,
@@ -127,8 +125,6 @@ export function verifyMerkleInclusion(
   return equal(r, rootBytes) ? { verified: true } : refused('leaf does not hash to the root')
 }
 
-
-
 function subtreeRoot(nodes: readonly Uint8Array[], start: number, end: number): Uint8Array {
   if (end - start === 1) return nodes[start] as Uint8Array
   const k = largestPowerOfTwoBelow(end - start)
@@ -152,8 +148,6 @@ function inclusionPath(
     path.push(subtreeRoot(nodes, start, start + k))
   }
 }
-
-
 
 function node(left: Uint8Array, right: Uint8Array): Uint8Array {
   return fromHex(digest(NODE_PREFIX, left, right).slice('sha256:'.length))
@@ -197,8 +191,6 @@ function largestPowerOfTwoBelow(n: number): number {
   while (k * 2 < n) k *= 2
   return k
 }
-
-
 
 function isSize(n: number): boolean {
   return Number.isSafeInteger(n) && n >= 0

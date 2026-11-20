@@ -83,12 +83,6 @@ function makeSteps(): NormalizedStep[] {
   ]
 }
 
-
-
-
-
-
-
 describe('loadVerifiedFindingsDataset', () => {
   beforeEach(() => {
     rmSync(DIR, { recursive: true, force: true })

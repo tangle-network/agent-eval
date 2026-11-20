@@ -7,9 +7,6 @@
  * encodings (OpenAI function shape, MCP) are one-line mappings the host owns.
  */
 
-
-
-
 export interface ExploreToolDef {
   name: string
   description: string
@@ -17,7 +14,3 @@ export interface ExploreToolDef {
   parameters: Record<string, unknown>
   handler: (args: unknown, ctx?: { signal?: AbortSignal }) => Promise<unknown>
 }
-
-
-
-

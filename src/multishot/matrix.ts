@@ -12,7 +12,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CostProvenance } from '../cost-ledger'
 import type { MatrixResult } from '../matrix'
 import { runAgentMatrix, withCellSpend } from '../matrix'
-import { type MultishotJudgeConfig, type JudgeScore, runJudge } from './judges'
+import { type JudgeScore, type MultishotJudgeConfig, runJudge } from './judges'
 import { type MultishotShot, runMultishot } from './multishot'
 import {
   assertMultishotShotResult,

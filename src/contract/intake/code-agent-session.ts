@@ -1,4 +1,5 @@
 import { hashCanonical as hashJson } from '../../ledger-core/canonical'
+import { isRecord } from '../../llm-client/json'
 import { isModelPriced } from '../../metrics'
 import type {
   RunCostProvenance,
@@ -6,9 +7,9 @@ import type {
   RunTerminalOutcome,
   RunTokenUsage,
 } from '../../run-record'
+import { clamp01 } from '../../run-score'
 import { codexMetrics } from './code-agent-codex-metrics'
 import { record, stringField } from './code-agent-fields'
-import { isRecord } from '../../llm-client/json'
 import {
   claudeCodeMetrics,
   kimiCodeMetrics,
@@ -32,7 +33,6 @@ import {
   observeCodeAgentSession,
 } from './code-agent-observation'
 import { resolveSessionCost } from './code-agent-session-metrics'
-import { clamp01 } from '../../run-score'
 import type {
   CodeAgentSessionIntakeOptions,
   CodeAgentSessionIntakeResult,

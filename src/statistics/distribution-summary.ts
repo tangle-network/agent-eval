@@ -44,11 +44,9 @@ function nearestRank(sorted: number[], percentile: number): number {
  * percentile the summary struct does not carry (e.g. p99.9). Returns NaN for
  * an empty sample; callers that need a numeric floor guard it.
  */
-export function percentileNearestRank(
-  values: number[],
-  percentile: number,
-): number {
-  if (!Array.isArray(values)) throw new ValidationError('percentileNearestRank: values must be an array')
+export function percentileNearestRank(values: number[], percentile: number): number {
+  if (!Array.isArray(values))
+    throw new ValidationError('percentileNearestRank: values must be an array')
   if (values.length === 0) return Number.NaN
   const sorted = [...values].sort((a, b) => a - b)
   return nearestRank(sorted, percentile)

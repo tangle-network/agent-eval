@@ -209,5 +209,3 @@ export const DEFAULT_TRACE_ANALYST_BUDGETS: TraceAnalystByteBudgets = {
   perAttributeSpanBudget: 16_384,
   perMatchTextBudget: 1_024,
 }
-
-

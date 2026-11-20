@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { canonicalString, LedgerCanonicalizationError } from '../ledger-core/canonical'
 import { argHash } from './query'
 
-
-
-
-
-
 describe('argHash', () => {
   it('keys uncaptured args and null args to distinct strings', () => {
     expect(argHash(undefined)).toBe('undefined')

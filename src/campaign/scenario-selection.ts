@@ -89,5 +89,3 @@ export function scoreDiscrimination(
   })
   return scored.sort(compareDiscrimination)
 }
-
-

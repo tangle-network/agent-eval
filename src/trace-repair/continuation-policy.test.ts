@@ -13,10 +13,7 @@ import {
   definePinnedContinuationPolicy,
   runContinuation,
 } from './continuation-policy'
-import type {
-  ContinuationArm,
-  ContinuationMessage,
-} from './continuation-records'
+import type { ContinuationArm, ContinuationMessage } from './continuation-records'
 import { rolloutDigest } from './continuation-records'
 import {
   MINI_SWE_SYSTEM_MESSAGE,
@@ -349,8 +346,6 @@ describe('runContinuation budget', () => {
   })
 })
 
-
-
 describe('runContinuation usage capture', () => {
   it('sums usage and cost when every call reports them', async () => {
     const [rollout] = await runContinuation({
@@ -567,7 +562,3 @@ describe('runContinuation isolation', () => {
     expect(model.messageCounts).toEqual([4, 6, 4, 6])
   })
 })
-
-
-
-

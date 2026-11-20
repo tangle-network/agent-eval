@@ -149,5 +149,3 @@ describe('extractUsageFromSse', () => {
     expect(extractUsageFromSse('data: {"choices":[]}\ndata: [DONE]\n')).toBeNull()
   })
 })
-
-

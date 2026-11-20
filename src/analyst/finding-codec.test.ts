@@ -88,5 +88,3 @@ describe('shapes a model actually emits', () => {
     expect(rejected[0]?.code).toBe('row-limit')
   })
 })
-
-

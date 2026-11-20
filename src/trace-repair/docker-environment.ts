@@ -126,8 +126,6 @@ const BACKSTOP_SECONDS = 10
 /** `timeout` reports this when it stopped the command. */
 const TIMEOUT_EXIT_CODE = 124
 
-
-
 export function createDockerContinuationEnvironment(
   options: DockerContinuationEnvironmentOptions,
 ): ContinuationEnvironment {

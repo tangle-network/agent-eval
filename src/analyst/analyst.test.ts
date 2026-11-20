@@ -666,8 +666,6 @@ describe('BudgetPolicy', () => {
   })
 })
 
-
-
 describe('AnalystRegistry.runStream', () => {
   function makeOkAnalyst(id: string, findings: AnalystFinding[]): Analyst {
     return {

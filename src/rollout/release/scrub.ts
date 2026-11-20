@@ -222,7 +222,8 @@ const PRIVACY_RULES: readonly PrivacyRule[] = [
   { name: 'email', hit: email },
   {
     name: 'phone',
-    hit: (text) => /(?<![\d.]\s?)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\d.])/.test(text),
+    hit: (text) =>
+      /(?<![\d.]\s?)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\d.])/.test(text),
   },
   {
     name: 'postal-address',

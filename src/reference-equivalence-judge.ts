@@ -1,13 +1,7 @@
-
 import type { ChatClient } from './analyst/chat-client'
 import type { Scenario } from './campaign/types'
 import type { CostLedgerHandle } from './cost-ledger'
 import type { LlmCallMetadata } from './llm-client'
-
-
-
-
-
 
 export interface ReferenceEquivalenceScenario extends Scenario {
   userRequest: string
@@ -37,15 +31,3 @@ export interface ReferenceEquivalenceJudgeResult extends LlmCallMetadata {
   score: number
   rationale: string
 }
-
-
-
-
-
-
-
-
-
-
-
-
