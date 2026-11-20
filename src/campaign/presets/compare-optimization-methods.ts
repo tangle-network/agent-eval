@@ -58,7 +58,7 @@ import {
 } from '../optimization-method'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
-import { campaignBreakdown } from '../score-utils'
+import { campaignBreakdown, type DescribeArtifact } from '../score-utils'
 import {
   assertSearchHistoryAdmissionOptions,
   type SearchHistoryAdmissionOptions,
@@ -188,6 +188,9 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
     ctx: DispatchContext,
   ) => Promise<TArtifact>
   judges: JudgeConfig<TArtifact, TScenario>[]
+  /** How every method's optimizer is shown a non-string artifact; see
+   *  `OptimizationMethodInput.describeArtifact`. */
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   /** Bootstrap resamples for the lift intervals. Default is at least 2000 and
    *  rises when the requested simultaneous confidence needs finer tails. */
   resamples?: number
@@ -826,6 +829,7 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
     selectionScenarios: opts.selectionScenarios,
     dispatchWithSurface: opts.dispatchWithSurface,
     judges: opts.judges,
+    ...(opts.describeArtifact ? { describeArtifact: opts.describeArtifact } : {}),
     runDir: methodRunDir,
     seed,
     runOptions: Object.freeze({

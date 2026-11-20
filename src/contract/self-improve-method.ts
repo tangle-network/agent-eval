@@ -267,6 +267,7 @@ function searchWithMethod<TScenario extends Scenario, TArtifact>(
       selectionScenarios: selection,
       dispatchWithSurface: opts.agent,
       judges: [opts.judge],
+      ...(opts.describeArtifact ? { describeArtifact: opts.describeArtifact } : {}),
       runDir: `${runDir}/optimization/${opts.method.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
       seed: 42,
       runOptions: {

@@ -19,6 +19,8 @@ import type {
   SearchModelIdentity,
   SearchOperationRecordedEvent,
   SearchTaskOutcome,
+  SearchTraceRef,
+  SearchUnknown,
 } from './search-ledger-types'
 import type { CampaignCellResult } from './types'
 
@@ -42,6 +44,9 @@ export interface CampaignCellMeasurement {
   /** The model every agent receipt in the cell reported; absent for none or several. */
   resolvedModel?: string
   durationMs: number
+  /** The trace the measuring attempt's spans went to, or unknown with the
+   *  reason. Absent in observation logs written before cells carried it. */
+  traceRef?: SearchTraceRef
 }
 
 /**
@@ -49,12 +54,13 @@ export interface CampaignCellMeasurement {
  * composite, each judge's composite and each judge dimension when every judge
  * scored it, else `errored`, never retryable, because `runCampaign` already
  * applied its own retry policy; its tokens and cost, with an uncaptured cost
- * kept as a lower bound; the attempt that produced it.
+ * kept as a lower bound; the attempt that produced it and the trace its spans
+ * went to.
  */
 export function campaignCellMeasurement<TArtifact>(
   cell: CampaignCellResult<TArtifact>,
 ): CampaignCellMeasurement {
-  return {
+  const measurement: CampaignCellMeasurement = {
     cellId: cell.cellId,
     scenarioId: cell.scenarioId,
     rep: cell.rep,
@@ -67,14 +73,16 @@ export function campaignCellMeasurement<TArtifact>(
     ...(cell.resolvedModel === undefined ? {} : { resolvedModel: cell.resolvedModel }),
     durationMs: cell.durationMs,
   }
+  return { ...measurement, traceRef: cell.traceRef ?? campaignCellTraceUnknown(measurement) }
 }
 
 /**
  * What `cell-settled` records for one campaign cell, or for its measurement:
  * the outcome and accounting of `campaignCellMeasurement`, the model the cell
- * resolved, else the declared one, and its duration. `runCampaign` assigns no
- * trace id, so the trace reference stays unknown and names the attempt whose
- * trace writer received the cell's spans.
+ * resolved, else the declared one, its duration, and the trace its trace
+ * writer named. A cell or measurement recorded before cells carried a trace
+ * keeps an unknown reference that names the attempt whose trace writer
+ * received its spans.
  */
 export function campaignCellSearchResult<TArtifact>(
   cell: CampaignCellResult<TArtifact> | CampaignCellMeasurement,
@@ -93,15 +101,19 @@ export function campaignCellSearchResult<TArtifact>(
     },
     wallMs: measurement.durationMs,
     placement: { lane: input.lane, boxId: null },
-    traceRef: { unknown: campaignCellTraceReason(measurement) },
+    traceRef: measurement.traceRef ?? campaignCellTraceUnknown(measurement),
   }
 }
 
-function campaignCellTraceReason({ cellId, attempt }: CampaignCellMeasurement): string {
+/** The trace reference of a cell recorded before cells carried one. */
+function campaignCellTraceUnknown({ cellId, attempt }: CampaignCellMeasurement): SearchUnknown {
   const prefix = `runCampaign assigns no trace id; campaign cell ${cellId}`
-  return attempt === null
-    ? `${prefix} records no attempt`
-    : `${prefix} wrote its spans through the trace writer of attempt ${attempt.runAttemptId}/attempt-${attempt.number}`
+  return {
+    unknown:
+      attempt === null
+        ? `${prefix} records no attempt`
+        : `${prefix} wrote its spans through the trace writer of attempt ${attempt.runAttemptId}/attempt-${attempt.number}`,
+  }
 }
 
 /** A provider-reported model: a snapshot when its name pins one, else a moving alias. */

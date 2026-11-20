@@ -1,4 +1,5 @@
 import type { CostLedgerHandle } from '../cost-ledger'
+import { excerptEvidence } from '../reflective-mutation'
 import {
   assertJsonValue,
   type ExternalEvaluationMeasurement,
@@ -50,12 +51,20 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
   scenarioById: ReadonlyMap<string, TScenario>
   maxCandidateChars: number
   maxEvidenceChars: number
-  describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
+  /** The method's own hook; the caller's `input.describeArtifact` applies when it is absent. */
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
 }): (
   request: ExternalTextEvaluationRequest,
   signal?: AbortSignal,
   measured?: (measurement: ExternalEvaluationMeasurement) => void,
 ) => Promise<ExternalTextEvaluationResponse> {
+  const shared = args.input.describeArtifact
+  if (args.describeArtifact && shared && args.describeArtifact !== shared) {
+    throw new Error(
+      `${args.label}: describeArtifact is set both on the method and by its caller; set it once`,
+    )
+  }
+  const describeArtifact = args.describeArtifact ?? shared
   // One entry per candidate and case: a repeated request is answered from the
   // cells the first request measured, and reports them as reused.
   const cached = new Map<string, Promise<ScoredScenario>>()
@@ -84,8 +93,8 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
     const existing = cached.get(cacheKey)
     if (existing) {
       const reused = await existing
-      measured?.({ source: 'reused', cells: reused.cells })
-      return reused.response
+      if (reused.cells.length > 0) measured?.({ source: 'reused', cells: reused.cells })
+      return answer(reused)
     }
 
     const result = scoreOneScenario({
@@ -99,33 +108,41 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
       costTags: args.costTags,
       costLedger: args.costLedger,
       maxEvidenceChars: args.maxEvidenceChars,
-      describeArtifact: args.describeArtifact,
+      ...(describeArtifact ? { describeArtifact } : {}),
       signal,
     })
     cached.set(cacheKey, result)
     void result.then(
-      ({ response }) => {
-        // Failed cells are durable diagnostics, not reusable scores. Leave
-        // the successful path cached, but let a later GEPA request retry the
-        // failed or missing cell on resume.
-        if (response.info.status === 'failed' && cached.get(cacheKey) === result) {
-          cached.delete(cacheKey)
-        }
+      (scored) => {
+        // Failed cells and refused evidence are durable diagnostics, not
+        // reusable scores. Leave the successful path cached, but let a later
+        // GEPA request retry the failed or missing cell on resume.
+        const reusable = 'response' in scored && scored.response.info.status !== 'failed'
+        if (!reusable && cached.get(cacheKey) === result) cached.delete(cacheKey)
       },
       () => {
         if (cached.get(cacheKey) === result) cached.delete(cacheKey)
       },
     )
     const scored = await result
-    measured?.({ source: 'measured', cells: scored.cells })
-    return scored.response
+    // Reported before a refusal is thrown: the cells were measured and paid
+    // for, so the observation log keeps them whatever the optimizer receives.
+    if (scored.cells.length > 0) measured?.({ source: 'measured', cells: scored.cells })
+    return answer(scored)
   }
 }
 
-/** One evaluation's optimizer response and the campaign cells it came from. */
-interface ScoredScenario {
-  response: ExternalTextEvaluationResponse
-  cells: CampaignCellMeasurement[]
+/**
+ * One evaluation's campaign cells, and either the optimizer's response or why
+ * the evaluation is refused after it measured them.
+ */
+type ScoredScenario =
+  | { cells: CampaignCellMeasurement[]; response: ExternalTextEvaluationResponse }
+  | { cells: CampaignCellMeasurement[]; refusal: Error }
+
+function answer(scored: ScoredScenario): ExternalTextEvaluationResponse {
+  if ('refusal' in scored) throw scored.refusal
+  return scored.response
 }
 
 export function mapExternalScenarios<TScenario extends Scenario>(
@@ -208,11 +225,22 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
   const cells = [...campaign.cells]
     .sort((left, right) => left.rep - right.rep)
     .map(campaignCellMeasurement)
+  // From here every refusal keeps `cells`: they were measured and paid for.
+  const respond = (response: ExternalTextEvaluationResponse): ScoredScenario => {
+    const bounded = boundEvidence(response, args.maxEvidenceChars)
+    if (bounded) return { cells, response: bounded }
+    return {
+      cells,
+      refusal: new Error(
+        `${args.label} evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars (${args.maxEvidenceChars}) in fields no excerpt can shorten`,
+      ),
+    }
+  }
   const failedCell = campaign.cells.find((cell) => cell.error !== undefined)
   if (failedCell) {
     const stage = failedCell.errorStage ?? 'unknown'
     const message = failedCell.error?.slice(0, 2_000) ?? 'cell failed without an error message'
-    const response: ExternalTextEvaluationResponse = {
+    return respond({
       // GEPA requires a finite score for every callback response. This zero is
       // an optimizer penalty only; the campaign cell remains unscored below.
       score: 0,
@@ -223,24 +251,23 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
         notes: `Evaluation failed at ${stage}; optimizer penalty score 0 is not a measured zero. ${message}`,
         error: { stage, message },
       },
-    }
-    if (JSON.stringify(response).length > args.maxEvidenceChars) {
-      throw new Error(
-        `${args.label} failed evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars`,
-      )
-    }
-    return { response, cells }
+    })
   }
   const breakdown = campaignBreakdown(campaign)
   const row = breakdown.scenarios[0]
-  if (!row) throw new Error(`${args.label} evaluation produced no score for '${args.scenario.id}'`)
+  if (!row) {
+    return {
+      cells,
+      refusal: new Error(`${args.label} evaluation produced no score for '${args.scenario.id}'`),
+    }
+  }
   // The evidence the native reflective path shows, kept as a JSON value so a
   // described artifact may carry inline images.
   const artifact = campaignEvidence(campaign.cells, {
     scenarios: [args.scenario],
     ...(args.describeArtifact ? { describeArtifact: args.describeArtifact } : {}),
   }).get(args.scenario.id)
-  const response: ExternalTextEvaluationResponse = {
+  return respond({
     score: row.composite,
     info: {
       scenarioId: row.scenarioId,
@@ -250,13 +277,102 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
       ...(row.notes ? { notes: row.notes } : {}),
       ...(artifact !== undefined ? { artifact } : {}),
     },
-  }
-  if (JSON.stringify(response).length > args.maxEvidenceChars) {
-    throw new Error(
-      `${args.label} evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars`,
+  })
+}
+
+/**
+ * The response within `maxChars` of JSON, or undefined when it cannot be.
+ *
+ * The bound limits how much evidence the optimizer reads per evaluation, and
+ * an excerpt meets it without hiding that anything was cut: the judge notes,
+ * the error message and a text artifact keep their head and tail around an
+ * omitted-count marker (`excerptEvidence`), sharing the room the other fields
+ * leave. A described artifact stays whole when the text fields alone can make
+ * room; otherwise it is shown as its excerpted JSON text, as the native
+ * reflective path shows it. Only the fields no excerpt can shorten (the
+ * scores, the dimensions and the ids) can make a response not fit.
+ */
+function boundEvidence(
+  response: ExternalTextEvaluationResponse,
+  maxChars: number,
+): ExternalTextEvaluationResponse | undefined {
+  if (JSON.stringify(response).length <= maxChars) return response
+  const { info } = response
+  const fit = (artifactAsText: boolean): ExternalTextEvaluationResponse | undefined => {
+    const artifact =
+      typeof info.artifact === 'string'
+        ? info.artifact
+        : artifactAsText && info.artifact !== undefined
+          ? JSON.stringify(info.artifact)
+          : undefined
+    const fields: Array<['notes' | 'message' | 'artifact', string]> = []
+    if (info.notes !== undefined) fields.push(['notes', info.notes])
+    if (info.error) fields.push(['message', info.error.message])
+    if (artifact !== undefined) fields.push(['artifact', artifact])
+    const build = (texts: readonly string[]): ExternalTextEvaluationResponse => {
+      const text = new Map(fields.map(([name], index) => [name, texts[index]!]))
+      const notes = text.get('notes')
+      const message = text.get('message')
+      const excerpted = text.get('artifact')
+      return {
+        ...response,
+        info: {
+          ...info,
+          ...(notes === undefined ? {} : { notes }),
+          ...(message === undefined || !info.error ? {} : { error: { ...info.error, message } }),
+          ...(excerpted === undefined ? {} : { artifact: excerpted }),
+        },
+      }
+    }
+    const texts = fitTexts(
+      fields.map(([, value]) => value),
+      (candidate) => JSON.stringify(build(candidate)).length,
+      maxChars,
     )
+    return texts && build(texts)
   }
-  return { response, cells }
+  const describedArtifact = info.artifact !== undefined && typeof info.artifact !== 'string'
+  return fit(false) ?? (describedArtifact ? fit(true) : undefined)
+}
+
+/**
+ * Excerpts of `texts` whose `size` is at most `maxChars`, or undefined when
+ * the rest of the value alone exceeds it. The room left by the rest is shared
+ * evenly, and a text shorter than its share leaves the remainder to the
+ * others. Sizes count JSON-encoded characters, so escapes are paid for.
+ */
+function fitTexts(
+  texts: readonly string[],
+  size: (texts: readonly string[]) => number,
+  maxChars: number,
+): string[] | undefined {
+  const fixed = size(texts.map(() => ''))
+  if (fixed > maxChars) return undefined
+  const encoded = (text: string) => JSON.stringify(text).length - 2
+  const shares = new Array<number>(texts.length).fill(0)
+  let room = maxChars - fixed
+  let remaining = texts.length
+  const shortestFirst = texts
+    .map((_, index) => index)
+    .sort((left, right) => encoded(texts[left]!) - encoded(texts[right]!))
+  for (const index of shortestFirst) {
+    shares[index] = Math.min(encoded(texts[index]!), Math.floor(room / remaining))
+    room -= shares[index]!
+    remaining -= 1
+  }
+  return texts.map((text, index) => excerptWithin(text, shares[index]!))
+}
+
+/** The longest `excerptEvidence` of `text` whose JSON-encoded content fits `maxEncoded`. */
+function excerptWithin(text: string, maxEncoded: number): string {
+  let limit = maxEncoded
+  while (limit > 0) {
+    const excerpt = excerptEvidence(text, limit)
+    const over = JSON.stringify(excerpt).length - 2 - maxEncoded
+    if (over <= 0) return excerpt
+    limit -= over
+  }
+  return ''
 }
 
 function cloneExternalTextCandidate(candidate: ExternalTextCandidate): ExternalTextCandidate {

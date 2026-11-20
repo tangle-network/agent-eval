@@ -195,18 +195,24 @@ async function handleCallback<TResponse>(
     }
     let result: TResponse
     const reported: { measurement?: ExternalEvaluationMeasurement } = {}
-    try {
-      result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal, (measured) => {
-        reported.measurement = structuredClone(measured)
-      })
-    } catch (error) {
+    const exampleId = body.exampleId
+    // Every refusal after `evaluate` ran keeps what it measured: the cells
+    // were paid for whether or not the optimizer receives their score.
+    const refuseFailedEvaluation = (): void =>
       observe({
         kind: 'refusal',
         reason: 'evaluation-failed',
         candidate,
         candidateHash,
-        exampleId: body.exampleId,
+        exampleId,
+        ...(reported.measurement ? { measurement: reported.measurement } : {}),
       })
+    try {
+      result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal, (measured) => {
+        reported.measurement = structuredClone(measured)
+      })
+    } catch (error) {
+      refuseFailedEvaluation()
       // The thrown detail is the only diagnostic for a failed evaluation —
       // an opaque 500 costs the caller a blind debugging round.
       sendJsonIfOpen(response, 500, {
@@ -218,24 +224,12 @@ async function handleCallback<TResponse>(
     try {
       encoded = encodeJsonResponse(result)
     } catch {
-      observe({
-        kind: 'refusal',
-        reason: 'evaluation-failed',
-        candidate,
-        candidateHash,
-        exampleId: body.exampleId,
-      })
+      refuseFailedEvaluation()
       sendJsonIfOpen(response, 500, { error: 'evaluation response must be valid JSON' })
       return
     }
     if (Buffer.byteLength(encoded) > limits.maxResponseBytes) {
-      observe({
-        kind: 'refusal',
-        reason: 'evaluation-failed',
-        candidate,
-        candidateHash,
-        exampleId: body.exampleId,
-      })
+      refuseFailedEvaluation()
       sendJsonIfOpen(response, 413, { error: 'evaluation response too large' })
       return
     }

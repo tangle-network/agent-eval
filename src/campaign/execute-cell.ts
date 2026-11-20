@@ -6,6 +6,7 @@
  */
 
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { toW3CTraceId } from '@tangle-network/agent-trace-contract'
 import { CostAccountingIncompleteError, type CostLedgerHandle } from '../cost-ledger'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import {
@@ -22,13 +23,13 @@ import type {
   CampaignCellRetryPolicy,
   RunCampaignOptions,
 } from './run-campaign'
+import type { SearchTraceRef } from './search-ledger-types'
 import type { CampaignStorage } from './storage'
 import type {
   CampaignArtifactWriter,
   CampaignCellResult,
   CampaignCostMeter,
   CampaignTokenUsage,
-  CampaignTraceWriter,
   DispatchContext,
   JudgeScore,
   Scenario,
@@ -42,7 +43,7 @@ interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   resumable: boolean
   now: () => Date
   storage: CampaignStorage
-  buildTraceWriter: (cellId: string, dir: string) => CampaignTraceWriter
+  buildTraceWriter: NonNullable<RunCampaignOptions<TScenario, TArtifact>['buildTraceWriter']>
   signal: AbortSignal
   dispatchTimeoutMs?: number
   dispatchShutdownTimeoutMs: number
@@ -147,7 +148,7 @@ function openAttempt<TScenario extends Scenario, TArtifact>(
   )
   artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/identity.json`] = identityPath
   storage.write(join(cellDir, 'latest-attempt.json'), JSON.stringify(attempt))
-  const trace = args.buildTraceWriter(args.slot.cellId, traceDir)
+  const trace = args.buildTraceWriter(args.slot.cellId, traceDir, attempt)
   const paid = { started: false }
   const artifacts: CampaignArtifactWriter = {
     async write(path, content) {
@@ -487,6 +488,13 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     .list({ tags: costTags })
     .map((receipt) => receipt.callId)
     .sort()
+  // Dispatch and judging are done and every paid call has settled, so the
+  // flushed trace is final; its reference goes on the cell, the failure
+  // receipt and the cache alike.
+  await trace.flush()
+  const traceRef: SearchTraceRef = trace.traceRef?.() ?? {
+    unknown: `the trace writer of campaign cell ${args.slot.cellId} exposes no trace identity`,
+  }
 
   const cell = withCurrentAgentEvidence<TArtifact>(
     {
@@ -505,6 +513,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       durationMs: Date.now() - startMs,
       seed: args.slot.cellSeed,
       cached: false,
+      traceRef,
       ...(args.attempt > 1 ? { retryAttempts: args.attempt - 1 } : {}),
       ...(failure ? { errorStage: failure.stage } : {}),
       ...(failure?.judge ? { errorJudge: failure.judge } : {}),
@@ -518,7 +527,6 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     ? recordCellFailure(args, run, failure, cell, costTags, fatalCellError)
     : false
 
-  await trace.flush()
   const resultPath = join(attemptDir, 'result.json')
   storage.write(resultPath, JSON.stringify(cell))
   artifactsByPath[`${args.slot.cellId}/${attemptPrefix}/result.json`] = resultPath
@@ -633,19 +641,38 @@ function enforceDispatchUsage(
   console.warn(`[runCampaign] expectUsage: ${msg}`)
 }
 
+/**
+ * The default writer keeps an attempt's ended spans in `<attempt>/trace/spans.jsonl`.
+ * Its trace id is the W3C id of the attempt's run, `<runAttemptId>/<cellId>/attempt-<n>`,
+ * derived by the trace contract's one run-id rule, and every span it writes
+ * carries it as `traceId`, so the id finds the file and the file proves the id.
+ * A span opened and never ended is not written; `traceRef` counts it as dropped.
+ */
 export function defaultBuildTraceWriter(
   storage: CampaignStorage,
-): (cellId: string, dir: string) => CampaignTraceWriter {
-  return (cellId, dir) => {
+): NonNullable<RunCampaignOptions<Scenario, unknown>['buildTraceWriter']> {
+  return (cellId, dir, attempt) => {
+    const traceId = toW3CTraceId(`${attempt.runAttemptId}/${cellId}/attempt-${attempt.number}`)
     const spans: Array<Record<string, unknown>> = []
+    const open = new Set<Record<string, unknown>>()
+    let flushed: { written: number; dropped: number } | undefined
     return {
       span(name, attributes) {
         const startMs = Date.now()
-        const record: Record<string, unknown> = { name, cellId, startMs, ...(attributes ?? {}) }
+        const record: Record<string, unknown> = {
+          name,
+          cellId,
+          startMs,
+          ...(attributes ?? {}),
+          traceId,
+        }
+        open.add(record)
         const finish: TraceSpan = {
           end(endAttrs) {
             record.durationMs = Date.now() - startMs
             if (endAttrs) Object.assign(record, endAttrs)
+            record.traceId = traceId
+            open.delete(record)
             spans.push(record)
           },
           setAttribute(key, value) {
@@ -656,6 +683,18 @@ export function defaultBuildTraceWriter(
       },
       async flush() {
         storage.write(join(dir, 'spans.jsonl'), spans.map((s) => JSON.stringify(s)).join('\n'))
+        flushed = { written: spans.length, dropped: open.size }
+      },
+      traceRef() {
+        if (flushed === undefined) {
+          return { unknown: `the trace of campaign cell ${cellId} was never flushed` }
+        }
+        return {
+          traceId,
+          execRunId: null,
+          spansWritten: flushed.written,
+          spansDropped: flushed.dropped,
+        }
       },
     }
   }
