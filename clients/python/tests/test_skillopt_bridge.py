@@ -252,6 +252,77 @@ def test_adapter_enforces_the_evaluation_limit_under_concurrency(
     assert adapter.evaluation_count == 4
 
 
+def _callback_body(max_chars: int, notes_fill: str) -> str:
+    """A callback response whose JSON is `max_chars` long as the TypeScript side
+    counts it, `JSON.stringify(response).length`, with `notes_fill` repeated."""
+    payload: dict[str, Any] = {
+        "score": 0.5,
+        "info": {
+            "scenarioId": "train",
+            "dimensions": {"correct": 0.5},
+            "notes": "",
+            "status": "scored",
+        },
+    }
+
+    def encode() -> str:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    while len(encode().encode("utf-16-le")) // 2 < max_chars:
+        payload["info"]["notes"] += notes_fill
+    return encode()
+
+
+def _rollout_one(monkeypatch, tmp_path: Path, body: str) -> list[dict[str, Any]]:
+    input_value = _valid_input(tmp_path)
+    input_value["maxEvidenceChars"] = 1_000
+    # The case alone is most of the bound: the case and the response together exceed it.
+    input_value["trainSet"] = [{"id": "train", "data": {"prompt": "p" * 800}}]
+    adapter = skillopt_bridge._build_adapter(object, input_value)
+
+    def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=body.encode("utf-8"),
+            headers={"content-type": "application/json; charset=utf-8"},
+            request=httpx.Request("POST", args[0]),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    return adapter.rollout(adapter.train_items, "candidate", str(tmp_path / "rollout"))
+
+
+def test_adapter_accepts_a_callback_response_at_the_evidence_bound(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    body = _callback_body(1_000, "n")
+    assert len(body) == 1_000
+
+    [result] = _rollout_one(monkeypatch, tmp_path, body)
+
+    assert result["soft"] == 0.5
+    [prediction_dir] = (tmp_path / "rollout" / "predictions").iterdir()
+    conversation = json.loads((prediction_dir / "conversation.json").read_text())
+    evidence = json.loads(conversation[-1]["content"])
+    assert evidence["notes"] == json.loads(body)["info"]["notes"]
+    assert evidence["scenario"]["case"] == {"prompt": "p" * 800}
+
+
+def test_adapter_counts_the_evidence_bound_as_the_typescript_callback_does(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    # Under 1,000 characters to Python, 1,001 UTF-16 code units to JavaScript:
+    # each astral character counts twice there, so the callback would have
+    # excerpted this response.
+    body = _callback_body(1_001, "\U0001f600")
+    assert len(body) < 1_000
+
+    with pytest.raises(ValueError, match=r"exceeds maxEvidenceChars \(1001 > 1000\)"):
+        _rollout_one(monkeypatch, tmp_path, body)
+
+
 def test_bridge_reports_resume_only_after_official_trainer_restores_state(
     monkeypatch,
     tmp_path: Path,

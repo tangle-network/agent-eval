@@ -246,6 +246,8 @@ async function runScriptedGepa<TArtifact>(input: {
   reps?: number
   describeArtifact?: (artifact: TArtifact, scenario: Scenario) => unknown
   maxEvidenceChars?: number
+  /** Campaign settings for the optimizer's evaluations, over `expectUsage: 'off'`. */
+  evaluationOptions?: { expectUsage?: 'assert' | 'warn' | 'off'; abortOnCellError?: boolean }
 }) {
   const responsesPath = join(runDir, 'optimizer-responses.json')
   const ledgerPath = join(runDir, 'gepa-search-ledger.jsonl')
@@ -275,6 +277,7 @@ async function runScriptedGepa<TArtifact>(input: {
     optimizationRunOptions: {
       expectUsage: 'off',
       ...(input.reps === undefined ? {} : { reps: input.reps }),
+      ...input.evaluationOptions,
     },
     runDir,
     seed: 11,
@@ -688,6 +691,94 @@ describe('an evaluation refused after it measured keeps what it spent', () => {
       status: 'passed',
       score: 1,
     })
+  })
+})
+
+describe('an evaluation whose campaign threw keeps what its settled cells spent', () => {
+  /** Pays on the first dispatch of the `train` case; `second` decides the next one. */
+  function trainDispatch(second: 'stub' | 'paid-failure') {
+    let trainDispatches = 0
+    return async (surface: MutableSurface, scenario: Scenario, ctx: DispatchContext) => {
+      if (scenario.id !== 'train' || ++trainDispatches === 1) {
+        return paidDispatch(surface, scenario, ctx)
+      }
+      if (second === 'stub') return { text: String(surface) }
+      await paidDispatch(surface, scenario, ctx)
+      throw new Error('the agent crashed after its paid call')
+    }
+  }
+
+  it('records the settled cell with its real cost and the cell the throw interrupted as unknown', async () => {
+    // The second repeat answers without a paid call, so `expectUsage: 'assert'`
+    // makes runCampaign throw before that cell settles.
+    const { events, observations, responses } = await runScriptedGepa({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      reps: 2,
+      evaluationOptions: { expectUsage: 'assert' },
+      dispatchWithSurface: trainDispatch('stub'),
+      judge: betterJudge,
+    })
+
+    expect(responses).toEqual([{ refused: 500 }])
+    const refusal = observations.find((observation) => observation.kind === 'refusal')!
+    expect(refusal).toMatchObject({ reason: 'evaluation-failed', exampleId: 'train' })
+    expect((refusal.measurement as { cells: unknown[] }).cells).toHaveLength(2)
+
+    const { settled } = settledCells(events, 'train')
+    expect(settled).toHaveLength(2)
+    const known = settled.filter((cell) => cell.accounting?.cost.status === 'known')
+    const interrupted = settled.filter((cell) => cell.accounting?.cost.status === 'unknown')
+    expect(known).toHaveLength(1)
+    expect(known[0]!.accounting).toEqual({
+      tokens: { status: 'known', inputTokens: 120, outputTokens: 30, cachedTokens: 0 },
+      cost: { status: 'known', usd: 0.0042, source: 'provider' },
+    })
+    expect(known[0]!.outcome).toMatchObject({
+      status: 'errored',
+      metrics: { composite: 1 },
+      error: { code: 'evaluation-refused' },
+    })
+    expect(known[0]!.traceRef).toHaveProperty('traceId')
+    // The interrupted cell made no paid call before the throw, so its known
+    // floor is zero, and its cost stays unknown rather than a measured zero.
+    expect(interrupted).toHaveLength(1)
+    expect(interrupted[0]!.accounting?.cost).toMatchObject({
+      status: 'unknown',
+      knownLowerBoundUsd: 0,
+    })
+    expect(interrupted[0]!.accounting?.tokens).toMatchObject({ status: 'unknown' })
+    expect(interrupted[0]!.outcome).toMatchObject({
+      status: 'errored',
+      error: { code: 'evaluation-refused', message: expect.stringMatching(/expectUsage/) },
+    })
+  })
+
+  it('records every settled cell, the failed one included, when the campaign aborts on a cell error', async () => {
+    const { events, observations } = await runScriptedGepa({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      reps: 2,
+      evaluationOptions: { abortOnCellError: true },
+      dispatchWithSurface: trainDispatch('paid-failure'),
+      judge: betterJudge,
+    })
+
+    const refusal = observations.find((observation) => observation.kind === 'refusal')!
+    expect((refusal.measurement as { cells: unknown[] }).cells).toHaveLength(2)
+    // Both repeats settled before the campaign rethrew the failure, so both
+    // carry their real spend and nothing is left unknown.
+    const { settled } = settledCells(events, 'train')
+    expect(settled).toHaveLength(2)
+    for (const cell of settled) {
+      expect(cell.accounting).toEqual({
+        tokens: { status: 'known', inputTokens: 120, outputTokens: 30, cachedTokens: 0 },
+        cost: { status: 'known', usd: 0.0042, source: 'provider' },
+      })
+    }
+    expect(settled.map((cell) => cell.outcome?.status)).toEqual(['errored', 'errored'])
   })
 })
 
