@@ -133,6 +133,10 @@ export interface ToolDef {
 export interface RolloutStep {
   kind: string
   name: string
+  /** Id of the trace span the step was projected from; absent on steps not minted from a span. */
+  spanId?: string
+  /** Parent id that span names; absent for a root span. It can name a span missing from the capture, which `provenance.gap` then states. */
+  parentSpanId?: string
   /** llm: last-message summary · tool: stringified args. Scrubbed. */
   input?: string
   /** llm: output text · tool: stringified result. Scrubbed. */

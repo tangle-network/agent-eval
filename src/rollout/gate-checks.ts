@@ -178,6 +178,8 @@ function payloadIsPopulated(value: unknown): boolean {
 const DECLARED_STEP_KEYS: { readonly [K in keyof Required<RolloutStep>]: true } = {
   kind: true,
   name: true,
+  spanId: true,
+  parentSpanId: true,
   input: true,
   output: true,
   status: true,
