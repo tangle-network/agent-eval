@@ -118,7 +118,7 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
     })
   })
 
-  it('refuses a recorded call that reports no tokens, no charge and no observed cost', async () => {
+  it('refuses a recorded call that reports no tokens and no charge and was not declared free', async () => {
     const error = await runCampaign({
       ...freeCampaign(mkdtempSync(join(tmpdir(), 'empty-receipt-'))),
       scenarios: scenarios.slice(0, 1),
@@ -140,7 +140,7 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
 
     expect(error).toBeInstanceOf(BackendIntegrityError)
     expect((error as Error).message).toMatch(
-      /recorded 1 agent call through ctx\.cost\.runPaidCall, and none reports tokens, a charge or an observed cost/,
+      /recorded 1 agent call through ctx\.cost\.runPaidCall, and none reports tokens or a charge or was declared free/,
     )
     expect((error as BackendIntegrityError).report).toMatchObject({
       totalRecords: 1,
@@ -209,7 +209,9 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
     })
   })
 
-  it('lets runProfileMatrix, which asserts a real backend by default, accept a matrix of free calls', async () => {
+  // A run record carries no declaration that its call was free, so the
+  // run-record integrity summary judges by tokens alone, as in 2.0.0.
+  it('lets runProfileMatrix judge its run records by tokens alone, so a matrix of free calls is a stub verdict', async () => {
     const result = await runProfileMatrix({
       profiles: [{ name: 'retriever', model: { default: RETRIEVER_MODEL } }],
       scenarios,
@@ -218,13 +220,14 @@ describe('expectUsage: a recorded free call is work at a known $0', () => {
       runDir: mkdtempSync(join(tmpdir(), 'free-matrix-')),
       commitSha: 'free-call-matrix',
       storage: inMemoryCampaignStorage(),
+      integrity: 'off',
     })
 
     expect(result.integrity).toMatchObject({
       totalRecords: 2,
-      realRecords: 2,
-      stubRecords: 0,
-      verdict: 'real',
+      realRecords: 0,
+      stubRecords: 2,
+      verdict: 'stub',
     })
     expect(result.records.map((record) => record.costProvenance)).toEqual([
       { kind: 'observed', usd: 0 },

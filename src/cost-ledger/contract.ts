@@ -45,6 +45,12 @@ export interface CostCallBase {
   actor: string
   model: string
   maximumCostUsd?: number
+  /**
+   * The caller declared before the call that it cannot spend:
+   * `maximumCharge: { externallyEnforcedMaximumUsd: 0 }`. A call recorded
+   * before this field existed carries none.
+   */
+  declaredFree?: true
   tags?: Record<string, string>
   timestamp: number
 }

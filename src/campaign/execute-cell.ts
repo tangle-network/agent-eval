@@ -615,12 +615,13 @@ function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<bo
 /**
  * Per-dispatch stub guard over the cell's agent receipts, by the rule
  * `summarizeAgentReceiptIntegrity` applies: a call shows work when it reports
- * tokens, a charge, or an observed cost (`actualCostUsd`, a stated $0
- * included). A cell that produced an artifact fails the guard when it
- * recorded no agent call through `ctx.cost.runPaidCall`, or recorded only
- * calls that show no work. A free call that records zero tokens and
- * `actualCostUsd: 0` passes. `'warn'` logs a failure, `'assert'` throws it
- * (fail-fast), and `'off'` skips the check.
+ * tokens, or a positive charge, or it was declared free before it ran
+ * (`maximumCharge: { externallyEnforcedMaximumUsd: 0 }`) and settled at $0.
+ * A cell that produced an artifact fails the guard when it recorded no agent
+ * call through `ctx.cost.runPaidCall`, or recorded only calls that show no
+ * work: a zero-token call that reports $0 is what a provider that dropped
+ * usage returns. `'warn'` logs a failure, `'assert'` throws it (fail-fast),
+ * and `'off'` skips the check.
  */
 function enforceDispatchUsage(
   cell: Pick<CampaignCellResult<unknown>, 'cellId' | 'artifact'>,
@@ -632,10 +633,12 @@ function enforceDispatchUsage(
   const report = summarizeAgentReceiptIntegrity(agentReceipts)
   if (report.realRecords > 0) return
   const calls = report.totalRecords
+  const fix =
+    'report its usage, or declare a call that cannot spend with maximumCharge: { externallyEnforcedMaximumUsd: 0 }'
   const msg =
     calls === 0
-      ? `cell '${cell.cellId}' produced an artifact but recorded no agent call through ctx.cost.runPaidCall, so nothing shows the dispatch did work (a stub, or calls paid outside the ledger); record each call, a free one with actualCostUsd: 0`
-      : `cell '${cell.cellId}' recorded ${calls} agent call${calls === 1 ? '' : 's'} through ctx.cost.runPaidCall, and none reports tokens, a charge or an observed cost (a placeholder receipt, or usage the call dropped); a free call states actualCostUsd: 0`
+      ? `cell '${cell.cellId}' produced an artifact but recorded no agent call through ctx.cost.runPaidCall, so nothing shows the dispatch did work (a stub, or calls paid outside the ledger); record each call and ${fix}`
+      : `cell '${cell.cellId}' recorded ${calls} agent call${calls === 1 ? '' : 's'} through ctx.cost.runPaidCall, and none reports tokens or a charge or was declared free: a zero-token call that reports $0 is what a provider that dropped usage returns; ${fix}`
   if (mode === 'assert') {
     throw new BackendIntegrityError(`expectUsage: ${msg}`, { ...report, diagnosis: msg })
   }

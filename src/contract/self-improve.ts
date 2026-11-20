@@ -300,7 +300,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
   /**
    * Per-cell backend-integrity expectation — the fail-loud guard, by `runCampaign`'s
    * rule: a cell with an artifact and no recorded call that shows work is a stub;
-   * a free call recorded with `actualCostUsd: 0` passes. Modes: `'assert'` throws on the first such cell, `'warn'` logs it,
+   * a call declared free with `externallyEnforcedMaximumUsd: 0` passes. Modes: `'assert'` throws, `'warn'` logs it,
    * `'off'` skips the check (offline/replay). Default `'assert'` — `selfImprove`
    * is the real-run path, so a stub fails loud rather than scoring a clean 0.
    */

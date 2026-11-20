@@ -508,7 +508,7 @@ Long-running dispatches and agent CLI engines can need different limits from sho
 | `recipe.run.maxProposerCostUsd` | Unset | Bound a GEPA stage separately when dollar accounting is available. |
 | `recipe.run.maxEvaluations` | Required | Allow enough candidate-case calls for each intended aggregate evaluation. |
 | `optimizer.budget.maxRequests` | Required | Bound optimizer calls; agent CLI sessions can use many calls per stage. |
-| `selfImprove({ expectUsage })` | `assert` | Set `off` only for a dispatch that records no call; a free call recorded with `actualCostUsd: 0` passes `assert`. |
+| `selfImprove({ expectUsage })` | `assert` | Set `off` only for a dispatch that records no call; a call declared free with `maximumCharge: { externallyEnforcedMaximumUsd: 0 }` that settles at $0 passes `assert`. |
 
 Put reflection settings under `recipe.run.engineConfig.reflection.reflection_lm_kwargs` for a direct engine recipe.
 Model substitutions remain recorded; accepting one does not establish performance of the originally requested model.

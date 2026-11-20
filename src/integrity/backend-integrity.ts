@@ -11,16 +11,22 @@
  *   const report = summarizeBackendIntegrity(records)
  *   assertRealBackend(records)   // throws BackendIntegrityError if 100% stub
  *
- * A record or call shows work when it reports tokens, a charge, or an
- * observed cost: a cost its executor stated (`actualCostUsd`), a stated $0
- * included. A free call (a local retrieval, an in-process search) records zero
- * tokens and `actualCostUsd: 0` and is real work at a known $0. A record that
- * shows none of the three is "stub-mode": a placeholder receipt, usage the
- * call dropped, or no call at all. An estimated $0 is not evidence, because
- * pricing zero tokens is what dropped usage produces; a $0 cost beside real
- * tokens still shows work, because some backends call LLMs without
- * propagating pricing. `runCampaign`'s `expectUsage` applies the same rule to
+ * A settled agent call shows work when it reports tokens, or a positive
+ * charge, or it was declared free before it ran (`maximumCharge:
+ * { externallyEnforcedMaximumUsd: 0 }`, kept on the receipt as
+ * `declaredFree`) and settled without error at a known $0. A free call (a
+ * local retrieval, an in-process search) is real work at a known $0 that
+ * way. A zero-token call that reports $0, observed or estimated, without that
+ * declaration is "stub-mode": a model call through a provider that dropped
+ * usage reports exactly that, so what a receipt says afterwards is not
+ * evidence the model answered. A call recorded before `declaredFree` existed
+ * carries no declaration. `runCampaign`'s `expectUsage` applies this rule to
  * each cell's agent receipts.
+ *
+ * A run record carries no declaration, so its rule is tokens alone: a record
+ * with zero tokens is stub-mode whatever its cost. A $0 cost beside real
+ * tokens still shows work, because some backends call LLMs without
+ * propagating pricing.
  *
  * Verdicts:
  *   - `real`   — every record shows work
@@ -36,9 +42,10 @@ import type { RunRecord } from '../run-record'
 export interface BackendIntegrityReport {
   /** Total records inspected. */
   totalRecords: number
-  /** Records with zero tokens, no charge and no observed cost (a stub fingerprint). */
+  /** Records that show no work (a stub fingerprint). */
   stubRecords: number
-  /** Records that show work: tokens, a charge, or an observed cost, a stated $0 included. */
+  /** Records that show work: tokens for a run record; tokens, a positive charge or a
+   *  declared-free call settled at $0 for a receipt. */
   realRecords: number
   /** Records where output>0 but costUsd=0 (real LLM, broken cost ledger). */
   uncostedRecords: number
@@ -81,8 +88,7 @@ export function summarizeBackendIntegrity(
       inputTokens: record.tokenUsage.input,
       outputTokens: record.tokenUsage.output,
       costUsd: record.costUsd,
-      // A record written before cost provenance existed carries none.
-      costObserved: record.costProvenance?.kind === 'observed',
+      showsWork: record.tokenUsage.input > 0 || record.tokenUsage.output > 0,
     })),
   )
 }
@@ -98,26 +104,21 @@ export function summarizeAgentReceiptIntegrity(
         inputTokens: receipt.inputTokens,
         outputTokens: receipt.outputTokens,
         costUsd: receipt.costUsd,
-        costObserved: receipt.actualCostUsd !== undefined,
+        showsWork: receiptShowsWork(receipt),
       })),
   )
+}
+
+function receiptShowsWork(receipt: CostReceipt): boolean {
+  if (receipt.inputTokens > 0 || receipt.outputTokens > 0 || receipt.costUsd > 0) return true
+  return receipt.declaredFree === true && receipt.error === undefined && !receipt.costUnknown
 }
 
 interface BackendUsage {
   inputTokens: number
   outputTokens: number
   costUsd: number | null
-  /** The cost was stated by its executor, not estimated from tokens. */
-  costObserved: boolean
-}
-
-function showsWork(usage: BackendUsage): boolean {
-  return (
-    usage.inputTokens > 0 ||
-    usage.outputTokens > 0 ||
-    (usage.costUsd ?? 0) > 0 ||
-    usage.costObserved
-  )
+  showsWork: boolean
 }
 
 function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegrityReport {
@@ -132,7 +133,7 @@ function summarizeBackendUsage(records: readonly BackendUsage[]): BackendIntegri
     totalInputTokens += rec.inputTokens
     totalOutputTokens += rec.outputTokens
     totalCostUsd += rec.costUsd ?? 0
-    if (showsWork(rec)) realRecords++
+    if (rec.showsWork) realRecords++
     else stubRecords++
     if (rec.outputTokens > 0 && (rec.costUsd === null || rec.costUsd === 0)) uncostedRecords++
   }
@@ -173,7 +174,7 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
   }
   if (r.verdict === 'stub') {
     return [
-      `all ${r.totalRecords} records have zero token usage, no charge and no observed cost — the LLM backend was never called.`,
+      `all ${r.totalRecords} records have zero token usage — the LLM backend was never called.`,
       'common causes: --backend sandbox without a sandbox bridge running; stub model returning hard-coded strings;',
       'auth misconfigured so requests were silently dropped before the LLM. Re-run with --backend tcloud and TANGLE_API_KEY set,',
       'or boot the cli-bridge / sandbox before invoking the eval.',
@@ -182,14 +183,14 @@ function buildDiagnosis(r: Omit<BackendIntegrityReport, 'diagnosis'>): string {
   if (r.verdict === 'mixed') {
     const pct = ((r.stubRecords / r.totalRecords) * 100).toFixed(0)
     return [
-      `${r.stubRecords}/${r.totalRecords} records (${pct}%) have zero token usage, no charge and no observed cost — the backend partially failed.`,
+      `${r.stubRecords}/${r.totalRecords} records (${pct}%) have zero token usage — the backend partially failed.`,
       'common causes: rate-limit cascade (429s after the first N personas);',
       'transient auth expiry mid-run; provider outage. Treat the affected records as missing data, not agent failures.',
     ].join(' ')
   }
   // verdict === 'real'
   if (r.totalInputTokens === 0 && r.totalOutputTokens === 0) {
-    return `${r.totalRecords} records show work at a known cost without tokens ($${r.totalCostUsd.toFixed(4)}): free calls, or calls billed without usage.`
+    return `${r.totalRecords} records show work without tokens ($${r.totalCostUsd.toFixed(4)}): calls declared free, or calls billed without usage.`
   }
   if (r.uncostedRecords > 0) {
     const pct = ((r.uncostedRecords / r.totalRecords) * 100).toFixed(0)
