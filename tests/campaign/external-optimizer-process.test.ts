@@ -1278,8 +1278,17 @@ describe('external optimizer model proxy', () => {
     }
   })
 
-  it('forwards a successful execution when billed USD is unknown and no dollar cap was guessed', async () => {
-    const ledger = new CostLedger()
+  it.each([
+    { cap: undefined, billedUsd: null, statuses: [200, 200] },
+    { cap: 2, billedUsd: null, statuses: [200, 429] },
+    { cap: 2, billedUsd: 0, statuses: [200, 200] },
+    { cap: 2, billedUsd: 0.25, statuses: [200, 200] },
+  ])('admits counted tokens with billed USD $billedUsd under local cap $cap', async ({
+    cap,
+    billedUsd,
+    statuses,
+  }) => {
+    const ledger = new CostLedger(30)
     const proxy = await startRuntimeOwnedModelProxy({
       callRef: 'runtime-profile:unknown-billing',
       call: async (request) => ({
@@ -1291,7 +1300,7 @@ describe('external optimizer model proxy', () => {
             completionTokens: 3,
             totalTokens: 10,
           },
-          costUsd: null,
+          costUsd: billedUsd,
           model: request.request.model,
           durationMs: 0,
           finishReason: 'stop',
@@ -1301,17 +1310,20 @@ describe('external optimizer model proxy', () => {
           model: request.request.model,
           inputTokens: 7,
           outputTokens: 3,
-          costUnknown: true,
+          ...(billedUsd === null ? { costUnknown: true } : { actualCostUsd: billedUsd }),
         },
-        execution: { kind: 'runtime-profile-call', billedUsd: null },
+        execution: { kind: 'runtime-profile-call', billedUsd },
       }),
       recordExecution: () => {},
       model: 'model-a',
       budget: {
-        maxRequests: 1,
+        ...(cap === undefined ? {} : { maxCostUsd: cap }),
+        maxRequests: 2,
         maxRequestBytes: 10_000,
         maxResponseBytes: 10_000,
         maxOutputTokensPerRequest: 10,
+        // Each call reserves USD 1.50 for its three requested output tokens.
+        pricing: { inputUsdPerMillion: 0, outputUsdPerMillion: 500_000 },
       },
       costLedger: ledger,
       phase: 'optimizer',
@@ -1319,14 +1331,19 @@ describe('external optimizer model proxy', () => {
     })
 
     try {
-      const response = await postModel(proxy, {
-        model: 'model-a',
-        messages: [],
-        max_tokens: 3,
-      })
-      expect(response.status).toBe(200)
-      expect(ledger.summary().costProvenance).toEqual({ kind: 'uncaptured', usd: null })
-      expect(ledger.summary().totalCostUsd).toBe(0)
+      const request = { model: 'model-a', messages: [], max_tokens: 3 }
+      const first = await postModel(proxy, request)
+      const second = await postModel(proxy, request)
+      expect([first.status, second.status]).toEqual(statuses)
+      if (second.status === 429) {
+        expect(await second.json()).toEqual({ error: 'optimizer model cost limit reached' })
+      }
+      const served = statuses.filter((status) => status === 200).length
+      expect(proxy.successfulCompletions()).toBe(served)
+      expect(ledger.list()).toHaveLength(served)
+      expect(ledger.summary().costProvenance).toEqual(
+        billedUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: served * billedUsd },
+      )
       proxy.assertExecutionComplete()
     } finally {
       await proxy.close()

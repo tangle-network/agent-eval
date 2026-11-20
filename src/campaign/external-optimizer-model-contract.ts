@@ -17,7 +17,6 @@ export interface ProviderProxyResponse {
   contentType: string
   body: Uint8Array
   receipt: CostReceiptInput
-  usageComplete: boolean
   /** A Runtime-owned call failed after returning complete execution evidence. */
   modelCallFailed?: string
   /** Set when the response violated the output or reasoning limit; forces a 502. */
