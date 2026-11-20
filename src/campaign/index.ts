@@ -369,9 +369,11 @@ export {
   scoreDiscrimination,
 } from './scenario-selection'
 export {
+  type ArtifactEvidenceOptions,
   type CampaignBreakdown,
   campaignBreakdown,
   campaignMeanComposite,
+  type DescribeArtifact,
 } from './score-utils'
 export {
   type CampaignCellMeasurement,

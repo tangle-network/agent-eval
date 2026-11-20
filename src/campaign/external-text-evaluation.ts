@@ -9,7 +9,7 @@ import {
 } from './external-optimizer-process'
 import type { OptimizationMethodInput } from './optimization-method'
 import { runCampaign } from './run-campaign'
-import { campaignBreakdown } from './score-utils'
+import { campaignBreakdown, campaignEvidence, type DescribeArtifact } from './score-utils'
 import { type CampaignCellMeasurement, campaignCellMeasurement } from './search-campaign-cell'
 import { surfaceContentHash } from './surface-identity'
 import type { MutableSurface, Scenario } from './types'
@@ -187,7 +187,7 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
   costTags?: Readonly<Record<string, string>>
   costLedger: CostLedgerHandle
   maxEvidenceChars: number
-  describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
+  describeArtifact?: DescribeArtifact<TArtifact, TScenario>
   signal?: AbortSignal
 }): Promise<ScoredScenario> {
   const campaign = await runCampaign<TScenario, TArtifact>({
@@ -234,13 +234,12 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
   const breakdown = campaignBreakdown(campaign)
   const row = breakdown.scenarios[0]
   if (!row) throw new Error(`${args.label} evaluation produced no score for '${args.scenario.id}'`)
-  const artifact =
-    args.describeArtifact && campaign.cells[0]
-      ? args.describeArtifact(campaign.cells[0].artifact, args.scenario)
-      : undefined
-  if (artifact !== undefined) {
-    assertJsonValue(artifact, `${args.label} described artifact for '${args.scenario.id}'`)
-  }
+  // The evidence the native reflective path shows, kept as a JSON value so a
+  // described artifact may carry inline images.
+  const artifact = campaignEvidence(campaign.cells, {
+    scenarios: [args.scenario],
+    ...(args.describeArtifact ? { describeArtifact: args.describeArtifact } : {}),
+  }).get(args.scenario.id)
   const response: ExternalTextEvaluationResponse = {
     score: row.composite,
     info: {
