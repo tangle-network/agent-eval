@@ -32,6 +32,7 @@ const CostCallBaseShape = {
   actor: NonEmptyString,
   model: NonEmptyString,
   maximumCostUsd: NonNegative.optional(),
+  declaredFree: z.literal(true).optional(),
   tags: Tags.optional(),
   timestamp: NonNegative,
 }
@@ -270,6 +271,7 @@ export function buildReceipt(
       ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
       ...(hasExternalEstimate ? { estimatedCostUsd: observed.estimatedCostUsd } : {}),
       ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
+      ...(pending.declaredFree ? { declaredFree: true as const } : {}),
       ...(failed ? { error: error ?? 'paid-call-failed' } : {}),
       ...(pending.tags ? { tags: { ...pending.tags } } : {}),
       timestamp: pending.timestamp,

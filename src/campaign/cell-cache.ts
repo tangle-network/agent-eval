@@ -71,6 +71,18 @@ export function cellReceiptModels(
   return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
 }
 
+/** The settled agent-channel receipts a cell names in `costCallIds`. */
+export function cellAgentReceipts(
+  cell: Pick<CampaignCellResult<unknown>, 'costCallIds'>,
+  costLedger: CostLedgerHandle,
+  stableCostTags: Record<string, string>,
+): CostReceipt[] {
+  const callIds = new Set(cell.costCallIds ?? [])
+  return costLedger
+    .list({ channel: 'agent', tags: stableCostTags })
+    .filter((receipt) => callIds.has(receipt.callId))
+}
+
 /** Reconcile a live or resumed cell with its agent receipts. Model identity and accounting
  * completeness are independent: a failed call may report complete usage without a served model. */
 export function withCurrentAgentEvidence<TArtifact>(
@@ -78,10 +90,7 @@ export function withCurrentAgentEvidence<TArtifact>(
   costLedger: CostLedgerHandle,
   stableCostTags: Record<string, string>,
 ): CampaignCellResult<TArtifact> {
-  const callIds = new Set(source.costCallIds ?? [])
-  const receipts = costLedger
-    .list({ channel: 'agent', tags: stableCostTags })
-    .filter((receipt) => callIds.has(receipt.callId))
+  const receipts = cellAgentReceipts(source, costLedger, stableCostTags)
   const cell = { ...source }
   delete cell.resolvedModel
   delete cell.resolvedModels

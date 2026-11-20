@@ -230,6 +230,7 @@ export class CostLedger {
           actor: input.actor,
           model: pendingModel(input),
           ...(maximumCostUsd === undefined ? {} : { maximumCostUsd }),
+          ...(declaresFree(input.maximumCharge) ? { declaredFree: true as const } : {}),
           ...(input.tags ? { tags: { ...input.tags } } : {}),
           timestamp: Date.now(),
         }
@@ -621,6 +622,15 @@ async function settle<T>(promise: Promise<T>, signal: AbortSignal): Promise<Sett
       (error) => finish({ kind: 'error', error: toError(error) }),
     )
   })
+}
+
+/** A call declared free before it ran: its caller enforces a $0 maximum outside the ledger. */
+function declaresFree(maximum: MaximumCharge | undefined): boolean {
+  return (
+    maximum !== undefined &&
+    'externallyEnforcedMaximumUsd' in maximum &&
+    maximum.externallyEnforcedMaximumUsd === 0
+  )
 }
 
 function pendingModel(input: RunPaidCallInput<unknown>): string {

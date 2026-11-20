@@ -383,9 +383,11 @@ pnpm build
 cd clients/python
 ```
 
-Run each compatibility suite with its locked dependencies:
+Lint the client, then run each compatibility suite with its locked dependencies:
 
 ```sh
+uv run --frozen --extra dev ruff check .
+
 uv sync --frozen --extra dev --group gepa-release
 AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
   uv run --frozen --extra dev --group gepa-release \

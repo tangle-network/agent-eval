@@ -9,8 +9,11 @@ import {
   combineComparisonCosts,
   costFromLedgerSummary,
 } from '../campaign/optimization-cost'
-import type { OptimizationMethodResult } from '../campaign/optimization-method'
-import { executeOptimizationMethod } from '../campaign/optimization-method'
+import type { OptimizationMethod, OptimizationMethodResult } from '../campaign/optimization-method'
+import {
+  assertArtifactDescriptionSetOnce,
+  executeOptimizationMethod,
+} from '../campaign/optimization-method'
 import {
   finalComparisonCampaigns,
   runFinalComparison,
@@ -229,6 +232,23 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
   }
   await shipMethodSearchLedger(opts, selected)
   return result
+}
+
+/** A method has a trimmed name and `optimize`, and takes `describeArtifact` from one place;
+ *  `selfImprove` checks both before any spend. */
+export function assertSelfImproveMethod<TScenario extends Scenario, TArtifact>(
+  method: OptimizationMethod<TScenario, TArtifact>,
+  describeArtifact: unknown,
+): void {
+  if (
+    typeof method.name !== 'string' ||
+    !method.name.trim() ||
+    method.name.trim() !== method.name ||
+    typeof method.optimize !== 'function'
+  ) {
+    throw new Error('selfImprove: method must have a trimmed name and optimize(input)')
+  }
+  assertArtifactDescriptionSetOnce('selfImprove', method, describeArtifact)
 }
 
 /** An auto-PR needs a target repository before any spend. */

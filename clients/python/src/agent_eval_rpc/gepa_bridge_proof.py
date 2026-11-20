@@ -7,9 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gepa.strategies.instruction_proposal import InstructionProposalSignature
+
 from agent_eval_rpc.gepa_api import load_gepa_api
 from agent_eval_rpc.gepa_bridge import _decode_images, _run_recipe
-from gepa.strategies.instruction_proposal import InstructionProposalSignature
 
 
 def main() -> None:
@@ -65,14 +66,20 @@ def main() -> None:
     })
     if not isinstance(prompt, list):
         raise ValueError("Official reflection renderer did not emit multimodal messages")
-    images = [part for message in prompt for part in message["content"] if part["type"] == "image_url"]
+    images = [
+        part for message in prompt for part in message["content"] if part["type"] == "image_url"
+    ]
     if len(images) != len(rows):
         raise ValueError("Reflection lost a retained image")
     (output / "reflection-prompt.json").write_text(json.dumps(prompt))
     summary = {
         "scenarios": calls, "objectiveKeys": sorted(responses[0]["info"]["scores"]),
         "frontierKeys": sorted(population), "imageParts": len(images),
-        "modelRequests": 0, "scope": "Baseline frontier and actual reflection prompt construction only; no search or quality improvement claim",
+        "modelRequests": 0,
+        "scope": (
+            "Baseline frontier and actual reflection prompt construction only; "
+            "no search or quality improvement claim"
+        ),
         "promptSha256": hashlib.sha256(json.dumps(prompt).encode()).hexdigest(),
     }
     (output / "bridge-proof.json").write_text(json.dumps(summary, indent=2))

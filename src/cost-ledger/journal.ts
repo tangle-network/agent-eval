@@ -131,6 +131,7 @@ function sameAttribution(before: CostCallBase, after: CostCallBase): boolean {
     before.phase === after.phase &&
     before.actor === after.actor &&
     before.maximumCostUsd === after.maximumCostUsd &&
+    before.declaredFree === after.declaredFree &&
     before.timestamp === after.timestamp &&
     sameTags(before.tags, after.tags)
   )

@@ -1448,7 +1448,7 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     })
 
     await expect(pending).rejects.toThrow(
-      /produced an artifact but reported zero cost and zero tokens/,
+      /produced an artifact but recorded no agent call through ctx\.cost\.runPaidCall/,
     )
     expect(siblingAborted).toBe(true)
     expect(siblingStopped).toBe(true)
