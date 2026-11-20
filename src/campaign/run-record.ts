@@ -125,6 +125,7 @@ export function campaignCellToRunRecord<TArtifact>(
     raw.cost_per_quality = costUsd / quality.score
   }
 
+  const traceRef = campaignCellRunTraceRef(cell)
   const outcome: RunOutcome = {
     raw,
     ...(quality.judgeScores ? { judgeScores: quality.judgeScores } : {}),
@@ -156,7 +157,7 @@ export function campaignCellToRunRecord<TArtifact>(
     scenarioId: options.scenarioId ?? cell.scenarioId,
     ...(options.agentProfile ? { agentProfile: options.agentProfile } : {}),
     ...(options.search ? { search: options.search } : {}),
-    ...campaignCellRunTraceRef(cell),
+    ...(traceRef ? { traceRef } : {}),
   })
 }
 
@@ -168,14 +169,12 @@ export function campaignCellToRunRecord<TArtifact>(
  */
 function campaignCellRunTraceRef<TArtifact>(
   cell: CampaignCellResult<TArtifact>,
-): { traceRef?: RunTraceRef } {
+): RunTraceRef | undefined {
   const ref = cell.traceRef
-  if (ref === undefined || !('traceId' in ref)) return {}
+  if (ref === undefined || !('traceId' in ref)) return undefined
   return {
-    traceRef: {
-      traceId: ref.traceId,
-      ...(ref.execRunId === null ? {} : { execRunId: ref.execRunId }),
-    },
+    traceId: ref.traceId,
+    ...(ref.execRunId === null ? {} : { execRunId: ref.execRunId }),
   }
 }
 

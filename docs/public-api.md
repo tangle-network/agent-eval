@@ -235,7 +235,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `exportRunAsOtlp` | production | agent-builder:src/lib/.server/eval/analysts/canonical-trace-analyst.ts |
 | `extractErrorCount` | production | blueprint-agent:scripts/experiments/lib/error-count-extractor.ts |
 | `extractProducedState` | production | agent-app:src/eval/index.ts |
-| `extractUsage` | production | this package: src/contract/intake/code-agent-session-metrics.ts:3 |
+| `extractUsage` | production | this package: src/contract/intake/code-agent-session-metrics.ts:4 |
 | `extractUsageFromSse` | production | this package: src/trace/capture-fetch.ts:8 |
 | `FAILURE_CLASSES` | production | agent-dev-container:products/intelligence/api/src/lib/deep-trace-analyst.ts |
 | `FAILURE_MODE_KIND_SPEC` | planned | consumer tests: legal-agent:tests/eval/analysts/completion-coverage.ts |
@@ -450,15 +450,15 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | symbol | consumer | evidence |
 | --- | --- | --- |
 | `AGENT_RX_UPSTREAM_REVISION` | production | this package: src/analyst/benchmark-command-result.ts:2 |
-| `agentRxBenchmarkCase` | production | this package: src/analyst/benchmark-public-data.ts:12 |
+| `agentRxBenchmarkCase` | production | this package: src/analyst/benchmark-public-data.ts:13 |
 | `agentRxPredictionsToFindings` | production | this package: src/analyst/benchmark-public-adapters.ts:3 |
-| `ANALYST_BENCHMARK_COST_LEDGER_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:9 |
+| `ANALYST_BENCHMARK_COST_LEDGER_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:10 |
 | `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256` | planned | doc: .claude/skills/agent-eval/SKILL.md |
 | `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` | planned | doc: .claude/skills/agent-eval/SKILL.md |
 | `ANALYST_BENCHMARK_IMPLEMENTATION_FILES` | planned | doc: .claude/skills/agent-eval/SKILL.md |
-| `ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:9 |
-| `ANALYST_BENCHMARK_MANIFEST_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:9 |
-| `ANALYST_BENCHMARK_OBSERVATIONS_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:9 |
+| `ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:10 |
+| `ANALYST_BENCHMARK_MANIFEST_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:10 |
+| `ANALYST_BENCHMARK_OBSERVATIONS_FILE` | production | this package: src/analyst/benchmark-command-persistence.ts:10 |
 | `analystDefinitionAsymmetries` | planned | doc: docs/trace-analysis.md |
 | `analystDefinitionProtocolSha256` | planned | doc: docs/trace-analysis.md |
 | `AnalystExpressivenessError` | production | this package: src/analyst/benchmark-public-chunked.ts:36 |
@@ -712,7 +712,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `buildCellSchedule` | production | this package: src/campaign/plan-campaign-run.ts:9 |
 | `buildEvidenceVector` | planned | doc: docs/experiment.md |
 | `campaignBreakdown` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-outcome.ts |
-| `campaignCellMeasurement` | production | this package: src/campaign/external-text-evaluation.ts:13 |
+| `campaignCellMeasurement` | production | this package: src/campaign/external-text-evaluation.ts:14 |
 | `campaignCellSearchResult` | production | agent-runtime:src/improvement/search-method.ts |
 | `campaignCoverage` | production | tangle-router:lib/auto-policy-lab.ts |
 | `campaignMeanComposite` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-outcome.ts |
@@ -873,7 +873,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `makeProposalFinding` | production | agent-lab:projects/playproof/code-surface.ts |
 | `measuredComparisonFromAgentProfileImprovementExperiment` | production | agent-runtime:src/intelligence/authored-profile-improvement.ts |
 | `measuredComparisonFromCandidateExperiment` | production | agent-runtime:src/intelligence/improvement-cycle.ts |
-| `observeCodeAgentSession` | production | this package: src/contract/intake/code-agent-session.ts:28 |
+| `observeCodeAgentSession` | production | this package: src/contract/intake/code-agent-session.ts:29 |
 | `paretoPolicy` | planned | named in discovery-lab (bind not in the import graph) |
 | `paretoSignificanceGate` | production | agent-app:src/eval-campaign/index.ts |
 | `parseAgentTrace` | planned | doc: docs/code-agent-intake.md |
@@ -1315,7 +1315,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `assertGateReport` | production | this package: src/rollout/release/card.ts:12 |
 | `assertMinted` | production | blueprint-agent:scripts/experiments/lib/steering-dataset.ts |
 | `assertMintedLines` | planned | doc: docs/rollout.md |
-| `assertRolloutLine` | production | this package: src/rollout/interchange/harbor.ts:60 |
+| `assertRolloutLine` | production | this package: src/rollout/interchange/harbor.ts:61 |
 | `buildDatasetCard` | production | this package: src/rollout/release/hf-dataset.ts:27 |
 | `buildHfDataset` | production | supervisor-lab:archive/bench/vertical-rollout-package.ts |
 | `DEFAULT_CLAUDE_PROJECTS_DIR` | planned | named in discovery-lab (bind not in the import graph) |
@@ -1353,10 +1353,10 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `readRolloutJournal` | production | this package: src/rollout/release/hf-dataset.ts:25 |
 | `readRolloutLedger` | planned | consumer tests: super-agent:tests/conversation-rollout.test.ts |
 | `relabelImportedSplit` | planned | doc: docs/rollout.md |
-| `ROLLOUT_CAPTURES` | production | this package: src/rollout/interchange/harbor.ts:60 |
-| `ROLLOUT_ROLES` | production | this package: src/rollout/interchange/harbor.ts:60 |
-| `ROLLOUT_SCHEMA` | production | this package: src/rollout/interchange/harbor.ts:60 |
-| `ROLLOUT_SPLITS` | production | this package: src/rollout/interchange/harbor.ts:60 |
+| `ROLLOUT_CAPTURES` | production | this package: src/rollout/interchange/harbor.ts:61 |
+| `ROLLOUT_ROLES` | production | this package: src/rollout/interchange/harbor.ts:61 |
+| `ROLLOUT_SCHEMA` | production | this package: src/rollout/interchange/harbor.ts:61 |
+| `ROLLOUT_SPLITS` | production | this package: src/rollout/interchange/harbor.ts:61 |
 | `scrubLines` | production | supervisor-lab:archive/bench/vertical-rollout-package.ts |
 | `scrubText` | planned | named in tangle-tools (bind not in the import graph) |
 | `toHarborTrajectories` | planned | doc: docs/rollout.md |
@@ -1681,7 +1681,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `domainEvidencePattern` | production | blueprint-agent:scripts/experiments/lib/analyze-vb-run/session-loader.ts |
 | `emptyRedactionReport` | production | agent-runtime:src/candidate-execution/protected-redaction.ts |
 | `exportRunAsOtlp` | production | agent-builder:src/lib/.server/eval/analysts/canonical-trace-analyst.ts |
-| `extractUsage` | production | this package: src/contract/intake/code-agent-session-metrics.ts:3 |
+| `extractUsage` | production | this package: src/contract/intake/code-agent-session-metrics.ts:4 |
 | `extractUsageFromSse` | production | this package: src/trace/capture-fetch.ts:8 |
 | `FAILURE_CLASSES` | production | agent-dev-container:products/intelligence/api/src/lib/deep-trace-analyst.ts |
 | `FileSystemRawProviderSink` | production | agent-builder:scripts/eval.ts |
