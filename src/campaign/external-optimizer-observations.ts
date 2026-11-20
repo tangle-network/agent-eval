@@ -129,7 +129,9 @@ export function readExternalOptimizerObservationArtifact(input: {
       evaluationNumbers.add(observation.evaluationNumber)
       assertObservedCandidate(observation, proposed)
       assertJsonValue(observation.response, 'external optimizer evaluation response')
-      if (observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)) {
+      if (
+        observation.measurement?.cells.some((cell) => cell.scenarioId !== observation.exampleId)
+      ) {
         throw new Error(
           `external optimizer observation artifact measures another case than it evaluated at sequence ${observation.sequence}`,
         )
@@ -425,7 +427,9 @@ function assertMeasurement(value: unknown, line: number): void {
             Number.isSafeInteger(cell.attempt.number))),
     )
   if (!valid) {
-    throw new Error(`external optimizer observation artifact line ${line} has an invalid measurement`)
+    throw new Error(
+      `external optimizer observation artifact line ${line} has an invalid measurement`,
+    )
   }
   assertAllowedKeys(value as Record<string, unknown>, ['cells', 'source'], line)
   for (const cell of cells as Record<string, unknown>[]) {

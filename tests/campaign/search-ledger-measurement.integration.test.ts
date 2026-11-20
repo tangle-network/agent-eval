@@ -51,7 +51,10 @@ const GEPA_RUNTIME_IDENTITY = {
 
 const identity: SearchRunIdentity = {
   agent: { uri: 'fixture:agent', revision: 'a'.repeat(40) },
-  proposer: { kind: 'deterministic', source: { uri: 'fixture:optimizer', revision: 'b'.repeat(40) } },
+  proposer: {
+    kind: 'deterministic',
+    source: { uri: 'fixture:optimizer', revision: 'b'.repeat(40) },
+  },
   search: { uri: 'fixture:search', revision: 'c'.repeat(40) },
   model: { provider: 'fixture', alias: 'gpt-4.1', unknown: 'the fixture declares an alias' },
 }
@@ -465,7 +468,12 @@ describe('external evaluations import as the measured campaign cells', () => {
     const candidateHash = contentHash({ kind: 'external-text-candidate', candidate: 'better' })
     const response = {
       score: 1,
-      info: { scenarioId: 'train', dimensions: { correct: 1 }, scores: { correct: 1 }, status: 'scored' },
+      info: {
+        scenarioId: 'train',
+        dimensions: { correct: 1 },
+        scores: { correct: 1 },
+        status: 'scored',
+      },
     }
     log.observe({ kind: 'proposal', sequence: 1, candidate: 'better', candidateHash })
     for (const [index, sequence] of [2, 3].entries()) {
@@ -479,7 +487,10 @@ describe('external evaluations import as the measured campaign cells', () => {
         response,
       })
     }
-    const observations = readExternalOptimizerObservationArtifact({ summary: log.summary(), storage })
+    const observations = readExternalOptimizerObservationArtifact({
+      summary: log.summary(),
+      storage,
+    })
     const ledgerPath = join(runDir, 'legacy-ledger.jsonl')
     await recordGepaSearch({
       name: 'legacy-gepa',
@@ -551,7 +562,10 @@ describe('external evaluations import as the measured campaign cells', () => {
       response: { score: 1, info: { scenarioId: 'train', dimensions: {}, status: 'scored' } },
       measurement: { source: 'measured', cells: [measured] },
     })
-    const observations = readExternalOptimizerObservationArtifact({ summary: log.summary(), storage })
+    const observations = readExternalOptimizerObservationArtifact({
+      summary: log.summary(),
+      storage,
+    })
     const ledgerPath = join(runDir, 'measured-ledger.jsonl')
     await recordGepaSearch({
       name: 'measured-gepa',
@@ -652,7 +666,9 @@ describe('an evaluation refused after it measured keeps what it spent', () => {
       maxEvaluations: 1,
       maxEvidenceChars: 2_000,
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      describeArtifact: (artifact) => ({ answer: `${artifact.text}${'a'.repeat(4_000)}${answerTail}` }),
+      describeArtifact: (artifact) => ({
+        answer: `${artifact.text}${'a'.repeat(4_000)}${answerTail}`,
+      }),
       judge: notedJudge,
     })
 
@@ -725,7 +741,11 @@ describe('selfImprove shows a described artifact to every optimizer', () => {
         },
         objective: 'Return the better policy.',
         evaluationId: 'self-improve-describe',
-        runner: scriptedOptimizer([{ candidate: 'better', split: 'train' }], 'better', responsesPath),
+        runner: scriptedOptimizer(
+          [{ candidate: 'better', split: 'train' }],
+          'better',
+          responsesPath,
+        ),
       }),
     })
     const responses = JSON.parse(readFileSync(responsesPath, 'utf8')) as Array<{
@@ -739,7 +759,11 @@ describe('selfImprove shows a described artifact to every optimizer', () => {
       recipe: { kind: 'engine', run: { engine: 'best_of_n', maxEvaluations: 1 } },
       objective: 'Return the better policy.',
       evaluationId: 'describe-conflict',
-      runner: scriptedOptimizer([{ candidate: 'better', split: 'train' }], 'better', join(runDir, 'r.json')),
+      runner: scriptedOptimizer(
+        [{ candidate: 'better', split: 'train' }],
+        'better',
+        join(runDir, 'r.json'),
+      ),
       describeArtifact: (artifact) => ({ other: artifact.text }),
     })
     await expect(

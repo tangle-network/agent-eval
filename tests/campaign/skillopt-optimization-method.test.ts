@@ -301,7 +301,9 @@ describe('skillOptOptimizationMethod', () => {
     const evaluation = readFileSync(result.scores[0]!.provenance!.observations!.path, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { kind: string; response?: { info: { artifact?: unknown } } })
+      .map(
+        (line) => JSON.parse(line) as { kind: string; response?: { info: { artifact?: unknown } } },
+      )
       .find((observation) => observation.kind === 'evaluation')
     expect(evaluation?.response?.info.artifact).toEqual({ described: 'better' })
   })
