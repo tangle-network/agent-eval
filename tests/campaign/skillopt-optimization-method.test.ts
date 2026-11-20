@@ -284,6 +284,28 @@ describe('skillOptOptimizationMethod', () => {
     )
   })
 
+  it('shows SkillOpt the describeArtifact its caller gives every method', async () => {
+    const upstreamBaseUrl = await startModelServer()
+    const method = skillOptOptimizationMethod<TestScenario, TestArtifact>({
+      objective: 'Improve the skill.',
+      evaluationId: 'shared-describe',
+      trainer: { epochs: 1, batchSize: 1 },
+      optimizer: optimizerModel(upstreamBaseUrl),
+      maxEvaluations: 1,
+      runner: fakeSkillOptRunner(join(runDir, 'observed.json')),
+    })
+    const result = await compareOptimizationMethods({
+      ...skillOptComparisonOptions(method),
+      describeArtifact: (artifact: TestArtifact) => ({ described: artifact.text }),
+    })
+    const evaluation = readFileSync(result.scores[0]!.provenance!.observations!.path, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { kind: string; response?: { info: { artifact?: unknown } } })
+      .find((observation) => observation.kind === 'evaluation')
+    expect(evaluation?.response?.info.artifact).toEqual({ described: 'better' })
+  })
+
   it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
     const upstreamBaseUrl = await startModelServer()
     const resumeMarker = join(runDir, 'fake-skillopt-resume')

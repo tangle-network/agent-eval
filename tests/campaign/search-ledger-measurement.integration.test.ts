@@ -3,14 +3,18 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  type CampaignCellMeasurement,
+  campaignCellSearchResult,
   compareOptimizationMethods,
   fsCampaignStorage,
   gepaOptimizationMethod,
+  inMemoryCampaignStorage,
   type JudgeConfig,
   type MutableSurface,
   type ProposeContext,
   readExternalOptimizerObservationArtifact,
   replaySearchLedgerText,
+  runCampaign,
   runOptimization,
   type Scenario,
   type SearchRunIdentity,
@@ -18,6 +22,7 @@ import {
 import { openExternalOptimizerObservationLog } from '../../src/campaign/external-optimizer-observations'
 import { recordGepaSearch } from '../../src/campaign/gepa-search-import'
 import type { DispatchContext } from '../../src/campaign/types'
+import { selfImprove } from '../../src/contract'
 import { buildReflectionPrompt } from '../../src/reflective-mutation'
 import { contentHash } from '../../src/verdict-cache'
 
@@ -141,10 +146,44 @@ function findFiles(root: string, name: string): string[] {
   return found
 }
 
+/** Every span line of every attempt trace under `root`, with the file it came from. */
+function readSpans(root: string): Array<{ path: string; span: Record<string, unknown> }> {
+  return findFiles(root, 'spans.jsonl').flatMap((path) =>
+    readFileSync(path, 'utf8')
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => ({ path, span: JSON.parse(line) as Record<string, unknown> })),
+  )
+}
+
+/** A dispatch that writes one span through its cell's trace writer, then answers `surface`. */
+async function tracedDispatch(surface: MutableSurface, _scenario: Scenario, ctx: DispatchContext) {
+  ctx.trace.span('agent.step', { step: 1 }).end()
+  return { text: String(surface) }
+}
+
+/** A dispatch that pays for one call and answers `surface`. */
+async function paidDispatch(surface: MutableSurface, _scenario: Scenario, ctx: DispatchContext) {
+  const call = await ctx.cost.runPaidCall({
+    actor: 'agent',
+    model: SNAPSHOT,
+    execute: async () => ({ text: String(surface) }),
+    receipt: () => ({
+      model: SNAPSHOT,
+      inputTokens: 120,
+      outputTokens: 30,
+      actualCostUsd: 0.0042,
+    }),
+  })
+  if (!call.succeeded) throw call.error
+  return call.value
+}
+
 /**
  * A deterministic stand-in for the GEPA bridge: it posts `requests` to the
- * evaluation callback in order, keeps every response it received, and
- * returns `best`. It reports no population, as a composed recipe does.
+ * evaluation callback in order, keeps every response it received (a refused
+ * request as `{ refused: <status> }`), and returns `best`. It reports no
+ * population, as a composed recipe does.
  */
 function scriptedOptimizer(
   requests: ReadonlyArray<{ candidate: string; split: 'train' | 'selection' }>,
@@ -171,13 +210,13 @@ function scriptedOptimizer(
     '      headers: { authorization: "Bearer " + input.callbackToken, "content-type": "application/json" },',
     '      body: JSON.stringify({ candidate: request.candidate, exampleId: example.id }),',
     '    })',
-    '    if (!response.ok) throw new Error("callback failed: " + response.status)',
-    '    responses.push(await response.json())',
+    '    responses.push(response.ok ? await response.json() : { refused: response.status })',
     '  }',
     `  fs.writeFileSync(${JSON.stringify(responsesPath)}, JSON.stringify(responses))`,
+    '  const scored = responses.filter((response) => typeof response.score === "number")',
     '  fs.writeFileSync(outputPath, JSON.stringify({',
     `    bestCandidate: ${JSON.stringify(best)},`,
-    '    bestScore: responses[responses.length - 1].score,',
+    '    bestScore: scored.length > 0 ? scored[scored.length - 1].score : 0,',
     '    totalEvaluations: requests.length,',
     '    recipeKind: input.recipe.kind,',
     '    seedApplied: false,',
@@ -203,6 +242,7 @@ async function runScriptedGepa<TArtifact>(input: {
   judge: JudgeConfig<TArtifact, Scenario>
   reps?: number
   describeArtifact?: (artifact: TArtifact, scenario: Scenario) => unknown
+  maxEvidenceChars?: number
 }) {
   const responsesPath = join(runDir, 'optimizer-responses.json')
   const ledgerPath = join(runDir, 'gepa-search-ledger.jsonl')
@@ -216,6 +256,7 @@ async function runScriptedGepa<TArtifact>(input: {
     runner: scriptedOptimizer(input.requests, input.best, responsesPath),
     searchLedger: { identity, path: ledgerPath },
     ...(input.describeArtifact ? { describeArtifact: input.describeArtifact } : {}),
+    ...(input.maxEvidenceChars === undefined ? {} : { maxEvidenceChars: input.maxEvidenceChars }),
   })
   const result = await compareOptimizationMethods<Scenario, TArtifact>({
     methods: [method],
@@ -245,6 +286,7 @@ async function runScriptedGepa<TArtifact>(input: {
   const responses = JSON.parse(readFileSync(responsesPath, 'utf8')) as Array<{
     score: number
     info: Record<string, unknown>
+    refused?: number
   }>
   return { events: readLedger(ledgerPath), observations, responses }
 }
@@ -271,13 +313,18 @@ async function runNative<TArtifact>(input: {
   output: TArtifact
   judge: JudgeConfig<TArtifact, Scenario>
   describeArtifact?: (artifact: TArtifact, scenario: Scenario) => unknown
+  /** Called before the dispatch answers `output`; for example, to write a span. */
+  beforeAnswer?: (ctx: DispatchContext) => void
 }) {
   const seen: ProposeContext[] = []
   const nativeDir = join(runDir, 'native')
   await runOptimization<Scenario, TArtifact>({
     scenarios: [{ id: input.scenarioId, kind: 'qa' }],
     baselineSurface: 'BASE',
-    dispatchWithSurface: async () => input.output,
+    dispatchWithSurface: async (_surface, _scenario, ctx) => {
+      input.beforeAnswer?.(ctx)
+      return input.output
+    },
     judges: [input.judge],
     proposer: {
       kind: 'reflection-probe',
@@ -332,26 +379,12 @@ describe('external evaluations import as the measured campaign cells', () => {
     }
   })
 
-  it('records the measured cost, tokens, model, duration and dimensions of every imported cell', async () => {
-    const { events } = await runScriptedGepa({
+  it('records the measured cost, tokens, model, duration, dimensions and trace of every imported cell', async () => {
+    const { events, observations } = await runScriptedGepa({
       requests: [{ candidate: 'better', split: 'train' }],
       best: 'better',
       maxEvaluations: 1,
-      dispatchWithSurface: async (surface, _scenario, ctx) => {
-        const call = await ctx.cost.runPaidCall({
-          actor: 'agent',
-          model: SNAPSHOT,
-          execute: async () => ({ text: String(surface) }),
-          receipt: () => ({
-            model: SNAPSHOT,
-            inputTokens: 120,
-            outputTokens: 30,
-            actualCostUsd: 0.0042,
-          }),
-        })
-        if (!call.succeeded) throw call.error
-        return call.value
-      },
+      dispatchWithSurface: paidDispatch,
       judge: betterJudge,
     })
 
@@ -388,8 +421,24 @@ describe('external evaluations import as the measured campaign cells', () => {
       inputTokens: measured.tokenUsage.input,
       outputTokens: measured.tokenUsage.output,
     })
-    // runCampaign assigns no trace id; the reason names the attempt whose trace writer ran.
-    expect(cell.traceRef?.unknown).toEqual(expect.stringContaining(measured.attempt.runAttemptId))
+
+    // The cell names the trace its spans went to: the paid call's span, in
+    // the measuring attempt's trace, which carries the same id.
+    expect(cell.traceRef).toEqual({
+      traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+      execRunId: null,
+      spansWritten: 1,
+      spansDropped: 0,
+    })
+    const traced = readSpans(runDir).filter(({ span }) => span.traceId === cell.traceRef!.traceId)
+    expect(traced.map(({ span }) => span.name)).toEqual(['cost.agent'])
+    expect(traced[0]!.path).toContain(
+      `${sep}attempts${sep}${measured.attempt.runAttemptId}${sep}attempt-1${sep}trace${sep}`,
+    )
+    // The observation log carries the reference exactly as the other measurement fields.
+    const evaluation = observations.find((observation) => observation.kind === 'evaluation')!
+    const [logged] = (evaluation.measurement as { cells: Array<{ traceRef?: unknown }> }).cells
+    expect(logged!.traceRef).toEqual(cell.traceRef)
   })
 
   it('imports every repeat of a multi-rep evaluation as its own cell', async () => {
@@ -470,6 +519,248 @@ describe('external evaluations import as the measured campaign cells', () => {
       })
     }
   })
+
+  it('imports a measurement logged before cells carried their trace exactly as before', async () => {
+    const storage = fsCampaignStorage()
+    const path = join(runDir, 'observations-measured.jsonl')
+    const log = openExternalOptimizerObservationLog({ storage, path })
+    const candidateHash = contentHash({ kind: 'external-text-candidate', candidate: 'better' })
+    const runAttemptId = '0b0e7c1e-4c4e-4f53-9a43-0f3f4c1a2b3c'
+    const measured: CampaignCellMeasurement = {
+      cellId: 'train:0',
+      scenarioId: 'train',
+      rep: 0,
+      attempt: { runAttemptId, number: 1 },
+      cached: false,
+      outcome: { status: 'passed', score: 1, metrics: { composite: 1, 'judge.better': 1 } },
+      accounting: {
+        tokens: { status: 'known', inputTokens: 120, outputTokens: 30, cachedTokens: 0 },
+        cost: { status: 'known', usd: 0.0042, source: 'provider' },
+      },
+      resolvedModel: SNAPSHOT,
+      durationMs: 7,
+    }
+    log.observe({ kind: 'proposal', sequence: 1, candidate: 'better', candidateHash })
+    log.observe({
+      kind: 'evaluation',
+      sequence: 2,
+      candidate: 'better',
+      candidateHash,
+      exampleId: 'train',
+      evaluationNumber: 1,
+      response: { score: 1, info: { scenarioId: 'train', dimensions: {}, status: 'scored' } },
+      measurement: { source: 'measured', cells: [measured] },
+    })
+    const observations = readExternalOptimizerObservationArtifact({ summary: log.summary(), storage })
+    const ledgerPath = join(runDir, 'measured-ledger.jsonl')
+    await recordGepaSearch({
+      name: 'measured-gepa',
+      path: ledgerPath,
+      searchId: 'measured-search',
+      identity,
+      storage,
+      seed: 1,
+      baselineSurface: 'baseline',
+      trainScenarios: [{ id: 'train', kind: 'qa' }],
+      selectionScenarios: [{ id: 'selection', kind: 'qa' }],
+      evaluationLimit: 1,
+      observations,
+      population: null,
+      selected: 'better',
+      generationAccounting: {
+        tokens: { status: 'unknown', reason: 'the fixture reports no optimizer usage' },
+        cost: { status: 'unknown', knownLowerBoundUsd: 0, reason: 'the fixture reports no cost' },
+      },
+    })
+
+    const { settled } = settledCells(readLedger(ledgerPath), 'train')
+    expect(settled).toHaveLength(1)
+    expect(settled[0]!.outcome).toEqual(measured.outcome)
+    expect(settled[0]!.accounting).toEqual(measured.accounting)
+    expect(settled[0]!.wallMs).toBe(7)
+    expect(settled[0]!.traceRef).toEqual({
+      unknown: `runCampaign assigns no trace id; campaign cell train:0 wrote its spans through the trace writer of attempt ${runAttemptId}/attempt-1`,
+    })
+  })
+})
+
+describe('an evaluation refused after it measured keeps what it spent', () => {
+  /** Twelve dimensions: their names alone outgrow a 400-character evidence bound. */
+  const wideJudge: JudgeConfig<TextArtifact, Scenario> = {
+    name: 'wide',
+    dimensions: Array.from({ length: 12 }, (_, index) => ({
+      key: `dimension_with_a_long_name_${index}`,
+      description: 'one of many measured properties',
+    })),
+    score: ({ artifact }) => {
+      const value = artifact.text === 'better' ? 1 : 0
+      return {
+        composite: value,
+        dimensions: Object.fromEntries(
+          Array.from({ length: 12 }, (_, index) => [`dimension_with_a_long_name_${index}`, value]),
+        ),
+        notes: '',
+      }
+    },
+  }
+
+  it('records the cost and tokens of an evaluation whose evidence no excerpt can fit', async () => {
+    const { events, observations, responses } = await runScriptedGepa({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      maxEvidenceChars: 400,
+      dispatchWithSurface: paidDispatch,
+      judge: wideJudge,
+    })
+
+    // The optimizer was refused: the scores alone exceed the bound.
+    expect(responses).toEqual([{ refused: 500 }])
+    const refusal = observations.find((observation) => observation.kind === 'refusal')!
+    expect(refusal).toMatchObject({ reason: 'evaluation-failed', exampleId: 'train' })
+    expect((refusal.measurement as { cells: unknown[] }).cells).toHaveLength(1)
+
+    // The ledger holds the measured cell with its real accounting, and says
+    // the evaluation was refused after it measured.
+    const { settled } = settledCells(events, 'train')
+    expect(settled).toHaveLength(1)
+    expect(settled[0]!.accounting).toEqual({
+      tokens: { status: 'known', inputTokens: 120, outputTokens: 30, cachedTokens: 0 },
+      cost: { status: 'known', usd: 0.0042, source: 'provider' },
+    })
+    expect(settled[0]!.outcome).toMatchObject({
+      status: 'errored',
+      metrics: { composite: 1 },
+      error: { code: 'evaluation-refused', retryable: false },
+    })
+    expect(settled[0]!.traceRef).toHaveProperty('traceId')
+  })
+
+  it('shows the optimizer an excerpt of evidence over the bound instead of refusing it', async () => {
+    const notesTail = 'the run failed at its final step'
+    const notedJudge: JudgeConfig<TextArtifact, Scenario> = {
+      ...betterJudge,
+      score: (input) => ({
+        ...(betterJudge.score(input) as { composite: number; dimensions: Record<string, number> }),
+        notes: `${'n'.repeat(4_000)} ${notesTail}`,
+      }),
+    }
+    const answerTail = 'END-OF-ANSWER'
+    const { events, responses } = await runScriptedGepa<TextArtifact>({
+      requests: [{ candidate: 'better', split: 'train' }],
+      best: 'better',
+      maxEvaluations: 1,
+      maxEvidenceChars: 2_000,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      describeArtifact: (artifact) => ({ answer: `${artifact.text}${'a'.repeat(4_000)}${answerTail}` }),
+      judge: notedJudge,
+    })
+
+    const [response] = responses
+    expect(response!.refused).toBeUndefined()
+    expect(response!.score).toBe(1)
+    expect(JSON.stringify(response).length).toBeLessThanOrEqual(2_000)
+    // Each long field keeps its head and its tail around an omitted-count marker.
+    const notes = response!.info.notes as string
+    expect(notes).toMatch(/\d+ characters omitted/)
+    expect(notes.endsWith(notesTail)).toBe(true)
+    const artifact = response!.info.artifact as string
+    expect(artifact.startsWith('{"answer":"better')).toBe(true)
+    expect(artifact.endsWith(`${answerTail}"}`)).toBe(true)
+    expect(artifact).toMatch(/\d+ characters omitted/)
+    expect(settledCells(events, 'train').settled[0]!.outcome).toMatchObject({
+      status: 'passed',
+      score: 1,
+    })
+  })
+})
+
+describe('selfImprove shows a described artifact to every optimizer', () => {
+  const describeArtifact = (artifact: TextArtifact) => ({ answer: artifact.text })
+  const scenarios = ['t1', 't2', 's1', 'h1', 'h2'].map((id) => ({ id, kind: 'qa' }))
+
+  it('gives its reflective proposer the described value', async () => {
+    const seen: ProposeContext[] = []
+    await selfImprove<Scenario, TextArtifact>({
+      agent: async () => ({ text: 'better' }),
+      scenarios,
+      judge: betterJudge,
+      baselineSurface: 'BASE',
+      model: SNAPSHOT,
+      expectUsage: 'off',
+      storage: inMemoryCampaignStorage(),
+      runDir: 'mem://self-improve-describe',
+      budget: { generations: 1, populationSize: 1, holdoutScenarios: scenarios.slice(3) },
+      describeArtifact,
+      proposer: {
+        kind: 'reflection-probe',
+        async propose(ctx) {
+          seen.push(ctx)
+          return []
+        },
+      },
+    })
+    expect(seen).toHaveLength(1)
+    const emitted = seen[0]!.parentOutcome?.scenarios.map((row) => row.emitted)
+    expect(emitted).toEqual(['t1', 't2', 's1'].map(() => JSON.stringify({ answer: 'better' })))
+  })
+
+  it('gives a GEPA method the described value', async () => {
+    const responsesPath = join(runDir, 'self-improve-responses.json')
+    await selfImprove<Scenario, TextArtifact>({
+      agent: async (surface) => ({ text: String(surface) }),
+      scenarios,
+      judge: betterJudge,
+      baselineSurface: 'baseline',
+      model: SNAPSHOT,
+      expectUsage: 'off',
+      runDir: join(runDir, 'self-improve-gepa'),
+      selectionScenarios: [scenarios[2]!],
+      budget: { holdoutScenarios: scenarios.slice(3) },
+      describeArtifact,
+      method: gepaOptimizationMethod<Scenario, TextArtifact>({
+        recipe: {
+          kind: 'engine',
+          run: { engine: 'best_of_n', maxEvaluations: 1, maxProposerCostUsd: 1 },
+        },
+        objective: 'Return the better policy.',
+        evaluationId: 'self-improve-describe',
+        runner: scriptedOptimizer([{ candidate: 'better', split: 'train' }], 'better', responsesPath),
+      }),
+    })
+    const responses = JSON.parse(readFileSync(responsesPath, 'utf8')) as Array<{
+      info: Record<string, unknown>
+    }>
+    expect(responses[0]!.info.artifact).toEqual({ answer: 'better' })
+  })
+
+  it('refuses a describeArtifact given both to the caller and to the method', async () => {
+    const method = gepaOptimizationMethod<Scenario, TextArtifact>({
+      recipe: { kind: 'engine', run: { engine: 'best_of_n', maxEvaluations: 1 } },
+      objective: 'Return the better policy.',
+      evaluationId: 'describe-conflict',
+      runner: scriptedOptimizer([{ candidate: 'better', split: 'train' }], 'better', join(runDir, 'r.json')),
+      describeArtifact: (artifact) => ({ other: artifact.text }),
+    })
+    await expect(
+      compareOptimizationMethods<Scenario, TextArtifact>({
+        methods: [method],
+        baselineSurface: 'baseline',
+        trainScenarios: [{ id: 'train', kind: 'qa' }],
+        selectionScenarios: [{ id: 'selection', kind: 'qa' }],
+        testScenarios: [
+          { id: 'final', kind: 'qa' },
+          { id: 'final-2', kind: 'qa' },
+        ],
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [betterJudge],
+        describeArtifact,
+        runDir,
+        resamples: 40,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/describeArtifact/)
+  })
 })
 
 describe('the native path records and shows what each cell measured', () => {
@@ -486,11 +777,16 @@ describe('the native path records and shows what each cell measured', () => {
     expect(prompt).toMatch(/\d+ characters omitted/)
   })
 
-  it('records every judge dimension and the measuring attempt on each native cell', async () => {
+  it('records every judge dimension and the trace of the measuring attempt on each native cell', async () => {
     const { events, nativeDir } = await runNative({
       scenarioId: 'long',
       output: LONG_OUTPUT,
       judge: lateFailureJudge,
+      beforeAnswer: (ctx) => {
+        ctx.trace.span('agent.step', { step: 1 }).end()
+        // Opened and never ended: the writer cannot write it, and says so.
+        ctx.trace.span('agent.abandoned')
+      },
     })
     const { settled } = settledCells(events, 'long')
     expect(settled).toHaveLength(1)
@@ -499,9 +795,68 @@ describe('the native path records and shows what each cell measured', () => {
       'judge.quality': 0.25,
       'dimension.quality.correct': 0.25,
     })
+    const traceRef = settled[0]!.traceRef as { traceId: string }
+    expect(traceRef).toEqual({
+      traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+      execRunId: null,
+      spansWritten: 1,
+      spansDropped: 1,
+    })
+    // The trace is the measuring attempt's, and every span in it carries its id.
     const [latest] = findFiles(nativeDir, 'latest-attempt.json')
     const attempt = JSON.parse(readFileSync(latest!, 'utf8')) as { runAttemptId: string }
-    expect(settled[0]!.traceRef?.unknown).toEqual(expect.stringContaining(attempt.runAttemptId))
+    const spans = readSpans(nativeDir)
+    expect(spans.map(({ span }) => span.name)).toEqual(['agent.step'])
+    expect(spans[0]!.span.traceId).toBe(traceRef.traceId)
+    expect(spans[0]!.path).toContain(`${sep}${attempt.runAttemptId}${sep}attempt-1${sep}`)
+  })
+
+  it('names, on a cached cell, the trace of the attempt that measured it', async () => {
+    const options = {
+      scenarios: [{ id: 'cached', kind: 'qa' }],
+      dispatch: (scenario: Scenario, ctx: DispatchContext) => tracedDispatch('BASE', scenario, ctx),
+      judges: [betterJudge],
+      runDir: join(runDir, 'cached-campaign'),
+      expectUsage: 'off' as const,
+    }
+    const execution = {
+      agent: identity.agent,
+      benchmark: { uri: 'fixture:benchmark', revision: 'd'.repeat(40) },
+      model: identity.model,
+    }
+    const first = await runCampaign(options)
+    const second = await runCampaign(options)
+    expect(second.cells[0]!.cached).toBe(true)
+    const measuredRef = campaignCellSearchResult(first.cells[0]!, { execution, lane: 'a' }).traceRef
+    const cachedRef = campaignCellSearchResult(second.cells[0]!, { execution, lane: 'a' }).traceRef
+    expect(measuredRef).toMatchObject({ traceId: expect.stringMatching(/^[0-9a-f]{32}$/) })
+    expect(cachedRef).toEqual(measuredRef)
+    // The run that read the cache wrote no trace of its own.
+    expect(readSpans(options.runDir)).toHaveLength(1)
+  })
+
+  it('leaves the trace unknown, with its reason, when the writer has no trace identity', async () => {
+    const campaign = await runCampaign({
+      scenarios: [{ id: 'untraced', kind: 'qa' }],
+      dispatch: (scenario, ctx) => tracedDispatch('BASE', scenario, ctx),
+      judges: [betterJudge],
+      runDir: join(runDir, 'untraced-campaign'),
+      expectUsage: 'off',
+      buildTraceWriter: () => ({
+        span: () => ({ end: () => undefined, setAttribute: () => undefined }),
+        flush: async () => undefined,
+      }),
+    })
+    const { traceRef } = campaignCellSearchResult(campaign.cells[0]!, {
+      execution: {
+        agent: identity.agent,
+        benchmark: { uri: 'fixture:benchmark', revision: 'd'.repeat(40) },
+        model: identity.model,
+      },
+      lane: 'a',
+    })
+    expect(traceRef).not.toHaveProperty('traceId')
+    expect(traceRef).toEqual({ unknown: expect.stringContaining('trace writer') })
   })
 })
 
