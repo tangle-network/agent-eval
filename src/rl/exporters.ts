@@ -405,7 +405,10 @@ export interface PrmLookups {
   promptOf: (runId: string) => string | Promise<string>
   /** Resolve the trajectory step text for a (runId, spanId) pair. */
   stepTextOf: (runId: string, spanId: string) => string | Promise<string>
-  /** Optional: sequence of prefix span ids leading up to the divergence. */
+  /**
+   * Optional: the span ids of the shared prefix — spans `0..prefixStepIndex` of
+   * `runId` in started order, the `StepReward.stepIndex` positions.
+   */
   prefixOf?: (runId: string, prefixStepIndex: number) => string[] | Promise<string[]>
 }
 
@@ -439,12 +442,21 @@ export interface PrmLineContext extends RolloutLineContext {
  * Convert PRM training triples to JSONL rows. Caller's `stepTextOf`
  * callback resolves span text from the consumer's trace store.
  *
- * Every referenced run is checked against its minted line before any row is
- * emitted, and the export FAILS LOUD on a trajectory that was never fully
- * captured (see `assertPrmTrainableLine`). Triples whose chosen or rejected
- * side is realness-gated are dropped instead: a capture defect is the caller's
- * mint configuration and must be fixed, whereas a gamed run is exactly the
- * condition the gate exists to filter.
+ * A triple is two different actions taken in the same context, compared on
+ * their mean rewards — the rule `prmTrainingPairs` enforces — and its
+ * `contextDigest` names that context. A triple with no context digest, or that
+ * does not name the runs behind its means, is refused before anything else,
+ * because no row may be built from steps that are not known to share a context
+ * or from a mean whose runs cannot be checked. The digest, the step counts and
+ * the run ids behind each mean are carried on `meta`.
+ *
+ * Every referenced run — both representatives and every run behind either mean
+ * — is checked against its minted line before any row is emitted, and the
+ * export FAILS LOUD on a trajectory that was never fully captured (see
+ * `assertPrmTrainableLine`). A triple any of whose runs is realness-gated is
+ * dropped instead, so a gamed run cannot move a mean: a capture defect is the
+ * caller's mint configuration and must be fixed, whereas a gamed run is exactly
+ * the condition the gate exists to filter.
  *
  * `context` is REQUIRED. A two-argument call used to be accepted and produced
  * rows with no gate applied at all — a `PrmTrainingTriple` carries a bare
@@ -459,6 +471,18 @@ export async function toPrmRows(
   lookups: PrmLookups,
   context: PrmLineContext,
 ): Promise<PrmExportRow[]> {
+  for (const t of triples) {
+    if (!t.contextDigest) {
+      throw new Error(
+        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} has no context digest; its steps are not known to share a context`,
+      )
+    }
+    if (!Array.isArray(t.chosenRunIds) || !Array.isArray(t.rejectedRunIds)) {
+      throw new Error(
+        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} names no runs behind its mean rewards; their realness gates cannot be read`,
+      )
+    }
+  }
   const admitted = admitPrmTriples(triples, context)
   const rows: PrmExportRow[] = []
   for (const t of admitted) {
@@ -484,9 +508,14 @@ export async function toPrmRows(
       rejectedReward: t.rejectedReward,
       marginScore: t.marginScore,
       meta: {
+        contextDigest: t.contextDigest,
         prefixRunId: t.prefixRunId,
         rejectedRunId: t.rejectedRunId,
         prefixStepIndex: t.prefixStepIndex,
+        chosenStepCount: t.chosenStepCount,
+        rejectedStepCount: t.rejectedStepCount,
+        chosenRunIds: t.chosenRunIds,
+        rejectedRunIds: t.rejectedRunIds,
       },
     })
   }
@@ -545,7 +574,7 @@ function admitPrmTriples(
 ): PrmTrainingTriple[] {
   return admitUngatedByInvocation(
     triples,
-    (t) => [t.prefixRunId, t.rejectedRunId],
+    (t) => [...new Set([t.prefixRunId, t.rejectedRunId, ...t.chosenRunIds, ...t.rejectedRunIds])],
     context,
     PRM_CONTEXT_REQUIREMENT,
     (line) => assertPrmTrainableLine(line, context.mintedWithMaxSteps),

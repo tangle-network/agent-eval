@@ -52,22 +52,54 @@ export function hashCanonical(value: unknown): LedgerHash {
  * undefined-valued key, and the reader cannot verify the writer.
  *
  * Only that one rule is applied. Every other non-canonical value — `NaN`, a
- * class instance, an `undefined` array item, a cycle — reaches
- * {@link canonicalString} unchanged and is refused there, so this form never
- * turns an ambiguous value into a valid-looking digest the way
- * `JSON.stringify` turns `NaN` into `null`.
+ * class instance, an `undefined` array item — reaches {@link canonicalString}
+ * unchanged and is refused there, so this form never turns an ambiguous value
+ * into a valid-looking digest the way `JSON.stringify` turns `NaN` into `null`.
+ *
+ * A reference cycle is refused here with {@link LedgerCanonicalizationError},
+ * because walking it would never end. Only the objects on the current path
+ * count, so a value reached twice without a cycle still encodes.
  */
 export function jsonDocument(value: unknown): unknown {
+  return documentForm(value, new Set(), [])
+}
+
+/** `ancestors` holds the arrays and plain objects from the root down to `value`. */
+function documentForm(
+  value: unknown,
+  ancestors: Set<object>,
+  path: Array<string | number>,
+): unknown {
   if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(jsonDocument)
   const prototype = Object.getPrototypeOf(value)
-  if (prototype !== Object.prototype && prototype !== null) return value
-  // fromEntries creates own properties, including a caller's __proto__ key.
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [key, jsonDocument(entry)]),
-  )
+  const isArray = Array.isArray(value)
+  if (!isArray && prototype !== Object.prototype && prototype !== null) return value
+  if (ancestors.has(value)) {
+    const at = path.map((key) => (typeof key === 'number' ? `[${key}]` : `.${key}`)).join('')
+    throw new LedgerCanonicalizationError(
+      `value has no canonical JSON form: $${at} closes a reference cycle`,
+    )
+  }
+  const descend = (entry: unknown, key: string | number): unknown => {
+    path.push(key)
+    try {
+      return documentForm(entry, ancestors, path)
+    } finally {
+      path.pop()
+    }
+  }
+  ancestors.add(value)
+  try {
+    if (isArray) return (value as unknown[]).map((entry, index) => descend(entry, index))
+    // fromEntries creates own properties, including a caller's __proto__ key.
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, descend(entry, key)]),
+    )
+  } finally {
+    ancestors.delete(value)
+  }
 }
 
 /** Name the offending value and path so a refusal is actionable. The RFC 8785
