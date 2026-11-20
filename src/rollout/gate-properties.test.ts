@@ -439,8 +439,12 @@ function prmTripleOf(prefixRunId: string, rejectedRunId: string): PrmTrainingTri
     prefixStepIndex: 0,
     chosenSpanId: 'span-a',
     chosenReward: 42.1337,
+    chosenStepCount: 1,
+    chosenRunIds: [prefixRunId],
     rejectedSpanId: 'span-b',
     rejectedReward: 0.8675309,
+    rejectedStepCount: 1,
+    rejectedRunIds: [rejectedRunId],
     rejectedRunId,
     marginScore: 42.1337,
   }

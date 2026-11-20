@@ -135,7 +135,11 @@ export type {
   StepScorer,
 } from './process-reward'
 /** Step-level rewards and process-reward training pairs. */
-export { prmTrainingPairs } from './process-reward'
+export {
+  extractStepRewards,
+  prmTrainingPairs,
+  runwiseStepRewardSummary,
+} from './process-reward'
 /** Reward-hacking signatures: reward divergence, distribution shift, judge drift. */
 export * from './reward-hacking'
 /** Closed-loop campaign runner: eval → preferences → mutate → re-eval. */

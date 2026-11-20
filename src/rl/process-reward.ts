@@ -19,8 +19,8 @@
  *      signal into a credit-assignment-aware run-level score.
  *   3. `prmTrainingPairs(stepRewardsByRun, options)` — produce the
  *      `(prefix, chosen_step, rejected_step)` triples that PRM training
- *      pipelines consume. A triple pairs two different actions taken in the
- *      same context by two different runs; nothing else is a pair.
+ *      pipelines consume: two different actions taken in the same context,
+ *      compared on their mean reward across the runs that took them.
  *
  * What we ship: the *extraction* and *aggregation* infrastructure plus
  * the data shape PRM training expects. We do NOT ship the actual PRM
@@ -28,13 +28,24 @@
  * TS package). The interface is the contract; downstream consumers wire
  * their preferred trainer.
  *
+ * A step's context is what had been recorded by the time it started: the
+ * start of every earlier span and the end of every span that had already
+ * ended. That is a timing boundary. It does not prove the policy read an
+ * earlier span's output, only that the output existed before the step began.
+ *
  * Caveat: a pair says that, from one recorded context, one action was
- * followed by a higher step reward than another. The reward is still the
+ * followed by a higher mean step reward than another. The reward is still the
  * scorer's; whether the action caused it needs counterfactual rollouts or a
  * learned dynamics model.
  */
 
-import { hashCanonical, jsonDocument, LedgerCanonicalizationError } from '../ledger-core/canonical'
+import {
+  compareCodeUnits,
+  hashCanonical,
+  jsonDocument,
+  LedgerCanonicalizationError,
+} from '../ledger-core/canonical'
+import { defaultScenarioId } from '../trace/emitter'
 import type { Span } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
@@ -46,7 +57,7 @@ export interface StepReward {
    * Position of the span among ALL spans of the run, 0-based, ordered by
    * `startedAt` with ties kept in store order. Spans no scorer scored and spans
    * `preFilter` dropped still take a position, so spans `0..stepIndex - 1` of
-   * the run are exactly the spans recorded before this step.
+   * the run are exactly the spans that started before this step.
    */
   stepIndex: number
   /** Span kind (typically 'tool', 'llm', 'judge'). */
@@ -65,18 +76,25 @@ export interface StepReward {
   /** Optional weight — how much this step contributes to credit assignment. */
   weight?: number
   /**
-   * Digest of everything the policy could have seen before acting at this
-   * step: the run's scenario id, the recorded content of every span ordered
-   * before this one in the run (all fields, attributes included, except
-   * identifiers, timestamps, token and cost accounting and the model id), and
-   * this step's own input (an llm span's `messages`). Two steps with the same
-   * context digest acted in the same context. A value a producer writes per run
-   * into a span therefore keeps that run from matching any other.
+   * Digest of what was observable when this step started: the run's scenario
+   * id, then in time order the start of every span that started before this
+   * one and the end of every span that had ended by then, then this step's own
+   * input (an llm span's `messages`). Two steps with the same context digest
+   * acted in the same context.
    *
-   * Absent when any of that was not recorded: a run the store does not know,
-   * an llm span with no `messages` or an earlier one with no `output`, an
-   * earlier tool call whose arguments or result were not captured. Absent means
-   * unknown and is never treated as a match.
+   * A span's start carries every recorded field except its end fields (see
+   * `END_FIELDS`), identifiers, timestamps, token and cost accounting and the
+   * model id — attributes included, unless `contextAttributes` narrows them. A
+   * value a producer writes per run into a span therefore keeps that run from
+   * matching any other.
+   *
+   * Absent when any of that was not recorded, and absent means unknown, never a
+   * match: a run the store does not know, a run whose scenario id is the
+   * emitter's default (no task identity), an llm span with no `messages`, an
+   * earlier llm span that ended with neither output nor error, an earlier tool
+   * call whose arguments were not captured or that ended with neither result
+   * nor error. A span still open when this step started is not missing
+   * evidence: only its start was observable.
    */
   contextDigest?: string
   /**
@@ -113,6 +131,14 @@ export interface ExtractStepRewardsOptions {
    * span still counts toward `stepIndex` and the context of later steps.
    */
   preFilter?: (span: Span) => boolean
+  /**
+   * The keys of each span's `attributes` that count as context. Default: all
+   * of them. Recorders commonly write per-run values (request ids, session
+   * ids) into attributes, and with every key counted no two such runs share a
+   * context. Naming keys here is the caller asserting that the attributes it
+   * leaves out were not observable to the policy.
+   */
+  contextAttributes?: readonly string[]
 }
 
 export async function extractStepRewards(
@@ -120,26 +146,43 @@ export async function extractStepRewards(
   runId: string,
   opts: ExtractStepRewardsOptions,
 ): Promise<StepReward[]> {
-  const scenarioId = (await store.getRun(runId))?.scenarioId
+  const run = await store.getRun(runId)
   const spans = await store.spans({ runId })
   const ordered = [...spans].sort((a, b) => a.startedAt - b.startedAt)
   const positionOf = new Map(ordered.map((span, position) => [span.spanId, position]))
-  // The context chain: the scenario, then every span recorded so far. It is
-  // undefined for a run with no scenario id, and from the first span whose
-  // content is not fully recorded.
-  let prefix = scenarioId ? digestOf({ scenarioId }) : undefined
+  const attributeKeys =
+    opts.contextAttributes === undefined ? undefined : new Set(opts.contextAttributes)
+  // A defaulted scenario id names the run's layer, not its task.
+  const task =
+    run?.scenarioId && run.scenarioId !== defaultScenarioId(run) ? run.scenarioId : undefined
+  // The context chain. It is undefined from the first observable content that
+  // was not recorded, and for a run with no task identity.
+  let chain = task === undefined ? undefined : digestOf({ scenarioId: task })
+  const fold = (event: Record<string, unknown>, recorded: boolean): void => {
+    chain = chain === undefined || !recorded ? undefined : digestOf({ prefix: chain, event })
+  }
+  // Started spans whose end has not been folded into the chain, in start order.
+  let running: number[] = []
   const out: StepReward[] = []
   for (const [position, span] of ordered.entries()) {
-    const record = spanRecord(span, positionOf)
-    const input = span.kind === 'llm' ? (record.messages ?? UNRECORDED) : undefined
+    // The ends observable at this start, in end order with ties in start order.
+    const ended = running
+      .filter((p) => endedBy(ordered[p]!, span.startedAt))
+      .sort((a, b) => ordered[a]!.endedAt! - ordered[b]!.endedAt! || a - b)
+    for (const p of ended) {
+      const earlier = ordered[p]!
+      fold({ end: p, content: endContent(earlier) }, endRecorded(earlier))
+    }
+    running = running.filter((p) => !ended.includes(p))
+
+    // This span's own start is the next event, so it is not part of its own context.
+    const start = startContent(span, positionOf, attributeKeys)
+    const input = span.kind === 'llm' ? (start.messages ?? UNRECORDED) : undefined
     const action = actionOf(span)
-    const contextBefore = prefix
-    // A tool call with neither a result nor an error leaves unknown what came back.
-    const complete =
-      input !== UNRECORDED &&
-      action !== UNRECORDED &&
-      (span.kind !== 'tool' || span.result !== undefined || span.error !== undefined)
-    prefix = prefix !== undefined && complete ? digestOf({ prefix, span: record }) : undefined
+    const contextBefore = chain
+    fold({ start: position, content: start }, input !== UNRECORDED && action !== UNRECORDED)
+    running.push(position)
+
     if (opts.preFilter && !opts.preFilter(span)) continue
     let scored: ScoredStep | null | undefined = null
     for (const s of opts.scorers) {
@@ -184,10 +227,9 @@ export async function extractStepRewards(
 const UNRECORDED = Symbol('unrecorded')
 
 /**
- * Fields left out of a span's record: identifiers, timestamps, and token and
+ * Fields left out of a span's content: identifiers, timestamps, and token and
  * cost accounting differ between runs that saw and did the same thing, and the
- * model is the policy, not the context. Every other field is content, so a
- * field the schema gains later makes contexts more specific, never less.
+ * model is the policy, not the context.
  */
 const NOT_CONTENT = new Set([
   'spanId',
@@ -207,26 +249,87 @@ const NOT_CONTENT = new Set([
   'tokens',
 ])
 
-const contentOf = (value: object): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(value).filter(([key]) => !NOT_CONTENT.has(key)))
+/**
+ * Fields that exist only once a span has ended, so they are observable only
+ * after `endedAt`. Every other content field, including `attributes` and any
+ * field the schema gains later, counts as known from `startedAt` — the strict
+ * reading, since a field read too early can only make contexts differ.
+ */
+const END_FIELDS = new Set([
+  'output',
+  'finishReason',
+  'result',
+  'hits',
+  'score',
+  'rationale',
+  'evidence',
+  'exitCode',
+  'testsTotal',
+  'testsPassed',
+  'stdoutHash',
+  'stderrHash',
+  'status',
+  'error',
+])
+
+function contentOf(value: object, keep: (key: string) => boolean): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => !NOT_CONTENT.has(key) && keep(key)),
+  )
+}
 
 /**
- * A span's recorded content as later steps saw it. An llm span's messages are
- * missing when none were captured, and a judge's target is named by its
- * position in the run, so the same target reads the same in two runs.
+ * What a span carried when it started. An llm span's messages are missing when
+ * none were captured; a judge's target is named by its position in the run, so
+ * the same target reads the same in two runs.
  */
-function spanRecord(span: Span, positionOf: ReadonlyMap<string, number>): Record<string, unknown> {
-  const record = contentOf(span)
+function startContent(
+  span: Span,
+  positionOf: ReadonlyMap<string, number>,
+  attributeKeys: ReadonlySet<string> | undefined,
+): Record<string, unknown> {
+  const content = contentOf(span, (key) => !END_FIELDS.has(key))
   if (span.kind === 'llm') {
-    record.messages =
+    content.messages =
       Array.isArray(span.messages) && span.messages.length > 0
-        ? span.messages.map(contentOf)
+        ? span.messages.map((message) => contentOf(message, () => true))
         : undefined
   }
   if (span.kind === 'judge') {
-    record.targetSpanId = positionOf.get(span.targetSpanId) ?? span.targetSpanId
+    content.targetSpanId = positionOf.get(span.targetSpanId) ?? span.targetSpanId
   }
-  return record
+  if (attributeKeys !== undefined && span.attributes !== undefined) {
+    const kept = Object.entries(span.attributes).filter(([key]) => attributeKeys.has(key))
+    content.attributes = kept.length > 0 ? Object.fromEntries(kept) : undefined
+  }
+  return content
+}
+
+/** What a span carried once it ended. */
+function endContent(span: Span): Record<string, unknown> {
+  return contentOf(span, (key) => END_FIELDS.has(key))
+}
+
+/** Whether the span had ended by `time`. A span that never ended never has. */
+function endedBy(span: Span, time: number): boolean {
+  return span.endedAt !== undefined && span.endedAt <= time
+}
+
+/**
+ * Whether an ended span recorded what it produced: an llm span its output or
+ * error, a tool call its result or error, a retrieval its hits.
+ */
+function endRecorded(span: Span): boolean {
+  switch (span.kind) {
+    case 'llm':
+      return typeof span.output === 'string' || span.error !== undefined
+    case 'tool':
+      return span.result !== undefined || span.error !== undefined
+    case 'retrieval':
+      return Array.isArray(span.hits) || span.error !== undefined
+    default:
+      return true
+  }
 }
 
 /**
@@ -234,11 +337,13 @@ function spanRecord(span: Span, positionOf: ReadonlyMap<string, number>): Record
  * arguments, a retrieval's query. Judge, sandbox, agent and custom spans make
  * no policy decision — a judge grades, the harness runs the sandbox, a
  * container only groups — so they shape later contexts and are never paired.
+ * A tool call's arguments and a retrieval's query are known at its start, so an
+ * uncaptured one leaves the context unknown from that start on.
  */
 function actionOf(span: Span): unknown {
   switch (span.kind) {
     case 'llm':
-      return typeof span.output === 'string' ? span.output : UNRECORDED
+      return typeof span.output === 'string' ? span.output : undefined
     case 'tool':
       return span.argsCaptured === false || span.args === undefined
         ? UNRECORDED
@@ -253,7 +358,8 @@ function actionOf(span: Span): unknown {
 /**
  * The canonical digest of `value` in its JSON document form, where an
  * undefined field is absent. Content with no canonical form (NaN, a class
- * instance) has no digest, the same as content that was never recorded.
+ * instance, a reference cycle) has no digest, the same as content that was
+ * never recorded.
  */
 function digestOf(value: unknown): string | undefined {
   try {
@@ -276,9 +382,11 @@ export interface RunwiseStepSummary {
   failureFraction: number
   /** Maximum drop in reward between consecutive steps — diagnoses a step where things went sideways. */
   worstStepDelta: number
+  /** Index into the given step rewards of the step after the worst drop; null when no reward dropped. */
   worstStepIndex: number | null
 }
 
+/** Summarize one run's step rewards, given in step order. */
 export function runwiseStepRewardSummary(stepRewards: StepReward[]): RunwiseStepSummary {
   if (stepRewards.length === 0) {
     return {
@@ -329,24 +437,36 @@ export function runwiseStepRewardSummary(stepRewards: StepReward[]): RunwiseStep
 // ── PRM training pairs ───────────────────────────────────────────────────
 
 export interface PrmTrainingTriple {
-  /** The context digest both steps carry: they acted in the same context. */
+  /** The context digest every step behind both means carries. */
   contextDigest: string
-  /** Run the chosen step came from; the prefix is read from this run. */
+  /** Run of the chosen representative step; the prefix is read from this run. */
   prefixRunId: string
   /**
    * `stepIndex` of the span just before the chosen step in `prefixRunId`, or
-   * -1 when nothing precedes it. Spans `0..prefixStepIndex` are the recorded
-   * prefix of the shared context.
+   * -1 when nothing precedes it. Spans `0..prefixStepIndex` are the spans that
+   * started before the chosen step; one still open then contributed only its
+   * start to the shared context.
    */
   prefixStepIndex: number
-  /** The step with the higher reward. */
+  /** The representative step of the action with the higher mean reward. */
   chosenSpanId: string
+  /** Mean reward of the chosen action over `chosenStepCount` steps. */
   chosenReward: number
-  /** A different action from the same context, in another run, with the lower reward. */
+  /** Steps behind `chosenReward`. */
+  chosenStepCount: number
+  /** Every run behind `chosenReward`, sorted. */
+  chosenRunIds: string[]
+  /** The representative step of the other action, from a different run. */
   rejectedSpanId: string
+  /** Mean reward of the rejected action over `rejectedStepCount` steps. */
   rejectedReward: number
-  /** Run the rejected step came from; never `prefixRunId`. */
+  /** Steps behind `rejectedReward`. */
+  rejectedStepCount: number
+  /** Every run behind `rejectedReward`, sorted. */
+  rejectedRunIds: string[]
+  /** Run of the rejected representative step; never `prefixRunId`. */
   rejectedRunId: string
+  /** `chosenReward - rejectedReward`. */
   marginScore: number
 }
 
@@ -357,7 +477,7 @@ export interface PrmTrainingTriple {
  */
 export interface PrmPairingResult {
   triples: PrmTrainingTriple[]
-  /** Steps with no context digest: something before them, or their own input, was not recorded. */
+  /** Steps with no context digest: something observable before them, or their own input, was not recorded. */
   stepsWithoutContextDigest: number
   /** Steps with a context digest and no action digest: what they did was not recorded. */
   stepsWithoutActionDigest: number
@@ -365,20 +485,26 @@ export interface PrmPairingResult {
   singleRunContexts: number
   /** Contexts reached by two or more runs that all took the same action there. */
   sameActionContexts: number
+  /** Pairs of actions in one context whose mean rewards differ by less than `minMargin`, or not at all. */
+  actionPairsBelowMargin: number
+  /** Pairs of actions in one context that no two different runs can represent. */
+  actionPairsInOneRun: number
 }
 
 /**
  * Build PRM training triples — the `(prefix, chosen_step, rejected_step)`
  * shape of Lightman et al. and DeepSeek-R1 process supervision.
  *
- * Two steps form a pair only when all of these hold:
- *   - they come from different runs;
- *   - they carry the same `contextDigest`, so they acted in the same context;
- *   - they carry different `actionDigest`s — the same action in the same
- *     context with two rewards is scorer noise, not a preference;
- *   - their rewards differ, by at least `minMargin` (default 0.2).
- * The higher-reward step is `chosen`. Steps are grouped by context digest
- * across all runs, so every qualifying pair in a context becomes a triple.
+ * Steps are grouped by `contextDigest` across all runs, and within a context by
+ * `actionDigest`. Each action's reward is its mean over every step that took
+ * it there, so the same action scored twice is one estimate, not two
+ * preferences. Two actions in one context form one triple when:
+ *   - their mean rewards differ, by at least `minMargin` (default 0.2);
+ *   - two different runs can represent them.
+ * The higher-mean action is `chosen`. Its representative is its step with the
+ * lowest run id, then span id; the rejected representative is the other
+ * action's first step, in the same order, from a different run. When the
+ * chosen action's first step has no such partner, its next step is tried.
  * A step with no digest is counted in the result and never paired.
  */
 export function prmTrainingPairs(
@@ -397,6 +523,8 @@ export function prmTrainingPairs(
     stepsWithoutActionDigest: 0,
     singleRunContexts: 0,
     sameActionContexts: 0,
+    actionPairsBelowMargin: 0,
+    actionPairsInOneRun: 0,
   }
   const byContext = new Map<string, StepReward[]>()
   for (const steps of stepRewardsByRun.values()) {
@@ -411,31 +539,83 @@ export function prmTrainingPairs(
       result.singleRunContexts++
       continue
     }
-    if (new Set(group.map((s) => s.actionDigest)).size < 2) {
+    const actions = actionsIn(group)
+    if (actions.length < 2) {
       result.sameActionContexts++
       continue
     }
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        const a = group[i]!
-        const b = group[j]!
-        if (a.runId === b.runId || a.actionDigest === b.actionDigest) continue
-        const margin = Math.abs(a.reward - b.reward)
-        if (!(margin > 0 && margin >= minMargin)) continue
-        const [chosen, rejected] = a.reward > b.reward ? [a, b] : [b, a]
+    for (let i = 0; i < actions.length; i++) {
+      for (let j = i + 1; j < actions.length; j++) {
+        const a = actions[i]!
+        const b = actions[j]!
+        const [chosen, rejected] = a.mean >= b.mean ? [a, b] : [b, a]
+        const margin = chosen.mean - rejected.mean
+        if (!(margin > 0 && margin >= minMargin)) {
+          result.actionPairsBelowMargin++
+          continue
+        }
+        const representatives = representativesOf(chosen.steps, rejected.steps)
+        if (representatives === undefined) {
+          result.actionPairsInOneRun++
+          continue
+        }
+        const [chosenStep, rejectedStep] = representatives
         result.triples.push({
           contextDigest,
-          prefixRunId: chosen.runId,
-          prefixStepIndex: chosen.stepIndex - 1,
-          chosenSpanId: chosen.spanId,
-          chosenReward: chosen.reward,
-          rejectedSpanId: rejected.spanId,
-          rejectedReward: rejected.reward,
-          rejectedRunId: rejected.runId,
-          marginScore: chosen.reward - rejected.reward,
+          prefixRunId: chosenStep.runId,
+          prefixStepIndex: chosenStep.stepIndex - 1,
+          chosenSpanId: chosenStep.spanId,
+          chosenReward: chosen.mean,
+          chosenStepCount: chosen.steps.length,
+          chosenRunIds: runIdsOf(chosen.steps),
+          rejectedSpanId: rejectedStep.spanId,
+          rejectedReward: rejected.mean,
+          rejectedStepCount: rejected.steps.length,
+          rejectedRunIds: runIdsOf(rejected.steps),
+          rejectedRunId: rejectedStep.runId,
+          marginScore: margin,
         })
       }
     }
   }
   return result
+}
+
+interface ActionInContext {
+  /** The action's steps, ordered by run id, then span id. */
+  steps: StepReward[]
+  mean: number
+}
+
+/** A context's steps grouped by action, in first-seen order. */
+function actionsIn(group: readonly StepReward[]): ActionInContext[] {
+  const byAction = new Map<string, StepReward[]>()
+  for (const step of group) {
+    const digest = step.actionDigest!
+    byAction.set(digest, [...(byAction.get(digest) ?? []), step])
+  }
+  return [...byAction.values()].map((steps) => ({
+    steps: [...steps].sort(byRunThenSpan),
+    mean: steps.reduce((sum, s) => sum + s.reward, 0) / steps.length,
+  }))
+}
+
+/** The first chosen step, in order, that a rejected step from another run can face. */
+function representativesOf(
+  chosen: readonly StepReward[],
+  rejected: readonly StepReward[],
+): [StepReward, StepReward] | undefined {
+  for (const c of chosen) {
+    const r = rejected.find((s) => s.runId !== c.runId)
+    if (r !== undefined) return [c, r]
+  }
+  return undefined
+}
+
+function byRunThenSpan(a: StepReward, b: StepReward): number {
+  return compareCodeUnits(a.runId, b.runId) || compareCodeUnits(a.spanId, b.spanId)
+}
+
+function runIdsOf(steps: readonly StepReward[]): string[] {
+  return [...new Set(steps.map((s) => s.runId))].sort(compareCodeUnits)
 }

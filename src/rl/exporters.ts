@@ -442,18 +442,21 @@ export interface PrmLineContext extends RolloutLineContext {
  * Convert PRM training triples to JSONL rows. Caller's `stepTextOf`
  * callback resolves span text from the consumer's trace store.
  *
- * A triple is two different actions taken in the same context by two runs —
- * the rule `prmTrainingPairs` enforces — and its `contextDigest` names that
- * context. A triple with no context digest is refused before anything else,
- * because no row may be built from two steps that are not known to share one.
- * The digest is carried on `meta.contextDigest`.
+ * A triple is two different actions taken in the same context, compared on
+ * their mean rewards — the rule `prmTrainingPairs` enforces — and its
+ * `contextDigest` names that context. A triple with no context digest, or that
+ * does not name the runs behind its means, is refused before anything else,
+ * because no row may be built from steps that are not known to share a context
+ * or from a mean whose runs cannot be checked. The digest, the step counts and
+ * the run ids behind each mean are carried on `meta`.
  *
- * Every referenced run is checked against its minted line before any row is
- * emitted, and the export FAILS LOUD on a trajectory that was never fully
- * captured (see `assertPrmTrainableLine`). Triples whose chosen or rejected
- * side is realness-gated are dropped instead: a capture defect is the caller's
- * mint configuration and must be fixed, whereas a gamed run is exactly the
- * condition the gate exists to filter.
+ * Every referenced run — both representatives and every run behind either mean
+ * — is checked against its minted line before any row is emitted, and the
+ * export FAILS LOUD on a trajectory that was never fully captured (see
+ * `assertPrmTrainableLine`). A triple any of whose runs is realness-gated is
+ * dropped instead, so a gamed run cannot move a mean: a capture defect is the
+ * caller's mint configuration and must be fixed, whereas a gamed run is exactly
+ * the condition the gate exists to filter.
  *
  * `context` is REQUIRED. A two-argument call used to be accepted and produced
  * rows with no gate applied at all — a `PrmTrainingTriple` carries a bare
@@ -472,6 +475,11 @@ export async function toPrmRows(
     if (!t.contextDigest) {
       throw new Error(
         `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} has no context digest; its steps are not known to share a context`,
+      )
+    }
+    if (!Array.isArray(t.chosenRunIds) || !Array.isArray(t.rejectedRunIds)) {
+      throw new Error(
+        `PRM export: triple ${t.chosenSpanId}/${t.rejectedSpanId} names no runs behind its mean rewards; their realness gates cannot be read`,
       )
     }
   }
@@ -504,6 +512,10 @@ export async function toPrmRows(
         prefixRunId: t.prefixRunId,
         rejectedRunId: t.rejectedRunId,
         prefixStepIndex: t.prefixStepIndex,
+        chosenStepCount: t.chosenStepCount,
+        rejectedStepCount: t.rejectedStepCount,
+        chosenRunIds: t.chosenRunIds,
+        rejectedRunIds: t.rejectedRunIds,
       },
     })
   }
@@ -562,7 +574,7 @@ function admitPrmTriples(
 ): PrmTrainingTriple[] {
   return admitUngatedByInvocation(
     triples,
-    (t) => [t.prefixRunId, t.rejectedRunId],
+    (t) => [...new Set([t.prefixRunId, t.rejectedRunId, ...t.chosenRunIds, ...t.rejectedRunIds])],
     context,
     PRM_CONTEXT_REQUIREMENT,
     (line) => assertPrmTrainableLine(line, context.mintedWithMaxSteps),

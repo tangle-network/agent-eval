@@ -190,8 +190,12 @@ const prmTriple: PrmTrainingTriple = {
   prefixStepIndex: 1,
   chosenSpanId: 'chosen-step',
   chosenReward: 0.9,
+  chosenStepCount: 1,
+  chosenRunIds: ['chosen-run'],
   rejectedSpanId: 'rejected-step',
   rejectedReward: 0.3,
+  rejectedStepCount: 1,
+  rejectedRunIds: ['rejected-run'],
   rejectedRunId: 'rejected-run',
   marginScore: 0.6,
 }
