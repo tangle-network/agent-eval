@@ -94,7 +94,7 @@ describe('OtlpFileTraceStore', () => {
       await writeFile(path, lines.join('\n'))
       const store = new OtlpFileTraceStore({ path })
       expect((await store.getOverview()).agents).toEqual(['Reader', 'Writer'])
-      const readers = await store.queryTraces({ filters: { agent_names: ['Reader'] } })
+      const readers = await store.queryTraces({ filters: { agent_names: ['Reader'] }, limit: 10 })
       expect(readers.traces.map((trace) => trace.trace_id).sort()).toEqual(['a', 'b'])
       const unnamed = await store.viewSpans({ trace_id: 'd', span_ids: ['root'] })
       expect(unnamed.spans[0]?.agent_name).toBeNull()
