@@ -131,6 +131,7 @@ describe('createTraceAnalyst exact canonical output', () => {
 
     expect(result.completion.status).toBe('complete')
     expect(result.findings).toHaveLength(1)
+    expect(result.per_analyst[0]?.usage.activity).toEqual({ modelCalls: 0, toolCalls: 0 })
     const finding = result.findings[0]!
     expect(Object.hasOwn(finding, 'subject')).toBe(false)
     expect(Object.hasOwn(finding, 'rationale')).toBe(false)

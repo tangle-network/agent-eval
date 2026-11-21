@@ -382,6 +382,7 @@ describe('AnalystRegistry exact run policy', () => {
 
   it('snapshots usage before validating it', async () => {
     let callsReads = 0
+    let toolReads = 0
     const registry = new AnalystRegistry()
     registry.register(
       recordingAnalyst('a', [], async (context) => {
@@ -390,7 +391,15 @@ describe('AnalystRegistry exact run policy', () => {
             callsReads += 1
             return callsReads === 1 ? 0 : Number.MAX_SAFE_INTEGER + 1
           },
-          tokens: { input: 0, output: 0 },
+          tokens: null,
+          partialTokens: { input: 16, output: null },
+          tokensEstimated: true,
+          activity: {
+            modelCalls: 0,
+            get toolCalls() {
+              return ++toolReads === 1 ? 3 : -1
+            },
+          },
           cost: { kind: 'observed', usd: 0 },
         } as unknown as AnalystUsageReceipt
         context.recordUsage?.(receipt)
@@ -401,7 +410,15 @@ describe('AnalystRegistry exact run policy', () => {
     const result = await registry.runExact('read-once-usage', { custom: { a: 1 } }, exactOptions())
 
     expect(callsReads).toBe(1)
-    expect(result.per_analyst[0]?.usage.calls).toBe(0)
+    expect(toolReads).toBe(1)
+    expect(result.per_analyst[0]?.usage).toMatchObject({
+      calls: 0,
+      tokens: null,
+      partialTokens: { input: 16, output: null },
+      tokensEstimated: true,
+      activity: { modelCalls: 0, toolCalls: 3 },
+    })
+    expect(snapshotExactAnalystRunReceipt(result)).toEqual(result)
   })
 
   it('always attaches a valid frozen failed receipt to exact execution errors', async () => {

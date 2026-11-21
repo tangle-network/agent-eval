@@ -5,7 +5,11 @@ import type {
   AnalystUsageReceipt,
   EvidenceRef,
 } from './analyst/types'
-import { assertValidAnalystUsageReceipt } from './analyst/usage-receipt'
+import {
+  analystUsageFields,
+  assertValidAnalystUsageReceipt,
+  optionalUsageObjects,
+} from './analyst/usage-receipt'
 import type { FeedbackLabelSource, FeedbackTrajectory } from './feedback-trajectory'
 import { canonicalString, hashCanonical } from './ledger-core/canonical'
 import { deepFreezeCanonicalJson } from './ledger-core/deep-freeze'
@@ -189,7 +193,13 @@ function assertAnalystRunSummary(value: unknown, context: string): void {
 
 function assertAnalystUsageReceipt(value: unknown, context: string): void {
   if (!isRecord(value)) throw new TypeError(`${context} must be an object`)
-  assertOnlyKeys(value, ['calls', 'tokens', 'cost', 'knownCostUsd'], context)
+  assertOnlyKeys(value, analystUsageFields, context)
+  for (const [field, keys] of Object.entries(optionalUsageObjects)) {
+    if (!Object.hasOwn(value, field)) continue
+    const nested = value[field]
+    if (!isRecord(nested)) throw new TypeError(`${context} ${field} must be an object`)
+    assertOnlyKeys(nested, keys, `${context} ${field}`)
+  }
   for (const field of ['calls', 'tokens', 'cost'] as const) {
     if (!Object.hasOwn(value, field)) {
       throw new TypeError(`${context} ${field} is required`)
