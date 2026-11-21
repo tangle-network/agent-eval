@@ -364,7 +364,7 @@ def test_a_list_valued_submission_survives_the_string_boundary() -> None:
 
 
 def test_deno_submit_preserves_native_answer_before_dspy_output_parsing() -> None:
-    import dspy
+    dspy = pytest.importorskip("dspy")
 
     signature = dspy_rlm_bridge._build_signature(dspy)
     program = dspy.RLM(signature, max_iters=1, max_llm_calls=1)
