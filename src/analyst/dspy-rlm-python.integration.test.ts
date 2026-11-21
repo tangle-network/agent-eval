@@ -414,14 +414,14 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(jsonStringResult.modelCalls).toBe(1)
 
       const pythonReprResult = await analyze(
-        'SUBMIT(answer="{\'score\': None, \'valid\': False}", findings_json=[])',
+        "SUBMIT(answer=\"{'score': None, 'valid': False}\", findings_json=[])",
       )
       expect(pythonReprResult.answer).toBe("{'score': None, 'valid': False}")
       expect(() => JSON.parse(pythonReprResult.answer)).toThrow()
 
-      await expect(
-        analyze('SUBMIT(answer=None, findings_json=[])'),
-      ).rejects.toThrow('DSPy RLM prediction answer')
+      await expect(analyze('SUBMIT(answer=None, findings_json=[])')).rejects.toThrow(
+        'DSPy RLM prediction answer',
+      )
       await expect(analyze('SUBMIT(answer=42, findings_json=[])')).rejects.toThrow(
         'DSPy RLM prediction answer',
       )
