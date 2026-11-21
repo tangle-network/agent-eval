@@ -6,16 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [2.0.4] — 2026-11-21
 
-- fix: preserve native findings arrays
-- chore: pin analyst implementation
-- test: format scalar answer replay
-- fix: retain scalar-looking answer strings
-- fix: preserve native structured observer answers
-- test: reuse the existing answer decoder
-- test: observe native DSPy submit custody
-- test: cover native structured observer answers
-
-- Preserve native dictionaries and lists submitted as generic DSPy RLM answers by serializing them as lossless JSON at the Python bridge boundary. Native findings arrays reach the existing findings codec without a format-repair turn. Plain answer strings, strict answer/finding validation, typed repairs, and model/tool budgets keep their existing rules, and serialization adds no model call.
+- Observers can return structured answers and lists of findings directly from DSPy. The bridge preserves nested JSON values and plain text. Valid findings reach the analyst without spending another model call on formatting.
+- Agent search and dataset summaries recognize the OpenTelemetry agent name and the recorded Tangle node label. A search for a shared role returns every matching trace.
 
 ## [2.0.3] — 2026-11-20
 
