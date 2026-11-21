@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.6] — 2026-11-21
+
+- Attribute native rollout work to its originating session
+
 ## [2.0.5] — 2026-11-21
 
 - Observers can return structured answers and lists of findings directly from DSPy. The bridge preserves nested JSON values and plain text. Valid findings reach the analyst without spending another model call on formatting.
