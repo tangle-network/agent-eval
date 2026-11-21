@@ -387,6 +387,7 @@ def test_deno_submit_preserves_native_answer_before_dspy_output_parsing() -> Non
         assert error is None
         assert parsed is not None
         assert parsed["answer"] == submitted.output["answer"]
+        assert parsed["findings_json"] == submitted.output["findings_json"]
 
         for answer in ("42", "null", "true", '{"score": null,  "verdict": "Café 世界"}'):
             submitted = interpreter.execute(

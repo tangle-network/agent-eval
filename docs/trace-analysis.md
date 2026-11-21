@@ -321,7 +321,7 @@ Every recursive run returns:
 | `toolCalls` | Trace reads admitted for execution, including a read that later fails |
 | `runtime` | Engine, package, sandbox identity, provider attempts, and successful completions |
 
-The result's `answer` remains a string. A generic DSPy `SUBMIT` may supply that string directly, or supply a native dictionary/list containing finite JSON; the bridge serializes the latter as lossless JSON with Unicode preserved. Other native types are errors. The bridge never parses Python-literal text or adds a formatting call, and the caller's answer schema and citation checks apply unchanged.
+The result's `answer` remains a string. A generic DSPy `SUBMIT` may supply that string directly, or supply a native dictionary/list containing finite JSON; the bridge serializes the latter as lossless JSON with Unicode preserved. Other native types are errors. Native findings arrays reach the shared findings codec without a Python-repr detour. The bridge never parses Python-literal text or adds a formatting call, and the caller's answer schema, finding schema, and citation checks apply unchanged.
 
 Each finding requires exact `trace://` or `finding://` evidence.
 Trace citations must resolve to an existing span.

@@ -382,11 +382,14 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
     try {
       const objectResult = await analyze(
         `import json\nanswer = json.loads(${JSON.stringify(JSON.stringify(native))})\n` +
-          'SUBMIT(answer=answer, findings_json=[])',
+          'findings = [{"severity":"info","claim":"Recorded finding.","confidence":0.9,' +
+          '"evidence":[{"uri":"trace://t/span/s"}]}]\n' +
+          'SUBMIT(answer=answer, findings_json=findings)',
       )
       expect(JSON.parse(objectResult.answer)).toEqual(native)
       expect(objectResult.answer).toContain('Café 世界')
       expect(objectResult).toMatchObject({
+        findings: [{ claim: 'Recorded finding.' }],
         modelCalls: 1,
         toolCalls: 0,
         runtime: { format_repair_used: false, modelSuccessfulCompletions: 1 },

@@ -6,7 +6,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
-- Preserve native dictionaries and lists submitted as generic DSPy RLM answers by serializing them as lossless JSON at the Python bridge boundary. Plain answer strings, strict consumer validation, findings, typed repairs, and model/tool budgets are unchanged, and serialization adds no model call.
+- Preserve native dictionaries and lists submitted as generic DSPy RLM answers by serializing them as lossless JSON at the Python bridge boundary. Native findings arrays reach the existing findings codec without a format-repair turn. Plain answer strings, strict answer/finding validation, typed repairs, and model/tool budgets keep their existing rules, and serialization adds no model call.
 
 ## [2.0.3] — 2026-11-20
 

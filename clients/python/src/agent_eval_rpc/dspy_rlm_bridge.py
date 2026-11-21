@@ -466,7 +466,7 @@ def _build_signature(dspy: Any) -> Any:
                 ),
             ),
             "findings_json": (
-                str,
+                str | dict[str, Any] | list[Any] | None,
                 dspy.OutputField(
                     desc="A strict JSON array of cited findings matching the required schema."
                 ),
