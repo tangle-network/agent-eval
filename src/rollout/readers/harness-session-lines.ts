@@ -1,5 +1,5 @@
 /**
- * Native harness sessions (OpenCode, Kimi, Claude Code, Codex, Pi, Factory) as
+ * Native harness sessions as
  * `tangle.rollout.v1` rows, through @tangle-network/harness-sessions — the one
  * reader of those stores. A session carries no task verdict, so its reward is
  * null and `provenance.gap` says so; a later labeler supplies the reward.
@@ -10,13 +10,10 @@
 
 import { stat } from 'node:fs/promises'
 import {
-  claudeCodeRefForFile,
-  codexRefForFile,
   type HarnessSession,
-  kimiRefForFile,
+  isNativeStoreDatabase,
   listReaders,
-  opencodeSessionsInStore,
-  piRefForFile,
+  nativeStoreSessions,
   readerFor,
   type SessionRef,
   toChatMessages,
@@ -33,14 +30,7 @@ export interface HarnessSessionImportOptions {
   capturedAt?: string
 }
 
-const REF_FOR_FILE: Record<string, (path: string) => SessionRef> = {
-  'claude-code': (path) => claudeCodeRefForFile(path, null),
-  codex: codexRefForFile,
-  'kimi-code': kimiRefForFile,
-  pi: piRefForFile,
-}
-
-/** Session refs under a HOME or store directory, or in one session file / OpenCode store. */
+/** Session refs under a HOME or store directory, or in one native file or SQLite store. */
 export async function harnessSessionRefs(
   target: string,
   options: HarnessSessionImportOptions = {},
@@ -52,16 +42,18 @@ export async function harnessSessionRefs(
     refs = []
     const locate = options.sinceMs === undefined ? {} : { sinceMs: options.sinceMs }
     for (const reader of readers) refs.push(...(await reader.locate(target, locate)))
-  } else if (/\.db$/u.test(target)) {
-    refs = await opencodeSessionsInStore(target, null, {})
+  } else if (await isNativeStoreDatabase(target)) {
+    refs = await nativeStoreSessions(target, options.harness ? { harness: options.harness } : {})
   } else {
-    const refFor = options.harness ? REF_FOR_FILE[options.harness] : undefined
-    if (refFor === undefined) {
-      throw new Error(
-        `${target}: pass --harness (${Object.keys(REF_FOR_FILE).join('|')}) for a file`,
-      )
+    if (!options.harness) {
+      const names = listReaders()
+        .filter((reader) => reader.refForFile)
+        .map((reader) => reader.harness)
+      throw new Error(`${target}: pass --harness (${names.join('|')}) for a file`)
     }
-    refs = [refFor(target)]
+    const reader = readerFor(options.harness)
+    if (!reader.refForFile) throw new Error(`${reader.harness} requires its native store`)
+    refs = [{ ...reader.refForFile(target), mtimeMs: entry.mtimeMs }]
   }
   return options.sinceMs === undefined
     ? refs
@@ -73,7 +65,7 @@ function producer(session: HarnessSession): { provider: string | null; model: st
   const [top] = Object.entries(session.servedModels).sort((a, b) => b[1] - a[1])
   if (top === undefined) return { provider: null, model: null }
   const call = session.modelCalls.find(
-    (c) => c.servedModel !== null && top[0].endsWith(c.servedModel),
+    (c) => !c.inherited && c.servedModel !== null && top[0].endsWith(c.servedModel),
   )
   const provider = call?.provider ?? null
   const model = call?.servedModel ?? top[0]
@@ -148,6 +140,7 @@ export function harnessSessionRolloutLine(
   capturedAt: string = new Date().toISOString(),
 ): RolloutLine {
   const { provider, model } = producer(session)
+  const modelCalls = session.modelCalls.filter((call) => !call.inherited)
   const id = `${session.harness}:${session.nativeSessionId}`
   const inventory = harnessSessionToolInventory([session])
   const captureGaps = [...session.integrity.gaps]
@@ -191,8 +184,8 @@ export function harnessSessionRolloutLine(
       verdict: null,
       metrics: {
         ending: session.ending.status,
-        model_calls: session.modelCalls.length,
-        tool_calls: session.toolCalls.length,
+        model_calls: modelCalls.length,
+        tool_calls: session.toolCalls.filter((call) => !call.inherited).length,
         served_models: session.servedModels,
       },
       is_completed: session.ending.status === 'completed',
@@ -201,7 +194,7 @@ export function harnessSessionRolloutLine(
       realness_gated: false,
     },
     cost: {
-      usd: sum(session.modelCalls.map((c) => c.costUsd)),
+      usd: sum(modelCalls.map((c) => c.costUsd)),
       tokens_in: session.usage?.input ?? null,
       tokens_out: session.usage?.output ?? null,
       tokens_reasoning: session.usage?.reasoning ?? null,
@@ -211,7 +204,7 @@ export function harnessSessionRolloutLine(
         startedMs !== null && endedMs !== null && endedMs >= startedMs
           ? (endedMs - startedMs) / 1000
           : null,
-      llm_call_count: session.modelCalls.length,
+      llm_call_count: modelCalls.length,
     },
     artifacts: { patch_path: null, run_dir: session.cwd, transcript_ref: ref.path },
     provenance: {

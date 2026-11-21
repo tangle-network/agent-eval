@@ -1,9 +1,11 @@
 import { createServer } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
 import { CostLedger } from '../cost-ledger'
+import { spanRecordsToTraceAnalysisStore } from '../trace-analyst/store-otlp'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 import { testModelExecutionOwner } from './model-execution.test-support'
+import { askTraceQuestions } from './trace-questions'
 
 const TEST_PRICING = { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }
 
@@ -47,6 +49,7 @@ async function main() {
   })
   if (!tool.ok) throw new Error('trace callback failed: ' + await tool.text())
   const toolResult = await tool.json()
+  if (input.question.includes('Stop after reading')) throw new Error('interrupted after trace read')
   fs.writeFileSync(outputPath, JSON.stringify({
     answer: 'The run failed after one inspected trace.',
     findings: __FINDINGS__,
@@ -141,6 +144,41 @@ describe('createDspyRlmTraceEngine', () => {
         index: 1,
         reason: expect.stringContaining('finding-subject grammar'),
       })
+
+      const outcomes = await askTraceQuestions({
+        questions: [{ id: 'interrupted', question: 'Stop after reading the source trace.' }],
+        engine,
+        store: spanRecordsToTraceAnalysisStore([
+          {
+            trace_id: 'run-1',
+            span_id: 'step-2',
+            parent_span_id: null,
+            name: 'worker',
+            kind: 'CHAIN',
+            start_time: '2026-10-01T00:00:00Z',
+            end_time: '2026-10-01T00:00:01Z',
+            duration_ms: 1000,
+            status: 'OK',
+            service_name: 'worker',
+            agent_name: null,
+            model_name: null,
+            tool_name: null,
+            attributes: {},
+          },
+        ]),
+        costLedger: new CostLedger(),
+        runId: 'interrupted-read',
+      })
+      expect(outcomes).toMatchObject([
+        {
+          status: 'failed',
+          failure: expect.stringContaining('interrupted after trace read'),
+          answer: null,
+          findings: [],
+          modelCalls: 1,
+          toolCalls: 1,
+        },
+      ])
     } finally {
       await new Promise<void>((resolve, reject) => {
         provider.close((error) => (error ? reject(error) : resolve()))

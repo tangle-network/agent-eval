@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.6] — 2026-11-21
+
+- A forked native rollout keeps its copied conversation and counts each model and tool call under the session that performed it. A renamed Prime file keeps its native ID and parent.
+- Trace analysts report completed model calls and admitted trace-tool calls when an investigation fails. The failure keeps its diagnostic and produces no answer or findings.
+
 ## [2.0.5] — 2026-11-21
 
 - Observers can return structured answers and lists of findings directly from DSPy. The bridge preserves nested JSON values and plain text. Valid findings reach the analyst without spending another model call on formatting.

@@ -252,6 +252,7 @@ export {
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
+  TraceAnalysisActivity,
   TraceAnalysisEngine,
   TraceAnalysisEngineRequest,
   TraceAnalysisEngineResult,

@@ -62,6 +62,7 @@ describe('askTraceQuestions', () => {
       ['q-idle', 'answered'],
     ])
     expect(outcomes[1]?.failure).toContain('engine down')
+    expect(outcomes[1]).toMatchObject({ modelCalls: null, toolCalls: null })
     const claims = outcomes[0]?.findings ?? []
     expect(claims.map((item) => [item.finding.claim, item.verified])).toEqual([
       ['The director claimed 20 primes but wrote 19 lines.', true],

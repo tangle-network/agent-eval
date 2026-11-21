@@ -19,6 +19,7 @@ Two engines ship, and an analyst definition runs on either without change.
 Choose the Node engine unless the question needs the interpreter; it needs no Python install.
 Agent Eval owns trace access, cancellation, cost accounting, and output validation in both.
 The calling application owns model execution, credentials, retries, and provider policy in both.
+When an investigation fails, `recordUsage` still receives the settled provider receipt. Its optional `activity` counts successful model completions and admitted trace-tool calls. A provider attempt can fail before producing a completion. An engine that supplies no measurement leaves activity unknown.
 
 `createPublicBenchmarkDirectRunner()` is the direct-call baseline; it runs through the loopback model proxy against a caller-owned execution owner, so agent-eval issues no provider request.
 They are not trace analysts.
