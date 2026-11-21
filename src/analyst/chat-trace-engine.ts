@@ -46,6 +46,7 @@ import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import type { ChatClient } from './chat-client'
 import {
   DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS,
+  type TraceAnalysisActivity,
   type TraceAnalysisEngine,
   type TraceAnalysisEngineRequest,
   type TraceAnalysisEngineResult,
@@ -54,7 +55,7 @@ import { decodeRawFindingArray } from './finding-codec'
 import { RawAnalystFindingSchema } from './finding-signature'
 
 /** Bumped whenever this engine's execution behavior changes. */
-const CHAT_TRACE_ENGINE_VERSION = '1.0.0'
+const CHAT_TRACE_ENGINE_VERSION = '1.0.1'
 const ENGINE_ID = 'chat-trace'
 
 /** Marker appended to a tool result cut down to the retained-output budget. */
@@ -163,7 +164,18 @@ export function createChatTraceEngine(options: ChatTraceEngineOptions): TraceAna
       report_format: reportFormat,
       report_schema_name: REPORT_JSON_SCHEMA.name,
     },
-    analyze: (request) => analyze(request, { ...options, model, maxOutputTokens, reportFormat }),
+    async analyze(request) {
+      const activity = { modelCalls: 0, toolCalls: 0 }
+      try {
+        return await analyze(
+          request,
+          { ...options, model, maxOutputTokens, reportFormat },
+          activity,
+        )
+      } finally {
+        request.recordActivity?.(activity)
+      }
+    },
   }
 }
 
@@ -176,6 +188,7 @@ interface ResolvedOptions extends ChatTraceEngineOptions {
 async function analyze(
   request: TraceAnalysisEngineRequest,
   options: ResolvedOptions,
+  activity: TraceAnalysisActivity,
 ): Promise<TraceAnalysisEngineResult> {
   // One model call is spent on the report, so a budget of one call would buy
   // an answer with no investigation behind it. Refuse instead of pretending.
@@ -215,8 +228,6 @@ async function analyze(
 
   const trajectory: unknown[] = []
   const servedModels = new Set<string>()
-  let modelCalls = 0
-  let toolCalls = 0
   let truncatedToolResults = 0
   let toolBudgetExhausted = false
   let turnsUsed = 0
@@ -230,7 +241,7 @@ async function analyze(
       toolChoice: 'auto',
       purpose: 'investigation',
     })
-    modelCalls += 1
+    activity.modelCalls += 1
     servedModels.add(response.servedModel ?? 'unreported')
     const requested = response.toolCalls ?? []
     messages.push({
@@ -250,14 +261,14 @@ async function analyze(
       break
     }
     for (const call of requested) {
-      if (toolCalls >= request.limits.maxToolCalls) {
+      if (activity.toolCalls >= request.limits.maxToolCalls) {
         toolBudgetExhausted = true
         // Every requested id still needs an answer: a provider rejects the
         // next turn when one tool call is left unanswered.
         messages.push(toolMessage(call, exhaustedToolBudget(request.limits.maxToolCalls)))
         continue
       }
-      toolCalls += 1
+      activity.toolCalls += 1
       const executed = await executeTool(call, toolsByName, request)
       if (executed.truncated) truncatedToolResults += 1
       messages.push(toolMessage(call, executed.payload))
@@ -279,7 +290,7 @@ async function analyze(
     purpose: 'report',
     json: options.reportFormat,
   })
-  modelCalls += 1
+  activity.modelCalls += 1
   servedModels.add(report.servedModel ?? 'unreported')
   trajectory.push({
     turn: turnsUsed + 1,
@@ -300,8 +311,7 @@ async function analyze(
     answer: parsed.answer,
     findings: parsed.findings,
     trajectory,
-    modelCalls,
-    toolCalls,
+    ...activity,
     runtime: {
       engine: ENGINE_ID,
       model: options.model,

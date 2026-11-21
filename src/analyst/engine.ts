@@ -57,16 +57,14 @@ export interface TraceAnalysisEngineRequest {
   costLedger: CostLedgerHandle
   costPhase: string
   costTags?: Record<string, string>
+  /** Publish the engine's final measured activity, including an investigation that throws. */
+  recordActivity?: (activity: TraceAnalysisActivity) => void
   signal?: AbortSignal
   log?: (message: string, fields?: Record<string, unknown>) => void
 }
 
-/** Complete result of one recursive investigation, before registry adaptation. */
-export interface TraceAnalysisEngineResult {
-  answer: string
-  findings: RawAnalystFinding[]
-  /** Engine-native steps retained for audit and debugging. */
-  trajectory: readonly unknown[]
+/** Counts owned by the investigation engine, independent of provider billing. */
+export interface TraceAnalysisActivity {
   /**
    * Successful model completions used by the engine.
    * The usage receipt may contain more provider attempts when a request fails.
@@ -74,6 +72,14 @@ export interface TraceAnalysisEngineResult {
   modelCalls: number
   /** Trace-tool requests admitted for execution, including a tool that later fails. */
   toolCalls: number
+}
+
+/** Complete result of one recursive investigation, before registry adaptation. */
+export interface TraceAnalysisEngineResult extends TraceAnalysisActivity {
+  answer: string
+  findings: RawAnalystFinding[]
+  /** Engine-native steps retained for audit and debugging. */
+  trajectory: readonly unknown[]
   runtime: Record<string, unknown>
 }
 
