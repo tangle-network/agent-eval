@@ -363,6 +363,47 @@ def test_a_list_valued_submission_survives_the_string_boundary() -> None:
         dspy_rlm_bridge._parse_findings_json(str(rows))
 
 
+def test_the_generic_signature_preserves_native_answer_containers_for_dspy() -> None:
+    import dspy
+    from dspy.adapters.utils import parse_value
+
+    signature = dspy_rlm_bridge._build_signature(dspy)
+    annotation = signature.output_fields["answer"].annotation
+    answer = {
+        "score": None,
+        "verdict": "Café 世界",
+        "nested": [True, False, None, {"text": "²"}],
+    }
+
+    assert parse_value(answer, annotation) == answer
+    assert parse_value("plain 'text' None {not json}", annotation) == (
+        "plain 'text' None {not json}"
+    )
+
+
+def test_prediction_answer_serializes_native_json_without_accepting_other_values() -> None:
+    answer = {
+        "score": None,
+        "verdict": "Café 世界",
+        "nested": [True, False, None, {"text": "²"}],
+    }
+    encoded = dspy_rlm_bridge._prediction_answer({"answer": answer}, "answer")
+    assert json.loads(encoded) == answer
+    assert "Café 世界" in encoded
+
+    array = [{"value": None}, [True, "雪"]]
+    assert json.loads(dspy_rlm_bridge._prediction_answer({"answer": array}, "answer")) == array
+    assert dspy_rlm_bridge._prediction_answer(
+        {"answer": "  plain 'text' None {not json}  "}, "answer"
+    ) == "plain 'text' None {not json}"
+
+    for invalid in (None, 42, True, float("nan"), {"not-json"}):
+        with pytest.raises((TypeError, ValueError), match="DSPy RLM prediction answer"):
+            dspy_rlm_bridge._prediction_answer({"answer": invalid}, "answer")
+    with pytest.raises(ValueError, match="missing answer"):
+        dspy_rlm_bridge._prediction_answer({}, "answer")
+
+
 def test_the_generic_repair_prompt_does_not_ask_for_incorrect_steps() -> None:
     # #579: the generic path reused CodeTrace's "no incorrect steps means []"
     # rule, which erased valid factual findings from a generic analysis.
