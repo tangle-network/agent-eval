@@ -297,6 +297,8 @@ Agent Eval also runs the official `dspy.RLM` for recursive trace analysis.
 The TypeScript API starts the Python bridge, provides authenticated trace tools, calls a caller-owned model execution path, enforces model and trace-read limits, and validates cited findings.
 The Python bridge owns no trace storage or model credentials.
 
+A generic RLM `SUBMIT` answer may be a string or a native dictionary/list of finite JSON. The bridge returns strings unchanged after the existing whitespace check and serializes dictionaries/lists as lossless JSON with Unicode preserved; other native types are errors. It does not evaluate Python-literal text, relax the consumer's answer schema, or spend a repair call on serialization.
+
 ### The raw-finding wire contract
 
 Both languages decode a findings array with the same rules.

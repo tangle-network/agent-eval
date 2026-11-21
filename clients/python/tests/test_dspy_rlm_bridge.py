@@ -407,7 +407,15 @@ def test_prediction_string_serializes_native_json_without_accepting_other_values
         {"answer": "  plain 'text' None {not json}  "}, "answer"
     ) == "plain 'text' None {not json}"
 
-    for invalid in (None, 42, True, float("nan"), {"not-json"}):
+    for invalid in (
+        None,
+        42,
+        True,
+        float("nan"),
+        {"not-json"},
+        {"nested": float("nan")},
+        {1: "non-string key"},
+    ):
         with pytest.raises((TypeError, ValueError), match="DSPy RLM prediction answer"):
             dspy_rlm_bridge._prediction_string({"answer": invalid}, "answer")
     with pytest.raises(ValueError, match="missing answer"):

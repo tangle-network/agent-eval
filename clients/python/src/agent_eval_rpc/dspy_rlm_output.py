@@ -318,8 +318,19 @@ def _prediction_field(prediction: Any, name: str) -> Any:
 
 def _prediction_string(prediction: Any, name: str) -> str:
     value = _prediction_field(prediction, name)
+    label = f"DSPy RLM prediction {name}"
+    if isinstance(value, (dict, list)):
+        submitted = value
+        try:
+            value = json.dumps(
+                value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            )
+            if json.loads(value) != submitted:
+                raise ValueError("JSON encoding changed the submitted value")
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{label} must be lossless finite JSON") from error
     # Model output: surrounding whitespace is presentation, not a data-integrity
     # defect, and this runs after every model call is already paid for.
     if isinstance(value, str):
         value = value.strip()
-    return _require_non_empty_string(value, f"DSPy RLM prediction {name}")
+    return _require_non_empty_string(value, label)
