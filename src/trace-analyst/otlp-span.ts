@@ -21,7 +21,7 @@
  * Pure, no I/O.
  */
 
-import { declaredSpanKind } from '@tangle-network/agent-trace-contract'
+import { ATTR, declaredSpanKind } from '@tangle-network/agent-trace-contract'
 import { LLM_MODEL_ATTR_KEYS, TOOL_NAME_ATTR_KEYS } from '../trace/otlp-attributes'
 import type { TraceAnalystSpan, TraceAnalystSpanStatus } from './types'
 
@@ -55,6 +55,8 @@ export function projectOtlpFlatLine(raw: Record<string, unknown>): ProjectedOtlp
     asString(attributes['agent.name']) ??
     asString(attributes['inference.agent.name']) ??
     asString(attributes['inference.agent_name']) ??
+    asString(attributes[ATTR.agentName]) ??
+    asString(attributes['tangle.node.label']) ??
     null
   const model_name = firstStringAttr(attributes, LLM_MODEL_ATTR_KEYS)
   const tool_name = firstStringAttr(attributes, TOOL_NAME_ATTR_KEYS)

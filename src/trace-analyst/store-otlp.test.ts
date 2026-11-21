@@ -71,6 +71,38 @@ describe('OtlpFileTraceStore', () => {
     expect(overview.tool_names.sort()).toEqual(['publish_finding', 'spawn_subagent'])
   })
 
+  it('finds every trace with a recorded agent name, including actors sharing a display name', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'trace-actor-names-'))
+    const path = join(directory, 'sessions.jsonl')
+    const rows = [
+      {
+        trace_id: 'a',
+        attributes: { 'gen_ai.agent.name': 'Reader', 'tangle.node.label': 'Old label' },
+      },
+      {
+        trace_id: 'b',
+        attributes: { 'tangle.node.label': 'Reader', 'gen_ai.agent.id': 'another-reader' },
+      },
+      { trace_id: 'c', attributes: { 'agent.name': 'Writer', 'gen_ai.agent.name': 'Other name' } },
+      {
+        trace_id: 'd',
+        attributes: { 'gen_ai.agent.id': 'unlabeled', 'agent.profile.name': 'Shared profile' },
+      },
+    ]
+    try {
+      const lines = rows.map((row) => JSON.stringify({ ...row, span_id: 'root', name: 'session' }))
+      await writeFile(path, lines.join('\n'))
+      const store = new OtlpFileTraceStore({ path })
+      expect((await store.getOverview()).agents).toEqual(['Reader', 'Writer'])
+      const readers = await store.queryTraces({ filters: { agent_names: ['Reader'] }, limit: 10 })
+      expect(readers.traces.map((trace) => trace.trace_id).sort()).toEqual(['a', 'b'])
+      const unnamed = await store.viewSpans({ trace_id: 'd', span_ids: ['root'] })
+      expect(unnamed.spans[0]?.agent_name).toBeNull()
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('queryTraces honours has_errors filter — bug class: filter applied AFTER pagination drops valid hits', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const errored = await store.queryTraces({ filters: { has_errors: true }, limit: 50 })

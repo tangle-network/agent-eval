@@ -313,4 +313,129 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       )
     }
   }, 360_000)
+
+  it('preserves native structured SUBMIT answers and existing free-text strictness', async () => {
+    let code = ''
+    let requests = 0
+    const provider = createServer(async (request, response) => {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      const payload = JSON.parse(body) as { model: string }
+      requests++
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          id: `completion-${requests}`,
+          object: 'chat.completion',
+          model: payload.model,
+          choices: [
+            {
+              index: 0,
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: `[[ ## plan ## ]]\nSubmit the recorded value.\n[[ ## code ## ]]\n${code}\n[[ ## completed ## ]]`,
+              },
+            },
+          ],
+          usage: { prompt_tokens: 13, completion_tokens: 7 },
+        }),
+      )
+    })
+    await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (!address || typeof address === 'string') throw new Error('No provider address')
+    const engine = createDspyRlmTraceEngine({
+      ...testModelExecutionOwner({
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        bearer: 'owner-only-secret',
+        fetchImpl: fetch,
+        pricing,
+      }),
+      model: 'model-a',
+      pricing,
+      maxCostUsd: 1,
+      maxOutputTokens: 2000,
+      maxModelRequests: 1,
+      timeoutMs: 240_000,
+      runner: { command: python },
+    })
+    const analyze = async (recordedCode: string) => {
+      code = recordedCode
+      return engine.analyze({
+        analystId: 'structured-submit',
+        question: 'Return the recorded value.',
+        instructions: 'Preserve the submitted value.',
+        tools: [],
+        limits: { maxIterations: 2, maxLlmCalls: 2, maxToolCalls: 1, maxOutputChars: 8000 },
+        costLedger: new CostLedger(),
+        costPhase: 'recorded-replay',
+      })
+    }
+    const native = {
+      score: null,
+      verdict: 'Café 世界 — plain Unicode',
+      quotes: [],
+      suggestions: ['keep'],
+      nested: [true, false, null, { text: '² and "quotes"' }],
+    }
+    try {
+      const objectResult = await analyze(
+        `import json\nanswer = json.loads(${JSON.stringify(JSON.stringify(native))})\n` +
+          'findings = [{"severity":"info","claim":"Recorded finding.","confidence":0.9,' +
+          '"evidence":[{"uri":"trace://t/span/s"}]}]\n' +
+          'SUBMIT(answer=answer, findings_json=findings)',
+      )
+      expect(JSON.parse(objectResult.answer)).toEqual(native)
+      expect(objectResult.answer).toContain('Café 世界')
+      expect(objectResult).toMatchObject({
+        findings: [{ claim: 'Recorded finding.' }],
+        modelCalls: 1,
+        toolCalls: 0,
+        runtime: { format_repair_used: false, modelSuccessfulCompletions: 1 },
+      })
+
+      const arrayResult = await analyze(
+        'SUBMIT(answer=[{"value": None}, [True, "雪"]], findings_json=[])',
+      )
+      expect(JSON.parse(arrayResult.answer)).toEqual([{ value: null }, [true, '雪']])
+      expect(arrayResult.modelCalls).toBe(1)
+
+      const proseResult = await analyze(
+        'SUBMIT(answer="  plain \'text\' None {not json}  ", findings_json=[])',
+      )
+      expect(proseResult.answer).toBe("plain 'text' None {not json}")
+      expect(() => JSON.parse(proseResult.answer)).toThrow()
+      expect(proseResult.modelCalls).toBe(1)
+
+      const jsonString = '{"score": null,  "verdict": "Café 世界"}'
+      const jsonStringResult = await analyze(
+        `SUBMIT(answer=${JSON.stringify(jsonString)}, findings_json=[])`,
+      )
+      expect(jsonStringResult.answer).toBe(jsonString)
+      expect(jsonStringResult.modelCalls).toBe(1)
+
+      for (const scalarString of ['42', 'null', 'true']) {
+        const scalarResult = await analyze(`SUBMIT(answer="${scalarString}", findings_json=[])`)
+        expect(scalarResult.answer).toBe(scalarString)
+        expect(scalarResult.modelCalls).toBe(1)
+      }
+
+      const pythonReprResult = await analyze(
+        "SUBMIT(answer=\"{'score': None, 'valid': False}\", findings_json=[])",
+      )
+      expect(pythonReprResult.answer).toBe("{'score': None, 'valid': False}")
+      expect(() => JSON.parse(pythonReprResult.answer)).toThrow()
+
+      await expect(analyze('SUBMIT(answer=None, findings_json=[])')).rejects.toThrow(
+        'DSPy RLM prediction answer',
+      )
+      await expect(analyze('SUBMIT(answer=42, findings_json=[])')).rejects.toThrow()
+      expect(requests).toBe(10)
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        provider.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  }, 360_000)
 })
