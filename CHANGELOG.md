@@ -4,10 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [2.0.4] — 2026-11-21
+## [2.0.5] — 2026-11-21
 
 - Observers can return structured answers and lists of findings directly from DSPy. The bridge preserves nested JSON values and plain text. Valid findings reach the analyst without spending another model call on formatting.
 - Agent search and dataset summaries recognize the OpenTelemetry agent name and the recorded Tangle node label. A search for a shared role returns every matching trace.
+
+The 2.0.4 source tag stopped in the GEPA-only test environment before publication. Its integration needs the DSPy extra. The release tests both installations.
 
 ## [2.0.3] — 2026-11-20
 
