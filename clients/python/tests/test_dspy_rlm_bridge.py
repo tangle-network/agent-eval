@@ -363,22 +363,32 @@ def test_a_list_valued_submission_survives_the_string_boundary() -> None:
         dspy_rlm_bridge._parse_findings_json(str(rows))
 
 
-def test_the_generic_signature_preserves_native_answer_containers_for_dspy() -> None:
+def test_deno_submit_preserves_native_answer_before_dspy_output_parsing() -> None:
     import dspy
-    from dspy.adapters.utils import parse_value
 
     signature = dspy_rlm_bridge._build_signature(dspy)
-    annotation = signature.output_fields["answer"].annotation
-    answer = {
-        "score": None,
-        "verdict": "Café 世界",
-        "nested": [True, False, None, {"text": "²"}],
-    }
+    program = dspy.RLM(signature, max_iters=1, max_llm_calls=1)
+    interpreter = dspy.PythonInterpreter(output_fields=program._get_output_fields_info())
+    try:
+        submitted = interpreter.execute(
+            "answer = {\n"
+            "    'score': None,\n"
+            "    'verdict': 'Café 世界',\n"
+            "    'nested': [True, False, None, {'text': '²'}],\n"
+            "}\n"
+            "SUBMIT(answer=answer, findings_json=[])"
+        )
+        assert isinstance(submitted.output["answer"], dict)
+        assert submitted.output["answer"]["nested"][2] is None
 
-    assert parse_value(answer, annotation) == answer
-    assert parse_value("plain 'text' None {not json}", annotation) == (
-        "plain 'text' None {not json}"
-    )
+        parsed, error = program._process_final_output(
+            submitted, ["answer", "findings_json"]
+        )
+        assert error is None
+        assert parsed is not None
+        assert parsed["answer"] == submitted.output["answer"]
+    finally:
+        interpreter.shutdown()
 
 
 def test_prediction_answer_serializes_native_json_without_accepting_other_values() -> None:
