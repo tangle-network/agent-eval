@@ -413,9 +413,7 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(jsonStringResult.modelCalls).toBe(1)
 
       for (const scalarString of ['42', 'null', 'true']) {
-        const scalarResult = await analyze(
-          `SUBMIT(answer="${scalarString}", findings_json=[])`,
-        )
+        const scalarResult = await analyze(`SUBMIT(answer="${scalarString}", findings_json=[])`)
         expect(scalarResult.answer).toBe(scalarString)
         expect(scalarResult.modelCalls).toBe(1)
       }
