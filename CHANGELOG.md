@@ -4,7 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [2.0.4] — 2026-11-21
+
+- fix: preserve native findings arrays
+- chore: pin analyst implementation
+- test: format scalar answer replay
+- fix: retain scalar-looking answer strings
+- fix: preserve native structured observer answers
+- test: reuse the existing answer decoder
+- test: observe native DSPy submit custody
+- test: cover native structured observer answers
 
 - Preserve native dictionaries and lists submitted as generic DSPy RLM answers by serializing them as lossless JSON at the Python bridge boundary. Native findings arrays reach the existing findings codec without a format-repair turn. Plain answer strings, strict answer/finding validation, typed repairs, and model/tool budgets keep their existing rules, and serialization adds no model call.
 
