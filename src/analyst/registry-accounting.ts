@@ -172,10 +172,43 @@ function mergeUsageReceipts(
     receipts.map((receipt) => receipt.cost),
     exact,
   )
+  const activity = receipts.flatMap((receipt) => receipt.activity ?? [])
+  const partialSide = (side: 'input' | 'output'): number | null => {
+    const values = receipts.flatMap(
+      (receipt) => receipt.tokens?.[side] ?? receipt.partialTokens?.[side] ?? [],
+    )
+    return values.length ? usageSum(values, exact, `partialTokens.${side}`, true) : null
+  }
+  const partialTokens =
+    tokens === null ? { input: partialSide('input'), output: partialSide('output') } : null
   return {
     calls,
     tokens,
     cost,
+    ...(activity.length === receipts.length
+      ? {
+          activity: {
+            modelCalls: usageSum(
+              activity.map((entry) => entry.modelCalls),
+              exact,
+              'activity.modelCalls',
+              true,
+            ),
+            toolCalls: usageSum(
+              activity.map((entry) => entry.toolCalls),
+              exact,
+              'activity.toolCalls',
+              true,
+            ),
+          },
+        }
+      : {}),
+    ...(partialTokens && (partialTokens.input !== null || partialTokens.output !== null)
+      ? { partialTokens }
+      : {}),
+    ...(receipts.some((receipt) => receipt.tokensEstimated !== undefined)
+      ? { tokensEstimated: receipts.some((receipt) => receipt.tokensEstimated === true) }
+      : {}),
     ...(cost.kind === 'uncaptured'
       ? {
           knownCostUsd: usageSum(receipts.map(knownCostUsd), exact, 'known cost'),

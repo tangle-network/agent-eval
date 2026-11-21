@@ -8,7 +8,11 @@ import type {
   AnalystRunSummary,
   AnalystUsageReceipt,
 } from './types'
-import { assertValidAnalystUsageReceipt } from './usage-receipt'
+import {
+  analystUsageFields,
+  assertValidAnalystUsageReceipt,
+  optionalUsageObjects,
+} from './usage-receipt'
 
 export function canonicalJsonSnapshot<T>(value: T, label: string): T {
   let snapshot: T
@@ -24,7 +28,11 @@ export function snapshotUsageReceiptOnce(
   receipt: AnalystUsageReceipt,
   context: string,
 ): AnalystUsageReceipt {
-  const data = readOwnFields(receipt, ['calls', 'tokens', 'cost', 'knownCostUsd'], context)
+  const data = readOwnFields(receipt, analystUsageFields, context)
+  for (const [field, keys] of Object.entries(optionalUsageObjects)) {
+    if (Object.hasOwn(data, field))
+      data[field] = readOwnFields(data[field], keys, `${context} ${field}`)
+  }
   data.tokens =
     data.tokens === null
       ? null
