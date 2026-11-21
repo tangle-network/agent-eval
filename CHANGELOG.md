@@ -4,10 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [2.0.6] — 2026-11-21
+## [2.0.7] — 2026-11-21
 
 - A forked native rollout keeps its copied conversation and counts each model and tool call under the session that performed it. A renamed Prime file keeps its native ID and parent.
 - Trace analysts report completed model calls and admitted trace-tool calls when an investigation fails. The failure keeps its diagnostic and produces no answer or findings.
+- Exact registry runs retain their findings and measured activity, including after a saved run is reopened. Usage summaries preserve partial token counts and their estimation status.
+
+The 2.0.6 source tag failed the exact-registry checks before npm and PyPI publication.
 
 ## [2.0.5] — 2026-11-21
 
