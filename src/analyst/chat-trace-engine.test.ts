@@ -406,7 +406,11 @@ describe('createChatTraceEngine', () => {
       response({ content: req.jsonMode ? 'sorry, I cannot answer' : 'no tools needed' }),
     )
     const engine = createChatTraceEngine({ chat: client })
-    await expect(engine.analyze(engineRequest())).rejects.toThrow(/was not JSON/)
+    const activity: Array<{ modelCalls: number; toolCalls: number }> = []
+    await expect(
+      engine.analyze(engineRequest({ recordActivity: (counts) => activity.push(counts) })),
+    ).rejects.toThrow(/was not JSON/)
+    expect(activity).toEqual([{ modelCalls: 2, toolCalls: 0 }])
   })
 
   it('accepts a fenced report body', async () => {

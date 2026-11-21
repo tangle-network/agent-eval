@@ -22,7 +22,7 @@
 import type { CostLedgerHandle } from '../cost-ledger'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { defineTraceAnalyst } from './define'
-import type { TraceAnalysisEngine, TraceAnalystLimits } from './engine'
+import type { TraceAnalysisActivity, TraceAnalysisEngine, TraceAnalystLimits } from './engine'
 import { parseTraceSpanEvidenceUri, type RawAnalystFinding } from './finding-signature'
 import { runTraceAnalyst } from './kind-factory'
 
@@ -134,6 +134,7 @@ export async function askTraceQuestions(
       return failed(question, 'the run was aborted before the question started')
     }
     let completed: Awaited<ReturnType<typeof runTraceAnalyst>>
+    let activity: TraceAnalysisActivity | undefined
     try {
       completed = await runTraceAnalyst({
         definition: defineTraceAnalyst({
@@ -157,12 +158,15 @@ export async function askTraceQuestions(
           correlationId: `${opts.runId}:${question.id}`,
           costLedger: opts.costLedger,
           costPhase: 'trace-question',
+          recordUsage: (receipt) => {
+            activity = receipt.activity
+          },
           ...(opts.signal ? { signal: opts.signal } : {}),
           ...(opts.log ? { log: opts.log } : {}),
         },
       })
     } catch (error) {
-      return failed(question, errorText(error))
+      return failed(question, errorText(error), activity)
     }
     const findings: VerifiedTraceFinding[] = []
     for (const [index, finding] of completed.findings.entries()) {
@@ -298,7 +302,11 @@ function citedSpansOnly(
   }
 }
 
-function failed(question: TraceQuestionSpec, failure: string): TraceQuestionOutcome {
+function failed(
+  question: TraceQuestionSpec,
+  failure: string,
+  activity?: TraceAnalysisActivity,
+): TraceQuestionOutcome {
   return {
     id: question.id,
     question: question.question,
@@ -306,8 +314,8 @@ function failed(question: TraceQuestionSpec, failure: string): TraceQuestionOutc
     failure,
     answer: null,
     findings: [],
-    modelCalls: null,
-    toolCalls: null,
+    modelCalls: activity?.modelCalls ?? null,
+    toolCalls: activity?.toolCalls ?? null,
   }
 }
 

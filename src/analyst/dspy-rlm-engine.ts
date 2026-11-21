@@ -30,7 +30,7 @@ const DEFAULT_TRACE_TOOL_TIMEOUT_MS = 60_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 const BRIDGE_MODULE = 'agent_eval_rpc.dspy_rlm_bridge'
 /** Bumped whenever this engine's execution behavior changes. */
-const DSPY_RLM_ENGINE_VERSION = '2.0.1'
+const DSPY_RLM_ENGINE_VERSION = '2.0.2'
 
 export interface DspyRlmTraceEngineOptions {
   /** Caller-owned execution path. Agent Eval never receives provider credentials. */
@@ -264,6 +264,12 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
           )
           if (errors.length > 0) {
             throw new AggregateError(errors, 'DSPy RLM resource cleanup failed')
+          }
+          if (modelProxy) {
+            request.recordActivity?.({
+              modelCalls: modelProxy.successfulCompletions(),
+              toolCalls: callback.calls(),
+            })
           }
         },
       })

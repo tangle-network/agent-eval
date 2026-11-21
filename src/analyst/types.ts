@@ -21,6 +21,7 @@ import type { RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
 import type { ChatClient } from './chat-client'
+import type { TraceAnalysisActivity } from './engine'
 import {
   type FindingConditions,
   type FindingTreatment,
@@ -308,6 +309,8 @@ export interface Analyst<TInput = unknown> {
 
 /** Metered work performed by one analyst call. */
 export interface AnalystUsageReceipt {
+  /** Present when the engine measured completed model calls and admitted trace tools. */
+  activity?: TraceAnalysisActivity
   /** Number of model-usage records observed at the provider boundary. */
   calls: number | null
   /** Null when the provider did not return token accounting. */

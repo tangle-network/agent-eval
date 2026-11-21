@@ -1,7 +1,12 @@
 import { CostLedger } from '../cost-ledger'
 import { hashCanonical } from '../ledger-core/canonical'
 import type { ReadSpanSourceResult, TraceAnalysisStore } from '../trace-analyst/store'
-import type { TraceAnalysisEngine, TraceAnalysisEngineResult, TraceAnalystLimits } from './engine'
+import type {
+  TraceAnalysisActivity,
+  TraceAnalysisEngine,
+  TraceAnalysisEngineResult,
+  TraceAnalystLimits,
+} from './engine'
 import { resolveTraceAnalystLimits } from './engine'
 import { type ExactCapableAnalyst, snapshotExactExecutionComponentIdentity } from './exact-types'
 import {
@@ -65,7 +70,7 @@ export async function runTraceAnalyst(args: {
     analystId: definition.id,
     ...(context.correlationId ? { analystRunId: context.correlationId } : {}),
   }
-  let reportedModelCalls: number | undefined
+  let activity: TraceAnalysisActivity | undefined
 
   try {
     const preparedContext = await definition.prepareContext?.(args.store, context)
@@ -113,10 +118,13 @@ export async function runTraceAnalyst(args: {
       costLedger,
       costPhase: context.costPhase ?? 'trace-analysis',
       costTags,
+      recordActivity: (counts) => {
+        activity = { ...counts }
+      },
       ...(context.signal ? { signal: context.signal } : {}),
       ...(context.log ? { log: context.log } : {}),
     })
-    reportedModelCalls = completed.modelCalls
+    activity = { modelCalls: completed.modelCalls, toolCalls: completed.toolCalls }
     const observedSourceReads = sourceReads.slice()
     const findings = await acceptFindings(
       definition,
@@ -163,7 +171,8 @@ export async function runTraceAnalyst(args: {
         timeout_ms: settlementTimeoutMs,
       })
     }
-    context.recordUsage?.(withUnrecordedModelCalls(usage.receipt, reportedModelCalls))
+    const receipt = withUnrecordedModelCalls(usage.receipt, activity?.modelCalls)
+    context.recordUsage?.(activity ? { ...receipt, activity } : receipt)
   }
 }
 
