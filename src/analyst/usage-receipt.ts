@@ -3,6 +3,22 @@ import type { AnalystUsageReceipt } from './types'
 
 const DEFAULT_USAGE_SETTLEMENT_TIMEOUT_MS = 5_000
 
+// Exact registries and saved runs admit the same fields as the public receipt.
+export const analystUsageFields = Object.keys({
+  calls: true,
+  tokens: true,
+  cost: true,
+  knownCostUsd: true,
+  activity: true,
+  partialTokens: true,
+  tokensEstimated: true,
+} satisfies Record<keyof AnalystUsageReceipt, true>)
+
+export const optionalUsageObjects = {
+  activity: ['modelCalls', 'toolCalls'],
+  partialTokens: ['input', 'output'],
+} as const
+
 /** Convert one ledger channel's complete call set into one analyst receipt. */
 export function usageReceiptFromCostLedger(
   ledger: CostLedgerHandle,
@@ -103,6 +119,13 @@ export function assertValidAnalystUsageReceipt(
   }
   if (receipt.knownCostUsd !== undefined) {
     assertNonNegativeFinite(receipt.knownCostUsd, 'knownCostUsd', context)
+  }
+  if (receipt.activity !== undefined) {
+    assertNonNegativeSafeInteger(receipt.activity.modelCalls, 'activity.modelCalls', context)
+    assertNonNegativeSafeInteger(receipt.activity.toolCalls, 'activity.toolCalls', context)
+  }
+  if (receipt.tokensEstimated !== undefined && typeof receipt.tokensEstimated !== 'boolean') {
+    throw new TypeError(`${context}: tokensEstimated must be a boolean`)
   }
   if (receipt.partialTokens) {
     const { input, output } = receipt.partialTokens

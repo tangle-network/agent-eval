@@ -3,6 +3,7 @@ import type { AnalystBenchmarkObservation } from './benchmark'
 import type { AnalystBenchmarkArtifact } from './benchmark-command-artifact'
 import { ANALYST_COMPARISON_METRICS } from './benchmark-comparison'
 import { AnalystFindingSchema } from './finding-scope'
+import type { AnalystUsageReceipt } from './types'
 
 const nonEmptyString = z.string().refine((value) => value.trim().length > 0, {
   message: 'must be a non-empty string',
@@ -93,7 +94,10 @@ const usageSchema = z.strictObject({
     })
     .optional(),
   tokensEstimated: z.boolean().optional(),
-})
+  activity: z
+    .strictObject({ modelCalls: nonNegativeInteger, toolCalls: nonNegativeInteger })
+    .optional(),
+} satisfies Record<keyof AnalystUsageReceipt, z.ZodType>)
 
 const findingScoreSchema = z.strictObject({
   expectedIssueCount: nonNegativeInteger,
