@@ -759,6 +759,97 @@ describe('supervisor-run rollouts', () => {
     expect(steps.flatMap((s) => s.tool_calls ?? []).map((c) => c.function_name)).toEqual(['bash'])
   })
 
+  it('counts the work performed by a native fork while preserving the copied conversation', async () => {
+    const rootId = '019a0000-0000-7000-8000-000000000001'
+    const forkId = '019a0000-0000-7000-8000-000000000002'
+    const at = (second: number) => new Date(Date.UTC(2026, 1, 1, 0, 0, second)).toISOString()
+    const header = (id: string, second: number) => ({
+      type: 'session',
+      id,
+      rlmDepth: 0,
+      version: 3,
+      timestamp: at(second),
+    })
+    const message = (id: string, parentId: string | null, second: number, fields: object) => ({
+      type: 'message',
+      id,
+      parentId,
+      timestamp: at(second),
+      message: { ...fields, timestamp: Date.parse(at(second)) },
+    })
+    const text = (role: string, content: string) => ({
+      role,
+      content: [{ type: 'text', text: content }],
+    })
+    const model = (cost: number) => ({
+      model: 'local',
+      provider: 'fixture',
+      usage: { input: 1, output: 1, cost: { total: cost } },
+    })
+    const original = [
+      message('u1', null, 1, text('user', 'Read the original sample.')),
+      message('a1', 'u1', 2, {
+        role: 'assistant',
+        ...model(1),
+        content: [{ type: 'toolCall', id: 'call-1', name: 'read', arguments: {} }],
+      }),
+      message('t1', 'a1', 3, {
+        ...text('toolResult', 'Sample content'),
+        toolCallId: 'call-1',
+        toolName: 'read',
+        isError: false,
+      }),
+      message('a2', 't1', 4, {
+        ...text('assistant', 'Original answer.'),
+        ...model(2),
+        stopReason: 'stop',
+      }),
+    ]
+    const continuation = [
+      { ...header(forkId, 5), parentSession: `/previous-device/${rootId}.jsonl` },
+      ...original,
+      message('u2', 'a2', 6, text('user', 'Continue from that result.')),
+      message('a3', 'u2', 7, {
+        ...text('assistant', 'Continued answer.'),
+        ...model(4),
+        stopReason: 'stop',
+      }),
+    ]
+    const store = join(dir, 'home', '.prime-provider', 'prime-agent-dirs', 'example', 'sessions')
+    await mkdir(store, { recursive: true })
+    await writeFile(join(store, `${rootId}.jsonl`), jsonl([header(rootId, 0), ...original]))
+    await writeFile(join(store, `${forkId}.jsonl`), jsonl(continuation))
+    const received = join(dir, 'received continuation.jsonl')
+    await copyFile(join(store, `${forkId}.jsonl`), received)
+
+    for (const [index, target] of [join(dir, 'home'), received].entries()) {
+      const out = join(dir, `prime-${index}.jsonl`)
+      const code = await runSupervisorRunCommand(
+        ['rollouts', '--sessions', `prime:${target}`, '--out', out],
+        { stdout() {}, stderr() {} },
+      )
+      expect(code).toBe(0)
+      const rows = await readRolloutJournal(out)
+      expect(rows).toHaveLength(index === 0 ? 2 : 1)
+      if (index === 0) {
+        expect(rows.find((row) => row.task.instance_id === rootId)).toMatchObject({
+          parent_rollout_id: null,
+          outcome: { metrics: { tool_calls: 1, model_calls: 2 } },
+          cost: { usd: 3, llm_call_count: 2 },
+        })
+      }
+      const child = rows.find((row) => row.task.instance_id === forkId)
+      expect(child).toMatchObject({
+        parent_rollout_id: `prime:${rootId}`,
+        outcome: { metrics: { tool_calls: 0, model_calls: 1 } },
+        cost: { usd: 4, tokens_in: 1, tokens_out: 1, llm_call_count: 1 },
+      })
+      expect(child?.messages.map((m) => m.content)).toEqual(
+        expect.arrayContaining(['Original answer.', 'Continued answer.']),
+      )
+    }
+  })
+
   it('imports screened Runtime, harness and gate evidence and refuses private injected context', async () => {
     const out = join(dir, 'ledger.jsonl')
     const otlp = join(dir, 'spans.otlp.jsonl')
