@@ -405,13 +405,20 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       expect(() => JSON.parse(proseResult.answer)).toThrow()
       expect(proseResult.modelCalls).toBe(1)
 
+      const jsonString = '{"score": null,  "verdict": "Café 世界"}'
       const jsonStringResult = await analyze(
-        `import json\nanswer = json.dumps(json.loads(${JSON.stringify(JSON.stringify(native))}))\n` +
-          'SUBMIT(answer=answer, findings_json=[])',
+        `SUBMIT(answer=${JSON.stringify(jsonString)}, findings_json=[])`,
       )
-      expect(JSON.parse(jsonStringResult.answer)).toEqual(native)
-      expect(jsonStringResult.answer.startsWith('{')).toBe(true)
+      expect(jsonStringResult.answer).toBe(jsonString)
       expect(jsonStringResult.modelCalls).toBe(1)
+
+      for (const scalarString of ['42', 'null', 'true']) {
+        const scalarResult = await analyze(
+          `SUBMIT(answer="${scalarString}", findings_json=[])`,
+        )
+        expect(scalarResult.answer).toBe(scalarString)
+        expect(scalarResult.modelCalls).toBe(1)
+      }
 
       const pythonReprResult = await analyze(
         "SUBMIT(answer=\"{'score': None, 'valid': False}\", findings_json=[])",
@@ -422,10 +429,8 @@ describe.skipIf(!python)('official Python DSPy RLM consumer', () => {
       await expect(analyze('SUBMIT(answer=None, findings_json=[])')).rejects.toThrow(
         'DSPy RLM prediction answer',
       )
-      await expect(analyze('SUBMIT(answer=42, findings_json=[])')).rejects.toThrow(
-        'DSPy RLM prediction answer',
-      )
-      expect(requests).toBe(7)
+      await expect(analyze('SUBMIT(answer=42, findings_json=[])')).rejects.toThrow()
+      expect(requests).toBe(10)
     } finally {
       await new Promise<void>((resolve, reject) =>
         provider.close((error) => (error ? reject(error) : resolve())),

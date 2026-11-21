@@ -460,7 +460,7 @@ def _build_signature(dspy: Any) -> Any:
                 dspy.InputField(desc="Task-specific investigation and reporting instructions."),
             ),
             "answer": (
-                Any,
+                str | dict[str, Any] | list[Any] | None,
                 dspy.OutputField(
                     desc="A concise, evidence-supported string, JSON object, or JSON array."
                 ),
