@@ -72,7 +72,8 @@ export interface MeasureSelection {
   /**
    * Measures admitted on the pooled test that cannot be climbed: the outcome's
    * exposure itself, measures that predict only by tracking it, only across
-   * units, or that do not move under change or move against the outcome.
+   * units, that do not move under change or move against the outcome, or
+   * whose after-cut estimate is closer to the null than `selection.minEffect`.
    */
   excluded: Array<{
     measure: string
@@ -82,6 +83,7 @@ export interface MeasureSelection {
       | 'pooled-only'
       | 'insensitive'
       | 'moves-against-outcome'
+      | 'below-minimum-effect'
   }>
   /**
    * Equal-weight mean of the climbed measures' aligned z. The post-cut score
@@ -332,6 +334,12 @@ export function selectMeasures(
     const movement = pair.movement?.label
     if (movement === 'insensitive' || movement === 'moves-against-outcome') {
       excluded.push({ measure: pair.measure, reason: movement })
+      continue
+    }
+    // The label is statistical; climbing also needs an effect worth the effort.
+    const association = pair.postCut.association!
+    if (association.estimate - association.null < plan.selection.minEffect[statistic]) {
+      excluded.push({ measure: pair.measure, reason: 'below-minimum-effect' })
       continue
     }
     const values = pre.flatMap((row) => {

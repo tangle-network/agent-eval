@@ -163,9 +163,11 @@ The study cannot know when the changes after the cut were read: give an outcome 
 | `tested`, `withinUnitTested`, `withinExposureTested` | Pairs in the pooled, within-unit and within-exposure false-discovery families, each at the plan's level. |
 | `pairs[].leadTimeMs` | Outcome capture time minus change time over the joined changes after the cut. |
 | `pairs[].movement` | With before and after values: `sensitivity` (share of changes that moved beyond the measure's declared `noise`) and `agreement` (balanced agreement between the movement's direction and the better outcome, 0.5 under no relation), each with a whole-unit interval. `insensitive` marks a measure that predicts across items but does not move under change. |
-| `selections[]` | Per outcome: `climb`, a subset chosen before the cut by greedy forward selection on the equal-weight composite; `guards`, admitted measures not climbed (`redundant`, `no-gain`, `size-limit`); `excluded`, the exposure itself (`exposure`) and measures that predict only through it (`through-exposure`), only across units (`pooled-only`), do not move under change (`insensitive`) or move against the outcome; `composite`, the subset's statistic before and after the cut. |
+| `selections[]` | Per outcome: `climb`, a subset chosen before the cut by greedy forward selection on the equal-weight composite; `guards`, admitted measures not climbed (`redundant`, `no-gain`, `size-limit`); `excluded`, the exposure itself (`exposure`) and measures that predict only through it (`through-exposure`), only across units (`pooled-only`), do not move under change (`insensitive`), move against the outcome, or sit closer to the null after the cut than `selection.minEffect` (`below-minimum-effect`); `composite`, the subset's statistic before and after the cut. |
 
-The selection reads only changes before the cut.
+The label is statistical: on a large sample a measure can be admitted at an AUC of 0.515, real and too small to be worth climbing.
+A measure is climbed only when its after-cut estimate, aligned to its direction, is at least `selection.minEffect` above the null: by default `{ auc: 0.05, spearman: 0.1 }`, and a plan may set either.
+Past that floor, the selection reads only changes before the cut.
 A candidate whose absolute rank correlation with a climbed measure reaches `maxRedundancy` (default 0.9) is a redundant guard; another must add at least `minGain` (default 0.01) to the composite's statistic.
 The composite's post-cut score reads the changes admission read, so it describes the chosen subset; the next batch is its independent check.
 

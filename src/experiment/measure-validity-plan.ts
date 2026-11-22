@@ -68,6 +68,20 @@ export interface MeasureValiditySelectionRules {
   minGain?: number
   /** Absolute before-cut rank correlation with a climbed measure at or above which a candidate is redundant. Default 0.9. */
   maxRedundancy?: number
+  /**
+   * Smallest distance of the after-cut estimate from the null for an admitted
+   * measure to be climbed; a smaller one is real by the test and too small to
+   * be worth climbing. Default 0.05 for AUC and 0.1 for Spearman.
+   */
+  minEffect?: { auc?: number; spearman?: number }
+}
+
+/** Selection rules as sealed, every default resolved. */
+export interface MeasureValidityPlanSelection {
+  maxMeasures: number
+  minGain: number
+  maxRedundancy: number
+  minEffect: { auc: number; spearman: number }
 }
 
 export interface MeasureValidityPlanInput {
@@ -119,7 +133,7 @@ export interface MeasureValidityPlan {
   reduction: 'latest' | 'mean' | 'max'
   maxCaptureLagMs?: number
   minSensitivity: number
-  selection: Required<MeasureValiditySelectionRules>
+  selection: MeasureValidityPlanSelection
 }
 
 export interface SealedMeasureValidityPlan {
@@ -238,10 +252,14 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   const confidence = input.confidence ?? 0.95
   const reduction = input.reduction ?? 'latest'
   const minSensitivity = input.minSensitivity ?? 0.05
-  const selection = {
+  const selection: MeasureValidityPlanSelection = {
     maxMeasures: input.selection?.maxMeasures ?? 3,
     minGain: input.selection?.minGain ?? 0.01,
     maxRedundancy: input.selection?.maxRedundancy ?? 0.9,
+    minEffect: {
+      auc: input.selection?.minEffect?.auc ?? 0.05,
+      spearman: input.selection?.minEffect?.spearman ?? 0.1,
+    },
   }
   check(Number.isSafeInteger(minJoined) && minJoined >= 3, 'minJoined must be an integer >= 3')
   check(Number.isSafeInteger(minUnits) && minUnits >= 2, 'minUnits must be an integer >= 2')
@@ -273,6 +291,14 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   check(
     selection.maxRedundancy > 0 && selection.maxRedundancy <= 1,
     'selection.maxRedundancy must be in (0,1]',
+  )
+  check(
+    selection.minEffect.auc >= 0 && selection.minEffect.auc < 0.5,
+    'selection.minEffect.auc must be in [0,0.5)',
+  )
+  check(
+    selection.minEffect.spearman >= 0 && selection.minEffect.spearman < 1,
+    'selection.minEffect.spearman must be in [0,1)',
   )
   if (problems.length > 0) {
     throw new ValidationError(`measure validity plan: ${problems.join('; ')}`)

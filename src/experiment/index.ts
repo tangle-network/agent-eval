@@ -216,6 +216,7 @@ export {
   type MeasureValidityOutcome,
   type MeasureValidityPlan,
   type MeasureValidityPlanOutcome,
+  type MeasureValidityPlanSelection,
   type MeasureValidityPlanInput,
   type MeasureValiditySelectionRules,
   type SealedMeasureValidityPlan,
