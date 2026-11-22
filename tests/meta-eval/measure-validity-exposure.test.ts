@@ -194,7 +194,9 @@ describe('measureValidityStudy: right-censored outcomes', () => {
       expect(censored.label).toBe('not-shown')
       expect(censored.reason).toBe('direction-reversed')
 
-      const report = await study(draws, plan(WINDOW))
+      // Read once every window has closed, so the end of the data is not censored.
+      const asOf = draws[draws.length - 1]!.change.at + WINDOW
+      const report = await study(draws, plan(WINDOW), { asOf })
       const openAtCut = draws.filter(
         (draw) => draw.change.at < cut && draw.change.at + WINDOW > cut && draw.capturedAt <= cut,
       ).length
@@ -204,6 +206,86 @@ describe('measureValidityStudy: right-censored outcomes', () => {
       expect(pair.preCut.n).toBe(draws.filter((draw) => draw.change.at + WINDOW <= cut).length)
       expect(pair.direction).toBe('higher')
       expect(pair.label).toBe('predicts')
+    },
+  )
+
+  /**
+   * The read time censors the end of the data the way the cut censors the
+   * changes before it: a change whose window is still open when the outcomes
+   * are read shows its fix and not its clean outcome. The measure only trends
+   * with time, and a fix is equally likely at any time.
+   */
+  function lateChanges(rng: Rng) {
+    const window = 10 * DAY
+    const asOf = 1000 * HOUR
+    const draws: Draw[] = []
+    for (let i = 0; i < 4000; i++) {
+      const at = i * 0.25 * HOUR
+      const fixed = bernoulli(rng, 0.3)
+      draws.push({
+        change: {
+          id: `change-${i}`,
+          at,
+          unit: `unit-${Math.floor(rng() * 40)}`,
+          measures: { m: (20 * at) / asOf + normal(rng) },
+        },
+        capturedAt: fixed ? at + rng() * window : at + window,
+        outcomes: { fixed },
+      })
+    }
+    return { draws, window, asOf }
+  }
+
+  it.each([6, 35, 88])(
+    'counts a change after the cut only once its window has closed by the read time (seed %i)',
+    async (seed) => {
+      const { draws, window, asOf } = lateChanges(makeRng(seed))
+      const plan = (windowMs?: number) => ({
+        cut: 500 * HOUR,
+        level: 0.01,
+        outcomes: [
+          {
+            id: 'fixed',
+            direction: 'lower-is-better' as const,
+            kind: 'binary' as const,
+            ...(windowMs === undefined ? {} : { windowMs }),
+          },
+        ],
+        measures: [{ id: 'm' }],
+        resamples: 300,
+      })
+
+      // A store read at `asOf` holds only what was captured by then.
+      const censored = pairOf(await study(draws, plan(), { storedBy: asOf }), 'm', 'fixed')
+      expect(censored.label).toBe('predicts')
+
+      await expect(study(draws, plan(window), { storedBy: asOf })).rejects.toThrow(/asOf/)
+      const report = await study(draws, plan(window), { asOf, storedBy: asOf })
+      const openAtEnd = draws.filter(
+        (draw) =>
+          draw.change.at >= 500 * HOUR && draw.change.at + window > asOf && draw.capturedAt <= asOf,
+      ).length
+      expect(openAtEnd).toBeGreaterThan(100)
+      expect(report.asOf).toBe(asOf)
+      expect(report.excludedObservations.windowOpenAtEnd).toBe(openAtEnd)
+      expect(report.excludedObservations.capturedAfterAsOf).toBe(0)
+      const pair = pairOf(report, 'm', 'fixed')
+      expect(pair.postCut.n).toBe(
+        draws.filter((draw) => draw.change.at >= 500 * HOUR && draw.change.at + window <= asOf)
+          .length,
+      )
+      expect(Math.abs(estimate(pair) - 0.5)).toBeLessThan(0.06)
+      expect(pair.label).toBe('not-shown')
+
+      // Observations captured after the read time are excluded and counted, whatever the store holds.
+      const full = await study(draws, plan(window), { asOf })
+      expect(full.excludedObservations.capturedAfterAsOf).toBe(
+        draws.filter((draw) => draw.capturedAt > asOf).length,
+      )
+      expect(full.excludedObservations.windowOpenAtEnd).toBe(openAtEnd)
+      const fullPair = pairOf(full, 'm', 'fixed')
+      expect(fullPair.postCut.n).toBe(pair.postCut.n)
+      expect(estimate(fullPair)).toBe(estimate(pair))
     },
   )
 })
@@ -292,6 +374,50 @@ describe('measureValidityStudy: within-unit estimate', () => {
 })
 
 describe('measureValidityStudy: minimum effect to climb', () => {
+  it('reads the minimum effect inside exposure bins when the outcome names an exposure', async () => {
+    const rng = makeRng(31)
+    const draws: Draw[] = []
+    for (let i = 0; i < 30000; i++) {
+      const { capturedAt, ...change } = changeAt(i, `unit-${Math.floor(rng() * 200)}`, rng)
+      const size = 1 + Math.floor(rng() * 5)
+      const z = normal(rng)
+      draws.push({
+        change: { ...change, measures: { size, linesTouched: 20 * size + 4 * z } },
+        capturedAt,
+        // Size carries most of the signal; inside a size bin the lines touched rank with an AUC near 0.52.
+        outcomes: { kept: bernoulli(rng, sigmoid(-0.28 * (size - 3) - 0.1 * z)) },
+      })
+    }
+    const report = await study(draws, {
+      cut: 15000 * HOUR,
+      level: 0.05,
+      outcomes: [
+        {
+          id: 'kept',
+          direction: 'higher-is-better',
+          kind: 'binary',
+          exposure: { measure: 'size' },
+        },
+      ],
+      measures: [{ id: 'size' }, { id: 'linesTouched' }],
+      resamples: 200,
+    })
+    const lines = pairOf(report, 'linesTouched', 'kept')
+    expect(lines.label).toBe('predicts')
+    expect(estimate(lines)).toBeGreaterThan(0.57)
+    expect(estimate(lines)).toBeLessThan(0.65)
+    const within = lines.postCut.withinExposure!
+    expect(within.estimate).toBeGreaterThan(0.505)
+    expect(within.estimate).toBeLessThan(0.545)
+    expect(lines.postCut.withinExposureQValue!).toBeLessThanOrEqual(0.05)
+    const selection = report.selections[0]!
+    expect(selection.climb).toEqual([])
+    expect(selection.excluded).toEqual([
+      { measure: 'size', reason: 'exposure' },
+      { measure: 'linesTouched', reason: 'below-minimum-effect' },
+    ])
+  })
+
   it('admits a real but tiny effect on a large sample and does not climb it', async () => {
     const rng = makeRng(23)
     const draws: Draw[] = []

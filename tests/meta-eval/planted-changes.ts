@@ -46,16 +46,24 @@ export function outcomeRows(draws: readonly Draw[]): DeploymentOutcome[] {
   }))
 }
 
+/**
+ * Seal `plan` and run the study. `asOf` is passed through as the read time;
+ * `storedBy` keeps only the observations a store read at that time could hold.
+ */
 export async function study(
   draws: readonly Draw[],
   plan: Omit<MeasureValidityPlanInput, 'id'>,
+  options: { asOf?: number; storedBy?: number } = {},
 ): Promise<MeasureValidityReport> {
   const outcomes = new InMemoryOutcomeStore()
-  for (const row of outcomeRows(draws)) await outcomes.append(row)
+  for (const row of outcomeRows(draws)) {
+    if (options.storedBy === undefined || row.capturedAt <= options.storedBy) await outcomes.append(row)
+  }
   return measureValidityStudy({
     plan: sealMeasureValidityPlan({ id: 'planted-truth', ...plan }),
     changes: draws.map((draw) => draw.change),
     outcomes,
+    ...(options.asOf === undefined ? {} : { asOf: options.asOf }),
   })
 }
 
