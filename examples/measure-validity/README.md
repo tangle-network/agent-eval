@@ -47,7 +47,7 @@ The planted truth:
 The output is:
 
 ```text
-plan digest: 5b20e1012f4521137dfd3025309bfc68bcb2c9cd7b1b1ed64e88a1e0a949fad4
+plan digest: cb01a19b399317ba9dd09779f5cd50130512ed8f70b89e0fe154b6836cc16a06
 seal verifies: true
 changes: 1000 before the cut, 1100 after; pooled pairs tested: 24; predicts: 3
 review_depth        predicts                                          AUC pooled 0.749  within 0.768  movement not recorded
