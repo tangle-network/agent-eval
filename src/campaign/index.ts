@@ -301,6 +301,12 @@ export {
 } from './presets/playback'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
+  type RepeatReliability,
+  type RepeatReliabilityOptions,
+  repeatReliability,
+  type ScenarioRepeatReliability,
+} from './repeat-reliability'
+export {
   type RunImprovementLoopOptions,
   type RunImprovementLoopResult,
   runImprovementLoop,

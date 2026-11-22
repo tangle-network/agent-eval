@@ -52,6 +52,10 @@ export interface MultishotTransportRequest {
   tools?: MultishotToolDefinition[]
   temperature?: number
   maxTokens?: number
+  /** Sampling seed for providers that honor one. `multishotRollout` sets the
+   *  campaign cell's seed on every leg, so paired cells ask for the same draw;
+   *  `runMultishot` leaves it unset. */
+  seed?: number
   signal?: AbortSignal
 }
 
