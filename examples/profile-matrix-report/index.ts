@@ -7,7 +7,9 @@
  *
  * `<rows-dir>` holds one JSONL file per cell, named `<harness>-<model>-<effort>[-<instructions>].jsonl`
  * with no hyphen inside a level; the name gives the cell's factor levels. Each row is one case:
- * `{ case, label, seconds, tokens: { input, output, reasoning, cache_read }, model, served? }`.
+ * `{ case, label, seconds, tokens: { input, output, reasoning, cache_read }, model, served?, probs? }`,
+ * where `probs` maps each label to the cell's forecast for it; the forecast for the label it
+ * answered is its forecast that it is right, which the calibration panel reads.
  * A row without a label is a failed attempt; for a case answered more than once the last
  * labelled row counts. `<truth.json>` maps each case to an object holding the true label
  * and the slice and cluster fields named by the flags.
@@ -34,6 +36,7 @@ interface Row {
   tokens?: { input?: number; output?: number; reasoning?: number; cache_read?: number }
   model?: string
   served?: string
+  probs?: Record<string, number> | null
 }
 
 type Truth = Record<string, Record<string, string>>
@@ -78,6 +81,7 @@ function toRecord(
   if (expected === undefined)
     throw new Error(`case ${caseId} has no '${labelField}' in the truth file`)
   const score = row.label ? (row.label === expected ? 1 : 0) : undefined
+  const pRight = row.label ? row.probs?.[row.label] : undefined
   const configHash = createHash('sha256').update(cell).digest('hex')
   return {
     runId: `${cell}:${caseId}`,
@@ -98,7 +102,10 @@ function toRecord(
       cached: tokens.cache_read ?? 0,
     },
     terminalOutcome: score === undefined ? 'failed' : 'succeeded',
-    outcome: { raw: {}, ...(score === undefined ? {} : { searchScore: score }) },
+    outcome: {
+      raw: typeof pRight === 'number' ? { p_right: pRight } : {},
+      ...(score === undefined ? {} : { searchScore: score }),
+    },
     splitTag: 'search',
     scenarioId: caseId,
   }
@@ -156,14 +163,18 @@ function main(): void {
     clusters: field(cluster),
     slices: field(slice, 'unlabelled'),
     factors,
+    probabilityOf: (record) => record.outcome.raw.p_right,
     title: values.title,
   }
   const analysis = analyzeProfileMatrix(options)
   writeFileSync(out, renderProfileMatrixReport(options))
 
-  console.log(`\n${analysis.sharedCases.length} shared cases; page written to ${out}`)
   console.log(
-    'cell                     n  shared acc  diff vs baseline [95%]      p50 s  mean tokens',
+    `\npanel: ${analysis.panelProfiles.length} cells on ${analysis.commonCases.length} common cases ` +
+      `in ${analysis.commonClusters} clusters; page written to ${out}`,
+  )
+  console.log(
+    'cell                          scored  cover  panel  own acc  common acc  paired n  diff vs baseline [95%]      p50 s  mean tokens',
   )
   for (const p of analysis.profiles) {
     const vs = p.vsBaseline
@@ -171,8 +182,10 @@ function main(): void {
       ? `${vs.estimate.toFixed(4)} [${vs.low?.toFixed(3) ?? '—'}, ${vs.high?.toFixed(3) ?? '—'}]`
       : 'baseline'
     console.log(
-      `${p.profileId.padEnd(22)} ${String(p.casesScored).padStart(3)}  ${p.quality?.estimate.toFixed(4)}      ` +
-        `${diff.padEnd(26)} ${p.latency?.p50.toFixed(1).padStart(5)}  ${Math.round(p.costPerCase.tokens ?? 0)}`,
+      `${p.profileId.padEnd(29)} ${String(p.casesScored).padStart(6)}  ${p.coverage.toFixed(2)}  ` +
+        `${(p.panel ? 'yes' : 'no').padEnd(5)}  ${p.ownQuality?.estimate.toFixed(4) ?? '—     '}   ` +
+        `${p.quality?.estimate.toFixed(4) ?? '—     '}      ${String(p.pairedN).padStart(8)}  ${diff.padEnd(26)} ` +
+        `${p.latency?.p50.toFixed(1).padStart(5) ?? '    —'}  ${p.costPerCase.tokens === null ? '—' : Math.round(p.costPerCase.tokens)}`,
     )
   }
 }

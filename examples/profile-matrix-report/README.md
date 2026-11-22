@@ -21,13 +21,16 @@ pnpm tsx examples/profile-matrix-report/index.ts <rows-dir> \
 ```
 
 Each file is named `<harness>-<model>-<effort>[-<instructions>].jsonl`, which gives the cell's factor levels.
-Each row is `{ case, label, seconds, tokens: { input, output, reasoning, cache_read } }`; a row without a label is a failed attempt.
+Each row is `{ case, label, seconds, tokens: { input, output, reasoning, cache_read }, probs? }`; a row without a label is a failed attempt.
+`probs` maps each label to the cell's forecast for it; the forecast for the label it answered feeds the calibration panel.
 The truth file maps each case to its true label and the fields named by `--slice` and `--cluster`.
-The run prints, per cell, the cases scored, accuracy on the cases every cell scored, the paired difference from the baseline with its interval, median seconds and mean tokens.
+The run prints, per cell, the cases scored, coverage of the baseline's cases, whether the cell is in the panel, accuracy on its own and on the common cases, the paired n and difference from the baseline with its interval, median seconds and mean tokens.
 
 ## Why it is built this way
 
-Every comparative number on the page is paired on the cases every compared profile scored, so a profile that ran easier cases cannot look better.
+Every difference on the page is paired on the cases both profiles scored, so a profile that ran easier cases cannot look better, and a cell that ran fewer cases still gets its own paired difference without shrinking anyone else's.
+The panels that compare all profiles at once (frontiers, error overlap, difficulty, slices, power) use the common cases of the panel: the profiles that scored at least `minCoverage` (default 0.9) of the baseline's cases, or a race's survivors.
+The rest appear in a partial-coverage table, so one short cell cannot cut the common set to its size.
 Intervals are clustered when you pass a cluster per case (for example one per docket), because cases from one source are not independent.
 Quality is drawn against tokens and seconds as well as dollars, so the page stays useful on flat-rate seats where dollars are not measured.
 The power line says the smallest difference this design could detect, so an unresolved row reads as "not measurable here" rather than "equal".

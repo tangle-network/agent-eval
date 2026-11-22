@@ -7,10 +7,13 @@
 import { escapeHtml as esc } from '../../reporting-html'
 import {
   analyzeProfileMatrix,
+  isRaceResult,
   type ProfileMatrixAnalysis,
   type ProfileMatrixAxisSummary,
   type ProfileMatrixCostAxis,
+  type ProfileMatrixFactorEffect,
   type ProfileMatrixInterval,
+  type ProfileMatrixPairedDifference,
   type ProfileMatrixProfileStats,
   type ProfileMatrixReportOptions,
 } from './profile-matrix-analysis'
@@ -19,10 +22,11 @@ import type { ProfileMatrixRaceResult } from './race-profile-matrix'
 /** Render the decision page for a profile matrix or a race over one. */
 export function renderProfileMatrixReport(options: ProfileMatrixReportOptions): string {
   const a = analyzeProfileMatrix(options)
-  const race = options.race
+  const race = options.race ?? (isRaceResult(options.source) ? options.source : undefined)
   const sections = [
     section('Frontier', frontier(a)),
     section('Profiles', profileTable(a)),
+    ...(a.profiles.some((p) => !p.panel) ? [section('Partial coverage', partialTable(a))] : []),
     section('Factor main effects', factorTable(a)),
     section('Slices', sliceHeatmap(a)),
     section('Error overlap', overlap(a)),
@@ -89,7 +93,7 @@ svg .title{fill:var(--text);font-size:12px;font-weight:600}
 .forest{width:120px;height:16px;display:inline-block;vertical-align:middle}
 .ci{stroke-width:2}.ci.up,.up{stroke:var(--better);fill:var(--better)}
 .ci.down,.down{stroke:var(--worse);fill:var(--worse)}.ci.flat,.flat{stroke:var(--flat);fill:var(--flat)}
-.bar{fill:var(--accent)}.bar.single{fill-opacity:.3}.bar:hover{fill:var(--text-2)}.diagonal{stroke:var(--text-3);stroke-dasharray:3 3}
+.bar{fill:var(--accent)}.bar:hover{fill:var(--text-2)}.diagonal{stroke:var(--text-3);stroke-dasharray:3 3}
 .cal{fill:none;stroke:var(--accent);stroke-width:2}.calpt{fill:var(--accent);stroke:var(--panel);stroke-width:2}
 .callout{border-left:3px solid var(--base);padding:6px 12px;background:var(--panel)}
 .small-multiples{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
@@ -114,8 +118,10 @@ function pct(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
 }
 
+/** An interval as text; a zero-width one says so, since it means no spread to measure, not certainty. */
 function bounds(i: { low: number | null; high: number | null }, f = signed): string {
-  return i.low === null || i.high === null ? 'no interval' : `[${f(i.low)}, ${f(i.high)}]`
+  if (i.low === null || i.high === null) return 'no interval'
+  return i.low === i.high ? 'no spread across clusters' : `[${f(i.low)}, ${f(i.high)}]`
 }
 
 function grouped(value: number): string {
@@ -144,31 +150,70 @@ const P_NOTE =
   'Better and worse follow the interval. p is the exact sign-flip test over clusters, which ' +
   'stays high when few clusters disagree even if the interval excludes zero: read both.'
 
-function shared(a: ProfileMatrixAnalysis): string {
-  return `${a.sharedCases.length} shared case${a.sharedCases.length === 1 ? '' : 's'}`
+function common(a: ProfileMatrixAnalysis): string {
+  return `${a.commonCases.length} common case${a.commonCases.length === 1 ? '' : 's'}`
+}
+
+function panelOf(a: ProfileMatrixAnalysis): ProfileMatrixProfileStats[] {
+  return a.profiles.filter((p) => p.panel)
 }
 
 function description(a: ProfileMatrixAnalysis): string {
   const counts = { up: 0, down: 0, flat: 0 }
   for (const p of a.profiles) if (p.vsBaseline) counts[direction(p.vsBaseline)] += 1
   return (
-    `${a.profiles.length} profiles on ${shared(a)} against ${a.baseline}: ` +
-    `${counts.up} better, ${counts.down} worse, ${counts.flat} unresolved at ${pct(a.level)}.`
+    `${a.profiles.length} profiles against ${a.baseline}, each paired on the cases it shares with it: ` +
+    `${counts.up} better, ${counts.down} worse, ${counts.flat} unresolved at ${pct(a.level)}; ` +
+    `${a.panelProfiles.length} panel profiles on ${common(a)}.`
   )
+}
+
+/** A paired difference as two cells: its own n with clusters, then the estimate with interval and exact p. */
+function pairedCells(vs: ProfileMatrixPairedDifference | null | undefined): [string, string] {
+  if (!vs) return ['—', '—']
+  return [
+    `${vs.n}<span class="sub">${vs.clusters} cluster${vs.clusters === 1 ? '' : 's'}</span>`,
+    `${signed(vs.estimate)} ${DIRECTION_WORD[direction(vs)]}<span class="sub">${bounds(vs)}, p ${num(vs.pValue)}</span>`,
+  ]
+}
+
+function scoredCell(p: ProfileMatrixProfileStats): string {
+  return `${p.casesScored} / ${p.casesAttempted}<span class="sub">${pct(p.failureRate)} failed</span>`
+}
+
+function profileCell(a: ProfileMatrixAnalysis, p: ProfileMatrixProfileStats): string {
+  const levels = Object.values(p.factors).join(' · ')
+  const named = Object.entries(p.factors)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')
+  return (
+    `${esc(p.profileId)}${p.profileId === a.baseline ? ' <span class="muted">(baseline)</span>' : ''}` +
+    (levels ? `<span class="sub" title="${esc(named)}">${esc(levels)}</span>` : '')
+  )
+}
+
+function panelRuleText(a: ProfileMatrixAnalysis): string {
+  return a.panelRule === 'race-survivors'
+    ? 'the race survivors'
+    : `the profiles that scored at least ${pct(a.minCoverage)} of the baseline’s ${a.profiles[0]!.casesScored} cases`
 }
 
 function decision(a: ProfileMatrixAnalysis, race: ProfileMatrixRaceResult | undefined): string {
   const base = a.profiles[0]!
+  const partial = a.profiles.length - a.panelProfiles.length
   const lines = [
-    `${a.profiles.length} profiles compared on ${shared(a)} in ${a.sharedClusters} independent ` +
-      `cluster${a.sharedClusters === 1 ? '' : 's'}, every profile scored on each. Baseline ` +
-      `<strong>${esc(a.baseline)}</strong> scores ${num(base.quality?.estimate)} ` +
-      `${base.quality ? bounds(base.quality, num) : ''}.`,
+    `Every profile is paired with the baseline <strong>${esc(a.baseline)}</strong> on the cases the two ` +
+      `both scored. The panel (${a.panelProfiles.length} of ${a.profiles.length} profiles: ${panelRuleText(a)}) ` +
+      `shares ${common(a)} in ${a.commonClusters} independent cluster${a.commonClusters === 1 ? '' : 's'}, ` +
+      `where the baseline scores ${num(base.quality?.estimate)} ${base.quality ? bounds(base.quality, num) : ''}` +
+      `${partial ? `; ${partial} partial-coverage profile${partial === 1 ? '' : 's'} sit outside the frontier` : ''}.`,
   ]
   const by = (d: 'up' | 'down') =>
     a.profiles.filter((p) => p.vsBaseline && direction(p.vsBaseline) === d)
   const list = (ps: ProfileMatrixProfileStats[]) =>
-    ps.map((p) => `${esc(p.profileId)} (${signed(p.vsBaseline!.estimate)})`).join(', ')
+    ps
+      .map((p) => `${esc(p.profileId)} (${signed(p.vsBaseline!.estimate)}, n ${p.vsBaseline!.n})`)
+      .join(', ')
   const better = by('up')
   const worse = by('down')
   const unresolved = a.profiles.length - 1 - better.length - worse.length
@@ -179,15 +224,15 @@ function decision(a: ProfileMatrixAnalysis, race: ProfileMatrixRaceResult | unde
   for (const axis of a.axes.filter((x) => x.drawn)) {
     lines.push(`Pareto set on ${AXIS_NAME[axis.axis]}: ${axis.frontier.map(esc).join(', ')}.`)
   }
-  const top = Math.max(...a.profiles.map((p) => p.quality?.estimate ?? 0))
-  const leaders = a.profiles.filter((p) => p.quality?.estimate === top)
+  const top = Math.max(...panelOf(a).map((p) => p.quality?.estimate ?? 0))
+  const leaders = panelOf(a).filter((p) => p.quality?.estimate === top)
   if (a.oracle !== null && leaders.length > 0) {
     const named =
       leaders.length === 1
         ? esc(leaders[0]!.profileId)
         : `${esc(leaders[0]!.profileId)} and ${leaders.length - 1} tied`
     lines.push(
-      `Choosing the right profile per case would score ${num(a.oracle)}; the best single profile ` +
+      `On the common cases, choosing the right panel profile per case would score ${num(a.oracle)}; the best single one ` +
         `(${named}) scores ${num(top)}.`,
     )
   }
@@ -257,7 +302,7 @@ function frontier(a: ProfileMatrixAnalysis): string {
       (axis) => `<p class="note">${esc(AXIS_TITLE[axis.axis])} not drawn: ${esc(axis.note)}.</p>`,
     )
   return [
-    `<p class="note">Quality on the ${shared(a)} against each cost; whiskers are ${pct(a.level)} intervals. ` +
+    `<p class="note">Panel profiles’ quality on the ${common(a)} against each cost; whiskers are ${pct(a.level)} intervals. ` +
       'Filled blue points form the Pareto set (no other profile is both better and cheaper), joined ' +
       'by the dashed staircase; the orange ring marks the baseline.</p>',
     `<div class="charts">${drawn.map((axis) => scatter(a, axis)).join('')}</div>`,
@@ -269,7 +314,7 @@ function scatter(a: ProfileMatrixAnalysis, axis: ProfileMatrixAxisSummary): stri
   const [W, H, L, R, T, B] = [560, 330, 52, 16, 14, 46]
   const xOf = (p: ProfileMatrixProfileStats) =>
     axis.axis === 'seconds' ? p.latency!.p50 : p.costPerCase[axis.axis]!
-  const points = a.profiles.map((p) => ({ p, x: xOf(p), q: p.quality! }))
+  const points = panelOf(a).map((p) => ({ p, x: xOf(p), q: p.quality! }))
   const ys = points.flatMap(({ q }) => [q.estimate, q.low ?? q.estimate, q.high ?? q.estimate])
   const [x0, x1] = extent(points.map((pt) => pt.x))
   const [y0, y1] = extent(ys, ys.every((y) => y >= 0 && y <= 1) ? [0, 1] : undefined)
@@ -395,12 +440,13 @@ function forestSpan(intervals: readonly (ProfileMatrixInterval | null | undefine
 
 function profileTable(a: ProfileMatrixAnalysis): string {
   const usd = a.axes.some((axis) => axis.axis === 'usd' && axis.drawn)
+  const panel = panelOf(a)
   const span = forestSpan(a.profiles.map((p) => p.vsBaseline))
   const head = [
     'Profile',
     'Scored',
-    'Failed',
     `Quality [${pct(a.level)}]`,
+    'Paired n',
     'Δ vs baseline',
     '',
     'To resolve',
@@ -408,25 +454,16 @@ function profileTable(a: ProfileMatrixAnalysis): string {
     ...(usd ? ['$ / correct'] : []),
     'Seconds p50 · p90',
   ]
-  const rows = a.profiles.map((p) => {
-    const levels = Object.values(p.factors).join(' · ')
-    const named = Object.entries(p.factors)
-      .map(([k, v]) => `${k}=${v}`)
-      .join(', ')
-    const vs = p.vsBaseline
+  const rows = panel.map((p) => {
     const cells = [
-      `${esc(p.profileId)}${p.profileId === a.baseline ? ' <span class="muted">(baseline)</span>' : ''}` +
-        (levels ? `<span class="sub" title="${esc(named)}">${esc(levels)}</span>` : ''),
-      `${p.casesScored} / ${p.casesAttempted}`,
-      pct(p.failureRate),
+      profileCell(a, p),
+      scoredCell(p),
       p.quality
         ? `${num(p.quality.estimate)} <span class="sub">${bounds(p.quality, num)}</span>`
         : '—',
-      vs
-        ? `${signed(vs.estimate)} ${DIRECTION_WORD[direction(vs)]}<span class="sub">${bounds(vs)}, p ${num(vs.pValue)}</span>`
-        : '—',
-      forest(vs, span),
-      vs ? (vs.casesToResolve === null ? '—' : grouped(vs.casesToResolve)) : '—',
+      ...pairedCells(p.vsBaseline),
+      forest(p.vsBaseline, span),
+      resolveCell(p.vsBaseline),
       cost('tokens', p.costPerCorrect.tokens),
       ...(usd ? [cost('usd', p.costPerCorrect.usd)] : []),
       `${num(p.latency?.p50, 1)} · ${num(p.latency?.p90, 1)}`,
@@ -434,12 +471,60 @@ function profileTable(a: ProfileMatrixAnalysis): string {
     return `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
   })
   return [
-    `<p class="note">Scored counts each profile’s cases with a score out of those it attempted; ` +
-      `failed is the rest. Every other number is measured on the ${shared(a)}. ` +
-      `A case counts as correct at a score of ${a.passScore} or more. Δ is the paired mean difference ` +
-      'from the baseline with its clustered interval; to resolve is the number of paired cases a ' +
-      'two-sided test needs for 80% power at the observed difference and discordance (unclustered). ' +
-      `Seconds are dispatch time where the cell recorded it. ${P_NOTE}</p>`,
+    `<p class="note">The panel: ${panelRuleText(a)}. Scored is each profile’s own cases with a score out of ` +
+      `those it attempted, with the share of attempts that failed beneath. Quality, tokens and seconds are on the ${common(a)}, so ` +
+      `the panel compares like with like. Δ is paired with the baseline on every case the two both scored, ` +
+      `so each row carries its own paired n and clusters. A case counts as correct at a score of ${a.passScore} or more. ` +
+      'To resolve is the number of paired cases a two-sided test needs for 80% power at the observed ' +
+      `difference and discordance (unclustered). Seconds are dispatch time where the cell recorded it. ${P_NOTE}</p>`,
+    table(head, rows),
+  ].join('\n')
+}
+
+function resolveCell(vs: ProfileMatrixPairedDifference | undefined): string {
+  return vs?.casesToResolve == null ? '—' : grouped(vs.casesToResolve)
+}
+
+function partialTable(a: ProfileMatrixAnalysis): string {
+  const partial = a.profiles.filter((p) => !p.panel)
+  const raced = partial.some((p) => p.droppedAtBatch !== undefined)
+  const span = forestSpan(a.profiles.map((p) => p.vsBaseline))
+  const head = [
+    'Profile',
+    'Scored',
+    'Coverage',
+    `Own accuracy [${pct(a.level)}]`,
+    'Paired n',
+    'Δ vs baseline',
+    '',
+    'To resolve',
+    ...(raced ? ['Dropped after batch'] : []),
+  ]
+  const rows = partial.map((p) => {
+    const cells = [
+      profileCell(a, p),
+      scoredCell(p),
+      pct(p.coverage),
+      p.ownQuality
+        ? `${num(p.ownQuality.estimate)} <span class="sub">${bounds(p.ownQuality, num)}</span>`
+        : '—',
+      ...pairedCells(p.vsBaseline),
+      forest(p.vsBaseline, span),
+      resolveCell(p.vsBaseline),
+      ...(raced ? [p.droppedAtBatch === undefined ? '—' : `${p.droppedAtBatch}`] : []),
+    ]
+    return `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
+  })
+  const why =
+    (a.panelRule === 'race-survivors'
+      ? 'The race dropped these profiles, so they stopped running cases'
+      : `These profiles scored fewer than ${pct(a.minCoverage)} of the baseline’s cases`) +
+    '; in the frontier they would cut every common-set panel down to the cases they ran.'
+  return [
+    `<p class="note">${why} Each is paired with the baseline on the cases the two both scored instead. ` +
+      'Coverage is the share of the baseline’s scored cases this profile also scored; own accuracy is on ' +
+      'its own cases, which can be easier or harder than the panel’s, so read Δ, not own accuracy, ' +
+      'against the panel.</p>',
     table(head, rows),
   ].join('\n')
 }
@@ -451,6 +536,11 @@ function table(head: readonly string[], rows: readonly string[]): string {
   )
 }
 
+function pairCases({ pairCases: range }: ProfileMatrixFactorEffect): string {
+  if (!range) return '—'
+  return range.min === range.max ? `${range.min}` : `${range.min}–${range.max}`
+}
+
 function factorTable(a: ProfileMatrixAnalysis): string {
   if (a.factorEffects.length === 0) return '<p class="note">No factor levels were given.</p>'
   const span = forestSpan(a.factorEffects.map((e) => e.effect))
@@ -459,17 +549,20 @@ function factorTable(a: ProfileMatrixAnalysis): string {
       `<tr><td>${esc(e.factor)}</td>`,
       `<td>${esc(e.level)} <span class="muted">vs ${esc(e.reference)}</span></td>`,
       `<td>${e.matchedPairs}</td>`,
+      `<td>${pairCases(e)}</td>`,
       e.effect
-        ? `<td>${signed(e.effect.estimate)} ${DIRECTION_WORD[direction(e.effect)]}<span class="sub">${bounds(e.effect)}, p ${num(e.pValue)}</span></td>`
-        : '<td class="muted">confounded: no profile pair differs only here</td>',
+        ? `<td>${signed(e.effect.estimate)} ${DIRECTION_WORD[direction(e.effect)]}` +
+          `<span class="sub">${bounds(e.effect)}, p ${num(e.pValue)}, n ${e.n}</span></td>`
+        : `<td class="muted">${e.matchedPairs ? 'no case scored by both sides of a pair' : 'confounded: no profile pair differs only here'}</td>`,
       `<td>${forest(e.effect, span)}</td></tr>`,
     ].join(''),
   )
   return [
-    `<p class="note">The effect of moving one factor from the reference level, all else equal: the mean, ` +
-      `over profile pairs that differ only in that factor, of their paired difference on the ${shared(a)}, ` +
-      `with a clustered ${pct(a.level)} interval. ${P_NOTE}</p>`,
-    table(['Factor', 'Level', 'Matched pairs', 'Effect', ''], rows),
+    '<p class="note">The effect of moving one factor from the reference level, all else equal. Each ' +
+      'matched pair (two profiles that differ only in that factor) is compared on the cases it shares; ' +
+      'the effect is the mean, over the cases any pair shares, of the pairs’ difference on that case, ' +
+      `with a clustered ${pct(a.level)} interval. Pair cases is the fewest and most cases one pair shares. ${P_NOTE}</p>`,
+    table(['Factor', 'Level', 'Matched pairs', 'Pair cases', 'Effect', ''], rows),
   ].join('\n')
 }
 
@@ -482,7 +575,7 @@ function shade(value: number | null, variable: '--seq' | '--seq-2'): string {
 
 function sliceHeatmap(a: ProfileMatrixAnalysis): string {
   if (a.slices.length === 0) return '<p class="note">No slices were given.</p>'
-  const rows = a.profiles.map((p) => {
+  const rows = panelOf(a).map((p) => {
     const cells = a.slices.map((slice) => {
       const cell = a.sliceCells.find((c) => c.profileId === p.profileId && c.slice === slice)!
       const tip = `${p.profileId} on ${slice}: ${num(cell.quality)} over ${cell.n} cases`
@@ -495,22 +588,22 @@ function sliceHeatmap(a: ProfileMatrixAnalysis): string {
     return `<tr><td>${esc(p.profileId)}</td>${cells.join('')}</tr>`
   })
   return [
-    '<p class="note">Mean score on each profile’s own scored cases in each slice, the largest slice ' +
-      'first. Cells with fewer than five cases are greyed: too few to read. Profiles that ran ' +
-      'different cases are not comparable here; the paired numbers above are.</p>',
+    `<p class="note">Each panel profile’s mean score on the ${common(a)} in each slice, the largest slice ` +
+      'first. Cells with fewer than five cases are greyed: too few to read.</p>',
     table(['Profile', ...a.slices], rows),
   ].join('\n')
 }
 
 function overlap(a: ProfileMatrixAnalysis): string {
-  if (a.sharedCases.length === 0) return '<p class="note">No case was scored by every profile.</p>'
-  const ids = a.profiles.map((p) => p.profileId)
+  if (a.commonCases.length === 0)
+    return '<p class="note">No case was scored by every panel profile.</p>'
+  const ids = a.panelProfiles
   const pair = (x: string, y: string) =>
     a.errorOverlap.find((o) => (o.a === x && o.b === y) || (o.a === y && o.b === x))!
   const rows = ids.map((row, i) => {
     const cells = ids.map((col, j) => {
       if (i === j) {
-        const wrong = 1 - (a.profiles[i]!.quality?.estimate ?? 0)
+        const wrong = 1 - (a.profiles.find((p) => p.profileId === row)!.quality?.estimate ?? 0)
         return `<td class="cell tight diag" title="${esc(row)} error rate">${pct(wrong)}</td>`
       }
       const o = pair(row, col)
@@ -522,13 +615,13 @@ function overlap(a: ProfileMatrixAnalysis): string {
     })
     return `<tr><td>${i + 1}. ${esc(row)}</td>${cells.join('')}</tr>`
   })
-  const best = Math.max(...a.profiles.map((p) => p.quality?.estimate ?? 0))
+  const best = Math.max(...panelOf(a).map((p) => p.quality?.estimate ?? 0))
   return [
-    `<p class="note">On the ${shared(a)}, profiles numbered as in the rows. Above the diagonal (orange): share both profiles got wrong. ` +
+    `<p class="note">Panel profiles on the ${common(a)}, numbered as in the rows. Above the diagonal (orange): share both profiles got wrong. ` +
       'Below it (blue): share exactly one got right. The diagonal is each profile’s error rate. Profiles ' +
       'that disagree often and rarely fail together are candidates to route between.</p>',
     table(['', ...ids.map((_, i) => `${i + 1}`)], rows),
-    `<p>Oracle ceiling: ${num(a.oracle)} (a case counts when any profile got it right), against ${num(best)} for the best single profile.</p>`,
+    `<p>Oracle ceiling: ${num(a.oracle)} (a case counts when any panel profile got it right), against ${num(best)} for the best single one.</p>`,
   ].join('\n')
 }
 
@@ -548,28 +641,24 @@ function difficulty(a: ProfileMatrixAnalysis): string {
     const tip = `${item.caseId}${item.slice ? ` (${item.slice})` : ''}: ${item.solved} of ${item.scored} profiles right`
     const h = Math.max(1, item.share * (H - T - B))
     const y = sy(item.share) - (item.share === 0 ? 1 : 0)
-    const kind = item.scored < 2 ? 'bar single' : 'bar'
     parts.push(
-      `<rect class="${kind}" x="${L + i * barW + 1}" y="${y}" width="${barW - 2}" height="${h}" rx="1">` +
+      `<rect class="bar" x="${L + i * barW + 1}" y="${y}" width="${barW - 2}" height="${h}" rx="1">` +
         `<title>${esc(tip)}</title></rect>`,
     )
   })
   parts.push(
     `<text x="${L}" y="${H - 6}">hardest</text><text x="${W - 8}" y="${H - 6}" text-anchor="end">easiest</text>`,
   )
-  const multi = items.filter((item) => item.scored >= 2)
-  const none = multi.filter((item) => item.solved === 0)
-  const all = multi.filter((item) => item.solved === item.scored)
+  const none = items.filter((item) => item.solved === 0)
+  const all = items.filter((item) => item.solved === item.scored)
   const listed = none.slice(0, 24).map((item) => esc(item.caseId))
   const more = none.length > listed.length ? ` and ${none.length - listed.length} more` : ''
-  const single = items.length - multi.length
   return [
-    '<p class="note">Each bar is one case: the share of the profiles that scored it which got it right, ' +
-      `hardest first. ${single ? 'Faint bars are cases only one profile scored.' : ''}</p>`,
-    `<figure><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Share of profiles right per case">${parts.join('')}</svg></figure>`,
-    `<p>Of the ${multi.length} cases two or more profiles scored, ${none.length} no profile got right` +
-      `${none.length ? ` (${listed.join(', ')}${more})` : ''} and ${all.length} every profile got right. ` +
-      `${single ? `${single} more were scored by one profile only. ` : ''}` +
+    `<p class="note">Each bar is one of the ${common(a)}: the share of the ${a.panelProfiles.length} panel ` +
+      'profiles that got it right, hardest first.</p>',
+    `<figure><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Share of panel profiles right per case">${parts.join('')}</svg></figure>`,
+    `<p>Of the ${common(a)}, ${none.length} were missed by every panel profile` +
+      `${none.length ? ` (${listed.join(', ')}${more})` : ''} and ${all.length} were solved by every one. ` +
       'Cases nobody solves are worth reading for label errors before they are read as hard.</p>',
   ].join('\n')
 }
@@ -611,9 +700,9 @@ function calibration(a: ProfileMatrixAnalysis): string {
 function powerSentence(a: ProfileMatrixAnalysis): string {
   const p = a.power
   if (!p)
-    return 'Power is not computed: it needs at least two shared cases and one profile besides the baseline.'
+    return 'Power is not computed: it needs at least two common cases and one panel profile besides the baseline.'
   const base =
-    `With ${p.n} shared cases in ${p.clusters} independent cluster${p.clusters === 1 ? '' : 's'} and a ` +
+    `With ${p.n} common cases in ${p.clusters} independent cluster${p.clusters === 1 ? '' : 's'} and a ` +
     `median discordance of ${pct(p.discordance)} against the baseline, `
   const finding =
     p.detectable === null
@@ -638,15 +727,16 @@ function raceSection(race: ProfileMatrixRaceResult): string {
       (s) =>
         `<tr><td>${batch.batch}</td><td>${batch.casesSeen}</td><td>${esc(batch.leader)}</td>` +
         `<td>${esc(s.profileId)}</td><td>${s.n}</td><td>${signed(s.difference)}</td>` +
-        `<td>${bounds(s)}</td><td>${s.dropped ? '<strong>dropped</strong>' : 'kept'}` +
+        `<td>${bounds(s)}<span class="sub">p ${num(s.pValue)}, ${s.clusters} clusters</span></td><td>${s.dropped ? '<strong>dropped</strong>' : 'kept'}` +
         `${s.reason ? `<span class="sub">${esc(s.reason)}</span>` : ''}</td></tr>`,
     ),
   )
   const final = race.final.rows.map(
     (row) =>
       `<tr><td>${esc(row.profileId)}${row.profileId === race.leader ? ' <span class="muted">(leader)</span>' : ''}</td>` +
-      `<td>${num(row.quality)}</td><td>${row.vsBaseline ? signed(row.vsBaseline.difference) : '—'}</td>` +
-      `<td>${row.vsBaseline ? bounds(row.vsBaseline) : '—'}</td></tr>`,
+      `<td>${num(row.quality)}</td>${pairedCells(row.vsBaseline)
+        .map((cell) => `<td>${cell}</td>`)
+        .join('')}</tr>`,
   )
   return [
     `<p>Stopped because ${reason}, after ${race.casesRaced.length} cases: ${race.cellsRun} of ` +
@@ -666,7 +756,7 @@ function raceSection(race: ProfileMatrixRaceResult): string {
       log,
     ),
     `<h3>Final comparison on ${race.final.cases} cases every survivor scored</h3>`,
-    table(['Profile', 'Quality', 'Δ vs baseline', 'Interval'], final),
+    table(['Profile', 'Quality', 'Paired n', 'Δ vs baseline'], final),
     `<p class="callout">${esc(race.selectionBias)}</p>`,
   ].join('\n')
 }

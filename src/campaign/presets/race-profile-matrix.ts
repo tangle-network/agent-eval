@@ -11,11 +11,18 @@
 
 import { ValidationError } from '../../errors'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../integrity/backend-integrity'
-import { type RunRecord, runTaskScore } from '../../run-record'
+import type { RunRecord } from '../../run-record'
 import { makeRng } from '../../statistics/internal'
 import { mean } from '../../statistics/mean'
 import type { Scenario } from '../types'
-import { clusteredDifference, clusterResolver } from './profile-matrix-analysis'
+import {
+  allPassFail,
+  clusterResolver,
+  type ProfileMatrixPairedDifference,
+  type ProfilePairingRule,
+  pairProfiles,
+  scoresByProfile,
+} from './profile-matrix-analysis'
 import {
   type ProfileMatrixPlan,
   type RunProfileMatrixSegmentOptions,
@@ -44,10 +51,16 @@ export interface ProfileMatrixRaceStanding {
   profileId: string
   /** Cases both this profile and the leader scored. */
   n: number
+  /** Independent clusters among those cases. */
+  clusters: number
   /** Mean paired difference from the leader; null without a shared scored case. */
   difference: number | null
   low: number | null
   high: number | null
+  /** Exact cluster sign-flip p-value for a zero difference. */
+  pValue: number | null
+  /** Paired cases a test needs for 80% power at the observed difference. */
+  casesToResolve: number | null
   dropped: boolean
   reason?: string
 }
@@ -63,8 +76,8 @@ export interface ProfileMatrixRaceBatch {
 export interface ProfileMatrixRaceFinalRow {
   profileId: string
   quality: number | null
-  /** Paired difference from the baseline; null on the baseline itself. */
-  vsBaseline: { difference: number; low: number | null; high: number | null } | null
+  /** Paired difference from the baseline on the final cases; null on the baseline itself. */
+  vsBaseline: ProfileMatrixPairedDifference | null
 }
 
 export interface ProfileMatrixRaceResult {
@@ -90,8 +103,8 @@ type Scores = Map<string, Map<string, number>>
 
 interface RaceContext {
   baseline: string
-  level: number
-  clusterOf: (caseId: string) => string
+  /** Pairing rule; `passFail` is read from the scores at each comparison. */
+  rule: ProfilePairingRule
   /** Plan order with the baseline first; ties go to the earlier profile. */
   profileIds: string[]
 }
@@ -128,8 +141,12 @@ export async function raceProfileMatrix<TScenario extends Scenario, TArtifact>(
   }
   const ctx: RaceContext = {
     baseline,
-    level,
-    clusterOf: clusterResolver(clusters, 'raceProfileMatrix'),
+    rule: {
+      clusterOf: clusterResolver(clusters, 'raceProfileMatrix'),
+      level,
+      passScore: 0.5,
+      passFail: true,
+    },
     profileIds: [baseline, ...planned.filter((id) => id !== baseline)],
   }
   const order = orderCases(plan, caseOrder)
@@ -168,7 +185,7 @@ export async function raceProfileMatrix<TScenario extends Scenario, TArtifact>(
     seen = total
     const entry = standings(
       ctx,
-      scoreTable([...records.values()]),
+      scoresByProfile([...records.values()]),
       survivors,
       order.slice(0, seen),
       batchCases,
@@ -180,7 +197,7 @@ export async function raceProfileMatrix<TScenario extends Scenario, TArtifact>(
   if (survivors.length === 1) stoppedBecause = 'one-left'
 
   const casesRaced = order.slice(0, seen)
-  const final = finalComparison(ctx, scoreTable([...records.values()]), survivors, casesRaced)
+  const final = finalComparison(ctx, scoresByProfile([...records.values()]), survivors, casesRaced)
   return {
     matrixId: plan.matrixId,
     planDigest: plan.planDigest,
@@ -259,21 +276,6 @@ function enforceIntegrity<TScenario extends Scenario, TArtifact>(
   }
 }
 
-/** Mean score per profile and case over its scored reps. */
-function scoreTable(records: readonly RunRecord[]): Scores {
-  const sums = new Map<string, Map<string, number[]>>()
-  for (const record of records) {
-    const score = runTaskScore(record)
-    if (score === undefined) continue
-    const cases = sums.get(record.candidateId) ?? new Map<string, number[]>()
-    cases.set(record.scenarioId, [...(cases.get(record.scenarioId) ?? []), score])
-    sums.set(record.candidateId, cases)
-  }
-  return new Map(
-    [...sums].map(([id, cases]) => [id, new Map([...cases].map(([c, xs]) => [c, mean(xs)]))]),
-  )
-}
-
 /** The highest mean on the cases every candidate scored; ties go to the earlier profile. */
 function leaderOf(
   ctx: RaceContext,
@@ -291,21 +293,16 @@ function leaderOf(
   return { leader, shared }
 }
 
+/** `p` against `q` on the cases both scored within `cases`, through the page's pairing helper. */
 function pairedAgainst(
   ctx: RaceContext,
   scores: Scores,
   p: string,
   q: string,
   cases: readonly string[],
-) {
-  const both = cases.filter((c) => scores.get(p)?.has(c) && scores.get(q)?.has(c))
-  if (both.length === 0) return null
-  const deltas = both.map((caseId) => ({
-    caseId,
-    delta: scores.get(p)!.get(caseId)! - scores.get(q)!.get(caseId)!,
-  }))
-  const result = clusteredDifference(deltas, ctx.clusterOf, ctx.level)
-  return { n: both.length, difference: result.estimate, low: result.low, high: result.high }
+): ProfileMatrixPairedDifference | undefined {
+  const rule = { ...ctx.rule, passFail: allPassFail(scores) }
+  return pairProfiles(scores.get(p) ?? new Map(), scores.get(q) ?? new Map(), rule, cases)
 }
 
 function standings(
@@ -323,9 +320,12 @@ function standings(
       const base = {
         profileId,
         n: paired?.n ?? 0,
-        difference: paired?.difference ?? null,
+        clusters: paired?.clusters ?? 0,
+        difference: paired?.estimate ?? null,
         low: paired?.low ?? null,
         high: paired?.high ?? null,
+        pValue: paired?.pValue ?? null,
+        casesToResolve: paired?.casesToResolve ?? null,
       }
       const protectedProfile = profileId === ctx.baseline || profileId === leader
       if (!batchCases.some((c) => scores.get(profileId)?.has(c))) {
@@ -357,19 +357,15 @@ function finalComparison(
   casesRaced: readonly string[],
 ) {
   const { leader, shared } = leaderOf(ctx, scores, survivors, casesRaced)
-  const rows = survivors.map((profileId): ProfileMatrixRaceFinalRow => {
-    const quality = shared.length ? mean(shared.map((c) => scores.get(profileId)!.get(c)!)) : null
-    const paired =
-      profileId === ctx.baseline
-        ? null
-        : pairedAgainst(ctx, scores, profileId, ctx.baseline, shared)
-    return {
+  const rows = survivors.map(
+    (profileId): ProfileMatrixRaceFinalRow => ({
       profileId,
-      quality,
-      vsBaseline: paired
-        ? { difference: paired.difference, low: paired.low, high: paired.high }
-        : null,
-    }
-  })
+      quality: shared.length ? mean(shared.map((c) => scores.get(profileId)!.get(c)!)) : null,
+      vsBaseline:
+        profileId === ctx.baseline
+          ? null
+          : (pairedAgainst(ctx, scores, profileId, ctx.baseline, shared) ?? null),
+    }),
+  )
   return { leader, cases: shared.length, rows }
 }

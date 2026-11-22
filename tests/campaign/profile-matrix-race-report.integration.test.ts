@@ -78,6 +78,14 @@ function isRight(name: Name, caseIndex: number): boolean {
 const accuracy = (name: Name) =>
   scenarios.filter((s) => isRight(name, indexOf(s.id))).length / scenarios.length
 
+/** Mean paired difference of `name` from `base` on `cases`, straight from the fixture's answers. */
+const pairedOn = (name: Name, cases: readonly string[]) =>
+  cases.reduce(
+    (sum, c) => sum + Number(isRight(name, indexOf(c))) - Number(isRight('base', indexOf(c))),
+    0,
+  ) / cases.length
+const allIds = NAMES.map((name) => id[name])
+
 const judge: JudgeConfig<Answer, Scenario> = {
   name: 'verdict',
   judgeVersion: 'race-report-fixture/1',
@@ -181,6 +189,38 @@ describe('profile matrix race and decision page', () => {
     expect(race.selectionBias).toMatch(/biased upward/)
     expect(race.selectionBias).toMatch(/held-out/)
 
+    // The race result as the page's source: survivors form the panel, dropped profiles are partial.
+    const raced = analyzeProfileMatrix({
+      source: race,
+      baseline: id.base,
+      profiles: allIds,
+      clusters,
+    })
+    expect(raced.panelRule).toBe('race-survivors')
+    expect([...raced.panelProfiles].sort()).toEqual([...race.survivors].sort())
+    expect(raced.commonCases).toEqual([...race.casesRaced].sort())
+    for (const name of NAMES.filter((n) => n !== 'base')) {
+      const stats = raced.profiles.find((p) => p.profileId === id[name])!
+      const ownCases = race.records
+        .filter((r) => r.candidateId === id[name])
+        .map((r) => r.scenarioId)
+      expect(stats.panel).toBe(race.survivors.includes(id[name]))
+      expect(stats.pairedN).toBe(ownCases.length)
+      expect(stats.vsBaseline?.estimate).toBeCloseTo(pairedOn(name, ownCases), 12)
+      const dropped = decisions.find((d) => d.profileId === id[name] && d.dropped)
+      expect(stats.droppedAtBatch).toBe(dropped?.batch)
+      if (!stats.panel) expect(stats.quality).toBeNull()
+    }
+    const racedWeak = raced.profiles.find((p) => p.profileId === id.weak)!
+    expect(racedWeak).toMatchObject({ panel: false, droppedAtBatch: 1, pairedN: 8, casesScored: 8 })
+    expect(racedWeak.ownQuality?.estimate).toBe(0)
+    const racedPage = renderProfileMatrixReport({ source: race, baseline: id.base, clusters })
+    expect(racedPage).toContain('<h2>Partial coverage</h2>')
+    expect(racedPage).toContain('Dropped after batch')
+    expect(racedPage).toContain('The race dropped these profiles')
+    expect(racedPage).toContain('<h2>Race</h2>')
+    expect(racedPage).toContain(race.selectionBias)
+
     // A second call replays the claimed segments from the cell cache.
     const replayCalls: string[] = []
     const replay = await raceProfileMatrix({ ...raceOptions, dispatch: dispatchFor(replayCalls) })
@@ -220,8 +260,9 @@ describe('profile matrix race and decision page', () => {
     }
     const analysis = analyzeProfileMatrix(options)
     expect(analysis.passFail).toBe(true)
-    expect(analysis.sharedCases).toHaveLength(32)
-    expect(analysis.sharedClusters).toBe(16)
+    expect(analysis.commonCases).toHaveLength(32)
+    expect(analysis.commonClusters).toBe(16)
+    expect(analysis.panelProfiles).toEqual(allIds)
     expect(analysis.profiles.map((p) => p.profileId)).toEqual(NAMES.map((name) => id[name]))
     for (const name of NAMES) {
       const stats = analysis.profiles.find((p) => p.profileId === id[name])!
@@ -275,6 +316,7 @@ describe('profile matrix race and decision page', () => {
       'Power',
       'Race',
     ]
+    expect(html).not.toContain('<h2>Partial coverage</h2>')
     const positions = headings.map((heading) => html.indexOf(`<h2>${heading}</h2>`))
     expect(positions.every((position) => position > 0)).toBe(true)
     expect(positions).toEqual([...positions].sort((x, y) => x - y))
@@ -283,6 +325,88 @@ describe('profile matrix race and decision page', () => {
     expect(html).toContain(':root[data-theme="dark"]')
     expect(html).not.toMatch(/https?:\/\/|<script|<link|@import|url\(/)
     expect((html.match(/<svg/g) ?? []).length).toBeGreaterThan(3 + NAMES.length)
+  })
+
+  it('pairs every profile on the cases it shares with the baseline when cells ran unequal cases', async () => {
+    const current = plan()
+    const skip = (name: Name, caseIndex: number) =>
+      (name === 'flash-high' && caseIndex % 4 === 0) || (name === 'weak' && caseIndex >= 16)
+    const nameOfId = new Map(NAMES.map((name) => [id[name], name]))
+    const segment = await runProfileMatrixSegment({
+      plan: current,
+      segmentId: 'unequal',
+      rows: current.rows
+        .filter((row) => !skip(nameOfId.get(row.profileId)!, indexOf(row.scenarioId)))
+        .map((row) => row.rowId),
+      dispatch: dispatchFor([]),
+      runDir: runDir(),
+      maxConcurrency: 4,
+    })
+    expect(segment.matrix.records).toHaveLength(5 * 32 - 8 - 16)
+    const options: ProfileMatrixReportOptions = {
+      source: segment.matrix,
+      baseline: id.base,
+      profiles: allIds,
+      clusters,
+      slices,
+      factors,
+    }
+    const analysis = analyzeProfileMatrix(options)
+    expect(analysis).toMatchObject({ panelRule: 'coverage', minCoverage: 0.9 })
+    expect(analysis.panelProfiles).toEqual([id.base, id.strong, id.flash])
+    expect(analysis.commonCases).toHaveLength(32)
+    expect(analysis.commonClusters).toBe(16)
+    const ids = scenarios.map((s) => s.id)
+    const flashHighCases = ids.filter((c) => indexOf(c) % 4 !== 0)
+    const weakCases = ids.filter((c) => indexOf(c) < 16)
+    const stats = (name: Name) => analysis.profiles.find((p) => p.profileId === id[name])!
+    expect(stats('flash-high')).toMatchObject({ panel: false, coverage: 0.75, pairedN: 24 })
+    expect(stats('flash-high').vsBaseline).toMatchObject({ n: 24, clusters: 16 })
+    expect(stats('flash-high').vsBaseline?.estimate).toBeCloseTo(
+      pairedOn('flash-high', flashHighCases),
+      12,
+    )
+    expect(stats('flash-high').ownQuality?.estimate).toBeCloseTo(
+      flashHighCases.filter((c) => isRight('flash-high', indexOf(c))).length / 24,
+      12,
+    )
+    expect(stats('flash-high').quality).toBeNull()
+    expect(stats('weak')).toMatchObject({ panel: false, coverage: 0.5, pairedN: 16 })
+    expect(stats('weak').vsBaseline).toMatchObject({ n: 16, clusters: 8 })
+    expect(stats('weak').vsBaseline?.estimate).toBeCloseTo(pairedOn('weak', weakCases), 12)
+    expect(stats('strong').vsBaseline?.n).toBe(32)
+    expect(stats('strong').quality?.estimate).toBeCloseTo(accuracy('strong'), 12)
+
+    // Each matched pair is compared on the cases it shares: strong-base on 32, flash-high-flash on 24.
+    const effort = analysis.factorEffects.find((e) => e.factor === 'effort' && e.level === 'high')!
+    expect(effort).toMatchObject({ matchedPairs: 2, n: 32, pairCases: { min: 24, max: 32 } })
+    const perCase = ids.map((c) => {
+      const i = indexOf(c)
+      const strongDelta = Number(isRight('strong', i)) - Number(isRight('base', i))
+      if (i % 4 === 0) return strongDelta
+      return (strongDelta + Number(isRight('flash-high', i)) - Number(isRight('flash', i))) / 2
+    })
+    expect(effort.effect?.estimate).toBeCloseTo(perCase.reduce((a, b) => a + b, 0) / 32, 12)
+    const harness = analysis.factorEffects.find((e) => e.factor === 'harness')!
+    expect(harness).toMatchObject({ matchedPairs: 1, n: 16, pairCases: { min: 16, max: 16 } })
+    expect(harness.effect?.estimate).toBeCloseTo(pairedOn('weak', weakCases), 12)
+
+    expect(analysis.sliceCells).toHaveLength(3 * SLICES.length)
+    expect(analysis.errorOverlap).toHaveLength(3)
+    expect(analysis.difficulty.every((item) => item.scored === 3)).toBe(true)
+    expect(analysis.power?.n).toBe(32)
+
+    const looser = analyzeProfileMatrix({ ...options, minCoverage: 0.7 })
+    expect(looser.panelProfiles).toEqual([id.base, id.strong, id.flash, id['flash-high']])
+    expect(looser.commonCases).toEqual(flashHighCases)
+    expect(() => analyzeProfileMatrix({ ...options, minCoverage: 0 })).toThrow(/minCoverage/)
+
+    const html = renderProfileMatrixReport(options)
+    expect(html).toContain('<h2>Partial coverage</h2>')
+    expect(html).toContain('scored fewer than 90% of the baseline’s cases')
+    expect(html.indexOf('<h2>Partial coverage</h2>')).toBeGreaterThan(
+      html.indexOf('<h2>Profiles</h2>'),
+    )
   })
 
   it('stops before a batch that would pass the cell budget', async () => {
