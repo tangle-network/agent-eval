@@ -15,6 +15,19 @@ export function reduceOutcomeMetric(
   metric: string,
   reduction: OutcomeReduction,
 ): number | null {
+  return reduceOutcomeObservation(outcomes, metric, reduction)?.value ?? null
+}
+
+/**
+ * Reduce observations of one named metric and say when the reduced value was
+ * known: the latest observation's capture time for `latest`, and the last
+ * contributing capture for `mean` and `max`.
+ */
+export function reduceOutcomeObservation(
+  outcomes: readonly DeploymentOutcome[],
+  metric: string,
+  reduction: OutcomeReduction,
+): { value: number; capturedAt: number } | null {
   const observations = outcomes.flatMap((outcome) => {
     const value = outcome.metrics[metric]
     return Number.isFinite(outcome.capturedAt) &&
@@ -24,14 +37,36 @@ export function reduceOutcomeMetric(
       : []
   })
   if (observations.length === 0) return null
+  const latest = observations.reduce((a, b) => (b.capturedAt > a.capturedAt ? b : a))
   if (reduction === 'mean') {
-    return observations.reduce(
-      (sum, observation) => sum + observation.value / observations.length,
-      0,
-    )
+    return {
+      value: observations.reduce(
+        (sum, observation) => sum + observation.value / observations.length,
+        0,
+      ),
+      capturedAt: latest.capturedAt,
+    }
   }
-  if (reduction === 'max') return Math.max(...observations.map((observation) => observation.value))
-  return observations.reduce((a, b) => (b.capturedAt > a.capturedAt ? b : a)).value
+  if (reduction === 'max') {
+    return {
+      value: Math.max(...observations.map((observation) => observation.value)),
+      capturedAt: latest.capturedAt,
+    }
+  }
+  return latest
+}
+
+/** Group outcome observations by the record id they join to. */
+export function groupOutcomesByRun(
+  outcomes: readonly DeploymentOutcome[],
+): Map<string, DeploymentOutcome[]> {
+  const byRun = new Map<string, DeploymentOutcome[]>()
+  for (const outcome of outcomes) {
+    const rows = byRun.get(outcome.runId) ?? []
+    rows.push(outcome)
+    byRun.set(outcome.runId, rows)
+  }
+  return byRun
 }
 
 export function hasVariation(values: readonly number[]): boolean {

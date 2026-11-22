@@ -38,6 +38,25 @@ export {
 } from './evaluator-admission'
 export * from './judge-gate'
 export {
+  type ClimbedMeasure,
+  type GuardDriftInput,
+  type GuardDriftMeasure,
+  type GuardDriftReport,
+  type GuardMeasure,
+  guardDrift,
+  type MeasureCoverage,
+  type MeasuredChange,
+  type MeasureMovementValidity,
+  type MeasureOutcomeValidity,
+  type MeasureReference,
+  type MeasureSelection,
+  type MeasureValidityInput,
+  type MeasureValidityReason,
+  type MeasureValidityReport,
+  measureValidityStudy,
+  type GuardDriftInterval,
+} from './measure-validity'
+export {
   type CalibrateJudgePanelInput,
   calibrateJudgePanel,
   gateJudgeCalibration,

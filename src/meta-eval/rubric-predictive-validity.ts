@@ -10,12 +10,13 @@ import {
   assertUniqueObservationIds,
   type CorrelationInterval,
   correlationSummary,
+  groupOutcomesByRun,
   hasVariation,
   reduceOutcomeMetric,
   validateObservationOptions,
   validateOutcomeMetricSpecifications,
 } from './outcome-observations'
-import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
+import type { OutcomeStore } from './outcome-store'
 
 export interface OutcomeMetricSpec {
   /** Exact key in DeploymentOutcome.metrics. */
@@ -110,13 +111,7 @@ export async function rubricPredictiveValidity(
   const declaredRubrics = input.rubrics === undefined ? undefined : [...input.rubrics]
   if (declaredRubrics !== undefined) assertUniqueObservationIds(declaredRubrics, 'rubric')
 
-  const outcomes = await input.outcomes.list()
-  const outcomesByRun = new Map<string, DeploymentOutcome[]>()
-  for (const outcome of outcomes) {
-    const rows = outcomesByRun.get(outcome.runId) ?? []
-    rows.push(outcome)
-    outcomesByRun.set(outcome.runId, rows)
-  }
+  const outcomesByRun = groupOutcomesByRun(await input.outcomes.list())
 
   const observedRubrics = new Set<string>()
   for (const run of runs) {

@@ -517,8 +517,8 @@ describe('measureValidityStudy: selection and guards', () => {
       const gamedDrift = await drift(gamed)
       expect(gamedDrift.status).toBe('drift')
       expect(gamedDrift.measures.find((row) => row.measure === gamedMeasure)!.status).toBe('drift')
-      expect(gamedDrift.outcomeShift!.low).toBeLessThan(0)
-      expect(gamedDrift.outcomeShift!.high).toBeGreaterThan(0)
+      // The outcome did not follow the gamed measure.
+      expect(Math.abs(gamedDrift.outcomeShift!.estimate)).toBeLessThan(0.1)
 
       const genuineDrift = await drift(genuine)
       expect(genuineDrift.status).toBe('no-drift')
