@@ -40,10 +40,11 @@ export interface MeasureValidityOutcome {
   /**
    * Time after the change within which the outcome is decided. A change before
    * the cut counts for this outcome only when `at + windowMs` is at or before
-   * the cut, whatever its value and capture time. Declare it whenever a caller
-   * records an event when it happens and its absence when the window closes:
-   * otherwise the changes just before the cut keep their events and lose their
-   * non-events, and the direction fitted there is biased toward the event.
+   * the cut, and a change after it only when `at + windowMs` is at or before
+   * the study's `asOf`, whatever its value and capture time. Declare it
+   * whenever a caller records an event when it happens and its absence when
+   * the window closes: otherwise the changes just before the cut, and the last
+   * changes read, keep their events and lose their non-events.
    */
   windowMs?: number
   exposure?: MeasureValidityExposure

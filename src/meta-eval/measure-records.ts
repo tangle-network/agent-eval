@@ -78,20 +78,28 @@ export function validateChanges(
   }
 }
 
+/**
+ * The observations a change may join, each excluded one counted under the
+ * first reason that applies. `asOf` is when the outcomes were read: nothing
+ * captured after it can have been known.
+ */
 export function eligibleObservations(
   observations: readonly DeploymentOutcome[],
   change: MeasuredChange,
   plan: MeasureValidityPlan,
   preCut: boolean,
+  asOf?: number,
 ) {
   const counts = {
     capturedBeforeChange: 0,
+    capturedAfterAsOf: 0,
     capturedAfterCutForPreCutChange: 0,
     beyondMaxCaptureLag: 0,
   }
   const eligible: DeploymentOutcome[] = []
   for (const observation of observations) {
     if (observation.capturedAt < change.at) counts.capturedBeforeChange++
+    else if (asOf !== undefined && observation.capturedAt > asOf) counts.capturedAfterAsOf++
     else if (
       plan.maxCaptureLagMs !== undefined &&
       observation.capturedAt - change.at > plan.maxCaptureLagMs

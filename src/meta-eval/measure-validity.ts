@@ -56,6 +56,13 @@ export interface MeasureValidityInput {
   plan: SealedMeasureValidityPlan
   changes: readonly MeasuredChange[]
   outcomes: OutcomeStore
+  /**
+   * Epoch milliseconds at which the outcomes were read. An observation
+   * captured after it is excluded, and a change after the cut counts for an
+   * outcome with `windowMs` only when its window closed by it. Required when
+   * any outcome declares `windowMs`; at or after the cut.
+   */
+  asOf?: number
 }
 
 export type MeasureValidityReason =
@@ -185,8 +192,12 @@ export interface MeasureValidityReport {
   changes: { total: number; preCut: number; postCut: number }
   units: { preCut: number; postCut: number; both: number }
   /** Outcome observations not joined, by reason. */
+  /** When the outcomes were read, as given; null when not given. */
+  asOf: number | null
   excludedObservations: {
     capturedBeforeChange: number
+    /** Captured after `asOf`. */
+    capturedAfterAsOf: number
     capturedAfterCutForPreCutChange: number
     beyondMaxCaptureLag: number
     /**
@@ -194,6 +205,11 @@ export interface MeasureValidityReport {
      * whose `windowMs` had not closed at the cut.
      */
     windowOpenAtCut: number
+    /**
+     * Change-outcome pairs after the cut with an outcome known by `asOf`
+     * whose `windowMs` had not closed at `asOf`.
+     */
+    windowOpenAtEnd: number
   }
   exposures: MeasureExposureBins[]
   coverage: MeasureCoverage[]
@@ -232,13 +248,27 @@ export async function measureValidityStudy(
     )
   }
   const plan = sealed.plan
+  const asOf = input.asOf
+  if (asOf !== undefined && !(Number.isFinite(asOf) && asOf >= plan.cut)) {
+    throw new ValidationError(
+      'measureValidityStudy: asOf must be finite epoch milliseconds at or after the cut',
+    )
+  }
+  const windowed = plan.outcomes.filter((outcome) => outcome.windowMs !== undefined)
+  if (asOf === undefined && windowed.length > 0) {
+    throw new ValidationError(
+      `measureValidityStudy: outcome ${windowed[0]!.id} declares windowMs, so asOf, the time the outcomes were read, is required`,
+    )
+  }
   validateChanges(input.changes, plan, true)
   const byRun = groupOutcomesByRun(await input.outcomes.list())
   const excluded = {
     capturedBeforeChange: 0,
+    capturedAfterAsOf: 0,
     capturedAfterCutForPreCutChange: 0,
     beyondMaxCaptureLag: 0,
     windowOpenAtCut: 0,
+    windowOpenAtEnd: 0,
   }
   const prepared = input.changes.map((change) => {
     const preCut = change.at < plan.cut
@@ -247,17 +277,21 @@ export async function measureValidityStudy(
       change,
       plan,
       preCut,
+      asOf,
     )
     excluded.capturedBeforeChange += counts.capturedBeforeChange
+    excluded.capturedAfterAsOf += counts.capturedAfterAsOf
     excluded.capturedAfterCutForPreCutChange += counts.capturedAfterCutForPreCutChange
     excluded.beyondMaxCaptureLag += counts.beyondMaxCaptureLag
     const outcomes = joinOutcomes(eligible, change, plan.outcomes, plan.reduction)
-    // Before the cut, a windowed outcome counts only once its window has closed,
-    // whatever its value: otherwise recent events stay and recent non-events do not.
-    for (const outcome of plan.outcomes) {
-      if (!preCut || outcome.windowMs === undefined) continue
-      if (change.at + outcome.windowMs > plan.cut && outcomes.delete(outcome.id)) {
-        excluded.windowOpenAtCut++
+    // A windowed outcome counts only once its window has closed, by the cut
+    // before it and by the read time after it, whatever its value: otherwise
+    // recent events stay and recent non-events do not.
+    for (const outcome of windowed) {
+      const closesBy = preCut ? plan.cut : asOf!
+      if (change.at + outcome.windowMs! > closesBy && outcomes.delete(outcome.id)) {
+        if (preCut) excluded.windowOpenAtCut++
+        else excluded.windowOpenAtEnd++
       }
     }
     return { change, preCut, outcomes }
@@ -338,6 +372,7 @@ export async function measureValidityStudy(
   return {
     planDigest: sealed.digest,
     plan,
+    asOf: asOf ?? null,
     claim: { ...CLAIM },
     hypothesis: HYPOTHESIS,
     changes: { total: prepared.length, preCut: pre.length, postCut: post.length },

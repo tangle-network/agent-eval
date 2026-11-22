@@ -61,6 +61,8 @@ const report = await measureValidityStudy({
   plan: sealed,
   changes: rows.map(toChange),
   outcomes: await storeOf(rows),
+  // When the outcomes were read: a change after the cut counts once its window closed by then.
+  asOf: now,
 })
 console.log(
   `changes: ${report.changes.preCut} before the cut, ${report.changes.postCut} after; pooled pairs tested: ${report.tested}; predicts: ${report.admitted}`,

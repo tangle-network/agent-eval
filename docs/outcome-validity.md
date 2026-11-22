@@ -132,7 +132,13 @@ const change: MeasuredChange = {
   movements: { test_delta: { before: 0.1, after: 0.5 } }, // optional
 }
 
-const report = await measureValidityStudy({ plan, changes: [change /* , ... */], outcomes })
+// asOf: when the outcomes were read; required when an outcome declares windowMs.
+const report = await measureValidityStudy({
+  plan,
+  changes: [change /* , ... */],
+  outcomes,
+  asOf: Date.now(),
+})
 ```
 
 Seal the plan before reading changes made after the cut, and keep its digest where an independent reader can see it.
@@ -144,13 +150,14 @@ A plan sealed before `format` existed still verifies under the digest it was sea
 The cut splits the changes.
 A change made before the cut fixes each measure's direction, its standardization and the selected subset, reading only outcomes captured by the cut.
 Every reported statistic comes from changes made at or after the cut, with those choices fixed.
-`excludedObservations` counts outcomes captured before their change, beyond `maxCaptureLagMs`, or after the cut for a change made before it, and (`windowOpenAtCut`) before-cut change-outcome pairs whose window had not closed at the cut.
+`excludedObservations` counts outcomes captured before their change, after `asOf` (`capturedAfterAsOf`), beyond `maxCaptureLagMs`, or after the cut for a change made before it, each under the first of those that applies; then change-outcome pairs whose window had not closed, at the cut for a change before it (`windowOpenAtCut`) or at `asOf` for a change after it (`windowOpenAtEnd`).
 
 Declare `windowMs` on any outcome decided within a window after the change.
 A common record writes an event (a later fix, a revert) when it happens and its absence when the window closes.
 Without the window, the changes just before the cut keep their events, already known by the cut, and lose their non-events, not yet written; when a measure drifts over time, the direction fitted before the cut follows the drift toward the event and can reverse.
-With `windowMs`, a change before the cut counts for that outcome only when its window closed by the cut, whatever its value and capture time.
-The study cannot know when the changes after the cut were read: give an outcome for a change after the cut only once its window has closed, or the held-out half carries the same bias.
+The last changes read carry the same bias into the held-out half: a measure that only trends with time is admitted.
+With `windowMs`, a change before the cut counts for that outcome only when its window closed by the cut, and a change after the cut only when its window closed by `asOf`, the time the outcomes were read, whatever its value and capture time.
+An outcome with `windowMs` therefore needs `asOf`; the study refuses to run without it.
 
 | Field | Meaning |
 |---|---|
