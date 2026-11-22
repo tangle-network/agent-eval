@@ -138,6 +138,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/run-record.ts',
   'src/statistics/agreement-irr.ts',
   'src/statistics/cluster.ts',
+  'src/statistics/clustered-association.ts',
   'src/statistics/clustered-paired.ts',
   'src/statistics/comparison-effects.ts',
   'src/statistics/descriptive.ts',
@@ -148,6 +149,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/statistics/internal.ts',
   'src/statistics/mean.ts',
   'src/statistics/multiplicity.ts',
+  'src/statistics/normalize-signed-zero.ts',
   'src/statistics/paired-binary.ts',
   'src/statistics/paired-tests.ts',
   'src/statistics/power-and-mde.ts',
@@ -179,7 +181,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '5e5f03515d49d87b86b656a7b68ed7d3e0c5dbf4092aca6743333d359bb01dda'
+  '9ac531ec672cc03742151ebc1c2061385920c49e607f35e36e6e2b18996701f9'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
