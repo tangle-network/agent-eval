@@ -260,7 +260,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `hashContent` | production | agent-runtime:bench/src/corpus.ts |
 | `hashJson` | production | agent-dev-container:products/intelligence/api/src/lib/ingest-optimization-mapping.ts |
 | `HeldOutGate` | production | agent-builder:src/lib/.server/eval/gates/promotion.ts |
-| `holm` | production | this package: src/search/lenses/edit-credit-statistics.ts:6 |
+| `holm` | production | this package: src/campaign/presets/profile-matrix-stability.ts:8 |
 | `inferDomainKeywords` | production | blueprint-agent:scripts/experiments/lib/analyze-vb-run/suite-projection.ts |
 | `InMemoryFeedbackTrajectoryStore` | production | creative-agent:eval/control/creative-onboarding.ts |
 | `InMemoryRawProviderSink` | production | agent-builder:src/lib/.server/eval/loops/canonical-campaign.ts |
@@ -964,7 +964,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `FinalEvidenceError` | production | this package: src/campaign/final-evidence.ts:7 |
 | `hashJson` | production | agent-dev-container:products/intelligence/api/src/lib/ingest-optimization-mapping.ts |
 | `heldoutSignificance` | production | agent-dev-container:products/intelligence/api/src/lib/eval-engine.ts |
-| `holm` | production | this package: src/search/lenses/edit-credit-statistics.ts:6 |
+| `holm` | production | this package: src/campaign/presets/profile-matrix-stability.ts:8 |
 | `isIndependentEvidence` | planned | consumer tests: agent-runtime:tests/integration/runtime-eval-pursuit-evidence.test.ts |
 | `joinProspectiveCanaryReceipts` | planned | doc: docs/experiment.md |
 | `manifestContentDigest` | production | this package: src/campaign/gates/sequential.ts:36 |
@@ -993,7 +993,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `requiredPairedSampleSize` | production | discovery:research/e1-topology-20260920/gate/gate.mjs |
 | `requiredSampleSize` | production | agent-dev-container:products/sandbox/evals/src/stats.ts |
 | `sealExperiment` | production | blueprint-agent:scripts/experiments/lib/__tests__/publication-fixtures.ts |
-| `sealMeasureValidityPlan` | planned | example: examples/measure-validity/index.ts:17 |
+| `sealMeasureValidityPlan` | planned | example: examples/measure-validity/index.ts:14 |
 | `sealRandomizedCanaryRule` | planned | doc: docs/experiment.md |
 | `sequentialDecide` | planned | doc: docs/experiment.md |
 | `sequentialPairedGate` | planned | consumer tests: legal-agent:tests/eval/self-improve.ts |
@@ -1002,7 +1002,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `verifyEvidenceReceipt` | planned | consumer tests: agent-runtime:tests/integration/runtime-eval-pursuit-evidence.test.ts |
 | `verifyManifest` | production | ph0ny:products/builder/api/src/eval/champion-sign.ts |
 | `verifyMatchedBudgets` | production | this package: src/experiment/define.ts:59 |
-| `verifyMeasureValidityPlan` | production | this package: src/meta-eval/measure-validity.ts:24 |
+| `verifyMeasureValidityPlan` | production | this package: src/meta-eval/measure-validity.ts:30 |
 | `verifySealedExperiment` | production | discovery-lab:experiments/profile-search-h2a/run.mjs |
 | `wilson` | production | agent-dev-container:packages/sdk-data/src/analysis/recommendations/statistics.ts |
 
@@ -1116,13 +1116,13 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `fileSentinelStore` | production | creative-agent:eval/lib/judge-sentinel.ts |
 | `FileSystemOutcomeStore` | production | ph0ny:products/builder/api/src/eval/outcomes.ts |
 | `gateJudgeCalibration` | none | only this package's tests: tests/judge-panel-calibration.integration.test.ts:4 |
-| `guardDrift` | planned | example: examples/measure-validity/index.ts:22 |
+| `guardDrift` | planned | example: examples/measure-validity/index.ts:19 |
 | `InMemoryOutcomeStore` | planned | consumer tests: ph0ny:products/builder/api/src/eval/outcomes-correlate.test.ts |
 | `judgeGateDecision` | production | gtm-agent:src/lib/.server/judges/quality.ts |
 | `JudgeGateRefusedError` | planned | doc: docs/concepts.md |
 | `judgeSentinelReport` | production | creative-agent:eval/lib/judge-sentinel.ts |
 | `measureJudgeAgreement` | production | gtm-agent:src/lib/.server/judges/quality.ts |
-| `measureValidityStudy` | planned | example: examples/measure-validity/index.ts:22 |
+| `measureValidityStudy` | planned | example: examples/measure-validity/index.ts:19 |
 | `multiclassBrierScore` | production | discovery-lab:experiments/decision-bench-v1/score.mjs |
 | `OutcomeStoreError` | planned | doc: docs/outcome-validity.md |
 | `perturbEvidence` | planned | doc: docs/plants.md |
@@ -1461,7 +1461,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `DEFAULT_BOOTSTRAP_SEED` | production | this package: src/judge-calibration.ts:23 |
 | `eProcess` | production | this package: src/campaign/gates/sequential.ts:37 |
 | `fisherExactTwoSided` | production | agent-dev-container:packages/sdk-data/src/analysis/recommendations/statistics.ts |
-| `holm` | production | this package: src/search/lenses/edit-credit-statistics.ts:6 |
+| `holm` | production | this package: src/campaign/presets/profile-matrix-stability.ts:8 |
 | `independentRiskDifference` | planned | doc: docs/design/statistics-decisions.md |
 | `interpretCliffs` | production | agent-builder:src/lib/.server/eval/loops/differential-eval.ts |
 | `interRaterReliability` | production | agent-app:src/eval-campaign/trust-gate.ts |
