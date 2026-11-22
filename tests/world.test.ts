@@ -70,16 +70,16 @@ describe('launch quarter: the scripted policies rank as the scenario intends', (
     // makes far less than waiting.
     expect(row('random').mean).toBeLessThan(scenario.budget)
     expect(row('patient').meanGain).toBeGreaterThan(3 * row('impulsive').meanGain)
-    // Neither scripted policy ever tries to send without an approval, so the
-    // gap between them is about timing alone.
+    // Neither scripted policy ever tries to send without an approval; the gap
+    // between them is not an approvals gap.
     expect(row('patient').unapprovedSpendAttempts).toBe(0)
     expect(row('impulsive').unapprovedSpendAttempts).toBe(0)
     expect(row('random').unapprovedSpendAttempts).toBeGreaterThan(0)
-    // The log shows why impulsive loses: its kills and scale-ups come before
-    // the evidence exists.
-    expect(row('impulsive').prematureDecisions).toBeGreaterThan(
-      3 * row('patient').prematureDecisions,
-    )
+    // The log shows why impulsive loses: its cuts and scale-ups come before
+    // the evidence exists. The patient policy makes none.
+    expect(row('patient').prematureDecisions).toBe(0)
+    expect(row('impulsive').prematureDecisions).toBeGreaterThanOrEqual(3 * SEEDS.length)
+    expect(comparison.rows.every((r) => r.failedSessions === 0)).toBe(true)
   })
 
   it('rewards reading matured results, staying inside guidelines and planning to the horizon', async () => {
@@ -156,6 +156,63 @@ describe('the world clock and delayed consequences', () => {
     expect(world.setRate('community', 100)).toMatchObject({ ok: false, refused: 'episode_over' })
   })
 
+  it('spends a one-off today only, inside the same cap and approval as the rate', () => {
+    const world = new World(scenario, 6)
+    expect(world.setRate('paid_search', 300).ok).toBe(true)
+    expect(world.spendOnce('paid_search', 900)).toMatchObject({ ok: true })
+    // Rate and one-off share the daily cap, whichever comes first.
+    expect(world.spendOnce('paid_search', 400).refused).toBe('over_max_rate')
+    expect(world.setRate('paid_search', 700).refused).toBe('over_max_rate')
+    expect(world.setRate('paid_search', 600).ok).toBe(true)
+    // A gated lever's one-off needs an approval that covers the whole day.
+    world.requestApproval('email', 60, 'launch send')
+    world.advance(scenario.approvalDelayDays)
+    expect(world.day).toBe(2)
+    expect(world.spendOnce('email', 60).ok).toBe(true)
+    expect(world.setRate('email', 60).refused).toBe('approval_missing')
+    expect(world.setRate('email', 0).ok).toBe(true)
+    // One-offs cannot be placed past the budget.
+    expect(world.spendOnce('paid_social', 1_500).ok).toBe(true)
+    expect(world.spendOnce('community', 800).ok).toBe(true)
+    expect(world.spendOnce('content', 1).refused).toBe('approval_missing')
+
+    const snapshot = JSON.parse(JSON.stringify(world.snapshot()))
+    world.advance(1)
+    const day2 = (lever: string) => world.results({ lever, by: 'day' })[2]!.spend
+    expect(world.results({ lever: 'paid_search', by: 'day' }).map((row) => row.spend)).toEqual([
+      1_500, 600, 600,
+    ])
+    expect(day2('email')).toBe(60)
+    expect(day2('paid_social')).toBe(1_500)
+    world.advance(1)
+    expect(world.results({ lever: 'email', by: 'day' })[3]!.spend).toBe(0)
+    expect(world.results({ lever: 'paid_social', by: 'day' })[3]!.spend).toBe(0)
+
+    // The one-off survives a snapshot taken before its day ran, and a replay.
+    const resumed = World.restore(scenario, snapshot)
+    resumed.advance(2)
+    world.advance(world.daysLeft)
+    resumed.advance(resumed.daysLeft)
+    expect(resumed.end()).toEqual(world.end())
+    expect(
+      replayWorld(scenario, 6, [
+        { kind: 'set_rate', day: 0, lever: 'paid_search', dailyRate: 300 },
+        { kind: 'spend_once', day: 0, lever: 'paid_search', amount: 900 },
+        { kind: 'set_rate', day: 0, lever: 'paid_search', dailyRate: 600 },
+        {
+          kind: 'request_approval',
+          day: 0,
+          lever: 'email',
+          maxDailyRate: 60,
+          reason: 'launch send',
+        },
+        { kind: 'spend_once', day: 2, lever: 'email', amount: 60 },
+        { kind: 'spend_once', day: 2, lever: 'paid_social', amount: 1_500 },
+        { kind: 'spend_once', day: 2, lever: 'community', amount: 800 },
+      ]),
+    ).toEqual(world.end())
+  })
+
   it('makes over-driving a lever look good this week and cost the quarter', () => {
     const run = (rate: number) => {
       const world = new World(scenario, 3)
@@ -190,14 +247,26 @@ describe('the world clock and delayed consequences', () => {
     expect(other.end.value).not.toBe(once.end.value)
     expect(replayWorld(scenario, 4, worldActions(once.log))).toEqual(once.end)
 
-    // A world stopped mid-quarter and restored from its snapshot ends the same.
+    // A world stopped and restored from a JSON snapshot ends the same: once
+    // with an approval still pending, once mid-quarter with weeks of content
+    // and community results still in flight.
     const whole = new World(scenario, 4)
-    whole.setRate('paid_search', 300)
-    whole.advance(40)
-    const resumed = World.restore(scenario, JSON.parse(JSON.stringify(whole.snapshot())))
+    whole.requestApproval('content', 250, 'publish')
+    whole.setRate('community', 200)
+    whole.advance(1)
+    let resumed = World.restore(scenario, JSON.parse(JSON.stringify(whole.snapshot())))
+    for (const world of [whole, resumed]) {
+      expect(world.status().approvals[0]!.status).toBe('pending')
+      world.advance(1)
+      expect(world.setRate('content', 250).ok).toBe(true)
+      world.advance(38)
+    }
+    expect(whole.end().levers.content!.inFlight).toBeGreaterThan(20)
+    resumed = World.restore(scenario, JSON.parse(JSON.stringify(resumed.snapshot())))
     whole.advance(51)
     resumed.advance(51)
     expect(resumed.end()).toEqual(whole.end())
+    expect(resumed.results({ by: 'day' })).toEqual(whole.results({ by: 'day' }))
     const edited: WorldScenario = { ...scenario, budget: scenario.budget + 1 }
     expect(() => World.restore(edited, whole.snapshot())).toThrow(ValidationError)
   })
@@ -212,7 +281,14 @@ describe('the multi-session driver', () => {
       seen.push({ ...session.notes })
       if (previous) closed.push(previous.call('status'))
       previous = session
-      if (session.index === 0) session.call('save_note', { key: 'plan', text: 'wait for week 3' })
+      if (session.index === 0) {
+        session.call('save_note', { key: 'plan', text: 'wait for week 3' })
+        expect(session.call('save_note', { key: '__proto__', text: 'x' }).ok).toBe(false)
+        // What the agent holds is a copy; editing it changes no record.
+        const status = session.call('status')
+        ;(status.data as WorldStatus).levers[0]!.resultLagDays.to = 999
+        status.ok = false
+      }
       if (session.index === 2) session.call('save_note', { key: 'plan', text: '' })
     }
     const episode = await runWorldEpisode({ scenario, seed: 1, agent })
@@ -227,6 +303,10 @@ describe('the multi-session driver', () => {
     // A session handed out earlier is closed: it cannot act in a later one.
     expect(closed.every((result) => result.refused === 'session_closed')).toBe(true)
     expect(episode.score.refused.session_closed).toBe(12)
+    expect(episode.score.refused.invalid_input).toBe(1)
+    expect(episode.sessions.map((s) => s.calls)).toEqual([3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(episode.log.find((entry) => entry.tool === 'status')!.result.ok).toBe(true)
+    expect(scenario.levers[0]!.resultLagDays.to).toBe(4)
   })
 
   it('records an agent that throws and lets the quarter go on', async () => {
@@ -237,7 +317,36 @@ describe('the multi-session driver', () => {
     const episode = await runWorldEpisode({ scenario, seed: 2, agent })
     expect(episode.sessions[3]).toMatchObject({ error: 'model endpoint down' })
     expect(episode.sessions.filter((s) => s.error)).toHaveLength(1)
+    expect(episode.score.failedSessions).toBe(1)
     expect(episode.end.levers.paid_search!.spent).toBe(300 * 91)
+
+    // A service failure is not the agent's choice: an arm with one is never
+    // declared beaten, or the winner, beyond noise.
+    const flaky = await compareWorldPolicies({
+      scenario,
+      seeds: [1, 2, 3],
+      policies: {
+        patient: () => patientPolicy,
+        'do-nothing': () => doNothingPolicy,
+        flaky: () => agent,
+      },
+      contrasts: [
+        ['patient', 'do-nothing'],
+        ['patient', 'flaky'],
+      ],
+    })
+    expect(flaky.rows.find((r) => r.policy === 'flaky')!.failedSessions).toBe(3)
+    expect(flaky.contrasts[0]!.beyondNoise).toBe(true)
+    expect(flaky.contrasts[1]!.wins).toBe(3)
+    expect(flaky.contrasts[1]!.beyondNoise).toBe(false)
+    await expect(
+      compareWorldPolicies({
+        scenario,
+        seeds: [1, 2],
+        policies: { patient: () => patientPolicy },
+        contrasts: [['patient', 'impulsiv']],
+      }),
+    ).rejects.toThrow(ValidationError)
   })
 
   it('refuses a send with no recorded approval and logs the attempt', async () => {

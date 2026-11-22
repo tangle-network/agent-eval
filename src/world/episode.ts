@@ -75,18 +75,21 @@ export async function runWorldEpisode(opts: RunWorldEpisodeOptions): Promise<Wor
         } else {
           call = callWorldTool(world, name, input)
         }
-        record.calls += 1
+        // A call on a closed session belongs to no session's count, and is
+        // stamped with the day it was made on.
+        if (open) record.calls += 1
         log.push({
           seq: log.length,
           session: index,
-          day: record.day,
+          day: world.day,
           tool: name,
           input: loggable(input),
           result: call.result,
           ...(call.action ? { action: call.action } : {}),
           ...(call.evidence ? { evidence: call.evidence } : {}),
         })
-        return call.result
+        // The agent gets a copy: the log's record is not the agent's to edit.
+        return structuredClone(call.result)
       },
     }
     try {
@@ -112,6 +115,6 @@ export async function runWorldEpisode(opts: RunWorldEpisodeOptions): Promise<Wor
     log,
     notes: { ...world.notes },
     end,
-    score: scoreWorldEpisode(scenario, log, end),
+    score: scoreWorldEpisode(scenario, sessions, log, end),
   }
 }

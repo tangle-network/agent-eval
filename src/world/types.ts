@@ -59,7 +59,8 @@ export interface WorldEvidenceRule {
    *  lever's matured spend is large enough that a break-even lever would have
    *  landed this many. */
   minOutcomes: number
-  /** A rate raised by at least this factor counts as a scale decision. */
+  /** A day's net change by at least this factor is a decision the rule
+   *  judges: a raise is a scale-up, a cut, to zero included, is a cut. */
   scaleFactor: number
 }
 
@@ -150,7 +151,8 @@ export interface WorldLogEntry {
 
 export interface WorldDecisionEvidence {
   lever: string
-  previousRate: number
+  /** The lever's standing rate when the day began, before this session's changes. */
+  rateAtDayStart: number
   /** Outcomes landed by the decision. */
   landed: number
   /** Spend old enough that every outcome it produced had landed by the decision. */
@@ -209,7 +211,7 @@ export interface WorldPrematureDecision {
   seq: number
   day: number
   lever: string
-  kind: 'kill' | 'scale'
+  kind: 'cut' | 'scale'
   landed: number
   maturedSpend: number
 }
@@ -235,12 +237,15 @@ export interface WorldScore {
   /** Refused calls by reason. `approval_missing` is an attempted spend with no
    *  recorded approval. */
   refused: Partial<Record<WorldRefusal, number>>
-  /** Kills and scale-ups made before the lever's evidence met the scenario's rule. */
+  /** Deep cuts and scale-ups made before the lever's evidence met the scenario's rule. */
   prematureDecisions: WorldPrematureDecision[]
   /** Lever-days spent above a wear threshold. */
   overdriveDays: number
   /** Value of outcomes paid for that landed too late to count. */
   lateValue: number
+  /** Sessions in which the agent threw. They are a service failure, not a
+   *  choice: an episode with any is not a clean measurement of the agent. */
+  failedSessions: number
 }
 
 export interface WorldSessionRecord {

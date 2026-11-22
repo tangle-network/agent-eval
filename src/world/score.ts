@@ -1,6 +1,6 @@
 // Scoring reads two things: the end state, and the decision log. The end
 // state says how the episode came out. The log says which calls the world
-// refused, which kills and scale-ups came before the evidence could support
+// refused, which deep cuts and scale-ups came before the evidence could support
 // them. `worldDecisionCosts` then prices each accepted action by replaying the
 // episode without it.
 
@@ -16,6 +16,7 @@ import type {
   WorldRefusal,
   WorldScenario,
   WorldScore,
+  WorldSessionRecord,
 } from './types'
 import { World } from './world'
 
@@ -45,13 +46,27 @@ function prematureDecisions(
   log: readonly WorldLogEntry[],
 ): WorldPrematureDecision[] {
   const rule = scenario.key.evidence
-  const found: WorldPrematureDecision[] = []
+  // A day's decision on a lever is its net change: the last rate set that day
+  // against the rate the day began with. Three small raises in one session
+  // are one large raise.
+  const net = new Map<string, WorldLogEntry>()
   for (const entry of log) {
+    if (entry.action?.kind === 'set_rate' && entry.evidence) {
+      net.set(`${entry.action.day}:${entry.action.lever}`, entry)
+    }
+  }
+  const found: WorldPrematureDecision[] = []
+  for (const entry of net.values()) {
     if (entry.action?.kind !== 'set_rate' || !entry.evidence) continue
-    const { previousRate, landed, maturedSpend } = entry.evidence
-    if (previousRate <= 0) continue
+    const { rateAtDayStart, landed, maturedSpend } = entry.evidence
+    if (rateAtDayStart <= 0) continue
     const next = entry.action.dailyRate
-    const kind = next === 0 ? 'kill' : next >= previousRate * rule.scaleFactor ? 'scale' : null
+    const kind =
+      next <= rateAtDayStart / rule.scaleFactor
+        ? 'cut'
+        : next >= rateAtDayStart * rule.scaleFactor
+          ? 'scale'
+          : null
     if (!kind) continue
     const exposure = maturedSpend / scenario.outcome.value
     if (landed >= rule.minOutcomes || exposure >= rule.minOutcomes) continue
@@ -64,7 +79,7 @@ function prematureDecisions(
       maturedSpend,
     })
   }
-  return found
+  return found.sort((a, b) => a.seq - b.seq)
 }
 
 export interface WorldDecisionCostOptions {
@@ -111,6 +126,7 @@ export function worldDecisionCosts(
 /** Score an episode from its end state and its decision log. */
 export function scoreWorldEpisode(
   scenario: WorldScenario,
+  sessions: readonly WorldSessionRecord[],
   log: readonly WorldLogEntry[],
   end: WorldEndState,
 ): WorldScore {
@@ -132,5 +148,6 @@ export function scoreWorldEpisode(
     prematureDecisions: prematureDecisions(scenario, log),
     overdriveDays,
     lateValue: inFlight * scenario.outcome.value,
+    failedSessions: sessions.filter((session) => session.error !== undefined).length,
   }
 }

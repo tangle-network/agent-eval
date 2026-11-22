@@ -27,8 +27,9 @@ export interface ChatWorldSessionTranscript {
   /** One entry per model call, empty completions included. */
   responses: ChatWorldResponse[]
   /** `answered`: the model replied in words without a tool call. `turn_limit`:
-   *  it was cut off. `empty`: it kept returning neither words nor a tool call. */
-  ended: 'answered' | 'turn_limit' | 'empty'
+   *  it was cut off. `empty`: it kept returning neither words nor a tool call.
+   *  `failed`: a model call threw, and the driver records the session's error. */
+  ended: 'answered' | 'turn_limit' | 'empty' | 'failed'
 }
 
 export interface ChatWorldAgentOptions {
@@ -144,6 +145,9 @@ export function chatWorldAgent(opts: ChatWorldAgentOptions): WorldAgent {
           messages.push({ role: 'tool', toolCallId: call.id, content: JSON.stringify(result) })
         }
       }
+    } catch (error) {
+      transcript.ended = 'failed'
+      throw error
     } finally {
       await opts.onSession?.(transcript)
     }

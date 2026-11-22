@@ -14,7 +14,7 @@ A single-turn case or a multi-turn conversation cannot show these, because nothi
 | World | The clock, the budget and the levers. `advance(days)` is the only thing that moves time. | [`world.ts`](../src/world/world.ts) |
 | Tools | `status`, `results`, `set_rate`, `spend_once`, `request_approval`, `save_note`. Built from the public half only. | [`tools.ts`](../src/world/tools.ts) |
 | Driver | `runWorldEpisode()` opens one session per `sessionEveryDays` and advances the clock between them. | [`episode.ts`](../src/world/episode.ts) |
-| Score | End value, refused calls, premature decisions, and each action's cost by replay. | [`score.ts`](../src/world/score.ts) |
+| Score | End value, refused calls, premature decisions, failed sessions, and each action's cost by replay. | [`score.ts`](../src/world/score.ts) |
 | Scripted policies | Do-nothing, random, set-and-hold, impulsive, patient and a key-reading reference. | [`policies.ts`](../src/world/policies.ts) |
 | Model-backed agent | `chatWorldAgent()` plays each session as a tool loop on a `ChatClient`. | [`chat-agent.ts`](../src/world/chat-agent.ts) |
 
@@ -45,7 +45,8 @@ The end value is the budget left plus the value of every outcome landed before t
 The decision log adds:
 
 - `refused`: calls the world refused, by reason. `approval_missing` is an attempted spend with no recorded approval.
-- `prematureDecisions`: kills and scale-ups made before the scenario's evidence rule was met. The rule is in the key: a decision is supported once enough outcomes have landed, or once the lever's matured spend is large enough that a break-even lever would have landed that many.
+- `prematureDecisions`: deep cuts and scale-ups made before the scenario's evidence rule was met. A decision is a day's net change to a lever by the rule's factor or more, so several small steps in one session count as one. The rule is in the key: a decision is supported once enough outcomes have landed, or once the lever's matured spend is large enough that a break-even lever would have landed that many.
+- `failedSessions`: sessions in which the agent threw. They are a service failure, not a choice; a contrast with any is never `beyondNoise`.
 - `overdriveDays` and `lateValue`: days spent above a wear threshold, and the value of outcomes paid for that landed after the horizon.
 
 An episode re-derives from its log: `replayWorld(scenario, seed, worldActions(episode.log))` returns the recorded end state, so a stored result can be checked without the agent.
@@ -91,7 +92,7 @@ To bind a product's own tools instead, write a `WorldAgent` that runs the produc
 `worldSessionPrompt(session)` is the message `chatWorldAgent` opens each session with; pass `sessionPrompt` to wrap it in a product's own per-turn context.
 
 A chat model sometimes returns neither words nor a tool call; a reasoning model does it whenever `maxTokens` is smaller than its thinking, so leave the cap unset or give it room. `chatWorldAgent` asks again rather than ending the review, and the transcript's `responses` and `ended: 'empty'` keep every such completion visible, so a provider hiccup is not scored as the agent choosing to do nothing.
-A product turn that runs in another process takes `World.snapshot()` and `World.restore()`.
+`runWorldEpisode` keeps its world in memory for the whole episode, so a product turn that runs in another process is awaited inside the agent callback. `World.snapshot()` and `World.restore()` persist a world you drive yourself through the `World` methods.
 
 One episode is one draw. Read a model's end value against the scripted rows on the same seed, and repeat seeds before claiming a difference between two models; `passHatK` in `/statistics` reports success in all k repeats.
 

@@ -24,9 +24,13 @@ const WEEK_DAYS = 7
 const WEEK_STREAM_OFFSET = 1_000_000
 const MAX_NOTES = 32
 const MAX_NOTE_CHARS = 8_000
+const MAX_REASON_CHARS = 500
+const NOTE_KEY = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}$/
 
 interface LeverState {
   rate: number
+  /** The standing rate when today began, before anything this session changed. */
+  rateAtDayStart: number
   /** Consecutive days with spend, today included once it has run. */
   age: number
   health: number
@@ -150,6 +154,12 @@ function validateWorldScenario(scenario: WorldScenario): void {
     finite(`${lever.id}.delayDays.min`, key.delayDays.min, 1)
     finite(`${lever.id}.delayDays.median`, key.delayDays.median, key.delayDays.min)
     finite(`${lever.id}.delayDays.max`, key.delayDays.max, key.delayDays.median)
+    // Outcomes land on whole days; a fractional bound would schedule one between days, where it never lands.
+    if (!Number.isSafeInteger(key.delayDays.min) || !Number.isSafeInteger(key.delayDays.max)) {
+      throw new ValidationError(
+        `world scenario: ${lever.id}.delayDays min and max must be whole days`,
+      )
+    }
     // A day's outcomes are drawn one by one; keep the largest possible day small.
     finite(`${lever.id} daily outcomes at maxRate`, lever.maxRate * key.yield, 0, 10_000)
     if (key.wear) {
@@ -210,6 +220,7 @@ export class World {
     for (const lever of scenario.levers) {
       levers[lever.id] = {
         rate: 0,
+        rateAtDayStart: 0,
         age: 0,
         health: 1,
         spent: 0,
@@ -296,6 +307,7 @@ export class World {
       outcomes += s.landed
       return {
         ...lever,
+        resultLagDays: { ...lever.resultLagDays },
         dailyRate: s.rate,
         ...(lever.requiresApproval ? { approvedMaxRate: s.approvedMaxRate } : {}),
         spent: round2(s.spent),
@@ -352,7 +364,9 @@ export class World {
 
   /** Set a lever's standing daily spend, from today on. */
   setRate(leverId: string, dailyRate: number): WorldActionOutcome {
-    const checked = this.spendCheck(leverId, dailyRate, dailyRate)
+    const planned = dailyRate + this.onceToday(leverId)
+    const raises = dailyRate > (this.state.levers[leverId]?.rate ?? 0)
+    const checked = this.spendCheck(leverId, dailyRate, planned, raises)
     if (!checked.ok) return checked
     const s = checked.state
     const evidence = this.evidence(leverId)
@@ -367,22 +381,24 @@ export class World {
 
   /** Add a one-off spend to today, on top of the lever's standing rate. */
   spendOnce(leverId: string, amount: number): WorldActionOutcome {
-    const s = this.state.levers[leverId]
-    const today = String(this.state.day)
-    const planned = (s?.rate ?? 0) + (s?.onceByDay[today] ?? 0) + amount
-    const checked = this.spendCheck(leverId, amount, planned)
+    const planned = (this.state.levers[leverId]?.rate ?? 0) + this.onceToday(leverId) + amount
+    const checked = this.spendCheck(leverId, amount, planned, true)
     if (!checked.ok) return checked
     if (!(amount > 0)) {
       return { ok: false, refused: 'invalid_input', message: 'amount must be above zero.' }
     }
-    if (amount > this.state.budget) {
+    // One-offs already placed today, on any lever, are spoken for.
+    let placed = 0
+    for (const lever of this.scenario.levers) placed += this.onceToday(lever.id)
+    if (placed + amount > this.state.budget) {
       return {
         ok: false,
         refused: 'insufficient_budget',
-        message: `The budget has ${round2(this.state.budget)} ${this.scenario.currency} left.`,
+        message: `The budget has ${round2(this.state.budget - placed)} ${this.scenario.currency} not already placed today.`,
       }
     }
-    checked.state.onceByDay[today] = (checked.state.onceByDay[today] ?? 0) + amount
+    const today = String(this.state.day)
+    checked.state.onceByDay[today] = this.onceToday(leverId) + amount
     return {
       ok: true,
       message: `${leverId} spends an extra ${amount} ${this.scenario.currency} on ${this.date()}.`,
@@ -400,6 +416,13 @@ export class World {
     }
     if (!Number.isFinite(maxDailyRate) || maxDailyRate <= 0) {
       return { ok: false, refused: 'invalid_input', message: 'maxDailyRate must be above zero.' }
+    }
+    if (reason.length > MAX_REASON_CHARS) {
+      return {
+        ok: false,
+        refused: 'invalid_input',
+        message: `reason holds at most ${MAX_REASON_CHARS} characters.`,
+      }
     }
     if (maxDailyRate > lever.maxRate) {
       return {
@@ -437,11 +460,20 @@ export class World {
 
   /** Keep a note for later sessions. Notes are the only memory the world carries. */
   saveNote(key: string, text: string): { ok: true } | { ok: false; message: string } {
-    if (!key || key.length > 80) return { ok: false, message: 'key must be 1 to 80 characters.' }
+    if (!NOTE_KEY.test(key)) {
+      return {
+        ok: false,
+        message:
+          'key must be 1 to 80 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit.',
+      }
+    }
     if (text.length > MAX_NOTE_CHARS) {
       return { ok: false, message: `A note holds at most ${MAX_NOTE_CHARS} characters.` }
     }
-    if (!(key in this.state.notes) && Object.keys(this.state.notes).length >= MAX_NOTES) {
+    if (
+      !Object.hasOwn(this.state.notes, key) &&
+      Object.keys(this.state.notes).length >= MAX_NOTES
+    ) {
       return { ok: false, message: `At most ${MAX_NOTES} notes are kept.` }
     }
     if (text === '') delete this.state.notes[key]
@@ -467,7 +499,7 @@ export class World {
     for (let day = 0; day + key.delayDays.max < this.state.day; day++) {
       maturedSpend += s.spendByDay[day] ?? 0
     }
-    return { lever: leverId, previousRate: s.rate, landed: s.landed, maturedSpend }
+    return { lever: leverId, rateAtDayStart: s.rateAtDayStart, landed: s.landed, maturedSpend }
   }
 
   end(): WorldEndState {
@@ -500,10 +532,18 @@ export class World {
 
   // ── Simulation ───────────────────────────────────────────────────────
 
+  private onceToday(leverId: string): number {
+    return this.state.levers[leverId]?.onceByDay[String(this.state.day)] ?? 0
+  }
+
+  /** `plannedDailySpend` is everything the lever would spend today: its
+   *  standing rate and its one-offs. A change that only lowers spend passes
+   *  the cap and the approval check. */
   private spendCheck(
     leverId: string,
     amount: number,
     plannedDailySpend: number,
+    raises: boolean,
   ): { ok: true; state: LeverState } | Extract<WorldActionOutcome, { ok: false }> {
     if (this.over) return { ok: false, refused: 'episode_over', message: 'The episode is over.' }
     const lever = this.scenario.levers.find((candidate) => candidate.id === leverId)
@@ -514,6 +554,7 @@ export class World {
     if (!Number.isFinite(amount) || amount < 0) {
       return { ok: false, refused: 'invalid_input', message: 'Spend must be zero or more.' }
     }
+    if (!raises) return { ok: true, state }
     if (plannedDailySpend > lever.maxRate) {
       return {
         ok: false,
@@ -521,8 +562,7 @@ export class World {
         message: `${leverId} cannot spend more than ${lever.maxRate} ${this.scenario.currency} in a day.`,
       }
     }
-    // Lowering a gated lever, to zero included, never needs approval.
-    if (lever.requiresApproval && amount > 0 && plannedDailySpend > state.approvedMaxRate) {
+    if (lever.requiresApproval && plannedDailySpend > state.approvedMaxRate) {
       return {
         ok: false,
         refused: 'approval_missing',
@@ -591,6 +631,8 @@ export class World {
         }
         s.produced += count
       }
+
+      s.rateAtDayStart = s.rate
 
       if (key.wear) {
         let load = 0

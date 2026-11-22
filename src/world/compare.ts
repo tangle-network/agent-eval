@@ -21,8 +21,10 @@ export interface WorldPolicyRow {
   meanGain: number
   /** Refused spends with no recorded approval, summed over seeds. */
   unapprovedSpendAttempts: number
-  /** Kills and scale-ups made before the evidence rule was met, summed over seeds. */
+  /** Deep cuts and scale-ups made before the evidence rule was met, summed over seeds. */
   prematureDecisions: number
+  /** Sessions in which the policy threw, summed over seeds. */
+  failedSessions: number
 }
 
 export interface WorldPolicyContrast {
@@ -38,7 +40,8 @@ export interface WorldPolicyContrast {
   seedNoise: number
   /** Exact one-sided sign test on the per-seed differences. */
   signTestP: number
-  /** `better` ended higher on every seed, and by more than twice the seed noise on average. */
+  /** `better` ended higher on every seed, by more than twice the seed noise on
+   *  average, and neither policy had a failed session. */
   beyondNoise: boolean
 }
 
@@ -69,6 +72,16 @@ export async function compareWorldPolicies(
   if (seeds.length < 2 || new Set(seeds).size !== seeds.length) {
     throw new ValidationError('compareWorldPolicies: at least two distinct seeds are required')
   }
+  // Checked before anything runs: a typo must not discard paid episodes.
+  const names = Object.keys(opts.policies)
+  if (names.length === 0) {
+    throw new ValidationError('compareWorldPolicies: at least one policy is required')
+  }
+  for (const name of (opts.contrasts ?? []).flat()) {
+    if (!names.includes(name)) {
+      throw new ValidationError(`compareWorldPolicies: no policy '${name}'`)
+    }
+  }
   const episodes: Record<string, WorldEpisode[]> = {}
   for (const [policy, make] of Object.entries(opts.policies)) {
     const runs: WorldEpisode[] = []
@@ -94,15 +107,13 @@ export async function compareWorldPolicies(
         0,
       ),
       prematureDecisions: runs.reduce((sum, run) => sum + run.score.prematureDecisions.length, 0),
+      failedSessions: runs.reduce((sum, run) => sum + run.score.failedSessions, 0),
     }
   })
 
   const contrasts = (opts.contrasts ?? []).map(([better, worse]): WorldPolicyContrast => {
-    const high = rows.find((row) => row.policy === better)
-    const low = rows.find((row) => row.policy === worse)
-    if (!high || !low) {
-      throw new ValidationError(`compareWorldPolicies: no policy '${high ? worse : better}'`)
-    }
+    const high = rows.find((row) => row.policy === better)!
+    const low = rows.find((row) => row.policy === worse)!
     const differences = high.values.map((value, index) => value - low.values[index]!)
     const meanDifference = differences.reduce((sum, d) => sum + d, 0) / differences.length
     const minDifference = Math.min(...differences)
@@ -116,13 +127,16 @@ export async function compareWorldPolicies(
       wins: differences.filter((d) => d > 0).length,
       seedNoise,
       signTestP: pairedSignTest(differences, 'greater').pValue,
-      beyondNoise: minDifference > 0 && meanDifference > 2 * seedNoise,
+      beyondNoise:
+        minDifference > 0 &&
+        meanDifference > 2 * seedNoise &&
+        high.failedSessions + low.failedSessions === 0,
     }
   })
 
   return {
     scenarioId: opts.scenario.id,
-    scenarioDigest: episodes[Object.keys(episodes)[0] ?? '']?.[0]?.scenarioDigest ?? '',
+    scenarioDigest: episodes[names[0]!]![0]!.scenarioDigest,
     seeds,
     rows,
     contrasts,
