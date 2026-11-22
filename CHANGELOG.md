@@ -16,6 +16,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `sealMeasureValidityPlan()` and `verifyMeasureValidityPlan()` seal the cut, level, minimum counts, outcomes and measures under the RFC 8785 digest `sealExperiment` uses; the study refuses a plan whose seal does not verify.
 - `clusteredAssociation()` tests an AUC or rank correlation, pooled or within units, with a whole-unit bootstrap standard error and a two-sided or one-sided Student-t p-value on `units - 1` degrees of freedom; `associationEstimate()` returns the point statistic alone.
 - `correlationStudy()` and `rubricPredictiveValidity()` share outcome grouping and reduction with the new study; their results are unchanged.
+- An outcome in a measure validity plan can name one planned measure as its `exposure`, with a bin count (default 10). Bins are fixed at the exposure's quantiles before the cut, every other measure is also tested inside them as a third false-discovery family, and a measure that passes pooled but not inside the bins is `predicts-through-exposure` and never climbed. The exposure itself is reported and never climbed.
+- An outcome can declare `windowMs`. A change before the cut then counts for it only once its window has closed, whatever its value and capture time, and `excludedObservations.windowOpenAtCut` counts what the rule removed. Without it, a record that writes events when they happen and non-events at window close biases the direction fitted before the cut toward the event.
+- The within-unit estimate and interval are reported whenever two units hold a comparable pair; they are tested only from `minUnits`, and a `predicts` pair without that test carries the reason `within-unit-untested`.
+- `clusteredAssociation()` takes `scope: 'stratified'` with a `stratum` per row: the statistic inside each stratum weighted by its comparable pairs, resampling whole units. The within-unit scope is its case with each unit its own stratum.
 
 ## [2.0.7] — 2026-11-21
 

@@ -12,7 +12,10 @@
  * Benjamini-Hochberg at the plan's level runs across every pair tested. A
  * pooled statistic compares changes across units; a within-unit statistic
  * compares changes of the same unit, so a measure that only tells units apart
- * is visible as `predicts-pooled-only`.
+ * is visible as `predicts-pooled-only`. An outcome may name an exposure, a
+ * measure it grows with for another reason (a bigger change has more to fix);
+ * every other measure is then also tested inside bins of the exposure, and one
+ * that predicts only by tracking it is `predicts-through-exposure`.
  *
  * Prediction is not causation. An admitted measure forecasts the outcome of
  * changes like these; it does not show that raising the measure raises the
@@ -24,9 +27,11 @@ import { ValidationError } from '../errors'
 import {
   type MeasureValidityOutcome,
   type MeasureValidityPlan,
+  type MeasureValidityPlanOutcome,
   type SealedMeasureValidityPlan,
   verifyMeasureValidityPlan,
 } from '../experiment/measure-validity-plan'
+import { interpolatedQuantile } from '../math/quantile'
 import {
   associationEstimate,
   type ClusteredAssociation,
@@ -62,6 +67,9 @@ export type MeasureValidityReason =
   | 'not-significant'
   | 'direction-reversed'
   | 'within-unit-not-shown'
+  | 'within-unit-untested'
+  | 'within-exposure-not-shown'
+  | 'within-exposure-untested'
 
 export interface MeasureCoverage {
   measure: string
@@ -102,22 +110,41 @@ export interface MeasureOutcomeValidity {
   outcome: string
   statistic: 'auc' | 'spearman'
   /**
-   * `predicts`: the pooled test and, where it can be estimated, the within-unit
-   * test pass. `predicts-pooled-only`: the pooled test passes and the
-   * within-unit test does not, so the ranking may come from differences between
-   * units rather than between changes. `not-shown`: tested and not admitted.
-   * `insufficient`: not tested; `reason` says why.
+   * `predicts`: the pooled test passes, the test inside exposure bins passes
+   * when the outcome names an exposure, and the within-unit test passes when
+   * it is tested (`reason` is `within-unit-untested` when it is not).
+   * `predicts-through-exposure`: the pooled test passes and the test inside
+   * exposure bins does not, so the measure may predict only by tracking the
+   * exposure. `predicts-pooled-only`: the pooled test passes and the tested
+   * within-unit test does not, so the ranking may come from differences
+   * between units rather than between changes. `not-shown`: tested and not
+   * admitted. `insufficient`: not tested; `reason` says why.
    */
-  label: 'predicts' | 'predicts-pooled-only' | 'not-shown' | 'insufficient'
+  label:
+    | 'predicts'
+    | 'predicts-through-exposure'
+    | 'predicts-pooled-only'
+    | 'not-shown'
+    | 'insufficient'
   reason: MeasureValidityReason | null
   /** Which end of the measure predicts the better outcome, fixed before the cut. */
   direction: 'higher' | 'lower' | null
-  /** Before the cut, outcome known by the cut: the measure as recorded against the better outcome. */
-  preCut: { n: number; units: number; estimate: number | null }
+  /** The outcome's declared exposure measure, or null; the exposure's own pair has no exposure test. */
+  exposure: string | null
+  /** Which end predicts the better outcome inside exposure bins, fixed before the cut on that statistic. */
+  withinExposureDirection: 'higher' | 'lower' | null
+  /**
+   * Before the cut, outcome known by the cut: the measure as recorded against
+   * the better outcome, pooled and inside exposure bins.
+   */
+  preCut: { n: number; units: number; estimate: number | null; withinExposure: number | null }
   /**
    * After the cut, measure aligned to its fixed direction: above the null
-   * favors the better outcome. Both tests are one-sided in that direction.
-   * `withinUnit` is null when no `minUnits` units hold a comparable pair.
+   * favors the better outcome. Every test is one-sided in that direction.
+   * `withinUnit` is estimated when at least two units hold a comparable pair
+   * and tested (given a q-value) only when `minUnits` do. `withinExposure`
+   * compares changes in the same exposure bin, aligned to
+   * `withinExposureDirection`.
    */
   postCut: {
     n: number
@@ -128,10 +155,25 @@ export interface MeasureOutcomeValidity {
     qValue: number | null
     withinUnit: ClusteredAssociation | null
     withinUnitQValue: number | null
+    withinExposure: ClusteredAssociation | null
+    withinExposureQValue: number | null
   }
   /** Outcome capture time minus change time over the joined changes after the cut. */
   leadTimeMs: { median: number; min: number; max: number } | null
   movement: MeasureMovementValidity | null
+}
+
+/** An outcome's exposure and the bins fixed before the cut. */
+export interface MeasureExposureBins {
+  outcome: string
+  measure: string
+  bins: number
+  /**
+   * Interior edges at the exposure's quantiles over the changes before the cut
+   * joined to the outcome, with repeats removed; a value at an edge falls in
+   * the lower bin.
+   */
+  edges: number[]
 }
 
 export interface MeasureValidityReport {
@@ -147,13 +189,21 @@ export interface MeasureValidityReport {
     capturedBeforeChange: number
     capturedAfterCutForPreCutChange: number
     beyondMaxCaptureLag: number
+    /**
+     * Change-outcome pairs before the cut with an outcome known by the cut
+     * whose `windowMs` had not closed at the cut.
+     */
+    windowOpenAtCut: number
   }
+  exposures: MeasureExposureBins[]
   coverage: MeasureCoverage[]
   pairs: MeasureOutcomeValidity[]
   /** Pairs given a pooled p-value: the false-discovery family. */
   tested: number
-  /** Tested pairs with a within-unit p-value: a second family at the same level. */
+  /** Tested pairs whose within-unit statistic is tested: a second family at the same level. */
   withinUnitTested: number
+  /** Tested pairs with a statistic inside exposure bins: a third family at the same level. */
+  withinExposureTested: number
   /** Pairs labelled `predicts`. */
   admitted: number
   /** Pairs whose movement agreement was tested: a second family at the same level. */
@@ -188,6 +238,7 @@ export async function measureValidityStudy(
     capturedBeforeChange: 0,
     capturedAfterCutForPreCutChange: 0,
     beyondMaxCaptureLag: 0,
+    windowOpenAtCut: 0,
   }
   const prepared = input.changes.map((change) => {
     const preCut = change.at < plan.cut
@@ -200,21 +251,30 @@ export async function measureValidityStudy(
     excluded.capturedBeforeChange += counts.capturedBeforeChange
     excluded.capturedAfterCutForPreCutChange += counts.capturedAfterCutForPreCutChange
     excluded.beyondMaxCaptureLag += counts.beyondMaxCaptureLag
-    return {
-      change,
-      preCut,
-      outcomes: joinOutcomes(eligible, change, plan.outcomes, plan.reduction),
+    const outcomes = joinOutcomes(eligible, change, plan.outcomes, plan.reduction)
+    // Before the cut, a windowed outcome counts only once its window has closed,
+    // whatever its value: otherwise recent events stay and recent non-events do not.
+    for (const outcome of plan.outcomes) {
+      if (!preCut || outcome.windowMs === undefined) continue
+      if (change.at + outcome.windowMs > plan.cut && outcomes.delete(outcome.id)) {
+        excluded.windowOpenAtCut++
+      }
     }
+    return { change, preCut, outcomes }
   })
   const pre = prepared.filter((row) => row.preCut)
   const post = prepared.filter((row) => !row.preCut)
   const preUnits = new Set(pre.map((row) => row.change.unit))
   const postUnits = new Set(post.map((row) => row.change.unit))
 
+  const exposures = plan.outcomes.flatMap((outcome) =>
+    outcome.exposure === undefined ? [] : [exposureBins(outcome, pre)],
+  )
   const pairs: MeasureOutcomeValidity[] = []
   for (const measure of plan.measures) {
     for (const outcome of plan.outcomes) {
-      pairs.push(assessPair(measure.id, outcome, pre, post, plan))
+      const bins = exposures.find((row) => row.outcome === outcome.id) ?? null
+      pairs.push(assessPair(measure.id, outcome, bins, pre, post, plan))
     }
   }
   const tested = pairs.filter((pair) => pair.postCut.association !== null)
@@ -225,7 +285,10 @@ export async function measureValidityStudy(
   tested.forEach((pair, index) => {
     pair.postCut.qValue = qValues[index]!
   })
-  const withinTested = tested.filter((pair) => pair.postCut.withinUnit !== null)
+  // The within-unit estimate is reported from two comparable units; it is tested from `minUnits`.
+  const withinTested = tested.filter(
+    (pair) => pair.postCut.withinUnit !== null && pair.postCut.withinUnit.units >= plan.minUnits,
+  )
   const withinQ = benjaminiHochberg(
     withinTested.map((pair) => pair.postCut.withinUnit!.pValue),
     plan.level,
@@ -233,19 +296,15 @@ export async function measureValidityStudy(
   withinTested.forEach((pair, index) => {
     pair.postCut.withinUnitQValue = withinQ[index]!
   })
-  for (const pair of tested) {
-    const association = pair.postCut.association!
-    if (pair.postCut.qValue! <= plan.level) {
-      const withinShown =
-        pair.postCut.withinUnit === null || pair.postCut.withinUnitQValue! <= plan.level
-      pair.label = withinShown ? 'predicts' : 'predicts-pooled-only'
-      pair.reason = withinShown ? null : 'within-unit-not-shown'
-    } else {
-      pair.label = 'not-shown'
-      // A one-sided test cannot reject the other way; a reversal is an interval wholly past the null.
-      pair.reason = association.high < association.null ? 'direction-reversed' : 'not-significant'
-    }
-  }
+  const exposureTested = tested.filter((pair) => pair.postCut.withinExposure !== null)
+  const exposureQ = benjaminiHochberg(
+    exposureTested.map((pair) => pair.postCut.withinExposure!.pValue),
+    plan.level,
+  ).qValues
+  exposureTested.forEach((pair, index) => {
+    pair.postCut.withinExposureQValue = exposureQ[index]!
+  })
+  for (const pair of tested) labelPair(pair, plan.level)
 
   const outcomeReferences = new Map(
     plan.outcomes.map((outcome) => [outcome.id, outcomeReference(outcome, pre)]),
@@ -288,14 +347,83 @@ export async function measureValidityStudy(
       both: [...postUnits].filter((unit) => preUnits.has(unit)).length,
     },
     excludedObservations: excluded,
+    exposures,
     coverage: plan.measures.map((measure) => coverageOf(measure.id, pre, post)),
     pairs,
     tested: tested.length,
     withinUnitTested: withinTested.length,
+    withinExposureTested: exposureTested.length,
     admitted: pairs.filter((pair) => pair.label === 'predicts').length,
     movementTested: movementTested.length,
     selections,
   }
+}
+
+/**
+ * The pooled test admits; the test inside exposure bins and then the tested
+ * within-unit test can only narrow the label.
+ */
+function labelPair(pair: MeasureOutcomeValidity, level: number): void {
+  const association = pair.postCut.association!
+  if (pair.postCut.qValue! > level) {
+    pair.label = 'not-shown'
+    // A one-sided test cannot reject the other way; a reversal is an interval wholly past the null.
+    pair.reason = association.high < association.null ? 'direction-reversed' : 'not-significant'
+    return
+  }
+  if (pair.exposure !== null && pair.exposure !== pair.measure) {
+    const within = pair.postCut.withinExposure
+    if (within === null) {
+      pair.label = 'predicts-through-exposure'
+      pair.reason = 'within-exposure-untested'
+      return
+    }
+    // Shown beyond the exposure only in the direction the pooled test admitted.
+    if (pair.withinExposureDirection !== pair.direction || pair.postCut.withinExposureQValue! > level) {
+      pair.label = 'predicts-through-exposure'
+      pair.reason = 'within-exposure-not-shown'
+      return
+    }
+  }
+  if (pair.postCut.withinUnitQValue === null) {
+    pair.label = 'predicts'
+    pair.reason = 'within-unit-untested'
+  } else if (pair.postCut.withinUnitQValue > level) {
+    pair.label = 'predicts-pooled-only'
+    pair.reason = 'within-unit-not-shown'
+  } else {
+    pair.label = 'predicts'
+    pair.reason = null
+  }
+}
+
+/** Bin edges at the exposure's quantiles over changes before the cut joined to the outcome. */
+function exposureBins(
+  outcome: MeasureValidityPlanOutcome,
+  pre: readonly PreparedChange[],
+): MeasureExposureBins {
+  const { measure, bins } = outcome.exposure!
+  const values = pre
+    .flatMap((row) => {
+      const value = row.change.measures[measure]
+      return value === undefined || !row.outcomes.has(outcome.id) ? [] : [value]
+    })
+    .sort((a, b) => a - b)
+  const edges: number[] = []
+  if (values.length > 0) {
+    for (let k = 1; k < bins; k++) {
+      const edge = interpolatedQuantile(values, k / bins)
+      if (edge !== edges[edges.length - 1]) edges.push(edge)
+    }
+  }
+  return { outcome: outcome.id, measure, bins, edges }
+}
+
+/** The bin of a value: the number of edges below it. */
+function binOf(value: number, edges: readonly number[]): string {
+  let bin = 0
+  while (bin < edges.length && value > edges[bin]!) bin++
+  return String(bin)
 }
 
 function coverageOf(
@@ -321,35 +449,51 @@ function coverageOf(
 
 // ── Prediction ───────────────────────────────────────────────────────
 
-function joinedRows(rows: readonly PreparedChange[], measure: string, outcome: string) {
+/** Joined changes for one pair; `stratum` is the exposure bin when the exposure was measured. */
+function joinedRows(
+  rows: readonly PreparedChange[],
+  measure: string,
+  outcome: string,
+  exposure: MeasureExposureBins | null,
+) {
   return rows.flatMap((row) => {
     const x = row.change.measures[measure]
     const joined = row.outcomes.get(outcome)
-    return x === undefined || joined === undefined
-      ? []
-      : [{ x, y: joined.better, unit: row.change.unit, lag: joined.capturedAt - row.change.at }]
+    if (x === undefined || joined === undefined) return []
+    const exposed = exposure === null ? undefined : row.change.measures[exposure.measure]
+    return [
+      {
+        x,
+        y: joined.better,
+        unit: row.change.unit,
+        lag: joined.capturedAt - row.change.at,
+        ...(exposed === undefined ? {} : { stratum: binOf(exposed, exposure!.edges) }),
+      },
+    ]
   })
 }
 
 function assessPair(
   measure: string,
   outcome: MeasureValidityOutcome,
+  exposure: MeasureExposureBins | null,
   pre: readonly PreparedChange[],
   post: readonly PreparedChange[],
   plan: MeasureValidityPlan,
 ): MeasureOutcomeValidity {
   const statistic = statisticOf(outcome)
   const nullValue = statistic === 'auc' ? 0.5 : 0
-  const preRows = joinedRows(pre, measure, outcome.id)
-  const postRows = joinedRows(post, measure, outcome.id)
+  const preRows = joinedRows(pre, measure, outcome.id, exposure)
+  const postRows = joinedRows(post, measure, outcome.id, exposure)
   const preEstimate = preRows.length >= 3 ? associationEstimate(statistic, preRows) : Number.NaN
-  const direction = !Number.isFinite(preEstimate)
-    ? null
-    : preEstimate > nullValue
-      ? 'higher'
-      : preEstimate < nullValue
-        ? 'lower'
-        : null
+  const direction = directionOf(preEstimate, nullValue)
+  const testsExposure = exposure !== null && exposure.measure !== measure
+  const preBinned = preRows.filter((row) => row.stratum !== undefined)
+  const preWithinExposure =
+    testsExposure && preBinned.length >= 3
+      ? associationEstimate(statistic, preBinned, 'stratified')
+      : Number.NaN
+  const exposureDirection = directionOf(preWithinExposure, nullValue)
   const postUnits = new Set(postRows.map((row) => row.unit)).size
   const lags = postRows.map((row) => row.lag)
   const result: MeasureOutcomeValidity = {
@@ -359,10 +503,13 @@ function assessPair(
     label: 'insufficient',
     reason: null,
     direction,
+    exposure: exposure?.measure ?? null,
+    withinExposureDirection: exposureDirection,
     preCut: {
       n: preRows.length,
       units: new Set(preRows.map((row) => row.unit)).size,
       estimate: Number.isFinite(preEstimate) ? preEstimate : null,
+      withinExposure: Number.isFinite(preWithinExposure) ? preWithinExposure : null,
     },
     postCut: {
       n: postRows.length,
@@ -372,6 +519,8 @@ function assessPair(
       qValue: null,
       withinUnit: null,
       withinUnitQValue: null,
+      withinExposure: null,
+      withinExposureQValue: null,
     },
     leadTimeMs:
       lags.length === 0
@@ -403,14 +552,39 @@ function assessPair(
     ...(plan.seed === undefined ? {} : { seed: plan.seed }),
   }
   result.postCut.association = clusteredAssociation(aligned, options)
-  const withinUnits = comparableUnits(aligned)
   if (
-    withinUnits >= plan.minUnits &&
+    comparableUnits(aligned) >= 2 &&
     Number.isFinite(associationEstimate(statistic, aligned, 'within-unit'))
   ) {
     result.postCut.withinUnit = clusteredAssociation(aligned, { ...options, scope: 'within-unit' })
   }
+  if (testsExposure && exposureDirection !== null) {
+    const binned = postRows.flatMap((row) =>
+      row.stratum === undefined
+        ? []
+        : [
+            {
+              x: exposureDirection === 'lower' ? -row.x : row.x,
+              y: row.y,
+              unit: row.unit,
+              stratum: row.stratum,
+            },
+          ],
+    )
+    const units = new Set(binned.map((row) => row.unit)).size
+    if (units >= 2 && Number.isFinite(associationEstimate(statistic, binned, 'stratified'))) {
+      result.postCut.withinExposure = clusteredAssociation(binned, {
+        ...options,
+        scope: 'stratified',
+      })
+    }
+  }
   return result
+}
+
+function directionOf(estimate: number, nullValue: number): 'higher' | 'lower' | null {
+  if (!Number.isFinite(estimate)) return null
+  return estimate > nullValue ? 'higher' : estimate < nullValue ? 'lower' : null
 }
 
 /** Values that differ from the most common value: the smaller class of a two-valued measure. */

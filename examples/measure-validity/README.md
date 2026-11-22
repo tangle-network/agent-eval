@@ -22,7 +22,8 @@ The history is generated from a seeded random source, so the truth is known.
 The input is a flat table, one row per change: an id, a merge time, a repository, named measures (null where unmeasured) and outcomes (null until their window closes).
 `toChange` and `toOutcomes` are the whole mapping; an outcome's capture time is its window's close.
 
-1. `sealMeasureValidityPlan()` registers the cut, the false-discovery level, the minimum counts, the outcome and the measures, and returns a digest.
+1. `sealMeasureValidityPlan()` registers the cut, the false-discovery level, the minimum counts, the outcome with its window and the measures, and returns a digest.
+   An outcome that grows with a change's size can also name that size measure as its `exposure`; see [outcome validity](../../docs/outcome-validity.md#choose-which-measures-to-climb).
    Seal it before reading any change made after the cut.
 2. `measureValidityStudy()` fixes each measure's direction on changes before the cut, reading only outcomes known by the cut.
    It then tests every measure on changes after the cut, one-sided in that direction, resampling whole repositories, with Benjamini-Hochberg across all 25 measures.

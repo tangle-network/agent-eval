@@ -134,7 +134,10 @@ const planInput: MeasureValidityPlanInput = {
   id: 'which-numbers-predict-kept-changes',
   cut,
   level: 0.05,
-  outcomes: [{ id: 'kept', direction: 'higher-is-better', kind: 'binary' }],
+  // Declare the window: a change before the cut counts only once its window has closed.
+  outcomes: [
+    { id: 'kept', direction: 'higher-is-better', kind: 'binary', windowMs: OUTCOME_WINDOWS.kept! },
+  ],
   measures: MEASURES.map((id) => ({
     id,
     ...(id === 'test_delta' ? { noise: 0.1 } : {}),

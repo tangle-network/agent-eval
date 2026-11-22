@@ -70,12 +70,18 @@ export interface MeasureSelection {
   /** Admitted measures to keep unoptimized; a climbed measure drifting away from them is visible. */
   guards: GuardMeasure[]
   /**
-   * Measures admitted on the pooled test that cannot be climbed: they do not
-   * move under change, move against the outcome, or predict only across units.
+   * Measures admitted on the pooled test that cannot be climbed: the outcome's
+   * exposure itself, measures that predict only by tracking it, only across
+   * units, or that do not move under change or move against the outcome.
    */
   excluded: Array<{
     measure: string
-    reason: 'insensitive' | 'moves-against-outcome' | 'pooled-only'
+    reason:
+      | 'exposure'
+      | 'through-exposure'
+      | 'pooled-only'
+      | 'insensitive'
+      | 'moves-against-outcome'
   }>
   /**
    * Equal-weight mean of the climbed measures' aligned z. The post-cut score
@@ -303,12 +309,22 @@ export function selectMeasures(
   const admitted = pairs.filter(
     (pair) =>
       pair.outcome === outcome.id &&
-      (pair.label === 'predicts' || pair.label === 'predicts-pooled-only'),
+      (pair.label === 'predicts' ||
+        pair.label === 'predicts-through-exposure' ||
+        pair.label === 'predicts-pooled-only'),
   )
   const excluded: MeasureSelection['excluded'] = []
   const references = new Map<string, MeasureReference>()
   const candidates: MeasureOutcomeValidity[] = []
   for (const pair of admitted) {
+    if (pair.measure === pair.exposure) {
+      excluded.push({ measure: pair.measure, reason: 'exposure' })
+      continue
+    }
+    if (pair.label === 'predicts-through-exposure') {
+      excluded.push({ measure: pair.measure, reason: 'through-exposure' })
+      continue
+    }
     if (pair.label === 'predicts-pooled-only') {
       excluded.push({ measure: pair.measure, reason: 'pooled-only' })
       continue
