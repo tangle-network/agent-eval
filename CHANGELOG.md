@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [2.0.8] — 2026-11-22
 
 - `/world` runs an agent through many sessions of a simulated world whose clock the test controls. A scenario is data with a hidden key; spend returns outcomes days later with noise, ramp, saturation and wear; a gated lever refuses spend with no recorded approval; only the notes an agent saved cross between sessions. `runWorldEpisode` scores the end state and the decision log, `worldDecisionCosts` prices each action by replay, and `compareWorldPolicies` checks on shared seeds that a patient scripted policy beats an impulsive one beyond noise before a model is run. `launchQuarterScenario` is the first scenario and `chatWorldAgent` puts a chat model through it.
 - A multi-turn conversation with a simulated user is an optimization and comparison target. `multishotRollout` runs the conversation engine as the `selfImprove` and `compareOptimizationMethods` dispatch, with every leg metered through the cell and a code-checked outcome as the score. `conversationGate` refuses a comparison whose arms met a different simulated user or seed, and `describeConversation` gives the native proposer and GEPA the same evidence.
