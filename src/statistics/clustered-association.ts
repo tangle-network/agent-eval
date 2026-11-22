@@ -96,7 +96,9 @@ export function clusteredAssociation(
     throw new ValidationError('clusteredAssociation: statistic must be auc or spearman')
   }
   if (scope !== 'pooled' && scope !== 'within-unit' && scope !== 'stratified') {
-    throw new ValidationError('clusteredAssociation: scope must be pooled, within-unit or stratified')
+    throw new ValidationError(
+      'clusteredAssociation: scope must be pooled, within-unit or stratified',
+    )
   }
   if (alternative !== 'two-sided' && alternative !== 'greater') {
     throw new ValidationError('clusteredAssociation: alternative must be two-sided or greater')
@@ -166,7 +168,8 @@ export function clusteredAssociation(
       interval = clusterBootstrap(
         rows,
         (row) => row.unit,
-        (sample) => record(weightedMean(stratumSummaries(statistic, sample, (row) => row.stratum!))),
+        (sample) =>
+          record(weightedMean(stratumSummaries(statistic, sample, (row) => row.stratum!))),
         { resamples, level: confidence, seed },
       )
     } else interval = { low: Number.NaN, high: Number.NaN }

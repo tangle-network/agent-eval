@@ -57,7 +57,8 @@ export async function study(
 ): Promise<MeasureValidityReport> {
   const outcomes = new InMemoryOutcomeStore()
   for (const row of outcomeRows(draws)) {
-    if (options.storedBy === undefined || row.capturedAt <= options.storedBy) await outcomes.append(row)
+    if (options.storedBy === undefined || row.capturedAt <= options.storedBy)
+      await outcomes.append(row)
   }
   return measureValidityStudy({
     plan: sealMeasureValidityPlan({ id: 'planted-truth', ...plan }),

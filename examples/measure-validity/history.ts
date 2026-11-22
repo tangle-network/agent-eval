@@ -8,7 +8,11 @@
  * `toOutcomes` are the whole mapping.
  */
 
-import { type DeploymentOutcome, InMemoryOutcomeStore, type MeasuredChange } from '../../src/meta-eval'
+import {
+  type DeploymentOutcome,
+  InMemoryOutcomeStore,
+  type MeasuredChange,
+} from '../../src/meta-eval'
 import { mulberry32 } from '../../src/statistics'
 
 export const HOUR = 3_600_000

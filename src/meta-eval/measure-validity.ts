@@ -423,7 +423,10 @@ function labelPair(pair: MeasureOutcomeValidity, level: number): void {
       return
     }
     // Shown beyond the exposure only in the direction the pooled test admitted.
-    if (pair.withinExposureDirection !== pair.direction || pair.postCut.withinExposureQValue! > level) {
+    if (
+      pair.withinExposureDirection !== pair.direction ||
+      pair.postCut.withinExposureQValue! > level
+    ) {
       pair.label = 'predicts-through-exposure'
       pair.reason = 'within-exposure-not-shown'
       return

@@ -9,7 +9,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { DAY, generatedHistory, HOUR, storeOf, toChange } from '../../examples/measure-validity/history'
+import {
+  DAY,
+  generatedHistory,
+  HOUR,
+  storeOf,
+  toChange,
+} from '../../examples/measure-validity/history'
 import {
   type MeasureValidityPlanInput,
   type SealedMeasureValidityPlan,

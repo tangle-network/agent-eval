@@ -290,8 +290,9 @@ function resolvePlan(input: MeasureValidityPlanInput, format: unknown): MeasureV
   if (!current) {
     check(format === undefined, `format must be ${PLAN_FORMAT} or absent`)
     check(
-      outcomes.every((outcome) => outcome.windowMs === undefined && outcome.exposure === undefined) &&
-        input.selection?.minEffect === undefined,
+      outcomes.every(
+        (outcome) => outcome.windowMs === undefined && outcome.exposure === undefined,
+      ) && input.selection?.minEffect === undefined,
       'a plan without format declares no outcome window, exposure or minimum effect',
     )
   }
