@@ -20,9 +20,12 @@ import {
   type MultishotTransportResponse,
   type RecordedUserTurn,
   recordedUserTurns,
+  SIMULATOR_REALISM_QUESTIONS,
   simulatorRealismJudge,
 } from '../../src/multishot/index'
-import { buildTrajectory, type InMemoryTraceStore, TraceEmitter } from '../../src/trace'
+import { decisionQuestionDigest } from '../../src/systemone'
+import { type InMemoryTraceStore, TraceEmitter } from '../../src/trace'
+import { buildTrajectory } from '../../src/trajectory'
 
 export const AGENT_MODEL = 'gpt-4.1-2025-04-14'
 export const USER_MODEL = 'gpt-4.1-mini-2025-04-14'
@@ -212,6 +215,15 @@ export function realismJudge(path: string, calibrated = true) {
       ? {
           calibration: {
             servedModel: JUDGE_MODEL,
+            // Recorded when the judge was calibrated on these exact terms.
+            questionDigest: decisionQuestionDigest({
+              id: 'refund-realism',
+              version: '1',
+              model: JUDGE_MODEL,
+              servedModel: JUDGE_MODEL,
+              name: 'real',
+              question: SIMULATOR_REALISM_QUESTIONS.real,
+            }),
             gold_n: 40,
             agreement: 0.95,
             kappa: 0.9,

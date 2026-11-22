@@ -23,7 +23,7 @@ import {
 import type { CostLedgerHandle } from '../cost-ledger/contract'
 import { hashCanonical, jsonDocument } from '../ledger-core/canonical'
 import { describeConversation } from './conversation-evidence'
-import { UserSideObjectiveError } from './conversation-conditions'
+import { listSome, UserSideObjectiveError } from './conversation-conditions'
 import {
   measureSimulatorRealism,
   type RecordedUserTurn,
@@ -43,7 +43,8 @@ export class AdversarialSplitError extends Error {
   readonly scenarioIds: string[]
   constructor(scenarioIds: string[]) {
     super(
-      `adversarial user search would use ${scenarioIds.length} scenario(s) that share an id or persona with the agent's held-out split (${scenarioIds.slice(0, 3).join(', ')}${scenarioIds.length > 3 ? ', …' : ''})`,
+      `adversarial user search would use ${scenarioIds.length} scenario(s) that share an id ` +
+        `or persona with the agent's held-out split (${listSome(scenarioIds)})`,
     )
     this.name = 'AdversarialSplitError'
     this.scenarioIds = scenarioIds

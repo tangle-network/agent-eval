@@ -118,7 +118,8 @@ export class SharedContextIdentityError extends Error {
   readonly turn: number
   constructor(row: Pick<RecordedUserTurn, 'conversationId' | 'turn'>, reason: string) {
     super(
-      `recorded user turn ${row.conversationId}#${row.turn} ${reason}; a realism comparison needs the identity that proves the driver saw the real user's context`,
+      `recorded user turn ${row.conversationId}#${row.turn} ${reason}; a realism comparison ` +
+        "needs the identity that proves the driver saw the real user's context",
     )
     this.name = 'SharedContextIdentityError'
     this.conversationId = row.conversationId
@@ -215,7 +216,11 @@ export const SIMULATOR_REALISM_QUESTIONS = {
   real: {
     type: 'choice',
     instructions:
-      'The state holds a conversation between a user and an AI agent up to the user\'s next message, and two candidate next messages, a and b. A real user wrote one; a simulator wrote the other. Choose the one the real user wrote. Judge voice, length, specificity, what the user would know, and how a person reacts to the agent\'s last message. Neither position is more likely.',
+      "The state holds a conversation between a user and an AI agent up to the user's next " +
+      'message, and two candidate next messages, a and b. A real user wrote one; a simulator ' +
+      'wrote the other. Choose the one the real user wrote. Judge voice, length, specificity, ' +
+      "what the user would know, and how a person reacts to the agent's last message. Neither " +
+      'position is more likely.',
     criteria: {
       a: 'The real user wrote message a.',
       b: 'The real user wrote message b.',

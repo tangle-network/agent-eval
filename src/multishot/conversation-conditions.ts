@@ -32,12 +32,10 @@ export interface SimulatedUserMismatch {
 export class SimulatedUserMismatchError extends Error {
   readonly mismatches: SimulatedUserMismatch[]
   constructor(mismatches: SimulatedUserMismatch[]) {
-    const shown = mismatches
-      .slice(0, 3)
-      .map((row) => `${row.cellId}: ${row.detail}`)
-      .join('; ')
+    const shown = listSome(mismatches.map((row) => `${row.cellId}: ${row.detail}`), '; ')
     super(
-      `${mismatches.length} paired conversation(s) did not meet the same simulated user on the same seed, so the comparison is refused (${shown}${mismatches.length > 3 ? '; …' : ''})`,
+      `${mismatches.length} paired conversation(s) did not meet the same simulated user ` +
+        `on the same seed, so the comparison is refused (${shown})`,
     )
     this.name = 'SimulatedUserMismatchError'
     this.mismatches = mismatches
@@ -60,7 +58,8 @@ export class AdversarialScenarioInHeldOutError extends Error {
   readonly scenarioIds: string[]
   constructor(scenarioIds: string[]) {
     super(
-      `held-out split contains ${scenarioIds.length} scenario(s) an adversarial-user search emitted (${scenarioIds.slice(0, 3).join(', ')}${scenarioIds.length > 3 ? ', …' : ''}); they train the agent side and never measure it`,
+      `held-out split contains ${scenarioIds.length} scenario(s) an adversarial-user search ` +
+        `emitted (${listSome(scenarioIds)}); they train the agent side and never measure it`,
     )
     this.name = 'AdversarialScenarioInHeldOutError'
     this.scenarioIds = scenarioIds
@@ -92,7 +91,9 @@ export function assertSameSimulatedUser(
       mismatches.push({
         cellId,
         reason: 'simulated-user',
-        detail: `baseline user ${base.simulatedUser.digest} (${base.simulatedUser.model}), candidate user ${other.simulatedUser.digest} (${other.simulatedUser.model})`,
+        detail:
+          `baseline user ${base.simulatedUser.digest} (${base.simulatedUser.model}), ` +
+          `candidate user ${other.simulatedUser.digest} (${other.simulatedUser.model})`,
       })
     } else if (base.seed !== other.seed) {
       mismatches.push({
@@ -103,6 +104,11 @@ export function assertSameSimulatedUser(
     }
   }
   if (mismatches.length > 0) throw new SimulatedUserMismatchError(mismatches)
+}
+
+/** The first three items, and an ellipsis when there are more. Package-internal. */
+export function listSome(items: readonly string[], separator = ', '): string {
+  return [...items.slice(0, 3), ...(items.length > 3 ? ['…'] : [])].join(separator)
 }
 
 function hasIdentity(artifact: ConversationArtifact | undefined): boolean {
@@ -148,7 +154,9 @@ export function conversationJudge<TScenario extends ConversationScenario>(
     score(input) {
       if (input.artifact.optimizedRole !== 'agent') {
         throw new UserSideObjectiveError(
-          `conversation '${input.scenario.id}' optimized the user side; the agent-success score reads agent-side conversations only, and the user side is scored on the agent's failure rate by improveAdversarialUser`,
+          `conversation '${input.scenario.id}' optimized the user side; the agent-success ` +
+            'score reads agent-side conversations only, and improveAdversarialUser scores ' +
+            "the user side on the agent's failure rate",
         )
       }
       const { passed, detail } = input.artifact.outcome
