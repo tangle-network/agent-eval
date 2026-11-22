@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- A multi-turn conversation with a simulated user is an optimization and comparison target. `multishotRollout` runs the conversation engine as the `selfImprove` and `compareOptimizationMethods` dispatch, with every leg metered through the cell and a code-checked outcome as the score. `conversationGate` refuses a comparison whose arms met a different simulated user or seed, and `describeConversation` gives the native proposer and GEPA the same evidence.
+- `passHatK` and `repeatReliability` report success in all k seeded repeats beside mean success, per independent unit.
+- `measureSimulatorRealism` measures a simulated user against recorded real user turns with a calibrated System One judge; `improveAdversarialUser` searches the user side on the agent's failure rate only and emits what it finds as train scenarios.
+
 ## [2.0.7] — 2026-11-21
 
 - A forked native rollout keeps its copied conversation and counts each model and tool call under the session that performed it. A renamed Prime file keeps its native ID and parent.

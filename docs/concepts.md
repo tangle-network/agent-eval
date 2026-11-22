@@ -214,6 +214,8 @@ Keep raw usage and its source identity beside the projection.
 | **Train cases** | Evidence the optimizer reads to write candidates. |
 | **Selection cases** | Evidence the optimizer reads to choose among its candidates. |
 | **Final cases** | Held back from the optimizer entirely. They produce the reported lift. |
+| **Rollout** | One conversation between the candidate agent and a simulated user, scored by a code check of its outcome. See [multi-turn optimization](./multi-turn-optimization.md). |
+| **pass^k** | Success in all k repeats of a case. Reported beside mean success, which hides a case that passes on some seeds only. |
 
 Keep scenario identifiers disjoint across the three partitions.
 For new-unit claims or fresh final evidence, also keep source units separate between development and final cases.

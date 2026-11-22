@@ -22,6 +22,8 @@ import {
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,
+  type MultishotTransport,
+  type MultishotTransportResponse,
 } from './types'
 
 /** Prompt and completion tokens one leg reported. */
@@ -253,44 +255,24 @@ function openConversation<TPersona extends MultishotPersona>(
   // billed the provider whether or not their content was usable.
   async function driverTurn(turn: number): Promise<MultishotLegSpend & { content: string }> {
     const usdBefore = meter.costUsd
-    // Driver point of view: the agent's `assistant` messages become `user`
-    // (the agent talking TO the driver); the driver's prior `user` messages
-    // become `assistant` (the driver's prior responses).
-    const driverMessages: Array<Record<string, unknown>> = [
-      { role: 'system', content: driverSystemPrompt },
-    ]
-    for (const msg of transcript) {
-      if (msg.role === 'tool') continue
-      const content = driverVisibleContent(msg)
-      if (!content) continue
-      if (msg.role === 'assistant') driverMessages.push({ role: 'user', content })
-      else if (msg.role === 'user') driverMessages.push({ role: 'assistant', content })
-    }
-
-    // The driver must never go silent. Retry once on empty content; then fail loud.
     const tokens = { input: 0, output: 0 }
-    for (const model of driverModels) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const { message, usage, costUsd } = await driverTransport({
-          model,
-          messages: driverMessages,
-          temperature: 0.9,
-          maxTokens: driverMaxTokens,
-          signal: opts.signal,
-        })
+    const content = await requestUserReply({
+      models: driverModels,
+      messages: driverViewMessages(driverSystemPrompt, transcript),
+      transport: driverTransport,
+      maxTokens: driverMaxTokens,
+      signal: opts.signal,
+      turn,
+      onResponse: (model, { usage, costUsd }) => {
         meter.costUsd += costUsd ?? estimateMultishotCost(model, usage)
         if (costUsd === undefined && usage === undefined) meter.uncaptured = true
         tokens.input += usage?.prompt_tokens ?? 0
         tokens.output += usage?.completion_tokens ?? 0
-        const content = (message.content ?? '').trim()
-        if (content.length > 0) {
-          agentMessages.push({ role: 'user', content })
-          transcript.push({ role: 'user', content })
-          return { content, tokens, usd: meter.costUsd - usdBefore }
-        }
-      }
-    }
-    throw new MultishotDriverEmptyError(turn)
+      },
+    })
+    agentMessages.push({ role: 'user', content })
+    transcript.push({ role: 'user', content })
+    return { content, tokens, usd: meter.costUsd - usdBefore }
   }
 
   return {
@@ -307,6 +289,62 @@ function openConversation<TPersona extends MultishotPersona>(
     artifacts,
     toolCalls: () => toolCalls,
   }
+}
+
+/** The simulated user's next message. The driver must never go silent: an
+ *  empty reply is retried once per model, the models are tried in order, and
+ *  then `MultishotDriverEmptyError` is thrown. Every response, empty ones
+ *  included, reaches `onResponse`, because every attempt was billed. The
+ *  conversation loop and the realism measure both ask the simulated user
+ *  through here, so a driver measured against recorded turns is sampled the
+ *  way a rollout samples it. */
+export async function requestUserReply(input: {
+  models: readonly string[]
+  messages: Array<Record<string, unknown>>
+  transport: MultishotTransport
+  maxTokens: number
+  signal?: AbortSignal
+  turn: number
+  onResponse?: (model: string, response: MultishotTransportResponse) => void
+}): Promise<string> {
+  for (const model of input.models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await input.transport({
+        model,
+        messages: input.messages,
+        temperature: 0.9,
+        maxTokens: input.maxTokens,
+        signal: input.signal,
+      })
+      input.onResponse?.(model, response)
+      const content = (response.message.content ?? '').trim()
+      if (content.length > 0) return content
+    }
+  }
+  throw new MultishotDriverEmptyError(input.turn)
+}
+
+/** The simulated user's view of a transcript, as the driver request's
+ *  messages. The agent's `assistant` messages become `user` (the agent talking
+ *  TO the driver); the driver's prior `user` messages become `assistant` (its
+ *  own earlier replies). Tool messages are hidden. The conversation loop and
+ *  the realism measure both build the driver's request here, so a driver
+ *  measured against recorded turns sees exactly what it sees in a rollout. */
+export function driverViewMessages(
+  driverSystemPrompt: string,
+  transcript: readonly MultishotMessage[],
+): Array<Record<string, unknown>> {
+  const driverMessages: Array<Record<string, unknown>> = [
+    { role: 'system', content: driverSystemPrompt },
+  ]
+  for (const msg of transcript) {
+    if (msg.role === 'tool') continue
+    const content = driverVisibleContent(msg)
+    if (!content) continue
+    if (msg.role === 'assistant') driverMessages.push({ role: 'user', content })
+    else if (msg.role === 'user') driverMessages.push({ role: 'assistant', content })
+  }
+  return driverMessages
 }
 
 /** Silent tool-calling agent turns surface to the driver as

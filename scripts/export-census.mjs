@@ -220,7 +220,9 @@ function inRepositoryEvidence(names) {
     for (const file of walk(directory, SOURCE_FILE)) {
       const relativePath = relative(REPOSITORY_ROOT, file)
       const parsed = parseSync(file, readFileSync(file, 'utf8'))
-      const channel = TEST_FILE.test(relativePath)
+      // A helper module under tests/ (a shared fixture or world) is test code,
+      // as the consumer scan below already treats it.
+      const channel = TEST_FILE.test(relativePath) || relativePath.startsWith('tests/')
         ? 'tests'
         : relativePath.startsWith('examples/')
           ? 'examples'

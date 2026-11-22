@@ -521,14 +521,36 @@ export function pairedBinaryScale(
  * form. Requires 1 ≤ k ≤ n and 0 ≤ c ≤ n.
  */
 export function passAtK(n: number, c: number, k: number): number {
-  if (!Number.isInteger(n) || !Number.isInteger(c) || !Number.isInteger(k)) {
-    throw new Error(`passAtK: n, c, k must be integers (got n=${n}, c=${c}, k=${k})`)
-  }
-  if (k < 1 || k > n || c < 0 || c > n) {
-    throw new Error(`passAtK: require 1 ≤ k ≤ n and 0 ≤ c ≤ n (got n=${n}, c=${c}, k=${k})`)
-  }
+  assertPassKArguments('passAtK', n, c, k)
   if (n - c < k) return 1
   let prob = 1
   for (let i = n - c + 1; i <= n; i++) prob *= 1 - k / i
   return 1 - prob
+}
+
+/**
+ * Unbiased pass^k (Yao et al. 2024, τ-bench): the probability that every one
+ * of a random k of the `n` independent attempts at one task passes, given `c`
+ * of them passed — C(c, k) / C(n, k). With n = k it is 1 when all k passed and
+ * 0 otherwise: success in all k of k repeats. pass@k rewards one lucky attempt;
+ * pass^k charges every unreliable one, so the two diverge exactly on tasks that
+ * pass in some repeats only. Average the per-task values across the suite.
+ * Shares `passAtK`'s argument rules; computed in product form, so no factorial
+ * overflows.
+ */
+export function passHatK(n: number, c: number, k: number): number {
+  assertPassKArguments('passHatK', n, c, k)
+  if (c < k) return 0
+  let prob = 1
+  for (let i = 0; i < k; i++) prob *= (c - i) / (n - i)
+  return prob
+}
+
+function assertPassKArguments(name: string, n: number, c: number, k: number): void {
+  if (!Number.isInteger(n) || !Number.isInteger(c) || !Number.isInteger(k)) {
+    throw new Error(`${name}: n, c, k must be integers (got n=${n}, c=${c}, k=${k})`)
+  }
+  if (k < 1 || k > n || c < 0 || c > n) {
+    throw new Error(`${name}: require 1 ≤ k ≤ n and 0 ≤ c ≤ n (got n=${n}, c=${c}, k=${k})`)
+  }
 }
