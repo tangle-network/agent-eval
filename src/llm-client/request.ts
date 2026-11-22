@@ -331,6 +331,22 @@ function parseCompletion(
   }
 }
 
+/** Node's built-in fetch (undici) drops a request whose response headers have not arrived within this long. */
+const NODE_FETCH_HEADER_LIMIT_MS = 300_000
+
+/**
+ * Whether an attempt has to leave on node:http instead of fetch. A caller's
+ * `fetch` always wins. Otherwise the question is whether the call is allowed
+ * longer than Node's fetch waits for response headers: a non-streaming
+ * completion sends none until the whole answer is ready, so under that fetch
+ * such a call died at 300 s on every attempt, whatever `timeoutMs` said.
+ */
+function outlastsNodeFetch(run: AttemptRun): boolean {
+  if (run.opts.fetch || run.timeoutMs <= NODE_FETCH_HEADER_LIMIT_MS) return false
+  // `process.versions.undici` is how Node names the fetch it ships; no other runtime's fetch has this limit.
+  return typeof process === 'object' && typeof process.versions?.undici === 'string'
+}
+
 /** One attempt: pace, dispatch, read the answer. A failure either becomes a retry outcome or is thrown. */
 async function runAttempt(run: AttemptRun, attempt: number): Promise<AttemptOutcome> {
   const { opts } = run
@@ -371,7 +387,13 @@ async function runAttempt(run: AttemptRun, attempt: number): Promise<AttemptOutc
       requestBody,
     })
     attemptSignal.throwIfAborted()
-    const res = await (opts.fetch ?? globalThis.fetch)(run.url, {
+    // The node:http transport loads on first use, so a bundle for a runtime
+    // without node:http never has to resolve it. There the attempt's own timer
+    // is the only deadline.
+    const send = outlastsNodeFetch(run)
+      ? (await import('./node-transport')).nodeHttpFetch
+      : (opts.fetch ?? globalThis.fetch)
+    const res = await send(run.url, {
       method: 'POST',
       headers: run.headers,
       body: JSON.stringify(requestBody),

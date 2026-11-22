@@ -182,7 +182,12 @@ export interface LlmClientOptions extends LlmChargeBounds {
   authHeader?: { name: string; value: string }
   /** Stable provider idempotency key, reused across retries of this logical call. */
   idempotencyKey?: string
-  /** Default timeout in ms. Per-call can override. */
+  /**
+   * Default timeout in ms. Per-call can override. Under Node a call allowed
+   * more than 300 s leaves on node:http rather than fetch, whose own limit on
+   * response headers would end it at 300 s; a caller-supplied `fetch` is used
+   * as given.
+   */
   defaultTimeoutMs?: number
   /**
    * Minimum milliseconds between physical request starts, including retries.

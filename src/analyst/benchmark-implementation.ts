@@ -123,6 +123,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/llm-client/accounting.ts',
   'src/llm-client/errors.ts',
   'src/llm-client/json.ts',
+  'src/llm-client/node-transport.ts',
   'src/llm-client/request.ts',
   'src/llm-client/resilience.ts',
   'src/llm-client/wire.ts',
@@ -181,7 +182,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'c9d0fed83cd1e98224d442ea63635578bd05840f9583301eb59a65e09f49f88b'
+  '25fa52cbc1bc53a6760d5ec8b2b7c827a16b346ed2f5f3a5435df2a7a897d3df'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
