@@ -22,8 +22,8 @@ import {
 } from '../contract/self-improve'
 import type { CostLedgerHandle } from '../cost-ledger/contract'
 import { hashCanonical, jsonDocument } from '../ledger-core/canonical'
-import { describeConversation } from './conversation-evidence'
 import { listSome, UserSideObjectiveError } from './conversation-conditions'
+import { describeConversation } from './conversation-evidence'
 import {
   measureSimulatorRealism,
   type RecordedUserTurn,
@@ -206,7 +206,11 @@ function agentFailureJudge<TScenario extends ConversationScenario>(): JudgeConfi
         throw new UserSideObjectiveError('agent-failure scores user-side conversations only')
       }
       const failed = artifact.outcome.passed ? 0 : 1
-      return { dimensions: { agent_failure: failed }, composite: failed, notes: artifact.outcome.detail }
+      return {
+        dimensions: { agent_failure: failed },
+        composite: failed,
+        notes: artifact.outcome.detail,
+      }
     },
   }
 }
@@ -250,7 +254,10 @@ function emittedScenarios<TScenario extends ConversationScenario>(
   return [...emitted.values()]
 }
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Partial<Pick<T, K>> {
+function pick<T extends object, K extends keyof T>(
+  value: T,
+  keys: readonly K[],
+): Partial<Pick<T, K>> {
   const picked: Partial<Pick<T, K>> = {}
   for (const key of keys) if (value[key] !== undefined) picked[key] = value[key]
   return picked

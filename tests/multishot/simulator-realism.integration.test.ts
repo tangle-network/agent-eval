@@ -19,10 +19,10 @@ import { decisionQuestionDigest } from '../../src/systemone'
 import { InMemoryTraceStore } from '../../src/trace'
 import {
   JUDGE_MODEL,
-  ROBOT_TELL,
   realismJudge as judge,
-  recordConversations,
   type RefundPersona,
+  ROBOT_TELL,
+  recordConversations,
   turnsFrom,
   USER_MODEL,
   userTransport,
@@ -149,7 +149,10 @@ describe('simulator realism against recorded user turns', () => {
         return 'ok'
       },
     }
-    for (const rows of [[anonymous[0]!, ...tasked], [tampered, ...tasked.slice(1)]]) {
+    for (const rows of [
+      [anonymous[0]!, ...tasked],
+      [tampered, ...tasked.slice(1)],
+    ]) {
       await expect(
         measureSimulatorRealism({
           turns: rows,

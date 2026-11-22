@@ -1,32 +1,13 @@
 /**
- * Simulator fidelity — score a user SIMULATOR's realism against real-user
- * trace distributions.
+ * Simulator fidelity report shapes: per-feature divergence between simulated
+ * and production `RunRecord` distributions, and the easy-mode pass-rate gap,
+ * with `bucketLabel` for numeric features. The functions that computed them
+ * were removed with their last consumer; these types remain for records that
+ * carry such reports.
  *
- * Synthetic-persona evals (`PersonaConfig`-driven canonical evals, fuzz
- * user-simulator objectives) stand in for real users in most of the numbers
- * we publish. The standing threat is the Sim2Real gap: a simulator that is
- * distributionally unlike production creates "easy mode" and silently
- * inflates every score built on it. This module measures that gap from the
- * SAME artifact both sides already produce — `RunRecord`s — so no new
- * capture pipeline is needed:
- *
- *   - `simFidelityReport` — per-feature Jensen-Shannon divergence between
- *     simulated and production record distributions, collapsed into a
- *     fidelity coefficient in [0,1].
- *   - `easyModeCheck` — the headline academic failure mode (sim inflates
- *     pass-rate over production) as its own named artifact.
- *
- * Every synthetic-persona eval result should publish its fidelity
- * coefficient alongside the score — a number from an unrepresentative
- * simulator is an unlabeled estimate. Wire-in points:
- *
- *   - canonical persona evals: pass the campaign's `RunRecord`s as
- *     `simulated` and intake-adapter output (`contract/intake`: OTel spans,
- *     feedback tables, coding-agent sessions) as `production`
- *   - the fuzz user-sim objective: use `1 - report.fidelity` as a realism
- *     penalty when searching over generated personas
- *   - the durable corpus (`./corpus`): both sides read straight from
- *     `readCorpus` — tag sim vs production by `experimentId`
+ * To measure how real a simulated user is, use `measureSimulatorRealism` from
+ * `/multishot`: it writes the simulator's next message at recorded real user
+ * turns and asks a calibrated judge which of the two the real user wrote.
  */
 
 import type { RunRecord } from '../run-record'

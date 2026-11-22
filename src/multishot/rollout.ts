@@ -210,7 +210,11 @@ export interface ConversationArtifact {
 
 export interface MultishotRollout<TScenario extends ConversationScenario> {
   /** The dispatch: run one conversation with `surface` as the agent. */
-  agent: (surface: MutableSurface, scenario: TScenario, ctx: DispatchContext) => Promise<ConversationArtifact>
+  agent: (
+    surface: MutableSurface,
+    scenario: TScenario,
+    ctx: DispatchContext,
+  ) => Promise<ConversationArtifact>
   /** Version of everything but the surface, for measurement caches. */
   dispatchRef: string
   /** The simulated user `agent` puts in front of the agent for `scenario`. */
@@ -304,7 +308,10 @@ export function userSideRollout<TScenario extends ConversationScenario>(
       const plan = [scenario.userPlan, surface].filter(Boolean).join('\n\n')
       return converse(opts, agentProfile, scenario, plan, 'user', ctx)
     },
-    dispatchRef: rolloutDispatchRef({ ...opts, profileDigest: hashCanonical(jsonDocument(agentProfile)) }, 'user'),
+    dispatchRef: rolloutDispatchRef(
+      { ...opts, profileDigest: hashCanonical(jsonDocument(agentProfile)) },
+      'user',
+    ),
   }
 }
 
@@ -358,7 +365,9 @@ async function converse<TScenario extends ConversationScenario>(
   ctx: DispatchContext,
 ): Promise<ConversationArtifact> {
   if (!Number.isSafeInteger(opts.maxTurns) || opts.maxTurns < 1) {
-    throw new RangeError(`multishotRollout: maxTurns must be a positive integer, got ${opts.maxTurns}`)
+    throw new RangeError(
+      `multishotRollout: maxTurns must be a positive integer, got ${opts.maxTurns}`,
+    )
   }
   if ((opts.agent.tools === undefined) !== (opts.agent.toolExecutors === undefined)) {
     throw new TypeError('multishotRollout: agent tools and toolExecutors go together')

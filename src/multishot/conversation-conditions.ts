@@ -32,7 +32,10 @@ export interface SimulatedUserMismatch {
 export class SimulatedUserMismatchError extends Error {
   readonly mismatches: SimulatedUserMismatch[]
   constructor(mismatches: SimulatedUserMismatch[]) {
-    const shown = listSome(mismatches.map((row) => `${row.cellId}: ${row.detail}`), '; ')
+    const shown = listSome(
+      mismatches.map((row) => `${row.cellId}: ${row.detail}`),
+      '; ',
+    )
     super(
       `${mismatches.length} paired conversation(s) did not meet the same simulated user ` +
         `on the same seed, so the comparison is refused (${shown})`,

@@ -33,11 +33,7 @@ import { runTaskId } from '../trace/emitter'
 import type { Run } from '../trace/schema'
 import type { Trajectory } from '../trajectory'
 import { driverViewMessages, requestUserReply } from './conversation'
-import {
-  DEFAULT_USER_ENDING,
-  type SimulatedUserOptions,
-  simulatedUserSetup,
-} from './rollout'
+import { DEFAULT_USER_ENDING, type SimulatedUserOptions, simulatedUserSetup } from './rollout'
 import type {
   MultishotPersona,
   MultishotTransportRequest,
@@ -101,7 +97,9 @@ export function recordedUserTurns(
     seen.add(turn)
     turns.push({
       conversationId: trajectory.runId,
-      ...(taskId === undefined ? {} : { taskId, contextDigest: userTurnContextDigest({ taskId, context }) }),
+      ...(taskId === undefined
+        ? {}
+        : { taskId, contextDigest: userTurnContextDigest({ taskId, context }) }),
       turn,
       context,
       realMessage: last.content,
@@ -455,7 +453,9 @@ function sampleTurns(
 ): RecordedUserTurn[] {
   if (sample === undefined || sample >= turns.length) return [...turns]
   if (!Number.isSafeInteger(sample) || sample < 1) {
-    throw new RangeError(`measureSimulatorRealism: sample must be a positive integer, got ${sample}`)
+    throw new RangeError(
+      `measureSimulatorRealism: sample must be a positive integer, got ${sample}`,
+    )
   }
   const random = makeRng(seed ?? 0)
   const order = turns.map((_, index) => index)

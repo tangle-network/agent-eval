@@ -2,14 +2,32 @@
 
 export { DEFAULT_JUDGE_MODEL } from '../analyst/chat-client'
 export {
+  AdversarialSplitError,
+  type AdversarialUserOptions,
+  type AdversarialUserResult,
+  improveAdversarialUser,
+} from './adversarial-user'
+export {
   type MultishotConversation,
   type MultishotConversationDriver,
   type MultishotLegSpend,
   type MultishotLegTokens,
   runMultishotConversation,
 } from './conversation'
+export {
+  AdversarialScenarioInHeldOutError,
+  assertHeldOutExcludesAdversarial,
+  assertSameSimulatedUser,
+  type ConversationGateOptions,
+  type ConversationJudgeOptions,
+  conversationGate,
+  conversationJudge,
+  type SimulatedUserMismatch,
+  SimulatedUserMismatchError,
+  UserSideObjectiveError,
+} from './conversation-conditions'
+export { type ConversationEvidence, describeConversation } from './conversation-evidence'
 export { estimateMultishotCost } from './cost'
-
 export {
   DEFAULT_CODER_MODEL,
   type DefaultCoderConfig,
@@ -18,7 +36,6 @@ export {
   type DefaultToolsConfig,
   defaultDelegationTools,
 } from './default-tools'
-
 export {
   type JudgeDimension,
   type JudgeRunResult,
@@ -41,25 +58,6 @@ export {
   runMultishotMatrix,
 } from './matrix'
 export { type MultishotShot, type RunMultishotOptions, runMultishot } from './multishot'
-export {
-  AdversarialSplitError,
-  type AdversarialUserOptions,
-  type AdversarialUserResult,
-  improveAdversarialUser,
-} from './adversarial-user'
-export {
-  AdversarialScenarioInHeldOutError,
-  assertHeldOutExcludesAdversarial,
-  assertSameSimulatedUser,
-  type ConversationGateOptions,
-  type ConversationJudgeOptions,
-  conversationGate,
-  conversationJudge,
-  type SimulatedUserMismatch,
-  SimulatedUserMismatchError,
-  UserSideObjectiveError,
-} from './conversation-conditions'
-export { type ConversationEvidence, describeConversation } from './conversation-evidence'
 export {
   type MeasureSimulatorRealismOptions,
   measureSimulatorRealism,

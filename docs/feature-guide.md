@@ -34,6 +34,8 @@ Evaluation measures whether the result met its requirements, whether another att
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
 | “Which optimization procedure wins?” | `compareOptimizationMethods` | Runs complete methods on shared train and selection cases, then compares them on separate final cases. |
 | “Improve a multi-turn agent with candidates from my runtime.” | `runImprovementLoop` | Evaluates caller-generated candidates and applies a separate release rule. |
+| “Improve an agent over conversations with a simulated user.” | `multishotRollout` with `selfImprove`, `conversationJudge`, `conversationGate` | Each cell is one conversation under a fixed simulated user; see [multi-turn optimization](./multi-turn-optimization.md). |
+| “Is my simulated user realistic?” | `measureSimulatorRealism` | A calibrated judge picks the real user's message at recorded turns; 50% is indistinguishable. |
 | “Improve prompts, then code if prompts plateau.” | `gepaOptimizationMethod` or `externalTextOptimizationMethod` for the prompt; agent-runtime's worktree path for the code | Text search stays here; executable code changes belong to the runtime. |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
 | “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript apps. |

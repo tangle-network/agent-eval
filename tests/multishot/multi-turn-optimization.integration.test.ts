@@ -240,7 +240,10 @@ describe('evidence for reflection', () => {
 
     const observedPath = join(runDir, 'gepa-observed.json')
     const gepa = gepaOptimizationMethod<RefundScenario, ConversationArtifact>({
-      recipe: { kind: 'engine', run: { engine: 'best_of_n', maxEvaluations: 1, maxProposerCostUsd: 1 } },
+      recipe: {
+        kind: 'engine',
+        run: { engine: 'best_of_n', maxEvaluations: 1, maxProposerCostUsd: 1 },
+      },
       objective: 'Resolve the refund in as few turns as the customer needs.',
       evaluationId: 'multi-turn-evidence',
       describeScenario: (scenario) => ({ persona: scenario.persona.id }),
