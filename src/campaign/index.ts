@@ -308,12 +308,16 @@ export {
   type ProfileMatrixCostAxis,
   type ProfileMatrixErrorOverlap,
   type ProfileMatrixFactorEffect,
+  type ProfileMatrixFamily,
   type ProfileMatrixInterval,
   type ProfileMatrixPairedDifference,
+  type ProfileMatrixPairwiseShare,
   type ProfileMatrixPower,
   type ProfileMatrixProfileStats,
   type ProfileMatrixReportOptions,
+  type ProfileMatrixRunStability,
   type ProfileMatrixSliceCell,
+  type ProfileMatrixVerdict,
 } from './presets/profile-matrix-analysis'
 export { renderProfileMatrixReport } from './presets/profile-matrix-report'
 export {

@@ -9,6 +9,7 @@ import {
   finalizeProfileMatrix,
   type JudgeConfig,
   type ProfileMatrixReportOptions,
+  type ProfileMatrixRunStability,
   raceProfileMatrix,
   renderProfileMatrixReport,
   runProfileMatrixSegment,
@@ -18,9 +19,11 @@ import { type AgentProfile, agentProfileId } from '../../src/index'
 
 /**
  * Five profiles over 32 cases in 16 two-case dockets. Answers are a fixed
- * function of profile and case, so every number the page shows has an exact
- * expected value. `weak` is never right and `strong` misses two cases in
+ * function of profile, case and run, so every number the page shows has an
+ * exact expected value. `weak` is never right and `strong` misses two cases in
  * different dockets, so any first batch of eight resolves `weak` as worse.
+ * Run 0 is the same for every profile; later runs of `base` and `flash` flip
+ * a fixed set of cases, the rerun noise the stability panel measures.
  */
 const SPECS = {
   base: { model: 'a', effort: 'low', harness: 'box', accuracy: 0.65 },
@@ -35,6 +38,8 @@ const SLICES = ['dismiss', 'summary', 'compel', 'strike']
 
 interface Answer {
   correct: boolean
+  /** Label index; a wrong label depends on the run's parity, so two wrong runs can differ. */
+  answer: number
   probability: number
 }
 
@@ -75,6 +80,17 @@ function isRight(name: Name, caseIndex: number): boolean {
   return unit(`${name}:${caseIndex}`) < SPECS[name].accuracy
 }
 
+/** A later run flips cases: `base` run 1 each case 3 mod 8, `flash` run r each case r mod 8. */
+function isRightIn(name: Name, caseIndex: number, rep: number): boolean {
+  const flipped =
+    (name === 'base' && rep === 1 && caseIndex % 8 === 3) ||
+    (name === 'flash' && rep > 0 && caseIndex % 8 === rep)
+  return isRight(name, caseIndex) !== flipped
+}
+
+const answerIn = (name: Name, caseIndex: number, rep: number) =>
+  isRightIn(name, caseIndex, rep) ? caseIndex % 3 : ((caseIndex % 3) + 1 + (rep % 2)) % 3
+
 const accuracy = (name: Name) =>
   scenarios.filter((s) => isRight(name, indexOf(s.id))).length / scenarios.length
 
@@ -91,10 +107,15 @@ const judge: JudgeConfig<Answer, Scenario> = {
   judgeVersion: 'race-report-fixture/1',
   dimensions: [
     { key: 'correct', description: 'the answer matches the ruling' },
+    { key: 'answer', description: 'the label the profile answered' },
     { key: 'probability', description: 'the profile’s forecast that it is right' },
   ],
   score: ({ artifact }) => ({
-    dimensions: { correct: artifact.correct ? 1 : 0, probability: artifact.probability },
+    dimensions: {
+      correct: artifact.correct ? 1 : 0,
+      answer: artifact.answer,
+      probability: artifact.probability,
+    },
     composite: artifact.correct ? 1 : 0,
     notes: '',
   }),
@@ -113,12 +134,14 @@ function dispatchFor(calls: string[]) {
     await new Promise((resolve) =>
       setTimeout(resolve, (high ? 8 : 2) + (spec.harness === 'box' ? 2 : 0)),
     )
-    const correct = isRight(name, indexOf(scenario.id))
+    const correct = isRightIn(name, indexOf(scenario.id), context.rep)
+    const answer = answerIn(name, indexOf(scenario.id), context.rep)
     const paid = await context.cost.runPaidCall({
       actor: 'fixture-agent',
       model: modelId(name),
       execute: async () => ({
         correct,
+        answer,
         probability: correct ? (name === 'strong' ? 0.9 : 0.7) : name === 'strong' ? 0.4 : 0.6,
       }),
       receipt: () => ({
@@ -134,7 +157,7 @@ function dispatchFor(calls: string[]) {
   }
 }
 
-function plan() {
+function plan(reps = 1) {
   return createProfileMatrixPlan<Scenario, Answer>({
     profiles,
     scenarios,
@@ -142,6 +165,7 @@ function plan() {
     commitSha: 'fixture-commit',
     dispatchRef: 'race-report-fixture/1',
     seed: 7,
+    reps,
   })
 }
 
@@ -303,11 +327,57 @@ describe('profile matrix race and decision page', () => {
     expect(analysis.power?.detectable).toBeGreaterThan(0)
     expect(analysis.power?.detectable).toBeLessThanOrEqual(1)
 
+    // One run each and four comparisons in the family. strong's nominal interval excludes zero but
+    // its p does not pass Holm over four, so it is a candidate; against the baseline alone, better.
+    expect(analysis.family).toEqual({ method: 'holm', alpha: 1 - 0.95, comparisons: 4 })
+    expect(analysis.profiles.every((p) => p.runs === 1)).toBe(true)
+    expect(analysis.stability).toEqual([])
+    const statsOf = (name: Name) => analysis.profiles.find((p) => p.profileId === id[name])!
+    expect(NAMES.map((name) => statsOf(name).verdict)).toEqual([
+      undefined,
+      'candidate',
+      'unresolved',
+      'unresolved',
+      'worse',
+    ])
+    expect(statsOf('strong').vsBaseline?.low).toBeGreaterThan(0)
+    expect(statsOf('strong').adjustedPValue).toBeGreaterThan(0.05)
+    const byP = NAMES.slice(1)
+      .map(statsOf)
+      .sort((x, y) => x.vsBaseline!.pValue! - y.vsBaseline!.pValue!)
+    let holmBound = 0
+    byP.forEach((p, rank) => {
+      holmBound = Math.max(holmBound, Math.min(1, p.vsBaseline!.pValue! * (byP.length - rank)))
+      expect(p.adjustedPValue).toBeCloseTo(holmBound, 12)
+    })
+    const strongAlone = analyzeProfileMatrix({ ...options, profiles: [id.base, id.strong] })
+    expect(strongAlone.family.comparisons).toBe(1)
+    expect(strongAlone.profiles[1]).toMatchObject({
+      verdict: 'better',
+      adjustedPValue: statsOf('strong').vsBaseline!.pValue,
+    })
+
     const html = renderProfileMatrixReport(options)
     expect(html.startsWith('<!doctype html>')).toBe(true)
+    expect(html).toContain(
+      'Better than the baseline at familywise 5% (Holm) over 4 comparisons: none.',
+    )
+    const strongDelta = (accuracy('strong') - accuracy('base')).toFixed(3)
+    expect(html).toContain(
+      `adjustment: ${id.strong} (+${strongDelta}, n 32, 1 run). Unresolved: 2.`,
+    )
+    expect(html).toContain(`Worse: ${id.weak} (-${accuracy('base').toFixed(3)}, n 32, 1 run).`)
+    expect(html).toContain('Holm passes the smallest p only at 0.0125 (5% ÷ 4) or below')
+    expect(html).toContain(
+      '0 better and 1 worse at familywise 5% (Holm) over 4 comparisons, 1 candidate whose nominal ' +
+        '95% interval excludes zero, 2 unresolved',
+    )
+    expect(html).toContain('No profile was run more than once')
+    expect(html).toContain('<th>Runs</th>')
     const headings = [
       'Frontier',
       'Profiles',
+      'Run-to-run stability',
       'Factor main effects',
       'Slices',
       'Error overlap',
@@ -395,6 +465,8 @@ describe('profile matrix race and decision page', () => {
     expect(analysis.errorOverlap).toHaveLength(3)
     expect(analysis.difficulty.every((item) => item.scored === 3)).toBe(true)
     expect(analysis.power?.n).toBe(32)
+    // Partial-coverage profiles are compared with the baseline too, so they are in the family.
+    expect(analysis.family.comparisons).toBe(4)
 
     const looser = analyzeProfileMatrix({ ...options, minCoverage: 0.7 })
     expect(looser.panelProfiles).toEqual([id.base, id.strong, id.flash, id['flash-high']])
@@ -407,6 +479,101 @@ describe('profile matrix race and decision page', () => {
     expect(html.indexOf('<h2>Partial coverage</h2>')).toBeGreaterThan(
       html.indexOf('<h2>Profiles</h2>'),
     )
+  })
+
+  it('reads repeated runs as replicates of one profile and shows how far its runs differ', async () => {
+    const runsOf: Record<Name, number[]> = {
+      base: [0, 1],
+      strong: [0],
+      flash: [0, 1, 2],
+      'flash-high': [0],
+      weak: [0],
+    }
+    const current = plan(3)
+    const nameOfId = new Map(NAMES.map((name) => [id[name], name]))
+    const segment = await runProfileMatrixSegment({
+      plan: current,
+      segmentId: 'replicates',
+      rows: current.rows
+        .filter((row) => runsOf[nameOfId.get(row.profileId)!].includes(row.rep))
+        .map((row) => row.rowId),
+      dispatch: dispatchFor([]),
+      runDir: runDir(),
+      maxConcurrency: 4,
+    })
+    expect(segment.matrix.records).toHaveLength(32 * 8)
+    const options: ProfileMatrixReportOptions = {
+      source: segment.matrix,
+      baseline: id.base,
+      clusters,
+      answerOf: (record) => String(record.outcome.raw['verdict.answer']),
+    }
+    const analysis = analyzeProfileMatrix(options)
+    expect(analysis.profiles.map((p) => p.runs)).toEqual(NAMES.map((name) => runsOf[name].length))
+
+    // A case scores its mean over the profile's runs, so each difference is between run means.
+    const indexes = scenarios.map((s) => indexOf(s.id))
+    const runMean = (name: Name, i: number) =>
+      runsOf[name].filter((rep) => isRightIn(name, i, rep)).length / runsOf[name].length
+    for (const name of NAMES.slice(1)) {
+      const stats = analysis.profiles.find((p) => p.profileId === id[name])!
+      const expected = indexes.reduce((sum, i) => sum + runMean(name, i) - runMean('base', i), 0)
+      expect(stats.vsBaseline?.estimate).toBeCloseTo(expected / 32, 12)
+    }
+
+    // Stability straight from the fixture's flips, every pair of runs on all 32 cases.
+    const runAccuracy = (name: Name, rep: number) =>
+      indexes.filter((i) => isRightIn(name, i, rep)).length / 32
+    const answersDiffer = (name: Name, a: number, b: number) =>
+      indexes.filter((i) => answerIn(name, i, a) !== answerIn(name, i, b)).length / 32
+    expect(analysis.stability.map((s) => s.profileId)).toEqual([id.base, id.flash])
+    const [base, flash] = analysis.stability as [
+      ProfileMatrixRunStability,
+      ProfileMatrixRunStability,
+    ]
+    expect(base).toMatchObject({
+      runs: 2,
+      n: 32,
+      runQuality: [
+        { run: 0, quality: runAccuracy('base', 0) },
+        { run: 1, quality: runAccuracy('base', 1) },
+      ],
+      correctnessDisagreement: { mean: 0.125, min: 0.125, max: 0.125 },
+    })
+    expect(base.spread).toBeCloseTo(Math.abs(runAccuracy('base', 0) - runAccuracy('base', 1)), 12)
+    expect(base.answerDisagreement?.mean).toBeCloseTo(answersDiffer('base', 0, 1), 12)
+    expect(base.answerDisagreement!.mean).toBeGreaterThan(0.125)
+    expect(flash).toMatchObject({ runs: 3, n: 32 })
+    expect(flash.correctnessDisagreement).toMatchObject({ min: 0.125, max: 0.25 })
+    expect(flash.correctnessDisagreement?.mean).toBeCloseTo(1 / 6, 12)
+    const flashPairs = [
+      answersDiffer('flash', 0, 1),
+      answersDiffer('flash', 0, 2),
+      answersDiffer('flash', 1, 2),
+    ]
+    expect(flash.answerDisagreement?.mean).toBeCloseTo(
+      flashPairs.reduce((sum, share) => sum + share, 0) / 3,
+      12,
+    )
+    // For right/wrong scores the margin is z·√(d/n), d the correctness disagreement, n 32 cases.
+    expect(base.rerunMargin).toBeCloseTo(1.959963984540054 * Math.sqrt(0.125 / 32), 6)
+    expect(flash.rerunMargin).toBeCloseTo(1.959963984540054 * Math.sqrt(1 / 6 / 32), 6)
+    const withoutAnswers = analyzeProfileMatrix({ ...options, answerOf: undefined })
+    expect(withoutAnswers.stability.map((s) => s.answerDisagreement)).toEqual([null, null])
+
+    const html = renderProfileMatrixReport(options)
+    const at = (heading: string) => html.indexOf(`<h2>${heading}</h2>`)
+    expect(at('Run-to-run stability')).toBeGreaterThan(at('Profiles'))
+    expect(at('Run-to-run stability')).toBeLessThan(at('Factor main effects'))
+    expect(html).toContain('<th>Answers differ</th>')
+    expect(html).toContain(
+      'two runs of one profile disagree on correctness on 12.5% to 16.7% of cases, so on the panel’s ' +
+        `32 common cases two runs with nothing changed differ in quality by up to about ` +
+        `${base.rerunMargin!.toFixed(3)} to ${flash.rerunMargin!.toFixed(3)} in 95% of reruns`,
+    )
+    const weakDelta = indexes.reduce((sum, i) => sum + runMean('base', i), 0) / 32
+    expect(html).toContain(`Worse: ${id.weak} (-${weakDelta.toFixed(3)}, n 32, 1 run).`)
+    expect(html).toContain('2 profiles run more than once')
   })
 
   it('stops before a batch that would pass the cell budget', async () => {
