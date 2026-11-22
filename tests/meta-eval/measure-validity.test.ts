@@ -9,11 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { sealMeasureValidityPlan, verifyMeasureValidityPlan } from '../../src/experiment'
-import {
-  guardDrift,
-  InMemoryOutcomeStore,
-  measureValidityStudy,
-} from '../../src/meta-eval'
+import { guardDrift, InMemoryOutcomeStore, measureValidityStudy } from '../../src/meta-eval'
 import { rocAuc, spearmanR } from '../../src/statistics'
 import { makeRng } from '../../src/statistics/internal'
 import {

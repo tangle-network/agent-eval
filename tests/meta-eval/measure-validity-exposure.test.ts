@@ -196,15 +196,12 @@ describe('measureValidityStudy: right-censored outcomes', () => {
 
       const report = await study(draws, plan(WINDOW))
       const openAtCut = draws.filter(
-        (draw) =>
-          draw.change.at < cut && draw.change.at + WINDOW > cut && draw.capturedAt <= cut,
+        (draw) => draw.change.at < cut && draw.change.at + WINDOW > cut && draw.capturedAt <= cut,
       ).length
       expect(openAtCut).toBeGreaterThan(100)
       expect(report.excludedObservations.windowOpenAtCut).toBe(openAtCut)
       const pair = pairOf(report, 'm', 'fixed')
-      expect(pair.preCut.n).toBe(
-        draws.filter((draw) => draw.change.at + WINDOW <= cut).length,
-      )
+      expect(pair.preCut.n).toBe(draws.filter((draw) => draw.change.at + WINDOW <= cut).length)
       expect(pair.direction).toBe('higher')
       expect(pair.label).toBe('predicts')
     },
