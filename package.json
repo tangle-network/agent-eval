@@ -187,6 +187,11 @@
       "import": "./dist/app-grade/index.js",
       "default": "./dist/app-grade/index.js"
     },
+    "./world": {
+      "types": "./dist/world/index.d.ts",
+      "import": "./dist/world/index.js",
+      "default": "./dist/world/index.js"
+    },
     "./adapters/http": {
       "types": "./dist/adapters/http.d.ts",
       "import": "./dist/adapters/http.js",
