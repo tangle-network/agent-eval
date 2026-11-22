@@ -32,6 +32,14 @@ import {
   wilson,
 } from '../../statistics'
 import { mean } from '../../statistics/mean'
+import {
+  type ProfileMatrixFamily,
+  type ProfileMatrixRunStability,
+  type ProfileMatrixVerdict,
+  runOf,
+  runStability,
+  withVerdicts,
+} from './profile-matrix-stability'
 import type { ProfileMatrixRaceResult } from './race-profile-matrix'
 
 /** A cost drawn against quality. `seconds` is the latency axis. */
@@ -68,6 +76,11 @@ export interface ProfileMatrixReportOptions {
   passScore?: number
   /** The profile's own forecast, in [0, 1], that its answer is correct, when it returned one. */
   probabilityOf?: (record: RunRecord) => number | undefined
+  /**
+   * The answer a record gave, such as its label, so the run-to-run panel can count answers that
+   * change between runs; without it the panel counts only changes of correctness.
+   */
+  answerOf?: (record: RunRecord) => string | undefined
   /** A race over these profiles: the page prints its elimination log and its selection-bias note. */
   race?: ProfileMatrixRaceResult
   /** Interval level. Default 0.95. */
@@ -96,9 +109,19 @@ export interface ProfileMatrixPairedDifference extends ProfileMatrixInterval {
   casesToResolve: number | null
 }
 
+export {
+  intervalSide,
+  type ProfileMatrixFamily,
+  type ProfileMatrixPairwiseShare,
+  type ProfileMatrixRunStability,
+  type ProfileMatrixVerdict,
+} from './profile-matrix-stability'
+
 export interface ProfileMatrixProfileStats {
   profileId: string
   factors: Readonly<Record<string, string>>
+  /** Distinct runs among this profile's records by `outcome.raw.rep`; a record without one is run 0. */
+  runs: number
   casesAttempted: number
   casesScored: number
   /** Share of this profile's records without a score: a dispatch or judge failure. */
@@ -117,6 +140,10 @@ export interface ProfileMatrixProfileStats {
   quality: ProfileMatrixInterval | null
   /** Paired difference from the baseline on the cases both scored; absent on the baseline. */
   vsBaseline?: ProfileMatrixPairedDifference
+  /** Holm-adjusted `vsBaseline.pValue` over the family; null without a p-value. */
+  adjustedPValue?: number | null
+  /** Standing against the baseline after the family adjustment; absent on the baseline. */
+  verdict?: ProfileMatrixVerdict
   /** Mean per common case; null outside the panel or when a record in it did not measure that cost. */
   costPerCase: Record<ProfileMatrixCostAxis, number | null>
   /** Common-set total divided by the common cases answered correctly; null outside the panel or with none correct. */
@@ -215,6 +242,10 @@ export interface ProfileMatrixAnalysis {
   axes: ProfileMatrixAxisSummary[]
   /** Every profile, baseline first; `panel` marks the panel profiles. */
   profiles: ProfileMatrixProfileStats[]
+  /** The comparisons each profile's `verdict` is adjusted over. */
+  family: ProfileMatrixFamily
+  /** Every profile with two or more runs, in profile order. */
+  stability: ProfileMatrixRunStability[]
   factorEffects: ProfileMatrixFactorEffect[]
   /** Slice names, the slice with the most common cases first. */
   slices: string[]
@@ -265,10 +296,20 @@ interface Context {
  * Compare profile-matrix cells against one baseline: quality with clustered
  * intervals, paired differences, the cost and latency frontiers, factor main
  * effects, slices, error overlap, item difficulty, calibration and power.
+ *
+ * A profile run more than once (its records carry `outcome.raw.rep`, as campaign
+ * records do) scores each case at its mean over the runs, and `stability` measures
+ * how far its runs differ with nothing changed. Each verdict against the baseline
+ * is Holm-adjusted over every profile-against-baseline comparison, so with dozens
+ * of profiles one lucky interval reads as a candidate, not a win.
  */
 export function analyzeProfileMatrix(options: ProfileMatrixReportOptions): ProfileMatrixAnalysis {
   const ctx = buildContext(options)
-  const profiles = ctx.profileIds.map((profileId) => profileStats(ctx, profileId))
+  const { profiles, family } = withVerdicts(
+    ctx.profileIds.map((profileId) => profileStats(ctx, profileId)),
+    options.baseline,
+    1 - ctx.rule.level,
+  )
   const panel = profiles.filter((stats) => stats.panel)
   const slices = sliceNames(ctx)
   return {
@@ -284,6 +325,15 @@ export function analyzeProfileMatrix(options: ProfileMatrixReportOptions): Profi
     commonClusters: new Set(ctx.common.map((caseId) => ctx.rule.clusterOf(caseId))).size,
     axes: axisSummaries(ctx, panel),
     profiles,
+    family,
+    stability: runStability({
+      profileIds: ctx.profileIds,
+      recordsByProfile: ctx.recordsByProfile,
+      answerOf: options.answerOf,
+      level: ctx.rule.level,
+      passScore: ctx.rule.passScore,
+      commonCases: ctx.common.length,
+    }),
     factorEffects: factorEffects(ctx),
     slices,
     sliceCells: sliceCells(ctx, slices),
@@ -531,6 +581,7 @@ function profileStats(ctx: Context, profileId: string): ProfileMatrixProfileStat
   const base = {
     profileId,
     factors: ctx.options.factors?.[profileId] ?? {},
+    runs: new Set(records.map(runOf)).size,
     casesAttempted: ctx.costs.get(profileId)!.size,
     casesScored: own.length,
     failureRate: records.filter((r) => runTaskScore(r) === undefined).length / records.length,
