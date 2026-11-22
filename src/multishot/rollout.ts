@@ -284,7 +284,7 @@ export function multishotRollout<TScenario extends ConversationScenario>(
 ): MultishotRollout<TScenario> {
   const profileOf = opts.profile ?? textSurfaceProfile
   return {
-    agent: (surface, scenario, ctx) =>
+    agent: async (surface, scenario, ctx) =>
       converse(opts, profileOf(surface, scenario), scenario, scenario.userPlan, 'agent', ctx),
     dispatchRef: rolloutDispatchRef(opts, 'agent'),
     simulatedUser: (scenario) =>
@@ -301,7 +301,7 @@ export function userSideRollout<TScenario extends ConversationScenario>(
   agentProfile: AgentProfile,
 ): Omit<MultishotRollout<TScenario>, 'simulatedUser'> {
   return {
-    agent: (surface, scenario, ctx) => {
+    agent: async (surface, scenario, ctx) => {
       if (typeof surface !== 'string') {
         throw new TypeError('adversarial user: the plan surface must be text')
       }

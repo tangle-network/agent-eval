@@ -301,7 +301,9 @@ export interface MeasureSimulatorRealismOptions {
   turns: readonly RecordedUserTurn[]
   driver: RealismDriver
   judge: SimulatorRealismJudge
-  /** Ledger run the judgments are recorded under. */
+  /** Ledger run the judgments are recorded under. Repeating a measurement
+   *  under the same run replays its recorded judgments, and a changed input
+   *  under it counts as a failed judgment, so use a new run per measurement. */
   runId: string
   /** ISO-8601 time stamped on the judgments. Default: now. */
   at?: string

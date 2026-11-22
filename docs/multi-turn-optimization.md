@@ -65,7 +65,7 @@ A dispatch or judge failure is counted in `failedCells`, never as an agent failu
 
 1. `recordedUserTurns(trajectory, run)` reads each real user turn and the visible context before it from a recorded trace. A run whose scenario id names its task gets a `contextDigest` over the task and context; one without a task identity gets none.
 2. The driver writes the next message from that context. `simulatedUserDriver()` runs the exact prompt, point of view and model rotation a rollout uses.
-3. `simulatorRealismJudge()` is a System One decision point at the turn layer. It sees the context and both messages, in both orders, and picks the one the real user wrote. Its calibration must reach `DECISION_POINT_MIN_KAPPA` and carry the `questionDigest` of this exact question and served model; otherwise every judgment is recorded as uncalibrated.
+3. `simulatorRealismJudge()` is a System One decision point at the turn layer. It sees the context and both messages, in both orders, and picks the one the real user wrote. Its calibration must reach `DECISION_POINT_MIN_KAPPA` and carry the `questionDigest` of this exact question and served model; otherwise every judgment is recorded as uncalibrated. Build that digest with `decisionQuestionDigest` from `/systemone` over `SIMULATOR_REALISM_QUESTIONS.real`, the text the judge asks, so a calibration set labelled under other wording cannot certify it.
 
 Accuracy is reported per independent conversation with a cluster bootstrap interval. 50% means the judge cannot tell the simulator from real users.
 A row without a context digest, or with a digest its context does not match, is refused with `SharedContextIdentityError` before any driver call.
