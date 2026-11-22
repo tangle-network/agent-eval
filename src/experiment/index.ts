@@ -209,6 +209,17 @@ export {
   type FunnelStageInput,
   renderFunnelTable,
 } from './funnel'
+// ── Measure validity plan: cut, level, counts and outcomes sealed before the test data ──
+export {
+  type MeasureValidityMeasure,
+  type MeasureValidityOutcome,
+  type MeasureValidityPlan,
+  type MeasureValidityPlanInput,
+  type MeasureValiditySelectionRules,
+  type SealedMeasureValidityPlan,
+  sealMeasureValidityPlan,
+  verifyMeasureValidityPlan,
+} from './measure-validity-plan'
 // ── Cluster-aware power with refusal ─────────────────────────────────
 export {
   assertDesignAdequate,

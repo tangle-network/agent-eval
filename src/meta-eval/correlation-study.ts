@@ -12,11 +12,12 @@ import type { TraceStore } from '../trace/store'
 import {
   assertUniqueObservationIds,
   correlationSummary,
+  groupOutcomesByRun,
   hasVariation,
   reduceOutcomeMetric,
   validateObservationOptions,
 } from './outcome-observations'
-import type { DeploymentOutcome, OutcomeFilter, OutcomeStore } from './outcome-store'
+import type { OutcomeFilter, OutcomeStore } from './outcome-store'
 
 export interface EvalMetricSpec {
   id: string
@@ -101,13 +102,7 @@ export async function correlationStudy(
     runs.map((run) => run.runId),
     'runId',
   )
-  const outcomes = await outcomeStore.list(options.outcomeFilter)
-  const outcomesByRun = new Map<string, DeploymentOutcome[]>()
-  for (const o of outcomes) {
-    const arr = outcomesByRun.get(o.runId) ?? []
-    arr.push(o)
-    outcomesByRun.set(o.runId, arr)
-  }
+  const outcomesByRun = groupOutcomesByRun(await outcomeStore.list(options.outcomeFilter))
 
   const pairs: Array<{ evalMetric: string; outcomeMetric: string; xs: number[]; ys: number[] }> = []
   for (const em of extractors) {

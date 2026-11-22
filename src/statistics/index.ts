@@ -2,6 +2,7 @@
 
 export * from './agreement-irr'
 export * from './cluster'
+export * from './clustered-association'
 export * from './clustered-paired'
 export * from './comparison-effects'
 export * from './descriptive'

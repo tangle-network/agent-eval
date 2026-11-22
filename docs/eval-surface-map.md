@@ -52,6 +52,7 @@ Coverage reports missing, failed, and zero-score rows separately.
 | Test a grader with known incorrect items | `/meta-eval` | [`definePlant()`, `seedPlants()`, `catchRate()`](./plants.md) |
 | Measure agreement and known bias patterns | `/meta-eval` | `calibrateJudgeContinuous()`, `continuousAgreement()`, `positionalBias()`, `verbosityBias()`, `selfPreference()` |
 | Relate scores to declared deployment outcomes | `/meta-eval` | `rubricPredictiveValidity()`, `correlationStudy()`, `calibrationFromPairs()`, `calibrationCurve()` |
+| Choose which recorded measures to climb from later outcomes, held out by time | `/meta-eval`, `/experiment` | `measureValidityStudy()`, `guardDrift()`, `sealMeasureValidityPlan()` |
 
 The top-level `claim` declares the independent unit for ordinary reusable comparisons.
 Include `minimumEffect` when the decision concerns a practical improvement.
