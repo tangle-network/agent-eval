@@ -337,8 +337,10 @@ export function selectMeasures(
       continue
     }
     // The label is statistical; climbing also needs an effect worth the effort.
+    // A plan sealed before the floor existed has none.
+    const floor = plan.selection.minEffect?.[statistic]
     const association = pair.postCut.association!
-    if (association.estimate - association.null < plan.selection.minEffect[statistic]) {
+    if (floor !== undefined && association.estimate - association.null < floor) {
       excluded.push({ measure: pair.measure, reason: 'below-minimum-effect' })
       continue
     }

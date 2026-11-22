@@ -137,6 +137,8 @@ const report = await measureValidityStudy({ plan, changes: [change /* , ... */],
 
 Seal the plan before reading changes made after the cut, and keep its digest where an independent reader can see it.
 The study refuses a plan whose seal does not verify; the seal proves identity, not when it was made.
+A plan sealed now carries `format: 2`.
+A plan sealed before `format` existed still verifies under the digest it was sealed with and runs under the rules it was sealed with: no outcome window, exposure or minimum effect.
 [`examples/measure-validity`](../examples/measure-validity/) runs the whole path on generated history.
 
 The cut splits the changes.

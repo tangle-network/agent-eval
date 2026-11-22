@@ -8,6 +8,11 @@
  * different digest. A seal verifies identity, not when it was made: seal
  * before reading changes made after the cut, and keep the digest where an
  * independent reader can see it.
+ *
+ * A plan sealed now carries `format: 2`. A plan without it was sealed before
+ * outcome windows, exposures and the minimum effect existed: it still verifies
+ * under the digest it was sealed with and runs under the rules it was sealed
+ * with, so a seal outlives an upgrade.
  */
 
 import { ValidationError } from '../errors'
@@ -81,8 +86,12 @@ export interface MeasureValidityPlanSelection {
   maxMeasures: number
   minGain: number
   maxRedundancy: number
-  minEffect: { auc: number; spearman: number }
+  /** Absent on a plan sealed without `format`: no floor. */
+  minEffect?: { auc: number; spearman: number }
 }
+
+/** The format every plan is sealed in now. */
+const PLAN_FORMAT = 2
 
 export interface MeasureValidityPlanInput {
   id: string
@@ -119,6 +128,12 @@ export interface MeasureValidityPlanInput {
 
 /** A plan with every default resolved, as sealed. */
 export interface MeasureValidityPlan {
+  /**
+   * 2 on every plan sealed now. Absent on a plan sealed before it existed,
+   * which declares no outcome window, exposure or minimum effect and runs
+   * without them.
+   */
+  format?: 2
   id: string
   cut: number
   level: number
@@ -149,7 +164,7 @@ export function sealMeasureValidityPlan(
   input: MeasureValidityPlanInput,
   options: { sealedAt?: string } = {},
 ): SealedMeasureValidityPlan {
-  const plan = resolvePlan(input)
+  const plan = resolvePlan(input, PLAN_FORMAT)
   return {
     plan,
     digest: planDigest(plan),
@@ -162,7 +177,7 @@ export function sealMeasureValidityPlan(
 export function verifyMeasureValidityPlan(sealed: SealedMeasureValidityPlan): boolean {
   if (sealed?.algo !== 'sha256-rfc8785') return false
   try {
-    return planDigest(resolvePlan(sealed.plan)) === sealed.digest
+    return planDigest(resolvePlan(sealed.plan, sealed.plan.format)) === sealed.digest
   } catch {
     return false
   }
@@ -172,7 +187,13 @@ function planDigest(plan: MeasureValidityPlan): string {
   return hashCanonical(plan).slice('sha256:'.length)
 }
 
-function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
+/**
+ * Resolve the input under `format`. Without a format the plan is resolved
+ * exactly as it was before `format` existed, adding nothing, so its digest is
+ * the one it was sealed with.
+ */
+function resolvePlan(input: MeasureValidityPlanInput, format: unknown): MeasureValidityPlan {
+  const current = format === PLAN_FORMAT
   const problems: string[] = []
   const check = (ok: boolean, problem: string) => {
     if (!ok) problems.push(problem)
@@ -256,10 +277,22 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     maxMeasures: input.selection?.maxMeasures ?? 3,
     minGain: input.selection?.minGain ?? 0.01,
     maxRedundancy: input.selection?.maxRedundancy ?? 0.9,
-    minEffect: {
-      auc: input.selection?.minEffect?.auc ?? 0.05,
-      spearman: input.selection?.minEffect?.spearman ?? 0.1,
-    },
+    ...(current
+      ? {
+          minEffect: {
+            auc: input.selection?.minEffect?.auc ?? 0.05,
+            spearman: input.selection?.minEffect?.spearman ?? 0.1,
+          },
+        }
+      : {}),
+  }
+  if (!current) {
+    check(format === undefined, `format must be ${PLAN_FORMAT} or absent`)
+    check(
+      outcomes.every((outcome) => outcome.windowMs === undefined && outcome.exposure === undefined) &&
+        input.selection?.minEffect === undefined,
+      'a plan without format declares no outcome window, exposure or minimum effect',
+    )
   }
   check(Number.isSafeInteger(minJoined) && minJoined >= 3, 'minJoined must be an integer >= 3')
   check(Number.isSafeInteger(minUnits) && minUnits >= 2, 'minUnits must be an integer >= 2')
@@ -292,18 +325,20 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     selection.maxRedundancy > 0 && selection.maxRedundancy <= 1,
     'selection.maxRedundancy must be in (0,1]',
   )
+  const minEffect = selection.minEffect
   check(
-    selection.minEffect.auc >= 0 && selection.minEffect.auc < 0.5,
+    minEffect === undefined || (minEffect.auc >= 0 && minEffect.auc < 0.5),
     'selection.minEffect.auc must be in [0,0.5)',
   )
   check(
-    selection.minEffect.spearman >= 0 && selection.minEffect.spearman < 1,
+    minEffect === undefined || (minEffect.spearman >= 0 && minEffect.spearman < 1),
     'selection.minEffect.spearman must be in [0,1)',
   )
   if (problems.length > 0) {
     throw new ValidationError(`measure validity plan: ${problems.join('; ')}`)
   }
   return {
+    ...(current ? { format: PLAN_FORMAT } : {}),
     id: input.id,
     cut: input.cut,
     level: input.level,
