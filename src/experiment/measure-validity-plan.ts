@@ -13,12 +13,40 @@
 import { ValidationError } from '../errors'
 import { hashCanonical } from '../ledger-core/canonical'
 
+/**
+ * A measure the outcome grows with for a reason other than the quality being
+ * measured, such as a change's size for "a later fix touched it": a bigger
+ * change has more to fix. Every other measure is also tested inside bins of
+ * the exposure, so one that predicts only by tracking it is visible.
+ */
+export interface MeasureValidityExposure {
+  /** A planned measure id. */
+  measure: string
+  /** Bins with edges at the exposure's quantiles before the cut. Default 10. */
+  bins?: number
+}
+
 export interface MeasureValidityOutcome {
   /** Exact key in `DeploymentOutcome.metrics`. */
   id: string
   direction: 'higher-is-better' | 'lower-is-better'
   /** `binary` outcomes are 0 or 1 and use AUC; `continuous` outcomes use rank correlation. */
   kind: 'binary' | 'continuous'
+  /**
+   * Time after the change within which the outcome is decided. A change before
+   * the cut counts for this outcome only when `at + windowMs` is at or before
+   * the cut, whatever its value and capture time. Declare it whenever a caller
+   * records an event when it happens and its absence when the window closes:
+   * otherwise the changes just before the cut keep their events and lose their
+   * non-events, and the direction fitted there is biased toward the event.
+   */
+  windowMs?: number
+  exposure?: MeasureValidityExposure
+}
+
+/** An outcome as sealed: an exposure carries its resolved bin count. */
+export interface MeasureValidityPlanOutcome extends MeasureValidityOutcome {
+  exposure?: Required<MeasureValidityExposure>
 }
 
 export interface MeasureValidityMeasure {
@@ -80,7 +108,7 @@ export interface MeasureValidityPlan {
   id: string
   cut: number
   level: number
-  outcomes: MeasureValidityOutcome[]
+  outcomes: MeasureValidityPlanOutcome[]
   measures: MeasureValidityMeasure[]
   minJoined: number
   minUnits: number
@@ -141,10 +169,14 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     typeof input.level === 'number' && input.level > 0 && input.level < 1,
     'level must be in (0,1)',
   )
-  const outcomes = (input.outcomes ?? []).map((outcome) => ({
+  const outcomes: MeasureValidityPlanOutcome[] = (input.outcomes ?? []).map((outcome) => ({
     id: outcome.id,
     direction: outcome.direction,
     kind: outcome.kind,
+    ...(outcome.windowMs === undefined ? {} : { windowMs: outcome.windowMs }),
+    ...(outcome.exposure === undefined
+      ? {}
+      : { exposure: { measure: outcome.exposure.measure, bins: outcome.exposure.bins ?? 10 } }),
   }))
   check(outcomes.length > 0, 'at least one outcome is required')
   for (const outcome of outcomes) {
@@ -183,6 +215,22 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   }
   check(unique(outcomes.map((outcome) => outcome.id)), 'outcome ids must be unique')
   check(unique(measures.map((measure) => measure.id)), 'measure ids must be unique')
+  const measureIds = new Set(measures.map((measure) => measure.id))
+  for (const outcome of outcomes) {
+    check(
+      outcome.windowMs === undefined || (Number.isFinite(outcome.windowMs) && outcome.windowMs > 0),
+      `outcome ${outcome.id} windowMs must be finite and positive`,
+    )
+    if (outcome.exposure === undefined) continue
+    check(
+      measureIds.has(outcome.exposure.measure),
+      `outcome ${outcome.id} exposure must be a planned measure`,
+    )
+    check(
+      Number.isSafeInteger(outcome.exposure.bins) && outcome.exposure.bins >= 2,
+      `outcome ${outcome.id} exposure bins must be an integer >= 2`,
+    )
+  }
   const minJoined = input.minJoined ?? 100
   const minUnits = input.minUnits ?? 20
   const minMinority = input.minMinority ?? 20

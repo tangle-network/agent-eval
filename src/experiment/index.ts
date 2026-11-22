@@ -211,9 +211,11 @@ export {
 } from './funnel'
 // ── Measure validity plan: cut, level, counts and outcomes sealed before the test data ──
 export {
+  type MeasureValidityExposure,
   type MeasureValidityMeasure,
   type MeasureValidityOutcome,
   type MeasureValidityPlan,
+  type MeasureValidityPlanOutcome,
   type MeasureValidityPlanInput,
   type MeasureValiditySelectionRules,
   type SealedMeasureValidityPlan,
