@@ -18,7 +18,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `clusteredAssociation()` tests an AUC or rank correlation, pooled or within units, with a whole-unit bootstrap standard error and a two-sided or one-sided Student-t p-value on `units - 1` degrees of freedom; `associationEstimate()` returns the point statistic alone.
 - `correlationStudy()` and `rubricPredictiveValidity()` share outcome grouping and reduction with the new study; their results are unchanged.
 
-The 2.0.8 source tag failed one test cleanup hook on a loaded runner before npm and PyPI publication. 2.0.9 is the same release with test hooks given the test timeout.
+The 2.0.8 source tag failed one test cleanup hook on a loaded runner before npm and PyPI publication. 2.0.9 is that release plus the profile-matrix family verdict and run-stability changes merged after the tag (#1329), with test hooks given the test timeout.
 
 ## [2.0.7] — 2026-11-21
 
