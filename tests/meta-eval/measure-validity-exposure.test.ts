@@ -259,4 +259,67 @@ describe('measureValidityStudy: within-unit estimate', () => {
     expect(pair.label).toBe('predicts')
     expect(pair.reason).toBe('within-unit-untested')
   })
+
+  it.each([12, 57])(
+    'says the label rests on the pooled test when most units hold one outcome class (seed %i)',
+    async (seed) => {
+      // 60 sessions; in 45 every turn succeeds, so only the other 15 can hold both classes.
+      const rng = makeRng(seed)
+      const draws: Draw[] = []
+      for (let i = 0; i < 1200; i++) {
+        const session = Math.floor(rng() * 60)
+        const { capturedAt, ...change } = changeAt(i, `session-${session}`, rng)
+        const signal = normal(rng)
+        draws.push({
+          change: { ...change, measures: { m: signal + 0.3 * normal(rng) } },
+          capturedAt,
+          outcomes: { kept: session < 15 ? bernoulli(rng, sigmoid(1.5 * signal)) : 1 },
+        })
+      }
+      const report = await study(draws, { ...plan, cut: 600 * HOUR })
+      const pair = pairOf(report, 'm', 'kept')
+      expect(pair.postCut.units).toBe(60)
+      const within = pair.postCut.withinUnit!
+      expect(within.units).toBeGreaterThanOrEqual(2)
+      expect(within.units).toBeLessThanOrEqual(15)
+      expect(within.estimate).toBeGreaterThan(0.6)
+      expect(pair.postCut.withinUnitQValue).toBeNull()
+      expect(report.withinUnitTested).toBe(0)
+      expect(pair.label).toBe('predicts')
+      expect(pair.reason).toBe('within-unit-untested')
+    },
+  )
+})
+
+describe('measureValidityStudy: minimum effect to climb', () => {
+  it('admits a real but tiny effect on a large sample and does not climb it', async () => {
+    const rng = makeRng(23)
+    const draws: Draw[] = []
+    for (let i = 0; i < 30000; i++) {
+      const { capturedAt, ...change } = changeAt(i, `unit-${Math.floor(rng() * 200)}`, rng)
+      const weak = normal(rng)
+      const strong = normal(rng)
+      draws.push({
+        change: { ...change, measures: { weak, strong } },
+        capturedAt,
+        // A logistic slope of 0.075 gives an AUC near 0.52.
+        outcomes: { kept: bernoulli(rng, sigmoid(0.075 * weak + 0.8 * strong)) },
+      })
+    }
+    const report = await study(draws, {
+      cut: 15000 * HOUR,
+      level: 0.05,
+      outcomes: [{ id: 'kept', direction: 'higher-is-better', kind: 'binary' }],
+      measures: [{ id: 'weak' }, { id: 'strong' }],
+      resamples: 200,
+    })
+    expect(report.plan.selection.minEffect).toEqual({ auc: 0.05, spearman: 0.1 })
+    const weak = pairOf(report, 'weak', 'kept')
+    expect(weak.label).toBe('predicts')
+    expect(estimate(weak)).toBeGreaterThan(0.505)
+    expect(estimate(weak)).toBeLessThan(0.545)
+    const selection = report.selections[0]!
+    expect(selection.climb.map((row) => row.measure)).toEqual(['strong'])
+    expect(selection.excluded).toEqual([{ measure: 'weak', reason: 'below-minimum-effect' }])
+  })
 })
