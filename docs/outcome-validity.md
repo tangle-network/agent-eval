@@ -92,6 +92,75 @@ This ordering is exploratory and can conceal conflicts among outcomes.
 Inspect all `pairs` and use a target chosen before analysis for an automated recommendation.
 Confirm any proposed change with fresh evidence and fixed scoring rules.
 
+## Choose which measures to climb
+
+`rubricPredictiveValidity()` and `correlationStudy()` describe one association over all the data.
+`measureValidityStudy()` asks the question a climb needs: which of many recorded numbers predict an outcome decided later, on changes they were not chosen on, and which few to climb.
+
+```ts
+import { sealMeasureValidityPlan } from '@tangle-network/agent-eval/experiment'
+import { measureValidityStudy, type MeasuredChange } from '@tangle-network/agent-eval/meta-eval'
+
+const plan = sealMeasureValidityPlan({
+  id: 'which-numbers-predict-kept-changes',
+  cut: Date.parse('2026-10-01T00:00:00Z'),
+  level: 0.05,
+  outcomes: [{ id: 'kept', direction: 'higher-is-better', kind: 'binary' }],
+  measures: [{ id: 'review_depth' }, { id: 'test_delta', noise: 0.1, cost: 1 }],
+})
+
+const change: MeasuredChange = {
+  id: 'change-1842', // the outcome store joins it through DeploymentOutcome.runId
+  at: Date.parse('2026-10-03T12:00:00Z'),
+  unit: 'repository-17', // the independent unit; intervals resample whole units
+  measures: { review_depth: 3, test_delta: 0.4 }, // an absent key is unmeasured
+  movements: { test_delta: { before: 0.1, after: 0.5 } }, // optional
+}
+
+const report = await measureValidityStudy({ plan, changes: [change /* , ... */], outcomes })
+```
+
+Seal the plan before reading changes made after the cut, and keep its digest where an independent reader can see it.
+The study refuses a plan whose seal does not verify; the seal proves identity, not when it was made.
+[`examples/measure-validity`](../examples/measure-validity/) runs the whole path on generated history.
+
+The cut splits the changes.
+A change made before the cut fixes each measure's direction, its standardization and the selected subset, reading only outcomes captured by the cut.
+Every reported statistic comes from changes made at or after the cut, with those choices fixed.
+`excludedObservations` counts outcomes captured before their change, beyond `maxCaptureLagMs`, or after the cut for a change made before it.
+
+| Field | Meaning |
+|---|---|
+| `coverage` | Per measure: changes, measured changes and share, before and after the cut. An absent value is unmeasured, never zero. |
+| `pairs[].label` | `predicts`: the pooled test passes and so does the within-unit test where it can be estimated. `predicts-pooled-only`: the pooled test passes and the within-unit test does not, so the ranking may come from differences between units rather than between changes. `not-shown`: tested and not admitted. `insufficient`: not tested. |
+| `pairs[].reason` | Why a pair is not `predicts`: `below-minimum-count` (fewer than `minJoined`, default 100, joined changes after the cut), `too-few-units` (fewer than `minUnits`, default 20), `too-little-variation` (fewer than `minMinority`, default 20, joined changes after the cut differ from the measure's most common value: the smaller class of a two-valued measure), `no-pre-cut-direction`, `constant-after-cut`, `not-significant`, `direction-reversed` (the interval lies wholly past the null), `within-unit-not-shown`. |
+| `pairs[].postCut.association` | The pooled statistic: AUC for a binary outcome, Spearman for a continuous one, aligned so above the null favors the better outcome; whole-unit standard error, percentile interval and one-sided p-value from `clusteredAssociation()`. |
+| `pairs[].postCut.withinUnit` | The same statistic computed inside each unit and weighted by its comparable pairs; null when fewer than `minUnits` units hold a pair of changes with different outcomes. |
+| `hypothesis` | Every p-value is one-sided in the direction fixed before the cut. |
+| `tested`, `withinUnitTested` | Pairs in the pooled and within-unit false-discovery families. |
+| `pairs[].leadTimeMs` | Outcome capture time minus change time over the joined changes after the cut. |
+| `pairs[].movement` | With before and after values: `sensitivity` (share of changes that moved beyond the measure's declared `noise`) and `agreement` (balanced agreement between the movement's direction and the better outcome, 0.5 under no relation), each with a whole-unit interval. `insensitive` marks a measure that predicts across items but does not move under change. |
+| `selections[]` | Per outcome: `climb`, a subset chosen before the cut by greedy forward selection on the equal-weight composite; `guards`, admitted measures not climbed (`redundant`, `no-gain`, `size-limit`); `excluded`, measures that are insensitive, move against the outcome, or predict only across units (`pooled-only`); `composite`, the subset's statistic before and after the cut. |
+
+The selection reads only changes before the cut.
+A candidate whose absolute rank correlation with a climbed measure reaches `maxRedundancy` (default 0.9) is a redundant guard; another must add at least `minGain` (default 0.01) to the composite's statistic.
+The composite's post-cut score reads the changes admission read, so it describes the chosen subset; the next batch is its independent check.
+
+Keep guards unoptimized.
+`guardDrift({ report, outcome, batch, tolerance })` reads a later batch against the before-cut references: a climbed measure whose rise over the mean of its guards has a lower bound above `tolerance`, in before-cut scale units, is `drift`.
+Guards are measured at change time, so the check runs before the outcome arrives; pass the outcome store to also report the outcome's shift.
+
+Each test is one-sided in the direction fixed before the cut, so a measure whose direction reversed is never admitted.
+When the same units appear on both sides of the cut, a coincidence among those units can choose the direction and then confirm it on the pooled statistic; the within-unit statistic cannot be moved by such a coincidence, which is why `predicts` requires it where it can be estimated.
+
+Known limit: an outcome defined by overlap with the change's own content, such as "a later fix touched the same lines", grows with the change's size, so a size measure predicts it by exposure rather than by quality.
+Record a stricter outcome that does not depend on size, such as a later fix that names the change, and report it beside the overlap outcome; a measure that predicts only the overlap outcome is predicting exposure.
+
+Prediction is not causation.
+An admitted measure forecasts the outcome of changes like these; it does not show that raising the measure raises the outcome, and a climbed measure can be moved without the work it used to reflect.
+Records that show cause assign changes at random or interleave them, so the measure moves for reasons unrelated to the outcome.
+The report carries this in `claim`.
+
 ## Propose an experiment against one target
 
 ```ts

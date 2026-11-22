@@ -62,3 +62,34 @@ It returns after-minus-before `delta`, `lower`, `upper`, confidence and both cou
 either empty arm gives a null delta and full difference support. This interval assumes
 independent binomial observations; repeated attempts do not become independent trials.
 Reference: [Newcombe (1998), method 10 and Table II](https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I).
+
+## Association across many measures
+
+`clusteredAssociation` tests whether a score predicts an outcome when rows share independent units:
+AUC for a 0/1 outcome (null 0.5, through `rocAuc`) and Spearman for a continuous one (null 0, through `spearmanR`).
+Its standard error is the standard deviation of the statistic over `clusterBootstrap` resamples of whole units,
+and its p-value is a Wald test on Student-t with `units - 1` degrees of freedom, two-sided or `greater`.
+The percentile interval from the same resamples is reported beside it.
+
+Why a Wald test on the whole-unit standard error, not a bootstrap tail count:
+a study that corrects across hundreds of measures needs p-values below `level / m`, and a bootstrap tail
+count cannot go below `1 / resamples`. A row resample would understate the standard error whenever rows of
+one unit share what makes that unit differ; the planted test in `tests/meta-eval/measure-validity.test.ts`
+(24 units, a unit-level rank correlation near 0.25 and none in the population) admits under row resampling
+and not under unit resampling. When every defined resample gives the same value, the standard error is zero
+and the p-value falls back to `1 / (definedResamples + 1)` on the tested side of the null, or 1.
+
+`scope: 'within-unit'` compares rows only inside each unit: AUC per unit weighted by its positive-negative
+pairs, which is the Mann-Whitney count restricted to same-unit pairs, or Spearman per unit weighted by its row
+pairs, with a score constant inside a unit counted as no association there. Units are summarized once and the
+summaries are resampled, so a unit drawn twice stays two units. A pooled statistic can be carried entirely by
+differences between units, such as larger repositories failing more; the within-unit statistic cannot.
+
+`measureValidityStudy` fixes each measure's direction before the cut, so its tests are one-sided in that
+direction and Benjamini-Hochberg runs on those p-values. A two-sided test would admit a measure whose direction
+reversed. The one-sided test has a known weakness: when the same units appear on both sides of the cut, a
+coincidence among those units can choose the direction and then confirm it, raising the pooled error rate up to
+twice the level. The within-unit test is immune to that, because unit-level coincidences cancel inside a unit,
+and `predicts` requires it wherever it can be estimated; a pooled-only pass is labelled `predicts-pooled-only`.
+Movement agreement is the AUC of a movement's sign for the better outcome, which equals balanced accuracy and
+stays 0.5 under no relation whatever the outcome's base rate; it is tested one-sided as its own family.

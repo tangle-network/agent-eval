@@ -45,6 +45,7 @@ It also documents endpoint settings, rates, execution owners, and GEPA recipes.
 | Goal | Example | Requirements |
 |---|---|---|
 | Register the rules before the data arrives | [`sealed-experiment`](./sealed-experiment/) | Offline |
+| Find which recorded numbers predict a later outcome, and which to climb | [`measure-validity`](./measure-validity/) | Offline |
 | Certify a result that has no answer key | [`verify-without-an-answer-key`](./verify-without-an-answer-key/) | Offline |
 
 ## Read Existing Data
