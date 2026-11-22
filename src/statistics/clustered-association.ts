@@ -101,9 +101,7 @@ export function clusteredAssociation(
     {
       resamples,
       level: confidence,
-      seed:
-        options.seed ??
-        seedFromData([rows.map((row) => row.x), rows.map((row) => row.y)]),
+      seed: options.seed ?? seedFromData([rows.map((row) => row.x), rows.map((row) => row.y)]),
     },
   )
   const nullValue = statistic === 'auc' ? 0.5 : 0

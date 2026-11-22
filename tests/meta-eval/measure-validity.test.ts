@@ -277,9 +277,7 @@ describe('measureValidityStudy: traps a full-sample correlation falls into', () 
       const plan = {
         cut: 20 * units * HOUR,
         level: 0.05,
-        outcomes: [
-          { id: 'retention', direction: 'higher-is-better', kind: 'continuous' } as const,
-        ],
+        outcomes: [{ id: 'retention', direction: 'higher-is-better', kind: 'continuous' } as const],
         measures: [{ id: 'm' }],
         resamples: 400,
       }
@@ -449,9 +447,14 @@ describe('measureValidityStudy: selection and guards', () => {
         aCopy: a + 0.02 * normal(rng),
         b: q + 0.7 * normal(rng),
         g: q + 0.7 * normal(rng),
+        h: q + 0.7 * normal(rng),
       }
       if (shape.gamed) measures[shape.gamed] = measures[shape.gamed]! + 2
-      draws.push({ change: { ...change, measures }, capturedAt, outcomes: { kept: bernoulli(rng, sigmoid(2 * q)) } })
+      draws.push({
+        change: { ...change, measures },
+        capturedAt,
+        outcomes: { kept: bernoulli(rng, sigmoid(2 * q)) },
+      })
     }
     return draws
   }
@@ -470,16 +473,18 @@ describe('measureValidityStudy: selection and guards', () => {
           { id: 'aCopy', cost: 1 },
           { id: 'b', cost: 5 },
           { id: 'g', cost: 2 },
+          { id: 'h', cost: 3 },
         ],
         resamples: 300,
-        selection: { maxMeasures: 2, minGain: 0.005 },
+        selection: { maxMeasures: 3, minGain: 0.005 },
       })
-      for (const measure of ['a', 'aCopy', 'b', 'g']) {
+      const costs: Record<string, number> = { a: 1, aCopy: 1, b: 5, g: 2, h: 3 }
+      for (const measure of Object.keys(costs)) {
         expect(pairOf(report, measure, 'kept').label).toBe('predicts')
       }
       const selection = report.selections.find((row) => row.outcome === 'kept')!
       const climbed = selection.climb.map((row) => row.measure)
-      expect(climbed).toHaveLength(2)
+      expect(climbed).toHaveLength(3)
       const copy = climbed.includes('a') ? 'a' : 'aCopy'
       const partner = copy === 'a' ? 'aCopy' : 'a'
       expect(climbed).toContain(copy)
@@ -490,7 +495,7 @@ describe('measureValidityStudy: selection and guards', () => {
       expect(redundant.correlation!).toBeGreaterThan(0.95)
       expect(selection.guards).toHaveLength(2)
       for (const row of selection.climb) {
-        expect(row.cost).toBe(row.measure === 'b' ? 5 : row.measure === 'g' ? 2 : 1)
+        expect(row.cost).toBe(costs[row.measure])
         expect(row.leadTimeMs!.median).toBeGreaterThanOrEqual(2 * DAY)
         expect(row.leadTimeMs!.median).toBeLessThanOrEqual(5 * DAY)
       }

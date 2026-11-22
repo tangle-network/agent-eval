@@ -209,16 +209,6 @@ export {
   type FunnelStageInput,
   renderFunnelTable,
 } from './funnel'
-// ── Cluster-aware power with refusal ─────────────────────────────────
-export {
-  assertDesignAdequate,
-  type ClusteredPowerOptions,
-  type ClusteredPowerPoint,
-  type ClusteredPowerRefusal,
-  type ClusteredPowerResult,
-  clusteredPower,
-  type SignFlipFloor,
-} from './power'
 // ── Measure validity plan: cut, level, counts and outcomes sealed before the test data ──
 export {
   type MeasureValidityMeasure,
@@ -230,6 +220,16 @@ export {
   sealMeasureValidityPlan,
   verifyMeasureValidityPlan,
 } from './measure-validity-plan'
+// ── Cluster-aware power with refusal ─────────────────────────────────
+export {
+  assertDesignAdequate,
+  type ClusteredPowerOptions,
+  type ClusteredPowerPoint,
+  type ClusteredPowerRefusal,
+  type ClusteredPowerResult,
+  clusteredPower,
+  type SignFlipFloor,
+} from './power'
 export {
   joinProspectiveCanaryReceipts,
   type ProspectiveCanaryAssignment,

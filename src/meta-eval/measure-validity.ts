@@ -160,7 +160,10 @@ export interface MeasureSelection {
    * reads the changes admission read, so it describes the subset; the next
    * batch is its independent check.
    */
-  composite: { preCut: { n: number; estimate: number } | null; postCut: ClusteredAssociation | null }
+  composite: {
+    preCut: { n: number; estimate: number } | null
+    postCut: ClusteredAssociation | null
+  }
   /** Before-cut outcome reference for drift checks on later batches. */
   outcomeReference:
     | { kind: 'binary'; betterRate: number }
@@ -222,14 +225,27 @@ export async function measureValidityStudy(
   const plan = sealed.plan
   validateChanges(input.changes, plan, true)
   const byRun = groupOutcomesByRun(await input.outcomes.list())
-  const excluded = { capturedBeforeChange: 0, capturedAfterCutForPreCutChange: 0, beyondMaxCaptureLag: 0 }
+  const excluded = {
+    capturedBeforeChange: 0,
+    capturedAfterCutForPreCutChange: 0,
+    beyondMaxCaptureLag: 0,
+  }
   const prepared = input.changes.map((change) => {
     const preCut = change.at < plan.cut
-    const { eligible, ...counts } = eligibleObservations(byRun.get(change.id) ?? [], change, plan, preCut)
+    const { eligible, ...counts } = eligibleObservations(
+      byRun.get(change.id) ?? [],
+      change,
+      plan,
+      preCut,
+    )
     excluded.capturedBeforeChange += counts.capturedBeforeChange
     excluded.capturedAfterCutForPreCutChange += counts.capturedAfterCutForPreCutChange
     excluded.beyondMaxCaptureLag += counts.beyondMaxCaptureLag
-    return { change, preCut, outcomes: joinOutcomes(eligible, change, plan.outcomes, plan.reduction) }
+    return {
+      change,
+      preCut,
+      outcomes: joinOutcomes(eligible, change, plan.outcomes, plan.reduction),
+    }
   })
   const pre = prepared.filter((row) => row.preCut)
   const post = prepared.filter((row) => !row.preCut)
@@ -365,7 +381,9 @@ export async function guardDrift(input: GuardDriftInput): Promise<GuardDriftRepo
   }
   const selection = report.selections.find((row) => row.outcome === input.outcome)
   if (!selection) {
-    throw new ValidationError(`guardDrift: the report has no selection for outcome ${input.outcome}`)
+    throw new ValidationError(
+      `guardDrift: the report has no selection for outcome ${input.outcome}`,
+    )
   }
   const plan = report.plan
   validateChanges(input.batch, plan, false)
@@ -383,11 +401,14 @@ export async function guardDrift(input: GuardDriftInput): Promise<GuardDriftRepo
     )
     return { n: rows.length, units, estimate: result.mean, low: result.low, high: result.high }
   }
-  const centered = (change: MeasuredChange, measure: string, direction: 'higher' | 'lower', reference: MeasureReference) => {
+  const centered = (
+    change: MeasuredChange,
+    measure: string,
+    direction: 'higher' | 'lower',
+    reference: MeasureReference,
+  ) => {
     const value = change.measures[measure]
-    return value === undefined
-      ? null
-      : alignedZ(value, direction, reference) - reference.meanZ
+    return value === undefined ? null : alignedZ(value, direction, reference) - reference.meanZ
   }
 
   const measures: GuardDriftMeasure[] = selection.climb.map((climbed) => {
@@ -409,7 +430,11 @@ export async function guardDrift(input: GuardDriftInput): Promise<GuardDriftRepo
     return {
       measure: climbed.measure,
       status:
-        divergence === null ? 'insufficient' : divergence.low > tolerance ? 'drift' : 'within-tolerance',
+        divergence === null
+          ? 'insufficient'
+          : divergence.low > tolerance
+            ? 'drift'
+            : 'within-tolerance',
       shift: interval(shiftRows),
       guardShift: guards.length === 0 ? null : interval(guardRows),
       divergence,
@@ -424,7 +449,9 @@ export async function guardDrift(input: GuardDriftInput): Promise<GuardDriftRepo
     const rows: Array<{ unit: string; value: number }> = []
     for (const change of input.batch) {
       const { eligible } = eligibleObservations(byRun.get(change.id) ?? [], change, plan, false)
-      const joined = joinOutcomes(eligible, change, [outcomeSpec], plan.reduction).get(outcomeSpec.id)
+      const joined = joinOutcomes(eligible, change, [outcomeSpec], plan.reduction).get(
+        outcomeSpec.id,
+      )
       if (!joined) continue
       rows.push({
         unit: change.unit,
@@ -501,7 +528,11 @@ function eligibleObservations(
   plan: MeasureValidityPlan,
   preCut: boolean,
 ) {
-  const counts = { capturedBeforeChange: 0, capturedAfterCutForPreCutChange: 0, beyondMaxCaptureLag: 0 }
+  const counts = {
+    capturedBeforeChange: 0,
+    capturedAfterCutForPreCutChange: 0,
+    beyondMaxCaptureLag: 0,
+  }
   const eligible: DeploymentOutcome[] = []
   for (const observation of observations) {
     if (observation.capturedAt < change.at) counts.capturedBeforeChange++
@@ -633,7 +664,8 @@ function assessPair(
   if (postRows.length < plan.minJoined) result.reason = 'below-minimum-count'
   else if (postUnits < plan.minUnits) result.reason = 'too-few-units'
   else if (direction === null) result.reason = 'no-pre-cut-direction'
-  else if (!Number.isFinite(associationEstimate(statistic, aligned))) result.reason = 'constant-after-cut'
+  else if (!Number.isFinite(associationEstimate(statistic, aligned)))
+    result.reason = 'constant-after-cut'
   if (result.reason !== null) return result
   result.postCut.association = clusteredAssociation(aligned, {
     statistic,
@@ -656,11 +688,15 @@ function outcomeReference(
   })
   if (values.length === 0) return null
   if (outcome.kind === 'binary') {
-    return { kind: 'binary', betterRate: values.reduce((sum, value) => sum + value, 0) / values.length }
+    return {
+      kind: 'binary',
+      betterRate: values.reduce((sum, value) => sum + value, 0) / values.length,
+    }
   }
   const scaled = robustScale(values)
   if (scaled === null) return null
-  const meanZ = values.reduce((sum, value) => sum + (value - scaled.center) / scaled.scale, 0) / values.length
+  const meanZ =
+    values.reduce((sum, value) => sum + (value - scaled.center) / scaled.scale, 0) / values.length
   return { kind: 'continuous', ...scaled, meanZ }
 }
 
@@ -752,7 +788,11 @@ function robustScale(values: readonly number[]): { center: number; scale: number
   return sd > 0 ? { center, scale: sd } : null
 }
 
-function alignedZ(value: number, direction: 'higher' | 'lower', reference: { center: number; scale: number }): number {
+function alignedZ(
+  value: number,
+  direction: 'higher' | 'lower',
+  reference: { center: number; scale: number },
+): number {
   return ((direction === 'higher' ? 1 : -1) * (value - reference.center)) / reference.scale
 }
 
@@ -868,7 +908,8 @@ function selectMeasures(
     remaining = remaining.filter((measure) => measure !== best.measure)
   }
   const sizeLimited = climb.length >= plan.selection.maxMeasures
-  for (const measure of remaining) guards.push(guard(measure, sizeLimited ? 'size-limit' : 'no-gain'))
+  for (const measure of remaining)
+    guards.push(guard(measure, sizeLimited ? 'size-limit' : 'no-gain'))
 
   const climbedIds = climb.map((row) => row.measure)
   const postRows = climbedIds.length === 0 ? [] : compositeRows(post, climbedIds)
