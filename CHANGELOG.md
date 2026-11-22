@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- `renderProfileMatrixReport` turns profile-matrix records into one self-contained decision page (inline SVG and CSS, no network, light and dark): quality against dollars, tokens and seconds with the Pareto set, paired differences from a baseline with clustered intervals, factor main effects from matched profile pairs, a slice heatmap, error overlap with the oracle ceiling, item difficulty, calibration and the smallest detectable difference. `analyzeProfileMatrix` returns the same numbers as data.
+- `raceProfileMatrix` runs a profile-matrix plan in doubling case batches, drops a profile once its paired interval against the leader lies below zero, always keeps the baseline, and states that the leader's score on raced cases is biased upward. Skipped rows stay claimable, so `finalizeProfileMatrix` can still complete the plan.
+- Campaign cells record the dispatch's own wall clock as `dispatchMs`, and run records carry it as `raw.dispatch_ms`, so agent latency excludes judging.
+
 ## [2.0.7] — 2026-11-21
 
 - A forked native rollout keeps its copied conversation and counts each model and tool call under the session that performed it. A renamed Prime file keeps its native ID and parent.

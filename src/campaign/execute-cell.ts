@@ -463,7 +463,9 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   const startMs = Date.now()
   const run = openAttempt(args, cellDir, attemptCostTags)
   const { attempt, attemptDir, attemptPrefix, artifactsByPath, trace } = run
+  const dispatchStartMs = Date.now()
   const dispatch = await dispatchCell(args, run)
+  const dispatchMs = Date.now() - dispatchStartMs
   await awaitCellShutdown(args, run, dispatch.dispatched, costTags)
   const { artifact } = dispatch
   const { agentCost, tokenUsage } = measureAgentUsage(args, costTags)
@@ -518,6 +520,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       costCallIds,
       tokenUsage,
       durationMs: Date.now() - startMs,
+      dispatchMs,
       seed: args.slot.cellSeed,
       cached: false,
       traceRef,

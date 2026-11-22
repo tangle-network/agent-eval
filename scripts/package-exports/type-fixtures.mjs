@@ -72,6 +72,13 @@ function indexValueFixture() {
         type SeriesDistribution as CampaignSeriesDistribution,
         type JudgeAggregate as CampaignJudgeAggregate,
         type SurfaceProposer as CampaignSurfaceProposer,
+        analyzeProfileMatrix,
+        type ProfileMatrixAnalysis,
+        type ProfileMatrixRaceResult,
+        type ProfileMatrixReportOptions,
+        raceProfileMatrix,
+        type RaceProfileMatrixOptions,
+        renderProfileMatrixReport,
       } from '@tangle-network/agent-eval/campaign'
       import {
         IngestResponseSchema,
@@ -452,6 +459,20 @@ function indexRuntimeFixture() {
         2,
       )
       const packedCellIds: string[] = packedSchedule.map((slot) => slot.cellId)
+      // A race result is itself a report source, and its log reaches the page.
+      const packedRace = null as unknown as ProfileMatrixRaceResult
+      const packedReportOptions: ProfileMatrixReportOptions = {
+        source: packedRace,
+        baseline: packedRace.baseline,
+        race: packedRace,
+        costAxes: ['tokens', 'seconds'],
+      }
+      const packedReport: (options: ProfileMatrixReportOptions) => string = renderProfileMatrixReport
+      const packedAnalysis: (options: ProfileMatrixReportOptions) => ProfileMatrixAnalysis =
+        analyzeProfileMatrix
+      const packedRaceCall: (
+        options: RaceProfileMatrixOptions<CampaignScenario, unknown>,
+      ) => Promise<ProfileMatrixRaceResult> = raceProfileMatrix
       // A campaign aggregate carries the package's one distribution shape.
       const packedDistribution: CampaignSeriesDistribution | undefined = (
         undefined as CampaignJudgeAggregate | undefined
@@ -551,6 +572,10 @@ function indexRuntimeFixture() {
         traceAttributes,
         LLM_REASONING_TOKENS,
         packedCellIds,
+        packedReportOptions,
+        packedReport,
+        packedAnalysis,
+        packedRaceCall,
         packedDistribution,
         seriesTail,
         intervalMethod,
