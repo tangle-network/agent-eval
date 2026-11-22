@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+- An outcome in a measure validity plan can name one planned measure as its `exposure`, with a bin count (default 10). Bins are fixed at the exposure's quantiles before the cut, every other measure is also tested inside them as a third false-discovery family, and a measure that passes pooled but not inside the bins is `predicts-through-exposure` and never climbed. The exposure itself is reported and never climbed.
+- An outcome can declare `windowMs`. A change before the cut then counts for it only once its window has closed, whatever its value and capture time, and `excludedObservations.windowOpenAtCut` counts what the rule removed. Without it, a record that writes events when they happen and non-events at window close biases the direction fitted before the cut toward the event.
+- The within-unit estimate and interval are reported whenever two units hold a comparable pair; they are tested only from `minUnits`, and a `predicts` pair without that test carries the reason `within-unit-untested`.
+- `clusteredAssociation()` takes `scope: 'stratified'` with a `stratum` per row: the statistic inside each stratum weighted by its comparable pairs, resampling whole units. The within-unit scope is its case with each unit its own stratum.
+
+## [2.0.9] — 2026-11-22
+
+- `/world` runs an agent through many sessions of a simulated world whose clock the test controls. A scenario is data with a hidden key; spend returns outcomes days later with noise, ramp, saturation and wear; a gated lever refuses spend with no recorded approval; only the notes an agent saved cross between sessions. `runWorldEpisode` scores the end state and the decision log, `worldDecisionCosts` prices each action by replay, and `compareWorldPolicies` checks on shared seeds that a patient scripted policy beats an impulsive one beyond noise before a model is run. `launchQuarterScenario` is the first scenario and `chatWorldAgent` puts a chat model through it.
 - A multi-turn conversation with a simulated user is an optimization and comparison target. `multishotRollout` runs the conversation engine as the `selfImprove` and `compareOptimizationMethods` dispatch, with every leg metered through the cell and a code-checked outcome as the score. `conversationGate` refuses a comparison whose arms met a different simulated user or seed, and `describeConversation` gives the native proposer and GEPA the same evidence.
 - `passHatK` and `repeatReliability` report success in all k seeded repeats beside mean success, per independent unit.
 - `measureSimulatorRealism` measures a simulated user against recorded real user turns with a calibrated System One judge; `improveAdversarialUser` searches the user side on the agent's failure rate only and emits what it finds as train scenarios.
@@ -16,10 +24,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `sealMeasureValidityPlan()` and `verifyMeasureValidityPlan()` seal the cut, level, minimum counts, outcomes and measures under the RFC 8785 digest `sealExperiment` uses; the study refuses a plan whose seal does not verify.
 - `clusteredAssociation()` tests an AUC or rank correlation, pooled or within units, with a whole-unit bootstrap standard error and a two-sided or one-sided Student-t p-value on `units - 1` degrees of freedom; `associationEstimate()` returns the point statistic alone.
 - `correlationStudy()` and `rubricPredictiveValidity()` share outcome grouping and reduction with the new study; their results are unchanged.
-- An outcome in a measure validity plan can name one planned measure as its `exposure`, with a bin count (default 10). Bins are fixed at the exposure's quantiles before the cut, every other measure is also tested inside them as a third false-discovery family, and a measure that passes pooled but not inside the bins is `predicts-through-exposure` and never climbed. The exposure itself is reported and never climbed.
-- An outcome can declare `windowMs`. A change before the cut then counts for it only once its window has closed, whatever its value and capture time, and `excludedObservations.windowOpenAtCut` counts what the rule removed. Without it, a record that writes events when they happen and non-events at window close biases the direction fitted before the cut toward the event.
-- The within-unit estimate and interval are reported whenever two units hold a comparable pair; they are tested only from `minUnits`, and a `predicts` pair without that test carries the reason `within-unit-untested`.
-- `clusteredAssociation()` takes `scope: 'stratified'` with a `stratum` per row: the statistic inside each stratum weighted by its comparable pairs, resampling whole units. The within-unit scope is its case with each unit its own stratum.
+
+The 2.0.8 source tag failed one test cleanup hook on a loaded runner before npm and PyPI publication. 2.0.9 is that release plus the profile-matrix family verdict and run-stability changes merged after the tag (#1329), with test hooks given the test timeout.
 
 ## [2.0.7] — 2026-11-21
 

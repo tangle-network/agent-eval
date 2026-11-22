@@ -7,6 +7,7 @@
 import { escapeHtml as esc } from '../../reporting-html'
 import {
   analyzeProfileMatrix,
+  intervalSide,
   isRaceResult,
   type ProfileMatrixAnalysis,
   type ProfileMatrixAxisSummary,
@@ -14,8 +15,10 @@ import {
   type ProfileMatrixFactorEffect,
   type ProfileMatrixInterval,
   type ProfileMatrixPairedDifference,
+  type ProfileMatrixPairwiseShare,
   type ProfileMatrixProfileStats,
   type ProfileMatrixReportOptions,
+  type ProfileMatrixVerdict,
 } from './profile-matrix-analysis'
 import type { ProfileMatrixRaceResult } from './race-profile-matrix'
 
@@ -27,6 +30,7 @@ export function renderProfileMatrixReport(options: ProfileMatrixReportOptions): 
     section('Frontier', frontier(a)),
     section('Profiles', profileTable(a)),
     ...(a.profiles.some((p) => !p.panel) ? [section('Partial coverage', partialTable(a))] : []),
+    section('Run-to-run stability', stability(a)),
     section('Factor main effects', factorTable(a)),
     section('Slices', sliceHeatmap(a)),
     section('Error overlap', overlap(a)),
@@ -94,6 +98,7 @@ svg .title{fill:var(--text);font-size:12px;font-weight:600}
 .forest{width:120px;height:16px;display:inline-block;vertical-align:middle}
 .ci{stroke-width:2}.ci.up,.up{stroke:var(--better);fill:var(--better)}
 .ci.down,.down{stroke:var(--worse);fill:var(--worse)}.ci.flat,.flat{stroke:var(--flat);fill:var(--flat)}
+.ci.cand{stroke-dasharray:3 2}circle.cand{fill:var(--panel);stroke-width:1.5}
 .bar{fill:var(--accent)}.bar:hover{fill:var(--text-2)}.diagonal{stroke:var(--text-3);stroke-dasharray:3 3}
 .cal{fill:none;stroke:var(--accent);stroke-width:2}.calpt{fill:var(--accent);stroke:var(--panel);stroke-width:2}
 .callout{border-left:3px solid var(--base);padding:6px 12px;background:var(--panel)}
@@ -138,11 +143,18 @@ function cost(axis: ProfileMatrixCostAxis, value: number | null): string {
   return `${value < 10 ? value.toFixed(1) : grouped(value)} s`
 }
 
-/** Whether an interval lies wholly above zero, wholly below it, or crosses it. */
-function direction(i: { low: number | null; high: number | null }): 'up' | 'down' | 'flat' {
-  if (i.low !== null && i.low > 0) return 'up'
-  if (i.high !== null && i.high < 0) return 'down'
-  return 'flat'
+function pct1(value: number): string {
+  return `${(value * 100).toFixed(1)}%`
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/** One value, or the lowest to the highest of several. */
+function lowToHigh(values: readonly number[], f: (value: number) => string): string {
+  const [low, high] = [Math.min(...values), Math.max(...values)]
+  return f(low) === f(high) ? f(low) : `${f(low)} to ${f(high)}`
 }
 
 const DIRECTION_WORD = { up: 'better', down: 'worse', flat: 'unresolved' } as const
@@ -159,23 +171,60 @@ function panelOf(a: ProfileMatrixAnalysis): ProfileMatrixProfileStats[] {
   return a.profiles.filter((p) => p.panel)
 }
 
+function withVerdict(a: ProfileMatrixAnalysis, verdict: ProfileMatrixVerdict) {
+  return a.profiles.filter((p) => p.verdict === verdict)
+}
+
+/** The family the verdicts are adjusted over, as the page names it everywhere. */
+function familyName(a: ProfileMatrixAnalysis): string {
+  const { alpha, comparisons } = a.family
+  return `familywise ${pct(alpha)} (Holm) over ${plural(comparisons, 'comparison')}`
+}
+
 function description(a: ProfileMatrixAnalysis): string {
-  const counts = { up: 0, down: 0, flat: 0 }
-  for (const p of a.profiles) if (p.vsBaseline) counts[direction(p.vsBaseline)] += 1
+  const count = (verdict: ProfileMatrixVerdict) => withVerdict(a, verdict).length
   return (
     `${a.profiles.length} profiles against ${a.baseline}, each paired on the cases it shares with it: ` +
-    `${counts.up} better, ${counts.down} worse, ${counts.flat} unresolved at ${pct(a.level)}; ` +
-    `${a.panelProfiles.length} panel profiles on ${common(a)}.`
+    `${count('better')} better and ${count('worse')} worse at ${familyName(a)}, ` +
+    `${plural(count('candidate'), 'candidate')} whose nominal ${pct(a.level)} interval excludes zero, ` +
+    `${count('unresolved')} unresolved; ${a.panelProfiles.length} panel profiles on ${common(a)}; ` +
+    `${plural(a.stability.length, 'profile')} run more than once.`
   )
 }
 
-/** A paired difference as two cells: its own n with clusters, then the estimate with interval and exact p. */
-function pairedCells(vs: ProfileMatrixPairedDifference | null | undefined): [string, string] {
+/**
+ * A paired difference as two cells: its own n with clusters, then the estimate with a word, the
+ * interval and p. The word is the nominal interval's side unless a standing replaces it.
+ */
+function pairedCells(
+  vs: ProfileMatrixPairedDifference | null | undefined,
+  standing?: { word: string; sub: string },
+): [string, string] {
   if (!vs) return ['—', '—']
   return [
     `${vs.n}<span class="sub">${vs.clusters} cluster${vs.clusters === 1 ? '' : 's'}</span>`,
-    `${signed(vs.estimate)} ${DIRECTION_WORD[direction(vs)]}<span class="sub">${bounds(vs)}, p ${num(vs.pValue)}</span>`,
+    `${signed(vs.estimate)} ${standing?.word ?? DIRECTION_WORD[intervalSide(vs)]}` +
+      `<span class="sub">${bounds(vs)}, p ${num(vs.pValue)}${standing?.sub ?? ''}</span>`,
   ]
+}
+
+/** A profile's paired difference from the baseline with its family-adjusted verdict. */
+function verdictCells(p: ProfileMatrixProfileStats): [string, string] {
+  const oneRun = p.verdict !== 'unresolved' && p.runs === 1
+  return pairedCells(p.vsBaseline, {
+    word: `${p.verdict}${oneRun ? ' <span class="muted">1 run</span>' : ''}`,
+    sub: `, Holm p ${num(p.adjustedPValue)}`,
+  })
+}
+
+function verdictNote(a: ProfileMatrixAnalysis): string {
+  return (
+    `Better and worse are at ${familyName(a)}: the nominal ${pct(a.level)} interval excludes zero ` +
+    `and the Holm-adjusted p (Holm p) is at most ${num(a.family.alpha, 2)}. A candidate’s interval ` +
+    'excludes zero but its Holm p does not pass, drawn hollow; a verdict other than unresolved that ' +
+    'rests on one run of the profile is marked 1 run. p is the sign-flip test over clusters, which ' +
+    'stays high when few clusters disagree even if the interval excludes zero.'
+  )
 }
 
 function scoredCell(p: ProfileMatrixProfileStats): string {
@@ -217,18 +266,18 @@ function decision(a: ProfileMatrixAnalysis, race: ProfileMatrixRaceResult | unde
             'and power have nothing to compare; a lower <code>minCoverage</code> widens the panel.',
     )
   }
-  const by = (d: 'up' | 'down') =>
-    a.profiles.filter((p) => p.vsBaseline && direction(p.vsBaseline) === d)
-  const list = (ps: ProfileMatrixProfileStats[]) =>
-    ps
-      .map((p) => `${esc(p.profileId)} (${signed(p.vsBaseline!.estimate)}, n ${p.vsBaseline!.n})`)
-      .join(', ')
-  const better = by('up')
-  const worse = by('down')
-  const unresolved = a.profiles.length - 1 - better.length - worse.length
+  const list = (verdict: ProfileMatrixVerdict) => {
+    const named = withVerdict(a, verdict).map((p) => {
+      const vs = p.vsBaseline!
+      return `${esc(p.profileId)} (${signed(vs.estimate)}, n ${vs.n}, ${plural(p.runs, 'run')})`
+    })
+    return named.length ? named.join(', ') : 'none'
+  }
   lines.push(
-    `Better than the baseline at ${pct(a.level)}: ${better.length ? list(better) : 'none'}. ` +
-      `Worse: ${worse.length ? list(worse) : 'none'}. Unresolved: ${unresolved}.`,
+    `Better than the baseline at ${familyName(a)}: ${list('better')}. Worse: ${list('worse')}. ` +
+      `Candidates, whose nominal ${pct(a.level)} interval excludes zero but which do not pass the ` +
+      `adjustment: ${list('candidate')}. Unresolved: ${withVerdict(a, 'unresolved').length}.`,
+    familySentence(a),
   )
   for (const axis of a.axes.filter((x) => x.drawn)) {
     lines.push(`Pareto set on ${AXIS_NAME[axis.axis]}: ${axis.frontier.map(esc).join(', ')}.`)
@@ -257,6 +306,19 @@ function decision(a: ProfileMatrixAnalysis, race: ProfileMatrixRaceResult | unde
     )
   }
   return lines.map((line) => `<p>${line}</p>`).join('\n')
+}
+
+/** How many comparisons the family holds and what a candidate needs to pass it. */
+function familySentence(a: ProfileMatrixAnalysis): string {
+  const { alpha, comparisons } = a.family
+  if (comparisons === 0) {
+    return 'No profile has a p-value against the baseline, so none can read as better or worse.'
+  }
+  return (
+    `The family holds ${plural(comparisons, 'comparison')}, one per profile compared with the baseline, ` +
+    `so Holm passes the smallest p only at ${num(alpha / comparisons, 4)} (${pct(alpha)} ÷ ${comparisons}) ` +
+    'or below; a candidate needs more cases or repeated runs before it reads as better or worse.'
+  )
 }
 
 const AXIS_NAME: Record<ProfileMatrixCostAxis, string> = {
@@ -434,11 +496,16 @@ function placeLabel(
   return at
 }
 
-function forest(i: ProfileMatrixInterval | null | undefined, span: number): string {
+/** An interval against zero; a candidate is drawn dashed and hollow. */
+function forest(
+  i: ProfileMatrixInterval | null | undefined,
+  span: number,
+  candidate = false,
+): string {
   if (!i) return ''
   const W = 120
   const sx = (v: number) => Math.max(1, Math.min(W - 1, ((v + span) / (2 * span)) * W))
-  const d = direction(i)
+  const d = `${intervalSide(i)}${candidate ? ' cand' : ''}`
   const ci =
     i.low !== null && i.high !== null
       ? `<line class="ci ${d}" x1="${sx(i.low)}" x2="${sx(i.high)}" y1="8" y2="8"/>`
@@ -462,6 +529,7 @@ function profileTable(a: ProfileMatrixAnalysis): string {
   const head = [
     'Profile',
     'Scored',
+    'Runs',
     `Quality [${pct(a.level)}]`,
     'Paired n',
     'Δ vs baseline',
@@ -475,11 +543,12 @@ function profileTable(a: ProfileMatrixAnalysis): string {
     const cells = [
       profileCell(a, p),
       scoredCell(p),
+      `${p.runs}`,
       p.quality
         ? `${num(p.quality.estimate)} <span class="sub">${bounds(p.quality, num)}</span>`
         : '—',
-      ...pairedCells(p.vsBaseline),
-      forest(p.vsBaseline, span),
+      ...verdictCells(p),
+      forest(p.vsBaseline, span, p.verdict === 'candidate'),
       resolveCell(p.vsBaseline),
       cost('tokens', p.costPerCorrect.tokens),
       ...(usd ? [cost('usd', p.costPerCorrect.usd)] : []),
@@ -489,11 +558,14 @@ function profileTable(a: ProfileMatrixAnalysis): string {
   })
   return [
     `<p class="note">The panel: ${panelRuleText(a)}. Scored is each profile’s own cases with a score out of ` +
-      `those it attempted, with the share of attempts that failed beneath. Quality, tokens and seconds are on the ${common(a)}, so ` +
+      'those it attempted, with the share of attempts that failed beneath. Runs is how many times the profile ' +
+      'ran the cases; with several, a case scores its mean over them. ' +
+      `Quality, tokens and seconds are on the ${common(a)}, so ` +
       `the panel compares like with like. Δ is paired with the baseline on every case the two both scored, ` +
       `so each row carries its own paired n and clusters. A case counts as correct at a score of ${a.passScore} or more. ` +
       'To resolve is the number of paired cases a two-sided test needs for 80% power at the observed ' +
-      `difference and discordance (unclustered). Seconds are dispatch time where the cell recorded it. ${P_NOTE}</p>`,
+      'difference and discordance (unclustered). Seconds are dispatch time where the cell recorded ' +
+      `it. ${verdictNote(a)}</p>`,
     table(head, rows),
   ].join('\n')
 }
@@ -509,6 +581,7 @@ function partialTable(a: ProfileMatrixAnalysis): string {
   const head = [
     'Profile',
     'Scored',
+    'Runs',
     'Coverage',
     `Own accuracy [${pct(a.level)}]`,
     'Paired n',
@@ -521,12 +594,13 @@ function partialTable(a: ProfileMatrixAnalysis): string {
     const cells = [
       profileCell(a, p),
       scoredCell(p),
+      `${p.runs}`,
       pct(p.coverage),
       p.ownQuality
         ? `${num(p.ownQuality.estimate)} <span class="sub">${bounds(p.ownQuality, num)}</span>`
         : '—',
-      ...pairedCells(p.vsBaseline),
-      forest(p.vsBaseline, span),
+      ...verdictCells(p),
+      forest(p.vsBaseline, span, p.verdict === 'candidate'),
       resolveCell(p.vsBaseline),
       ...(raced ? [p.droppedAtBatch === undefined ? '—' : `${p.droppedAtBatch}`] : []),
     ]
@@ -541,8 +615,77 @@ function partialTable(a: ProfileMatrixAnalysis): string {
     `<p class="note">${why} Each is paired with the baseline on the cases the two both scored instead. ` +
       'Coverage is the share of the baseline’s scored cases this profile also scored; own accuracy is on ' +
       'its own cases, which can be easier or harder than the panel’s, so read Δ, not own accuracy, ' +
-      'against the panel.</p>',
+      'against the panel. Runs and the verdict read as in the profiles table, in the same family.</p>',
     table(head, rows),
+  ].join('\n')
+}
+
+function shareCell(share: ProfileMatrixPairwiseShare | null): string {
+  if (!share) return '—'
+  const pairs =
+    share.min === share.max
+      ? ''
+      : `<span class="sub">pairs ${lowToHigh([share.min, share.max], pct1)}</span>`
+  return `${pct1(share.mean)}${pairs}`
+}
+
+/** Each profile run more than once, and the reading rule its rerun noise gives at the panel's n. */
+function stability(a: ProfileMatrixAnalysis): string {
+  if (a.stability.length === 0) {
+    return (
+      '<p class="note">No profile was run more than once, so this page cannot measure rerun noise: ' +
+      'every difference above rests on one run of each profile and carries noise the page does not show.</p>'
+    )
+  }
+  const answers = a.stability.some((s) => s.answerDisagreement !== null)
+  const n = a.commonCases.length
+  const head = [
+    'Profile',
+    'Runs',
+    'Cases',
+    'Quality per run',
+    'Spread',
+    'Correctness differs',
+    ...(answers ? ['Answers differ'] : []),
+    `Rerun margin at n ${n}`,
+  ]
+  const rows = a.stability.map((s) => {
+    const cells = [
+      profileCell(a, a.profiles.find((p) => p.profileId === s.profileId)!),
+      `${s.runs}`,
+      `${s.n}`,
+      s.runQuality.map((r) => num(r.quality)).join(' · '),
+      num(s.spread),
+      shareCell(s.correctnessDisagreement),
+      ...(answers ? [shareCell(s.answerDisagreement)] : []),
+      s.rerunMargin === null ? '—' : `±${num(s.rerunMargin)}`,
+    ]
+    return `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
+  })
+  const margins = a.stability.flatMap((s) => (s.rerunMargin === null ? [] : [s.rerunMargin]))
+  const differ = a.stability.flatMap((s) =>
+    s.correctnessDisagreement ? [s.correctnessDisagreement.mean] : [],
+  )
+  const rule =
+    margins.length && differ.length
+      ? `<p><strong>Reading rule:</strong> two runs of one profile disagree on correctness on ` +
+        `${lowToHigh(differ, pct1)} of cases, so on the panel’s ${common(a)} two runs with nothing ` +
+        `changed differ in quality by up to about ${lowToHigh(margins, (m) => num(m))} in ` +
+        `${pct(a.level)} of reruns; a single-run difference from the baseline smaller than that can be ` +
+        'rerun noise alone.</p>'
+      : '<p>The panel has no common case, so the page cannot turn this noise into a margin.</p>'
+  return [
+    '<p class="note">Every profile run more than once, on the cases every one of its runs scored. ' +
+      'Quality per run is each run’s mean score there, in run order, and spread is the highest minus the ' +
+      'lowest. Correctness differs is the share of those cases one run got right and the other did not' +
+      (answers ? '; answers differ, the share where the two runs gave different answers' : '') +
+      '; each is the mean over pairs of runs, with the range over pairs beneath. ' +
+      (answers ? '' : 'Answers are not compared: pass <code>answerOf</code> to read them. ') +
+      `Rerun margin is z·√(m/n) at the panel’s ${common(a)}, where m is the mean squared per-case score ` +
+      'difference between two runs (for right/wrong scores, the correctness disagreement) and each ' +
+      'case’s change is taken as independent.</p>',
+    table(head, rows),
+    rule,
   ].join('\n')
 }
 
@@ -568,7 +711,7 @@ function factorTable(a: ProfileMatrixAnalysis): string {
       `<td>${e.matchedPairs}</td>`,
       `<td>${pairCases(e)}</td>`,
       e.effect
-        ? `<td>${signed(e.effect.estimate)} ${DIRECTION_WORD[direction(e.effect)]}` +
+        ? `<td>${signed(e.effect.estimate)} ${DIRECTION_WORD[intervalSide(e.effect)]}` +
           `<span class="sub">${bounds(e.effect)}, p ${num(e.pValue)}, n ${e.n}</span></td>`
         : `<td class="muted">${e.matchedPairs ? 'no case scored by both sides of a pair' : 'confounded: no profile pair differs only here'}</td>`,
       `<td>${forest(e.effect, span)}</td></tr>`,
@@ -773,7 +916,7 @@ function raceSection(race: ProfileMatrixRaceResult): string {
       log,
     ),
     `<h3>Final comparison on ${race.final.cases} cases every survivor scored</h3>`,
-    table(['Profile', 'Quality', 'Paired n', 'Δ vs baseline'], final),
+    table(['Profile', 'Quality', 'Paired n', 'Δ vs baseline, nominal'], final),
     `<p class="callout">${esc(race.selectionBias)}</p>`,
   ].join('\n')
 }
