@@ -88,7 +88,9 @@ const costs = worldDecisionCosts(launchQuarterScenario, episode)
 ```
 
 To bind a product's own tools instead, write a `WorldAgent` that runs the product's turn and routes the tools that touch the outside, such as sends, posts, analytics reads and the calendar, to `session.call()`.
-`worldSessionPrompt(session)` is the message `chatWorldAgent` opens each session with; a binding can send the same one.
+`worldSessionPrompt(session)` is the message `chatWorldAgent` opens each session with; pass `sessionPrompt` to wrap it in a product's own per-turn context.
+
+A chat model sometimes returns neither words nor a tool call; a reasoning model does it whenever `maxTokens` is smaller than its thinking, so leave the cap unset or give it room. `chatWorldAgent` asks again rather than ending the review, and the transcript's `responses` and `ended: 'empty'` keep every such completion visible, so a provider hiccup is not scored as the agent choosing to do nothing.
 A product turn that runs in another process takes `World.snapshot()` and `World.restore()`.
 
 One episode is one draw. Read a model's end value against the scripted rows on the same seed, and repeat seeds before claiming a difference between two models; `passHatK` in `/statistics` reports success in all k repeats.

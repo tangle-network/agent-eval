@@ -8,17 +8,27 @@ import { ValidationError } from '../errors'
 import type { LlmMessage, LlmToolDefinition } from '../llm-client'
 import type { WorldAgent, WorldSession } from './types'
 
+/** What one model call returned, without its text. */
+export interface ChatWorldResponse {
+  /** Model id the provider echoed; null when it echoed none. */
+  servedModel: string | null
+  finishReason: string | null
+  toolCalls: number
+  contentChars: number
+  completionTokens: number
+  reasoningTokens: number | null
+}
+
 export interface ChatWorldSessionTranscript {
   session: number
   day: number
   /** Every message of the session, the system prompt included. */
   messages: LlmMessage[]
-  /** Model calls made. */
-  turns: number
-  /** `answered`: the model replied without a tool call. `turn_limit`: it was cut off. */
-  ended: 'answered' | 'turn_limit'
-  /** Model ids the provider echoed, in call order; null where it echoed none. */
-  servedModels: Array<string | null>
+  /** One entry per model call, empty completions included. */
+  responses: ChatWorldResponse[]
+  /** `answered`: the model replied in words without a tool call. `turn_limit`:
+   *  it was cut off. `empty`: it kept returning neither words nor a tool call. */
+  ended: 'answered' | 'turn_limit' | 'empty'
 }
 
 export interface ChatWorldAgentOptions {
@@ -27,8 +37,14 @@ export interface ChatWorldAgentOptions {
   model?: string
   /** System prompt of the agent under test. */
   systemPrompt: string
+  /** The first user message of a session. Default: `worldSessionPrompt`. A
+   *  binding that adds its product's own per-turn context wraps that. */
+  sessionPrompt?: (session: WorldSession) => string
   /** Model calls one session may make. Default 16. */
   maxTurnsPerSession?: number
+  /** Times in a row an empty completion, neither words nor a tool call, is
+   *  asked again before the session ends as `empty`. Default 2. */
+  emptyRetries?: number
   maxTokens?: number
   temperature?: number
   /** Called with each finished session's transcript. */
@@ -53,8 +69,12 @@ export function worldSessionPrompt(session: WorldSession): string {
 /** An agent that plays each session as a tool loop against a chat model. */
 export function chatWorldAgent(opts: ChatWorldAgentOptions): WorldAgent {
   const maxTurns = opts.maxTurnsPerSession ?? 16
+  const emptyRetries = opts.emptyRetries ?? 2
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 1) {
     throw new ValidationError('chatWorldAgent: maxTurnsPerSession must be a positive integer')
+  }
+  if (!Number.isSafeInteger(emptyRetries) || emptyRetries < 0) {
+    throw new ValidationError('chatWorldAgent: emptyRetries must be a non-negative integer')
   }
   return async (session) => {
     const tools: LlmToolDefinition[] = session.tools.map((tool) => ({
@@ -63,18 +83,18 @@ export function chatWorldAgent(opts: ChatWorldAgentOptions): WorldAgent {
     }))
     const messages: LlmMessage[] = [
       { role: 'system', content: opts.systemPrompt },
-      { role: 'user', content: worldSessionPrompt(session) },
+      { role: 'user', content: (opts.sessionPrompt ?? worldSessionPrompt)(session) },
     ]
     const transcript: ChatWorldSessionTranscript = {
       session: session.index,
       day: session.day,
       messages,
-      turns: 0,
+      responses: [],
       ended: 'turn_limit',
-      servedModels: [],
     }
+    let emptyInARow = 0
     try {
-      while (transcript.turns < maxTurns) {
+      while (transcript.responses.length < maxTurns) {
         const response = await opts.client.chat({
           ...(opts.model ? { model: opts.model } : {}),
           messages,
@@ -83,9 +103,26 @@ export function chatWorldAgent(opts: ChatWorldAgentOptions): WorldAgent {
           ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
           ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
         })
-        transcript.turns += 1
-        transcript.servedModels.push(response.servedModel ?? null)
         const calls = response.toolCalls ?? []
+        transcript.responses.push({
+          servedModel: response.servedModel ?? null,
+          finishReason: response.finishReason ?? null,
+          toolCalls: calls.length,
+          contentChars: response.content.length,
+          completionTokens: response.usage.completionTokens,
+          reasoningTokens: response.usage.reasoningTokens ?? null,
+        })
+        if (calls.length === 0 && response.content.trim() === '') {
+          // Neither an answer nor an action. Ending the session here would
+          // score a provider hiccup as the agent choosing to do nothing.
+          emptyInARow += 1
+          if (emptyInARow > emptyRetries) {
+            transcript.ended = 'empty'
+            break
+          }
+          continue
+        }
+        emptyInARow = 0
         messages.push({
           role: 'assistant',
           content: response.content,

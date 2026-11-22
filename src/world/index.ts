@@ -2,6 +2,7 @@
 
 export {
   type ChatWorldAgentOptions,
+  type ChatWorldResponse,
   type ChatWorldSessionTranscript,
   chatWorldAgent,
   worldSessionPrompt,

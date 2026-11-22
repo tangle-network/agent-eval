@@ -126,11 +126,15 @@ if (baseUrl && model) {
       }),
     ),
     systemPrompt,
-    maxTokens: 4_000,
+    // No output cap: a reasoning model that spends a cap on thinking returns
+    // neither words nor a tool call.
     onSession: (transcript) => {
       if (transcriptPath) appendFileSync(transcriptPath, `${JSON.stringify(transcript)}\n`)
+      const empty = transcript.responses.filter(
+        (response) => response.toolCalls === 0 && response.contentChars === 0,
+      ).length
       console.log(
-        `  review ${transcript.session + 1} (day ${transcript.day}): ${transcript.turns} model calls, ${transcript.ended}`,
+        `  review ${transcript.session + 1} (day ${transcript.day}): ${transcript.responses.length} model calls, ${empty} empty, ${transcript.ended}`,
       )
     },
   })
