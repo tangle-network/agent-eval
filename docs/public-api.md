@@ -341,7 +341,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `passAtK` | planned | named in agent-runtime (bind not in the import graph) |
 | `passHatK` | production | this package: src/campaign/repeat-reliability.ts:7 |
 | `pearsonR` | production | this package: src/builder-eval/correlation.ts:18 |
-| `percentileNearestRank` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:19 |
+| `percentileNearestRank` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:26 |
 | `preflightModels` | planned | doc: docs/building-doctrine.md |
 | `productBenchmarkRepoIdentity` | production | agent-app:src/eval/research-plan.ts |
 | `ProductClient` | production | creative-agent:eval/e2e/creative-product-harness.ts |
@@ -382,7 +382,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `RunRecordValidationError` | production | starter-foundry:src/lib/index.ts |
 | `runSemanticConceptJudge` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-router.ts |
 | `runsForScenario` | production | ph0ny:products/builder/api/src/eval/gate.ts |
-| `runTaskScore` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:18 |
+| `runTaskScore` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:25 |
 | `sampleMedian` | production | agent-dev-container:products/sandbox/evals/run.ts |
 | `scoreKnowledgeReadiness` | production | agent-builder:src/lib/.server/runtime/agent-task-readiness.ts |
 | `scoreRedTeamOutput` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-gate.ts |
@@ -781,7 +781,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `raceProfileMatrix` | planned | doc: docs/eval-surface-map.md |
 | `readExternalOptimizerObservationArtifact` | production | agent-builder:src/lib/.server/eval/loops/method-evidence.ts |
 | `readGepaCandidatePopulationArtifact` | production | agent-runtime:scripts/verify-official-optimizers-consumer.mjs |
-| `renderProfileMatrixReport` | planned | example: examples/profile-matrix-report/index.ts:27 |
+| `renderProfileMatrixReport` | planned | example: examples/profile-matrix-report/index.ts:29 |
 | `renderScoreboardMarkdown` | production | blueprint-agent:scripts/experiments/eval/launch-scoreboard/run.ts |
 | `renderSearchSummary` | production | agent-runtime:src/improvement/search-method.ts |
 | `renderSurfaceDiff` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-evidence-packet.ts |
@@ -794,7 +794,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `runImprovementLoop` | production | gtm:tools/gtm-doc-eval/improve.mjs |
 | `runOptimization` | production | agent-dev-container:products/sandbox/evals/src/auto-optimization.ts |
 | `runProfileMatrix` | production | agent-runtime:examples/product-eval/product-eval.ts |
-| `runProfileMatrixSegment` | production | this package: src/campaign/presets/race-profile-matrix.ts:19 |
+| `runProfileMatrixSegment` | production | this package: src/campaign/presets/race-profile-matrix.ts:26 |
 | `runSandboxScenario` | planned | doc: docs/concepts.md |
 | `runSearch` | production | agent-runtime:src/durable/pursuit-versions.ts |
 | `scopedOptimizationMethod` | production | supervisor-lab:src/learn/system-revise.ts |
@@ -1444,8 +1444,8 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `cliffsDelta` | production | agent-builder:src/lib/.server/eval/loops/differential-eval.ts |
 | `clusterBootstrap` | production | this package: src/analyst/benchmark-behavioral-calibration.ts:6 |
 | `clusteredBinaryMde` | planned | doc: docs/design/statistics-decisions.md |
-| `clusteredPairedContrast` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:19 |
-| `clusterJackknife` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:19 |
+| `clusteredPairedContrast` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:26 |
+| `clusterJackknife` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:26 |
 | `clusterSignFlipTest` | planned | doc: docs/design/statistics-decisions.md |
 | `cohensD` | production | starter-foundry:examples/recruiter-eval-workspace/eval/src/eval/regression/gate.ts |
 | `confidenceInterval` | production | agent-runtime:src/runtime/benchmark-report.ts |
@@ -1482,7 +1482,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `passAtK` | planned | named in agent-runtime (bind not in the import graph) |
 | `passHatK` | production | this package: src/campaign/repeat-reliability.ts:7 |
 | `pearsonR` | production | this package: src/builder-eval/correlation.ts:18 |
-| `percentileNearestRank` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:19 |
+| `percentileNearestRank` | production | this package: src/campaign/presets/profile-matrix-analysis.ts:26 |
 | `placeboBand` | planned | doc: docs/design/statistics-decisions.md |
 | `ranks` | production | discovery-lab:tools/evaluators/eval-discrimination/score.mjs |
 | `requiredPairedSampleSize` | production | discovery:research/e1-topology-20260920/gate/gate.mjs |
