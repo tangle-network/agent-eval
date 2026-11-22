@@ -9,7 +9,10 @@
  * standardization and the selected subset; every reported statistic comes from
  * changes at or after it with those choices fixed. Intervals resample whole
  * units. Each test is one-sided, in the direction fixed before the cut, and
- * Benjamini-Hochberg at the plan's level runs across every pair tested. A
+ * Benjamini-Hochberg at the plan's level runs across every pair tested, again
+ * across every tested pair whose within-unit statistic is tested, and again
+ * across every tested pair with a within-exposure statistic, whatever its
+ * pooled result. A
  * pooled statistic compares changes across units; a within-unit statistic
  * compares changes of the same unit, so a measure that only tells units apart
  * is visible as `predicts-pooled-only`. An outcome may name an exposure, a
@@ -216,9 +219,15 @@ export interface MeasureValidityReport {
   pairs: MeasureOutcomeValidity[]
   /** Pairs given a pooled p-value: the false-discovery family. */
   tested: number
-  /** Tested pairs whose within-unit statistic is tested: a second family at the same level. */
+  /**
+   * Pairs given a pooled p-value whose within-unit statistic is tested, whatever
+   * their pooled result: a second Benjamini-Hochberg family at the same level.
+   */
   withinUnitTested: number
-  /** Tested pairs with a statistic inside exposure bins: a third family at the same level. */
+  /**
+   * Pairs given a pooled p-value with a statistic inside exposure bins, whatever
+   * their pooled result: a third Benjamini-Hochberg family at the same level.
+   */
   withinExposureTested: number
   /** Pairs labelled `predicts`. */
   admitted: number

@@ -105,5 +105,8 @@ within-unit estimate is reported from two comparable units, but tested only from
 Student-t test has too few degrees of freedom to mean much, and a `predicts` pair resting on the pooled test alone
 says so with `within-unit-untested`. The test inside exposure bins is a third family, one-sided in its own
 direction fixed before the cut, and it counts toward `predicts` only in the direction the pooled test admitted.
+Each second family holds every pair with a pooled p-value that has its statistic, whatever the pooled result, not
+only the pairs the pooled test admitted: shrinking a family to the admitted pairs would condition it on the
+first test and make its q-values smaller than the family warrants.
 Movement agreement is the AUC of a movement's sign for the better outcome, which equals balanced accuracy and
 stays 0.5 under no relation whatever the outcome's base rate; it is tested one-sided as its own family.
