@@ -227,6 +227,7 @@ export {
   pairedTTest,
   partialCredit,
   passAtK,
+  passHatK,
   pearsonR,
   ranks,
   requiredPairedSampleSize,

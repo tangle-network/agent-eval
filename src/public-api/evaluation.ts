@@ -40,6 +40,7 @@ export type {
   JudgeInput,
   JudgeRubric,
   PersonaConfig,
+  PersonaRigor,
   ProductClientConfig,
   ProductScenario,
   RouteMap,

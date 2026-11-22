@@ -81,7 +81,7 @@ Use the decision diagnostics and intervals to distinguish insufficient evidence 
 | `/supervisor-run` | Read recursive run directories and their evidence coverage. |
 | `/trace-repair`, `/trajectory-replay` | Execute proposed repairs or replay recorded shell trajectories. |
 | `/benchmarks`, `/fuzz` | Adapt benchmark data and explore a declared behavior space. |
-| `/builder-eval`, `/multishot`, [`/multishot/golden`](./multishot-golden-records.md) | Evaluate generated applications and multi-turn conversations. |
+| `/builder-eval`, `/multishot`, [`/multishot/golden`](./multishot-golden-records.md) | Evaluate generated applications and multi-turn conversations; [optimize an agent over conversations](./multi-turn-optimization.md). |
 | `/matrix` | Schedule Cartesian experiment grids. |
 | `/rl` | Build reward, preference, and supervised datasets from eligible evidence. |
 | `/profile-cell` | Create and validate portable agent-profile identities. |

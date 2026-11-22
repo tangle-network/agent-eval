@@ -455,6 +455,14 @@ export function defaultScenarioId(run: Pick<Run, 'layer' | 'tags'>): string {
   return run.layer ?? run.tags?.kind ?? 'runtime'
 }
 
+/** The task a run executed: its scenario id, unless that is the
+ *  `defaultScenarioId` startRun filled in, which names no task. Undefined for
+ *  a missing run. Readers that pair steps or turns across runs by shared
+ *  context key them on this, so a run without a task identity never pairs. */
+export function runTaskId(run: Pick<Run, 'scenarioId' | 'layer' | 'tags'> | undefined | null) {
+  return run?.scenarioId && run.scenarioId !== defaultScenarioId(run) ? run.scenarioId : undefined
+}
+
 function warnOnFirstCaptureError(runId: string): CaptureErrorHandler {
   let warned = false
   return (error, write) => {

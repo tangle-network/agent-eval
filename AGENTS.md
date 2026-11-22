@@ -47,6 +47,7 @@ Each shared concern has one owner. Import it; do not re-implement it.
 - For checks without an answer key, read [verification-strategies.md](docs/verification-strategies.md).
 - For result vocabulary and certification, read [verdicts.md](docs/verdicts.md).
 - For conversation-engine regressions, read [multishot-golden-records.md](docs/multishot-golden-records.md).
+- For optimizing an agent over conversations with a simulated user, or measuring that user against real ones, read [multi-turn-optimization.md](docs/multi-turn-optimization.md).
 - For non-TypeScript consumers, read [wire-protocol.md](docs/wire-protocol.md) and the [Python client guide](clients/python/README.md).
 - For fleet execution, debugging, or experiment integrity, read [building-doctrine.md](docs/building-doctrine.md).
 
