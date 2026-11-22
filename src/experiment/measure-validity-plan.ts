@@ -92,7 +92,7 @@ export interface MeasureValidityPlanSelection {
 }
 
 /** The format every plan is sealed in now. */
-const PLAN_FORMAT = 2
+const PLAN_FORMAT = 2 as const
 
 export interface MeasureValidityPlanInput {
   id: string
