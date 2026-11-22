@@ -8,10 +8,28 @@
  * different digest. A seal verifies identity, not when it was made: seal
  * before reading changes made after the cut, and keep the digest where an
  * independent reader can see it.
+ *
+ * A plan sealed now carries `format: 2`. A plan without it was sealed before
+ * outcome windows, exposures and the minimum effect existed: it still verifies
+ * under the digest it was sealed with and runs under the rules it was sealed
+ * with, so a seal outlives an upgrade.
  */
 
 import { ValidationError } from '../errors'
 import { hashCanonical } from '../ledger-core/canonical'
+
+/**
+ * A measure the outcome grows with for a reason other than the quality being
+ * measured, such as a change's size for "a later fix touched it": a bigger
+ * change has more to fix. Every other measure is also tested inside bins of
+ * the exposure, so one that predicts only by tracking it is visible.
+ */
+export interface MeasureValidityExposure {
+  /** A planned measure id. */
+  measure: string
+  /** Bins with edges at the exposure's quantiles before the cut. Default 10. */
+  bins?: number
+}
 
 export interface MeasureValidityOutcome {
   /** Exact key in `DeploymentOutcome.metrics`. */
@@ -19,6 +37,22 @@ export interface MeasureValidityOutcome {
   direction: 'higher-is-better' | 'lower-is-better'
   /** `binary` outcomes are 0 or 1 and use AUC; `continuous` outcomes use rank correlation. */
   kind: 'binary' | 'continuous'
+  /**
+   * Time after the change within which the outcome is decided. A change before
+   * the cut counts for this outcome only when `at + windowMs` is at or before
+   * the cut, and a change after it only when `at + windowMs` is at or before
+   * the study's `asOf`, whatever its value and capture time. Declare it
+   * whenever a caller records an event when it happens and its absence when
+   * the window closes: otherwise the changes just before the cut, and the last
+   * changes read, keep their events and lose their non-events.
+   */
+  windowMs?: number
+  exposure?: MeasureValidityExposure
+}
+
+/** An outcome as sealed: an exposure carries its resolved bin count. */
+export interface MeasureValidityPlanOutcome extends MeasureValidityOutcome {
+  exposure?: Required<MeasureValidityExposure>
 }
 
 export interface MeasureValidityMeasure {
@@ -40,7 +74,25 @@ export interface MeasureValiditySelectionRules {
   minGain?: number
   /** Absolute before-cut rank correlation with a climbed measure at or above which a candidate is redundant. Default 0.9. */
   maxRedundancy?: number
+  /**
+   * Smallest distance of the after-cut estimate from the null for an admitted
+   * measure to be climbed; a smaller one is real by the test and too small to
+   * be worth climbing. Default 0.05 for AUC and 0.1 for Spearman.
+   */
+  minEffect?: { auc?: number; spearman?: number }
 }
+
+/** Selection rules as sealed, every default resolved. */
+export interface MeasureValidityPlanSelection {
+  maxMeasures: number
+  minGain: number
+  maxRedundancy: number
+  /** Absent on a plan sealed without `format`: no floor. */
+  minEffect?: { auc: number; spearman: number }
+}
+
+/** The format every plan is sealed in now. */
+const PLAN_FORMAT = 2 as const
 
 export interface MeasureValidityPlanInput {
   id: string
@@ -77,10 +129,16 @@ export interface MeasureValidityPlanInput {
 
 /** A plan with every default resolved, as sealed. */
 export interface MeasureValidityPlan {
+  /**
+   * 2 on every plan sealed now. Absent on a plan sealed before it existed,
+   * which declares no outcome window, exposure or minimum effect and runs
+   * without them.
+   */
+  format?: 2
   id: string
   cut: number
   level: number
-  outcomes: MeasureValidityOutcome[]
+  outcomes: MeasureValidityPlanOutcome[]
   measures: MeasureValidityMeasure[]
   minJoined: number
   minUnits: number
@@ -91,7 +149,7 @@ export interface MeasureValidityPlan {
   reduction: 'latest' | 'mean' | 'max'
   maxCaptureLagMs?: number
   minSensitivity: number
-  selection: Required<MeasureValiditySelectionRules>
+  selection: MeasureValidityPlanSelection
 }
 
 export interface SealedMeasureValidityPlan {
@@ -107,7 +165,7 @@ export function sealMeasureValidityPlan(
   input: MeasureValidityPlanInput,
   options: { sealedAt?: string } = {},
 ): SealedMeasureValidityPlan {
-  const plan = resolvePlan(input)
+  const plan = resolvePlan(input, PLAN_FORMAT)
   return {
     plan,
     digest: planDigest(plan),
@@ -120,7 +178,7 @@ export function sealMeasureValidityPlan(
 export function verifyMeasureValidityPlan(sealed: SealedMeasureValidityPlan): boolean {
   if (sealed?.algo !== 'sha256-rfc8785') return false
   try {
-    return planDigest(resolvePlan(sealed.plan)) === sealed.digest
+    return planDigest(resolvePlan(sealed.plan, sealed.plan.format)) === sealed.digest
   } catch {
     return false
   }
@@ -130,7 +188,13 @@ function planDigest(plan: MeasureValidityPlan): string {
   return hashCanonical(plan).slice('sha256:'.length)
 }
 
-function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
+/**
+ * Resolve the input under `format`. Without a format the plan is resolved
+ * exactly as it was before `format` existed, adding nothing, so its digest is
+ * the one it was sealed with.
+ */
+function resolvePlan(input: MeasureValidityPlanInput, format: unknown): MeasureValidityPlan {
+  const current = format === PLAN_FORMAT
   const problems: string[] = []
   const check = (ok: boolean, problem: string) => {
     if (!ok) problems.push(problem)
@@ -141,10 +205,14 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     typeof input.level === 'number' && input.level > 0 && input.level < 1,
     'level must be in (0,1)',
   )
-  const outcomes = (input.outcomes ?? []).map((outcome) => ({
+  const outcomes: MeasureValidityPlanOutcome[] = (input.outcomes ?? []).map((outcome) => ({
     id: outcome.id,
     direction: outcome.direction,
     kind: outcome.kind,
+    ...(outcome.windowMs === undefined ? {} : { windowMs: outcome.windowMs }),
+    ...(outcome.exposure === undefined
+      ? {}
+      : { exposure: { measure: outcome.exposure.measure, bins: outcome.exposure.bins ?? 10 } }),
   }))
   check(outcomes.length > 0, 'at least one outcome is required')
   for (const outcome of outcomes) {
@@ -183,6 +251,22 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   }
   check(unique(outcomes.map((outcome) => outcome.id)), 'outcome ids must be unique')
   check(unique(measures.map((measure) => measure.id)), 'measure ids must be unique')
+  const measureIds = new Set(measures.map((measure) => measure.id))
+  for (const outcome of outcomes) {
+    check(
+      outcome.windowMs === undefined || (Number.isFinite(outcome.windowMs) && outcome.windowMs > 0),
+      `outcome ${outcome.id} windowMs must be finite and positive`,
+    )
+    if (outcome.exposure === undefined) continue
+    check(
+      measureIds.has(outcome.exposure.measure),
+      `outcome ${outcome.id} exposure must be a planned measure`,
+    )
+    check(
+      Number.isSafeInteger(outcome.exposure.bins) && outcome.exposure.bins >= 2,
+      `outcome ${outcome.id} exposure bins must be an integer >= 2`,
+    )
+  }
   const minJoined = input.minJoined ?? 100
   const minUnits = input.minUnits ?? 20
   const minMinority = input.minMinority ?? 20
@@ -190,10 +274,27 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   const confidence = input.confidence ?? 0.95
   const reduction = input.reduction ?? 'latest'
   const minSensitivity = input.minSensitivity ?? 0.05
-  const selection = {
+  const selection: MeasureValidityPlanSelection = {
     maxMeasures: input.selection?.maxMeasures ?? 3,
     minGain: input.selection?.minGain ?? 0.01,
     maxRedundancy: input.selection?.maxRedundancy ?? 0.9,
+    ...(current
+      ? {
+          minEffect: {
+            auc: input.selection?.minEffect?.auc ?? 0.05,
+            spearman: input.selection?.minEffect?.spearman ?? 0.1,
+          },
+        }
+      : {}),
+  }
+  if (!current) {
+    check(format === undefined, `format must be ${PLAN_FORMAT} or absent`)
+    check(
+      outcomes.every(
+        (outcome) => outcome.windowMs === undefined && outcome.exposure === undefined,
+      ) && input.selection?.minEffect === undefined,
+      'a plan without format declares no outcome window, exposure or minimum effect',
+    )
   }
   check(Number.isSafeInteger(minJoined) && minJoined >= 3, 'minJoined must be an integer >= 3')
   check(Number.isSafeInteger(minUnits) && minUnits >= 2, 'minUnits must be an integer >= 2')
@@ -226,10 +327,20 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     selection.maxRedundancy > 0 && selection.maxRedundancy <= 1,
     'selection.maxRedundancy must be in (0,1]',
   )
+  const minEffect = selection.minEffect
+  check(
+    minEffect === undefined || (minEffect.auc >= 0 && minEffect.auc < 0.5),
+    'selection.minEffect.auc must be in [0,0.5)',
+  )
+  check(
+    minEffect === undefined || (minEffect.spearman >= 0 && minEffect.spearman < 1),
+    'selection.minEffect.spearman must be in [0,1)',
+  )
   if (problems.length > 0) {
     throw new ValidationError(`measure validity plan: ${problems.join('; ')}`)
   }
   return {
+    ...(current ? { format: PLAN_FORMAT } : {}),
     id: input.id,
     cut: input.cut,
     level: input.level,

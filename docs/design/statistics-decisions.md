@@ -85,11 +85,28 @@ pairs, with a score constant inside a unit counted as no association there. Unit
 summaries are resampled, so a unit drawn twice stays two units. A pooled statistic can be carried entirely by
 differences between units, such as larger repositories failing more; the within-unit statistic cannot.
 
+`scope: 'stratified'` is the same statistic with a caller's `stratum` in place of the unit, such as a bin of
+an exposure. Strata cross units, so a resample draws whole units and regroups their rows by stratum; a unit
+drawn twice puts its rows in its strata twice, as any whole-unit resample does. For AUC it is the sum of the
+Mann-Whitney counts inside strata over the sum of their comparable pairs, and the within-unit scope is its
+special case with each unit its own stratum. `measureValidityStudy` uses it for an outcome's declared exposure: bins at
+the exposure's quantiles before the cut, so a measure that predicts only because bigger changes have more to go
+wrong is compared only with changes of about the same size. Quantile bins leave residual exposure inside each
+bin; ten bins remove most of a monotone exposure effect, and a measure that tracks the exposure closely can keep
+a small within-bin effect from that residue, which the report shows as an estimate near the null.
+
 `measureValidityStudy` fixes each measure's direction before the cut, so its tests are one-sided in that
 direction and Benjamini-Hochberg runs on those p-values. A two-sided test would admit a measure whose direction
 reversed. The one-sided test has a known weakness: when the same units appear on both sides of the cut, a
 coincidence among those units can choose the direction and then confirm it, raising the pooled error rate up to
 twice the level. The within-unit test is immune to that, because unit-level coincidences cancel inside a unit,
-and `predicts` requires it wherever it can be estimated; a pooled-only pass is labelled `predicts-pooled-only`.
+and `predicts` requires it wherever it is tested; a pooled-only pass is labelled `predicts-pooled-only`. The
+within-unit estimate is reported from two comparable units, but tested only from `minUnits`: with fewer units its
+Student-t test has too few degrees of freedom to mean much, and a `predicts` pair resting on the pooled test alone
+says so with `within-unit-untested`. The test inside exposure bins is a third family, one-sided in its own
+direction fixed before the cut, and it counts toward `predicts` only in the direction the pooled test admitted.
+Each second family holds every pair with a pooled p-value that has its statistic, whatever the pooled result, not
+only the pairs the pooled test admitted: shrinking a family to the admitted pairs would condition it on the
+first test and make its q-values smaller than the family warrants.
 Movement agreement is the AUC of a movement's sign for the better outcome, which equals balanced accuracy and
 stays 0.5 under no relation whatever the outcome's base rate; it is tested one-sided as its own family.

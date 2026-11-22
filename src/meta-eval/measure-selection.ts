@@ -70,12 +70,21 @@ export interface MeasureSelection {
   /** Admitted measures to keep unoptimized; a climbed measure drifting away from them is visible. */
   guards: GuardMeasure[]
   /**
-   * Measures admitted on the pooled test that cannot be climbed: they do not
-   * move under change, move against the outcome, or predict only across units.
+   * Measures admitted on the pooled test that cannot be climbed: the outcome's
+   * exposure itself, measures that predict only by tracking it, only across
+   * units, that do not move under change or move against the outcome, or
+   * whose after-cut estimate (inside exposure bins when the outcome has an
+   * exposure) is closer to the null than `selection.minEffect`.
    */
   excluded: Array<{
     measure: string
-    reason: 'insensitive' | 'moves-against-outcome' | 'pooled-only'
+    reason:
+      | 'exposure'
+      | 'through-exposure'
+      | 'pooled-only'
+      | 'insensitive'
+      | 'moves-against-outcome'
+      | 'below-minimum-effect'
   }>
   /**
    * Equal-weight mean of the climbed measures' aligned z. The post-cut score
@@ -303,12 +312,22 @@ export function selectMeasures(
   const admitted = pairs.filter(
     (pair) =>
       pair.outcome === outcome.id &&
-      (pair.label === 'predicts' || pair.label === 'predicts-pooled-only'),
+      (pair.label === 'predicts' ||
+        pair.label === 'predicts-through-exposure' ||
+        pair.label === 'predicts-pooled-only'),
   )
   const excluded: MeasureSelection['excluded'] = []
   const references = new Map<string, MeasureReference>()
   const candidates: MeasureOutcomeValidity[] = []
   for (const pair of admitted) {
+    if (pair.measure === pair.exposure) {
+      excluded.push({ measure: pair.measure, reason: 'exposure' })
+      continue
+    }
+    if (pair.label === 'predicts-through-exposure') {
+      excluded.push({ measure: pair.measure, reason: 'through-exposure' })
+      continue
+    }
     if (pair.label === 'predicts-pooled-only') {
       excluded.push({ measure: pair.measure, reason: 'pooled-only' })
       continue
@@ -316,6 +335,15 @@ export function selectMeasures(
     const movement = pair.movement?.label
     if (movement === 'insensitive' || movement === 'moves-against-outcome') {
       excluded.push({ measure: pair.measure, reason: movement })
+      continue
+    }
+    // The label is statistical; climbing also needs an effect worth the effort,
+    // read inside exposure bins when the outcome has an exposure, since the
+    // pooled estimate then carries the exposure's own effect.
+    const floor = plan.selection.minEffect?.[statistic]
+    const effect = pair.exposure === null ? pair.postCut.association : pair.postCut.withinExposure
+    if (floor !== undefined && (effect === null || effect.estimate - effect.null < floor)) {
+      excluded.push({ measure: pair.measure, reason: 'below-minimum-effect' })
       continue
     }
     const values = pre.flatMap((row) => {

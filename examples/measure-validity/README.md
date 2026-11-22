@@ -20,11 +20,13 @@ The history is generated from a seeded random source, so the truth is known.
 ## What it does
 
 The input is a flat table, one row per change: an id, a merge time, a repository, named measures (null where unmeasured) and outcomes (null until their window closes).
-`toChange` and `toOutcomes` are the whole mapping; an outcome's capture time is its window's close.
+[`history.ts`](history.ts) generates it, and its `toChange` and `toOutcomes` are the whole mapping; an outcome's capture time is its window's close.
 
-1. `sealMeasureValidityPlan()` registers the cut, the false-discovery level, the minimum counts, the outcome and the measures, and returns a digest.
+1. `sealMeasureValidityPlan()` registers the cut, the false-discovery level, the minimum counts, the outcome with its window and the measures, and returns a digest.
+   An outcome that grows with a change's size can also name that size measure as its `exposure`; see [outcome validity](../../docs/outcome-validity.md#choose-which-measures-to-climb).
    Seal it before reading any change made after the cut.
 2. `measureValidityStudy()` fixes each measure's direction on changes before the cut, reading only outcomes known by the cut.
+   It takes `asOf`, the time the table was read; with the outcome's window, a change counts only once its window closed by the cut before it and by `asOf` after it.
    It then tests every measure on changes after the cut, one-sided in that direction, resampling whole repositories, with Benjamini-Hochberg across all 25 measures.
    It reports the statistic pooled across repositories and within each repository.
 3. With before and after values, it reports whether a measure moves under change and whether its movement agrees with the outcome.
@@ -45,7 +47,7 @@ The planted truth:
 The output is:
 
 ```text
-plan digest: 5b20e1012f4521137dfd3025309bfc68bcb2c9cd7b1b1ed64e88a1e0a949fad4
+plan digest: cb01a19b399317ba9dd09779f5cd50130512ed8f70b89e0fe154b6836cc16a06
 seal verifies: true
 changes: 1000 before the cut, 1100 after; pooled pairs tested: 24; predicts: 3
 review_depth        predicts                                          AUC pooled 0.749  within 0.768  movement not recorded

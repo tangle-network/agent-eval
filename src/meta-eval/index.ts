@@ -66,6 +66,7 @@ export {
 } from './measure-selection'
 export {
   type MeasureCoverage,
+  type MeasureExposureBins,
   type MeasureMovementValidity,
   type MeasureOutcomeValidity,
   type MeasureValidityInput,

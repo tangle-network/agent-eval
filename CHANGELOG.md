@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- An outcome in a measure validity plan can name one planned measure as its `exposure`, with a bin count (default 10). Bins are fixed at the exposure's quantiles before the cut, every other measure is also tested inside them as a third false-discovery family, and a measure that passes pooled but not inside the bins is `predicts-through-exposure` and never climbed. The exposure itself is reported and never climbed.
+- An outcome can declare `windowMs`. A change before the cut then counts for it only once its window has closed, whatever its value and capture time, and `excludedObservations.windowOpenAtCut` counts what the rule removed. Without it, a record that writes events when they happen and non-events at window close biases the direction fitted before the cut toward the event.
+- `measureValidityStudy()` takes `asOf`, the time the outcomes were read, and requires it when an outcome declares `windowMs`. An observation captured after it is excluded and counted in `capturedAfterAsOf`, and a change after the cut counts for a windowed outcome only once its window closed by it, counted in `windowOpenAtEnd`: the last changes read no longer keep their events and lose their non-events, which made a measure that only trends with time look predictive.
+- The within-unit estimate and interval are reported whenever two units hold a comparable pair; they are tested only from `minUnits`, and a `predicts` pair without that test carries the reason `within-unit-untested`.
+- A measure validity plan's `selection.minEffect` (default `{ auc: 0.05, spearman: 0.1 }`) is the smallest after-cut distance from the null at which an admitted measure is climbed, read inside exposure bins when the outcome names an exposure, since the pooled estimate then carries the exposure's own effect; a smaller effect stays labelled `predicts` and is excluded as `below-minimum-effect`.
+- A measure validity plan sealed now carries `format: 2`, its resolved `selection.minEffect` and, where declared, its outcome windows and exposures, so its digest differs from the same input sealed by 2.0.9. A plan sealed by 2.0.9 has no `format`: it still verifies under the digest it was sealed with and runs under the rules it was sealed with, with no outcome window, exposure or minimum effect. An unmarked plan that declares any of them, or another format, does not verify.
+- `clusteredAssociation()` takes `scope: 'stratified'` with a `stratum` per row: the statistic inside each stratum weighted by its comparable pairs, resampling whole units. The within-unit scope is its case with each unit its own stratum.
+
 ## [2.0.9] — 2026-11-22
 
 - `/world` runs an agent through many sessions of a simulated world whose clock the test controls. A scenario is data with a hidden key; spend returns outcomes days later with noise, ramp, saturation and wear; a gated lever refuses spend with no recorded approval; only the notes an agent saved cross between sessions. `runWorldEpisode` scores the end state and the decision log, `worldDecisionCosts` prices each action by replay, and `compareWorldPolicies` checks on shared seeds that a patient scripted policy beats an impulsive one beyond noise before a model is run. `launchQuarterScenario` is the first scenario and `chatWorldAgent` puts a chat model through it.
@@ -194,6 +204,7 @@ Commits in this release:
 
 ## [1.0.34] — 2026-11-14
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.26`, the first release whose `canonicalCandidateDigest` hashes in chunks; with the old floor a consumer's lock could keep 5.10.24 for Eval and its run reader would still build each blob's encoding whole.
 - fix(deps): resolve Interface 5.10.26 and repin the analyst benchmark's dependency lock
 - fix(deps): raise the Interface floor to 5.10.26 (lock pending)
 - chore(release): 1.0.33
@@ -228,6 +239,7 @@ Commits in this release:
 
 ## [1.0.33] — 2026-11-14
 
+- perf(ledger-core): `hashCanonical` uses Interface's `canonicalCandidateDigest`, which from Interface 5.10.26 hashes the RFC 8785 encoding in chunks instead of building it whole. The run reader verifies every Runtime output blob with it; on a 101 MiB provider event stream the hash no longer raises peak memory above parsing the blob (697 MiB RSS, against 1,455 MiB). Same digest.
 - fix(analyst): repin the benchmark implementation after hashCanonical's digest change
 - perf(ledger-core): hash canonical values through Interface's digest
 - fix(deps): point the @hono/node-server snapshot at the locked hono 4.13.16
@@ -259,6 +271,7 @@ Commits in this release:
 
 ## [1.0.32] — 2026-11-13
 
+- fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
 - fix(rollout): read the capture attempt from Runtime's evidence row (#1260)
 - chore(release): 1.0.31 (#1259)
 - fix(eval): integrate retained training and sealed final exposure (#1254)
@@ -279,6 +292,16 @@ Commits in this release:
 
 ## [1.0.31] — 2026-11-13
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
+- feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
+- fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
+- fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
+- fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
+- feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
+- fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
+- feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
 - fix(eval): integrate retained training and sealed final exposure (#1254)
 - feat(statistics): clustered paired contrast — cluster jackknife interval, cluster sign-flip test, clustered binary MDE and its simulation (#1247)
 - chore(release): 1.0.30 (#1250)
@@ -294,22 +317,6 @@ Commits in this release:
 - fix(benchmarks): a patch the Harbor oracle could not apply is no score, never a 0 (#1246)
 - chore(release): 1.0.29
 - feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
-
-## [Unreleased]
-
-- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.26`, the first release whose `canonicalCandidateDigest` hashes in chunks; with the old floor a consumer's lock could keep 5.10.24 for Eval and its run reader would still build each blob's encoding whole.
-- perf(ledger-core): `hashCanonical` uses Interface's `canonicalCandidateDigest`, which from Interface 5.10.26 hashes the RFC 8785 encoding in chunks instead of building it whole. The run reader verifies every Runtime output blob with it; on a 101 MiB provider event stream the hash no longer raises peak memory above parsing the blob (697 MiB RSS, against 1,455 MiB). Same digest.
-- fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
-- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
-- feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
-- fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
-- fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
-- fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
-- feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
-- fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
-- feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
-- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
-- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
 
 ## [1.0.30] — 2026-11-12
 
