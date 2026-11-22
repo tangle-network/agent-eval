@@ -23,6 +23,7 @@ pnpm exec tsx examples/evaluate-a-change/index.ts
 | Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
 | Record and compare scores over time | [`scorecard`](./scorecard/) | Offline |
 | Run the same cases across several profiles | [`profile-matrix`](./profile-matrix/) | Offline |
+| Race profiles and render the decision page | [`profile-matrix-report`](./profile-matrix-report/) | Offline; your own cell rows |
 | Run an agent across a simulated quarter where results land late | [`world-launch-quarter`](./world-launch-quarter/) | Offline; an LLM endpoint to run a model |
 
 ## Improve A Surface

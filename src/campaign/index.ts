@@ -299,6 +299,31 @@ export {
   type UserStoryVerdict,
   userStoryScoreboard,
 } from './presets/playback'
+export {
+  analyzeProfileMatrix,
+  type ProfileMatrixAnalysis,
+  type ProfileMatrixAxisSummary,
+  type ProfileMatrixCalibration,
+  type ProfileMatrixCaseDifficulty,
+  type ProfileMatrixCostAxis,
+  type ProfileMatrixErrorOverlap,
+  type ProfileMatrixFactorEffect,
+  type ProfileMatrixInterval,
+  type ProfileMatrixPairedDifference,
+  type ProfileMatrixPower,
+  type ProfileMatrixProfileStats,
+  type ProfileMatrixReportOptions,
+  type ProfileMatrixSliceCell,
+} from './presets/profile-matrix-analysis'
+export { renderProfileMatrixReport } from './presets/profile-matrix-report'
+export {
+  type ProfileMatrixRaceBatch,
+  type ProfileMatrixRaceFinalRow,
+  type ProfileMatrixRaceResult,
+  type ProfileMatrixRaceStanding,
+  type RaceProfileMatrixOptions,
+  raceProfileMatrix,
+} from './presets/race-profile-matrix'
 export { type RunEvalOptions, runEval } from './presets/run-eval'
 export {
   type RunImprovementLoopOptions,

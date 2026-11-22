@@ -2,6 +2,7 @@
 
 import type { HeldOutGateDecision } from './held-out-gate'
 import { interpolatedQuantile } from './math/quantile'
+import { paretoFrontier } from './pareto'
 import { fmt } from './research-report-render'
 import { observedSplitScore } from './rollout/reward'
 import type { RunRecord } from './run-record'
@@ -212,12 +213,11 @@ export function paretoChart(
       : undefined,
   }))
 
-  // Pareto: minimize cost, maximize quality. A point is dominated if
-  // some other point has lower-or-equal cost AND higher-or-equal
-  // quality with strict inequality somewhere.
-  for (const p of points) {
-    p.onFrontier = !points.some((q) => q !== p && dominates(q, p))
-  }
+  const { frontier } = paretoFrontier(points, [
+    { name: 'quality', direction: 'maximize', value: (p) => p.quality },
+    { name: 'cost', direction: 'minimize', value: (p) => p.cost },
+  ])
+  for (const p of frontier) p.onFrontier = true
 
   return {
     kind: 'pareto-cost-quality',
@@ -225,10 +225,6 @@ export function paretoChart(
     axes: { x: 'costUsd', y: 'score' },
     points,
   }
-}
-
-function dominates(a: ParetoPoint, b: ParetoPoint): boolean {
-  return a.cost <= b.cost && a.quality >= b.quality && (a.cost < b.cost || a.quality > b.quality)
 }
 
 export function gateLabel(d: HeldOutGateDecision): ParetoPoint['gate'] {

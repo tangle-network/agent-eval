@@ -658,7 +658,10 @@ export interface CampaignCellResult<TArtifact> {
   /** Concrete model when every committed agent receipt agrees. Omitted when
    *  the cell used multiple models. */
   resolvedModel?: string
+  /** Wall clock of the whole cell: dispatch, judging, cost settlement and trace flush. */
   durationMs: number
+  /** Wall clock of the dispatch alone, the agent's latency. Absent on cells cached before it was recorded. */
+  dispatchMs?: number
   seed: number
   cached: boolean
   /** The trace the producing attempt's spans went to, as its trace writer

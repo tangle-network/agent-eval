@@ -102,6 +102,7 @@ export function campaignCellToRunRecord<TArtifact>(
     tokens_output: cell.tokenUsage.output,
     tokens_known: cell.tokenUsage.tokensKnown === false ? 0 : 1,
     latency_ms: cell.durationMs,
+    ...(cell.dispatchMs === undefined ? {} : { dispatch_ms: cell.dispatchMs }),
     ...(execution.executionErrorCount === undefined
       ? {}
       : { execution_error_count: execution.executionErrorCount }),
