@@ -87,7 +87,7 @@ figcaption{font-size:12px;color:var(--text-2);padding:4px 6px}
 svg{display:block;width:100%;height:auto}svg text{fill:var(--text-2);font-size:11px}
 svg .title{fill:var(--text);font-size:12px;font-weight:600}
 .grid{stroke:var(--grid);stroke-width:1}.zero{stroke:var(--text-3);stroke-width:1}
-.whisker{stroke:var(--flat);stroke-width:1.5;stroke-opacity:.45}.step{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
+.whisker{stroke:var(--flat);stroke-width:1.5;stroke-opacity:.45}.leader{stroke:var(--text-2);stroke-width:.75;stroke-opacity:.6}.step{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
 .pt{fill:var(--flat);stroke:var(--panel);stroke-width:2}.pt.front{fill:var(--accent)}
 .ring{fill:none;stroke:var(--base);stroke-width:2}.pt:hover{stroke:var(--text)}
 .forest{width:120px;height:16px;display:inline-block;vertical-align:middle}
@@ -370,6 +370,10 @@ function scatter(a: ProfileMatrixAnalysis, axis: ProfileMatrixAxisSummary): stri
     if (p.profileId === a.baseline) parts.push(`<circle class="ring" cx="${cx}" cy="${cy}" r="9"/>`)
     if (onFront || p.profileId === a.baseline) {
       const at = placeLabel(cx, cy, p.profileId, placed, [L, W - R, T, H - B])
+      if (Math.abs(at.y - cy) > 16) {
+        const edge = at.anchor === 'start' ? at.x - 2 : at.x + 2
+        parts.push(`<line class="leader" x1="${cx}" y1="${cy}" x2="${edge}" y2="${at.y - 4}"/>`)
+      }
       parts.push(
         `<text x="${at.x}" y="${at.y}" text-anchor="${at.anchor}">${esc(p.profileId)}</text>`,
       )
@@ -391,9 +395,10 @@ function scatter(a: ProfileMatrixAnalysis, axis: ProfileMatrixAxisSummary): stri
 type LabelBox = readonly [x0: number, x1: number, y0: number, y1: number]
 
 /**
- * Place a point label beside its point where it overlaps no label already placed and stays
- * inside the plot, trying right then left at widening vertical offsets. Width is estimated
- * from the 11px label font.
+ * Place a point label beside its point where it overlaps no label or point already placed and
+ * stays inside the plot, trying right then left at widening vertical offsets across the plot's
+ * height; a label set far from its point gets a leader line. Width is estimated from the 11px
+ * label font.
  */
 function placeLabel(
   cx: number,
@@ -403,7 +408,10 @@ function placeLabel(
   [left, right, top, bottom]: readonly [number, number, number, number],
 ): { x: number; y: number; anchor: 'start' | 'end' } {
   const width = text.length * 6.2
-  const candidates = [-8, 16, -22, 30, -36, 44, -50].flatMap((dy) =>
+  const offsets = Array.from({ length: 2 * Math.ceil((bottom - top) / 7) }, (_, k) =>
+    k % 2 ? 8 + 7 * k : -(8 + 7 * k),
+  )
+  const candidates = offsets.flatMap((dy) =>
     (['start', 'end'] as const).map((anchor) => {
       const x = anchor === 'start' ? cx + 11 : cx - 11
       const box: LabelBox = [
