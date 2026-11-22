@@ -547,8 +547,11 @@ function difficulty(a: ProfileMatrixAnalysis): string {
   items.forEach((item, i) => {
     const tip = `${item.caseId}${item.slice ? ` (${item.slice})` : ''}: ${item.solved} of ${item.scored} profiles right`
     const h = Math.max(1, item.share * (H - T - B))
+    const y = sy(item.share) - (item.share === 0 ? 1 : 0)
+    const kind = item.scored < 2 ? 'bar single' : 'bar'
     parts.push(
-      `<rect class="bar${item.scored < 2 ? ' single' : ''}" x="${L + i * barW + 1}" y="${sy(item.share) - (item.share === 0 ? 1 : 0)}" width="${barW - 2}" height="${h}" rx="1"><title>${esc(tip)}</title></rect>`,
+      `<rect class="${kind}" x="${L + i * barW + 1}" y="${y}" width="${barW - 2}" height="${h}" rx="1">` +
+        `<title>${esc(tip)}</title></rect>`,
     )
   })
   parts.push(
