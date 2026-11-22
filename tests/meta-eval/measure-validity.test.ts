@@ -8,80 +8,28 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { sealMeasureValidityPlan, verifyMeasureValidityPlan } from '../../src/experiment'
 import {
-  type MeasureValidityPlanInput,
-  sealMeasureValidityPlan,
-  verifyMeasureValidityPlan,
-} from '../../src/experiment'
-import {
-  type DeploymentOutcome,
   guardDrift,
   InMemoryOutcomeStore,
-  type MeasuredChange,
-  type MeasureOutcomeValidity,
-  type MeasureValidityReport,
   measureValidityStudy,
 } from '../../src/meta-eval'
 import { rocAuc, spearmanR } from '../../src/statistics'
 import { makeRng } from '../../src/statistics/internal'
-
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
-
-type Rng = () => number
-
-function normal(rng: Rng): number {
-  const u = Math.max(rng(), Number.EPSILON)
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng())
-}
-
-const sigmoid = (x: number) => 1 / (1 + Math.exp(-x))
-const bernoulli = (rng: Rng, p: number) => (rng() < p ? 1 : 0)
-
-interface Draw {
-  change: MeasuredChange
-  capturedAt: number
-  outcomes: Record<string, number>
-}
-
-/** One change per hour; units drawn uniformly; outcomes arrive two to five days later. */
-function changeAt(index: number, unit: string, rng: Rng, start = 0) {
-  const at = start + index * HOUR
-  return { id: `change-${start}-${index}`, at, unit, capturedAt: at + 2 * DAY + rng() * 3 * DAY }
-}
-
-function outcomeRows(draws: readonly Draw[]): DeploymentOutcome[] {
-  return draws.map((draw) => ({
-    runId: draw.change.id,
-    capturedAt: draw.capturedAt,
-    metrics: draw.outcomes,
-  }))
-}
-
-async function study(
-  draws: readonly Draw[],
-  plan: Omit<MeasureValidityPlanInput, 'id'>,
-): Promise<MeasureValidityReport> {
-  const outcomes = new InMemoryOutcomeStore()
-  for (const row of outcomeRows(draws)) await outcomes.append(row)
-  return measureValidityStudy({
-    plan: sealMeasureValidityPlan({ id: 'planted-truth', ...plan }),
-    changes: draws.map((draw) => draw.change),
-    outcomes,
-  })
-}
-
-function pairOf(report: MeasureValidityReport, measure: string, outcome: string) {
-  const found = report.pairs.find((pair) => pair.measure === measure && pair.outcome === outcome)
-  if (!found) throw new Error(`no pair ${measure} x ${outcome}`)
-  return found
-}
-
-function estimate(pair: MeasureOutcomeValidity): number {
-  const value = pair.postCut.association?.estimate
-  if (value === undefined) throw new Error(`pair ${pair.measure} has no post-cut estimate`)
-  return value
-}
+import {
+  bernoulli,
+  changeAt,
+  DAY,
+  type Draw,
+  estimate,
+  HOUR,
+  normal,
+  outcomeRows,
+  pairOf,
+  type Rng,
+  sigmoid,
+  study,
+} from './planted-changes'
 
 describe('measureValidityStudy: held-out prediction', () => {
   it.each([3, 17, 42])(
