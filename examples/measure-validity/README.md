@@ -26,6 +26,7 @@ The input is a flat table, one row per change: an id, a merge time, a repository
    An outcome that grows with a change's size can also name that size measure as its `exposure`; see [outcome validity](../../docs/outcome-validity.md#choose-which-measures-to-climb).
    Seal it before reading any change made after the cut.
 2. `measureValidityStudy()` fixes each measure's direction on changes before the cut, reading only outcomes known by the cut.
+   It takes `asOf`, the time the table was read; with the outcome's window, a change counts only once its window closed by the cut before it and by `asOf` after it.
    It then tests every measure on changes after the cut, one-sided in that direction, resampling whole repositories, with Benjamini-Hochberg across all 25 measures.
    It reports the statistic pooled across repositories and within each repository.
 3. With before and after values, it reports whether a measure moves under change and whether its movement agrees with the outcome.
