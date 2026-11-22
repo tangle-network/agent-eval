@@ -376,7 +376,11 @@ function assessPair(
     leadTimeMs:
       lags.length === 0
         ? null
-        : { median: sampleMedian(lags)!, min: Math.min(...lags), max: Math.max(...lags) },
+        : {
+            median: sampleMedian(lags)!,
+            min: lags.reduce((a, b) => Math.min(a, b)),
+            max: lags.reduce((a, b) => Math.max(a, b)),
+          },
     movement: null,
   }
   const aligned = postRows.map((row) => ({
