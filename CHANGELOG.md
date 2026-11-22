@@ -191,6 +191,7 @@ Commits in this release:
 
 ## [1.0.34] — 2026-11-14
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.26`, the first release whose `canonicalCandidateDigest` hashes in chunks; with the old floor a consumer's lock could keep 5.10.24 for Eval and its run reader would still build each blob's encoding whole.
 - fix(deps): resolve Interface 5.10.26 and repin the analyst benchmark's dependency lock
 - fix(deps): raise the Interface floor to 5.10.26 (lock pending)
 - chore(release): 1.0.33
@@ -225,6 +226,7 @@ Commits in this release:
 
 ## [1.0.33] — 2026-11-14
 
+- perf(ledger-core): `hashCanonical` uses Interface's `canonicalCandidateDigest`, which from Interface 5.10.26 hashes the RFC 8785 encoding in chunks instead of building it whole. The run reader verifies every Runtime output blob with it; on a 101 MiB provider event stream the hash no longer raises peak memory above parsing the blob (697 MiB RSS, against 1,455 MiB). Same digest.
 - fix(analyst): repin the benchmark implementation after hashCanonical's digest change
 - perf(ledger-core): hash canonical values through Interface's digest
 - fix(deps): point the @hono/node-server snapshot at the locked hono 4.13.16
@@ -256,6 +258,7 @@ Commits in this release:
 
 ## [1.0.32] — 2026-11-13
 
+- fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
 - fix(rollout): read the capture attempt from Runtime's evidence row (#1260)
 - chore(release): 1.0.31 (#1259)
 - fix(eval): integrate retained training and sealed final exposure (#1254)
@@ -276,6 +279,16 @@ Commits in this release:
 
 ## [1.0.31] — 2026-11-13
 
+- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
+- feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
+- fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
+- fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
+- fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
+- feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
+- fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
+- feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
+- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
+- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
 - fix(eval): integrate retained training and sealed final exposure (#1254)
 - feat(statistics): clustered paired contrast — cluster jackknife interval, cluster sign-flip test, clustered binary MDE and its simulation (#1247)
 - chore(release): 1.0.30 (#1250)
@@ -291,22 +304,6 @@ Commits in this release:
 - fix(benchmarks): a patch the Harbor oracle could not apply is no score, never a 0 (#1246)
 - chore(release): 1.0.29
 - feat(benchmarks): own a Harbor case environment (prepare once, pause under a free-space floor, release with its build cache) (#1244)
-
-## [Unreleased]
-
-- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.26`, the first release whose `canonicalCandidateDigest` hashes in chunks; with the old floor a consumer's lock could keep 5.10.24 for Eval and its run reader would still build each blob's encoding whole.
-- perf(ledger-core): `hashCanonical` uses Interface's `canonicalCandidateDigest`, which from Interface 5.10.26 hashes the RFC 8785 encoding in chunks instead of building it whole. The run reader verifies every Runtime output blob with it; on a 101 MiB provider event stream the hash no longer raises peak memory above parsing the blob (697 MiB RSS, against 1,455 MiB). Same digest.
-- fix(rollout): read a native capture's attempt from its `execution-evidence` row, falling back to the transcript record's `node.attemptId` that earlier Runtime releases write; refuse a capture whose row and record name different attempts, or neither names one.
-- fix(deps): raise `@tangle-network/agent-interface` to `^5.10.24` and `@tangle-network/harness-sessions` to `^1.0.13`, the first releases with the recorded profile-measurement contracts and response-bound tool-definition snapshots this release reads.
-- feat(campaign): reserve shared final evidence before native search and expose its durable sealed roster before test allocation; resume only the same recorded claim.
-- fix(rollout): project response-bound native tool inventories into training; retain varying or missing exposure and direct native parse gaps instead of backfilling context.
-- fix(rollout): enforce shared split/capture admission for supplied DPO pairs and GRPO groups; retain observable exclusion receipts and canonical source identity in dataset bundles.
-- fix(rollout): preserve copied SFT conditioning with assistant loss masks, actual matching tool schemas and complete invocation/result linkage; refuse ambiguous run-only text lookups.
-- feat(rollout): join verified native Runtime capture per execution attempt, retain structured inputs and explicit partial-capture gaps, and accept declared task partitions.
-- fix(api): expose the existing Dataset class through the root evaluation barrel for production dataset consumers.
-- feat(rollout): retain canonical settlement batches idempotently with immutable source/projection identities using the existing durable ledger primitives.
-- fix(statistics): refuse non-finite paired differences and keep jackknife bounds unavailable when a required cluster deletion has no defined statistic.
-- fix(statistics): keep planning effects attainable and refuse unbracketed simulated power; retain Monte Carlo uncertainty.
 
 ## [1.0.30] — 2026-11-12
 
