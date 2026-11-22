@@ -160,7 +160,7 @@ export interface CompletionCriterion {
  *   relentless  — senior partner reviewing for a client who will litigate;
  *                 interrogates every claim, accepts nothing undefended.
  */
-type PersonaRigor = 'cooperative' | 'demanding' | 'relentless'
+export type PersonaRigor = 'cooperative' | 'demanding' | 'relentless'
 
 export interface PersonaConfig {
   id: string

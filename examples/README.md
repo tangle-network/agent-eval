@@ -32,6 +32,7 @@ pnpm exec tsx examples/evaluate-a-change/index.ts
 | Improve with your own candidate generator | [`selfimprove-quickstart`](./selfimprove-quickstart/) | Offline |
 | Declare source units, audit a checker, and retain fresh final evidence | [`evaluation-integrity`](./evaluation-integrity/) | Offline; build the package first |
 | Improve one prompt with official GEPA in one call | [`self-improve-optimizer`](./self-improve-optimizer/) | Python GEPA package and an LLM endpoint |
+| Improve an agent over conversations with a simulated user | [`multi-turn-optimization`](./multi-turn-optimization/) | Python GEPA package and an LLM endpoint |
 | Let a metered coding agent drive the optimization | [`agent-engine-optimizer`](./agent-engine-optimizer/) | Python GEPA package, the `claude` CLI, and an LLM endpoint |
 | Let another package own the text search | [`adapt-a-text-optimizer`](./adapt-a-text-optimizer/) | Offline |
 | Compare official GEPA and SkillOpt | [`compare-optimization-methods`](./compare-optimization-methods/) | Python optimizer packages and an LLM endpoint |

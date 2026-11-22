@@ -20,6 +20,13 @@ Use it to search for a better surface and inspect the final decision.
 Use it to compare selected surfaces under declared resource limits.
 Runnable versions: [`examples/self-improve-optimizer`](../examples/self-improve-optimizer/) and [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
+Both entry points take the same per-cell dispatch, so the target decides what to pass them:
+
+| Target | Dispatch | Judge and gate | Optimizer evidence |
+|---|---|---|---|
+| One artifact per case | Your `agent(surface, scenario, ctx)` | Your judge; `defaultProductionGate` | `describeArtifact`, or the artifact text |
+| A multi-turn conversation with a simulated user | `multishotRollout(...).agent` and its `dispatchRef` | `conversationJudge()`; `conversationGate()` refuses arms that met a different user or seed | `describeConversation` ([multi-turn optimization](./multi-turn-optimization.md)) |
+
 ## Compose searches over a candidate
 
 Use `scopedOptimizationMethod()` to change one projection while scoring the complete candidate.

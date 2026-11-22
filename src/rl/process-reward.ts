@@ -45,7 +45,7 @@ import {
   jsonDocument,
   LedgerCanonicalizationError,
 } from '../ledger-core/canonical'
-import { defaultScenarioId } from '../trace/emitter'
+import { runTaskId } from '../trace/emitter'
 import type { Span } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 
@@ -163,8 +163,7 @@ export async function extractStepRewards(
   const attributeKeys =
     opts.contextAttributes === undefined ? undefined : new Set(opts.contextAttributes)
   // A defaulted scenario id names the run's layer, not its task.
-  const task =
-    run?.scenarioId && run.scenarioId !== defaultScenarioId(run) ? run.scenarioId : undefined
+  const task = runTaskId(run)
   // The context chain. It is undefined from the first observable content that
   // was not recorded, and for a run with no task identity.
   let chain = task === undefined ? undefined : digestOf({ scenarioId: task })

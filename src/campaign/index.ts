@@ -372,6 +372,12 @@ export {
   type LoopProvenanceRecord,
 } from './provenance'
 export {
+  type RepeatReliability,
+  type RepeatReliabilityOptions,
+  repeatReliability,
+  type ScenarioRepeatReliability,
+} from './repeat-reliability'
+export {
   createRetainedDispatch,
   type RetainedDispatchOptions,
   type RetainedDispatchOutcome,
