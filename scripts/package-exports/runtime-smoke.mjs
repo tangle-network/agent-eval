@@ -235,6 +235,9 @@ function verifyRlImports(appDir) {
           'SearchState',
           'searchTaskSetDigest',
           'importGepaPopulation',
+          'analyzeProfileMatrix',
+          'renderProfileMatrixReport',
+          'raceProfileMatrix',
         ]) {
           if (!(name in campaign)) throw new Error('missing campaign export ' + name)
         }
