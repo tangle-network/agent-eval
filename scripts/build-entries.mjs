@@ -29,6 +29,7 @@ export const buildEntries = {
   'rollout/index': 'src/rollout/index.ts',
   'storyboard/index': 'src/storyboard/index.ts',
   'app-grade/index': 'src/app-grade/index.ts',
+  'world/index': 'src/world/index.ts',
   'adapters/http': 'src/adapters/http.ts',
   'supervisor-run/index': 'src/supervisor-run/index.ts',
   'trajectory-replay/index': 'src/trajectory-replay/index.ts',
