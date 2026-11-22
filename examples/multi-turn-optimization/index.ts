@@ -31,6 +31,7 @@ import {
   conversationGate,
   conversationJudge,
   describeConversation,
+  type MultishotPersona,
   type MultishotTransport,
   multishotRollout,
 } from '../../src/multishot'
@@ -65,7 +66,7 @@ const pricing = tokenPricingFromEnv()
 const gepaModelBudget = optimizerModelBudgetFromEnv('GEPA', GEPA_MAX_PROPOSER_COST_USD)
 
 // ── Customers: the simulated user plays one per scenario ─────────────────
-interface Customer {
+interface Customer extends MultishotPersona {
   id: string
   name: string
   orderId: string
