@@ -52,6 +52,7 @@ export {
   type JudgePanelPrompt,
   type RubricDimensionGuide,
 } from './judge-panel-calibration'
+export type { MeasuredChange } from './measure-records'
 export {
   type ClimbedMeasure,
   type GuardDriftInput,
@@ -60,12 +61,13 @@ export {
   type GuardDriftReport,
   type GuardMeasure,
   guardDrift,
-  type MeasureCoverage,
-  type MeasuredChange,
-  type MeasureMovementValidity,
-  type MeasureOutcomeValidity,
   type MeasureReference,
   type MeasureSelection,
+} from './measure-selection'
+export {
+  type MeasureCoverage,
+  type MeasureMovementValidity,
+  type MeasureOutcomeValidity,
   type MeasureValidityInput,
   type MeasureValidityReason,
   type MeasureValidityReport,

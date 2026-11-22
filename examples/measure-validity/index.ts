@@ -36,7 +36,14 @@ const DAY = 24 * HOUR
 type TableRow = Record<string, string | number | null>
 
 const NOISE = Array.from({ length: 20 }, (_, i) => `noise_${String(i).padStart(2, '0')}`)
-const MEASURES = ['review_depth', 'review_depth_copy', 'test_delta', 'repo_size', 'hotfix', ...NOISE]
+const MEASURES = [
+  'review_depth',
+  'review_depth_copy',
+  'test_delta',
+  'repo_size',
+  'hotfix',
+  ...NOISE,
+]
 /** Each outcome is decided when its window after the merge closes. */
 const OUTCOME_WINDOWS: Record<string, number> = { kept: 14 * DAY }
 /** Columns holding a measure's value before the change, where recorded. */

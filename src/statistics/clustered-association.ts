@@ -106,8 +106,7 @@ export function clusteredAssociation(
       throw new ValidationError(`clusteredAssociation: rows[${index}].unit must be nonempty`)
     }
   }
-  const seed =
-    options.seed ?? seedFromData([rows.map((row) => row.x), rows.map((row) => row.y)])
+  const seed = options.seed ?? seedFromData([rows.map((row) => row.x), rows.map((row) => row.y)])
   const draws: number[] = []
   const record = (value: number) => {
     if (Number.isFinite(value)) draws.push(value)
