@@ -87,7 +87,8 @@ figcaption{font-size:12px;color:var(--text-2);padding:4px 6px}
 svg{display:block;width:100%;height:auto}svg text{fill:var(--text-2);font-size:11px}
 svg .title{fill:var(--text);font-size:12px;font-weight:600}
 .grid{stroke:var(--grid);stroke-width:1}.zero{stroke:var(--text-3);stroke-width:1}
-.whisker{stroke:var(--flat);stroke-width:1.5;stroke-opacity:.45}.leader{stroke:var(--text-2);stroke-width:.75;stroke-opacity:.6}.step{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
+.whisker{stroke:var(--flat);stroke-width:1.5;stroke-opacity:.45}
+.leader{stroke:var(--text-2);stroke-width:.75;stroke-opacity:.6}.step{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
 .pt{fill:var(--flat);stroke:var(--panel);stroke-width:2}.pt.front{fill:var(--accent)}
 .ring{fill:none;stroke:var(--base);stroke-width:2}.pt:hover{stroke:var(--text)}
 .forest{width:120px;height:16px;display:inline-block;vertical-align:middle}
