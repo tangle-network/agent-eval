@@ -73,7 +73,8 @@ export interface MeasureSelection {
    * Measures admitted on the pooled test that cannot be climbed: the outcome's
    * exposure itself, measures that predict only by tracking it, only across
    * units, that do not move under change or move against the outcome, or
-   * whose after-cut estimate is closer to the null than `selection.minEffect`.
+   * whose after-cut estimate (inside exposure bins when the outcome has an
+   * exposure) is closer to the null than `selection.minEffect`.
    */
   excluded: Array<{
     measure: string
@@ -336,11 +337,12 @@ export function selectMeasures(
       excluded.push({ measure: pair.measure, reason: movement })
       continue
     }
-    // The label is statistical; climbing also needs an effect worth the effort.
-    // A plan sealed before the floor existed has none.
+    // The label is statistical; climbing also needs an effect worth the effort,
+    // read inside exposure bins when the outcome has an exposure, since the
+    // pooled estimate then carries the exposure's own effect.
     const floor = plan.selection.minEffect?.[statistic]
-    const association = pair.postCut.association!
-    if (floor !== undefined && association.estimate - association.null < floor) {
+    const effect = pair.exposure === null ? pair.postCut.association : pair.postCut.withinExposure
+    if (floor !== undefined && (effect === null || effect.estimate - effect.null < floor)) {
       excluded.push({ measure: pair.measure, reason: 'below-minimum-effect' })
       continue
     }
