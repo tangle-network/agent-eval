@@ -92,7 +92,8 @@ describe('measureValidityStudy: held-out prediction', () => {
       for (let i = 0; i < 900; i++) {
         const { capturedAt, ...change } = changeAt(i, `unit-${Math.floor(rng() * 90)}`, rng)
         const signal = normal(rng)
-        const measures: Record<string, number> = { signal }
+        // Two-valued, and set on one change in sixty: too few differ after the cut.
+        const measures: Record<string, number> = { signal, flag: i % 60 === 0 ? 1 : 0 }
         // Present on about one change in ten: too few joined changes after the cut.
         if (rng() < 0.1) measures.rare = normal(rng)
         draws.push({
@@ -112,9 +113,10 @@ describe('measureValidityStudy: held-out prediction', () => {
           { id: 'reverted', direction: 'lower-is-better', kind: 'binary' },
           { id: 'retention', direction: 'higher-is-better', kind: 'continuous' },
         ],
-        measures: [{ id: 'signal' }, { id: 'rare' }],
+        measures: [{ id: 'signal' }, { id: 'rare' }, { id: 'flag' }],
         resamples: 300,
       })
+      expect(report.hypothesis).toMatch(/^one-sided/)
 
       const reverted = pairOf(report, 'signal', 'reverted')
       expect(reverted.label).toBe('predicts')
@@ -123,6 +125,9 @@ describe('measureValidityStudy: held-out prediction', () => {
       expect(estimate(reverted)).toBeGreaterThan(0.6)
       expect(reverted.postCut.association!.low).toBeGreaterThan(0.5)
       expect(reverted.postCut.qValue!).toBeLessThanOrEqual(0.05)
+      expect(reverted.postCut.association!.alternative).toBe('greater')
+      expect(reverted.postCut.withinUnit!.estimate).toBeGreaterThan(0.6)
+      expect(reverted.postCut.withinUnitQValue!).toBeLessThanOrEqual(0.05)
       const retention = pairOf(report, 'signal', 'retention')
       expect(retention.label).toBe('predicts')
       expect(retention.statistic).toBe('spearman')
@@ -139,6 +144,12 @@ describe('measureValidityStudy: held-out prediction', () => {
       expect(rare.label).toBe('insufficient')
       expect(rare.reason).toBe('below-minimum-count')
       expect(rare.postCut.association).toBeNull()
+      // Too few changes differ from the common value: insufficient, separate from the joined count.
+      const flag = pairOf(report, 'flag', 'reverted')
+      expect(flag.postCut.n).toBe(450)
+      expect(flag.postCut.minority).toBeLessThan(20)
+      expect(flag.label).toBe('insufficient')
+      expect(flag.reason).toBe('too-little-variation')
       expect(report.tested).toBe(2)
       expect(report.claim.causal).toBe(false)
     },
@@ -197,7 +208,8 @@ describe('measureValidityStudy: false discoveries across many measures', () => {
         noise.filter((pair) => (pair.postCut.association?.pValue ?? 1) < 0.05).length,
       )
     }
-    // Under the global null, BH at 0.05 admits anything in about one study in twenty.
+    // Under the global null, BH at 0.05 admits anything in about one study in twenty;
+    // the one-sided per-pair test at 0.05 admits about ten of 200.
     expect(noiseAdmitted).toBeLessThanOrEqual(1)
     const naiveMean = naiveCounts.reduce((sum, count) => sum + count, 0) / naiveCounts.length
     expect(naiveMean).toBeGreaterThanOrEqual(5)
@@ -347,6 +359,59 @@ describe('measureValidityStudy: traps a full-sample correlation falls into', () 
   )
 })
 
+describe('measureValidityStudy: between units and within them', () => {
+  it.each([12, 37, 88])(
+    'does not admit a measure that only separates units as a within-unit predictor (seed %i)',
+    async (seed) => {
+      const rng = makeRng(seed)
+      const units = 60
+      // A unit attribute, recorded on each change and constant within its unit.
+      const repoLevel = Array.from({ length: units }, () => normal(rng))
+      const draws: Draw[] = []
+      for (let k = 0; k < 20; k++) {
+        for (let u = 0; u < units; u++) {
+          const at = (k * units + u) * HOUR
+          const changeLevel = normal(rng)
+          draws.push({
+            change: {
+              id: `change-${k}-${u}`,
+              at,
+              unit: `unit-${u}`,
+              measures: { repoLevel: repoLevel[u]!, changeLevel },
+            },
+            capturedAt: at + DAY,
+            outcomes: {
+              kept: bernoulli(rng, sigmoid(1.5 * repoLevel[u]! + 1.5 * changeLevel)),
+            },
+          })
+        }
+      }
+      const report = await study(draws, {
+        cut: 10 * units * HOUR,
+        level: 0.05,
+        outcomes: [{ id: 'kept', direction: 'higher-is-better', kind: 'binary' }],
+        measures: [{ id: 'repoLevel' }, { id: 'changeLevel' }],
+        resamples: 300,
+      })
+      const repo = pairOf(report, 'repoLevel', 'kept')
+      expect(repo.postCut.qValue!).toBeLessThanOrEqual(0.05)
+      expect(estimate(repo)).toBeGreaterThan(0.6)
+      expect(repo.postCut.withinUnit!.estimate).toBe(0.5)
+      expect(repo.label).toBe('predicts-pooled-only')
+      expect(repo.reason).toBe('within-unit-not-shown')
+      const change = pairOf(report, 'changeLevel', 'kept')
+      expect(change.label).toBe('predicts')
+      expect(change.postCut.withinUnit!.estimate).toBeGreaterThan(0.6)
+      expect(report.withinUnitTested).toBe(2)
+      expect(report.admitted).toBe(1)
+
+      const selection = report.selections[0]!
+      expect(selection.excluded).toEqual([{ measure: 'repoLevel', reason: 'pooled-only' }])
+      expect(selection.climb.map((row) => row.measure)).toEqual(['changeLevel'])
+    },
+  )
+})
+
 describe('measureValidityStudy: movement under change', () => {
   it.each([6, 23, 64])(
     'labels a measure that predicts across items but never moves under change (seed %i)',
@@ -440,20 +505,23 @@ describe('measureValidityStudy: selection and guards', () => {
         rng,
         start,
       )
-      const q = shape.qMean + normal(rng)
-      const a = q + 0.6 * normal(rng)
+      // Two independent causes of the outcome. `a` and `b` read one each well;
+      // `g` and `h` read the same two causes worse; `aCopy` duplicates `a`.
+      const q1 = shape.qMean + normal(rng)
+      const q2 = shape.qMean + normal(rng)
+      const a = q1 + 0.5 * normal(rng)
       const measures: Record<string, number> = {
         a,
         aCopy: a + 0.02 * normal(rng),
-        b: q + 0.7 * normal(rng),
-        g: q + 0.7 * normal(rng),
-        h: q + 0.7 * normal(rng),
+        b: q2 + 0.5 * normal(rng),
+        g: q1 + 0.9 * normal(rng),
+        h: q2 + 0.9 * normal(rng),
       }
       if (shape.gamed) measures[shape.gamed] = measures[shape.gamed]! + 2
       draws.push({
         change: { ...change, measures },
         capturedAt,
-        outcomes: { kept: bernoulli(rng, sigmoid(2 * q)) },
+        outcomes: { kept: bernoulli(rng, sigmoid(1.5 * q1 + 1.5 * q2)) },
       })
     }
     return draws
@@ -476,7 +544,7 @@ describe('measureValidityStudy: selection and guards', () => {
           { id: 'h', cost: 3 },
         ],
         resamples: 300,
-        selection: { maxMeasures: 3, minGain: 0.005 },
+        selection: { maxMeasures: 2, minGain: 0.005 },
       })
       const costs: Record<string, number> = { a: 1, aCopy: 1, b: 5, g: 2, h: 3 }
       for (const measure of Object.keys(costs)) {
@@ -484,7 +552,8 @@ describe('measureValidityStudy: selection and guards', () => {
       }
       const selection = report.selections.find((row) => row.outcome === 'kept')!
       const climbed = selection.climb.map((row) => row.measure)
-      expect(climbed).toHaveLength(3)
+      expect(climbed).toHaveLength(2)
+      expect(climbed).toContain('b')
       const copy = climbed.includes('a') ? 'a' : 'aCopy'
       const partner = copy === 'a' ? 'aCopy' : 'a'
       expect(climbed).toContain(copy)
@@ -493,7 +562,7 @@ describe('measureValidityStudy: selection and guards', () => {
       expect(redundant.reason).toBe('redundant')
       expect(redundant.redundantWith).toBe(copy)
       expect(redundant.correlation!).toBeGreaterThan(0.95)
-      expect(selection.guards).toHaveLength(2)
+      expect(selection.guards.map((row) => row.measure).sort()).toEqual([partner, 'g', 'h'].sort())
       for (const row of selection.climb) {
         expect(row.cost).toBe(costs[row.measure])
         expect(row.leadTimeMs!.median).toBeGreaterThanOrEqual(2 * DAY)

@@ -54,6 +54,12 @@ export interface MeasureValidityPlanInput {
   minJoined?: number
   /** Fewest independent units after the cut for a pair to be tested. Default 20. */
   minUnits?: number
+  /**
+   * Fewest joined changes after the cut whose value differs from the measure's
+   * most common value: the smaller class of a two-valued measure. Below it the
+   * pair is insufficient. Default 20.
+   */
+  minMinority?: number
   /** Whole-unit resamples per interval. Default 1000. */
   resamples?: number
   /** Interval level. Default 0.95. */
@@ -78,6 +84,7 @@ export interface MeasureValidityPlan {
   measures: MeasureValidityMeasure[]
   minJoined: number
   minUnits: number
+  minMinority: number
   resamples: number
   confidence: number
   seed?: number
@@ -178,6 +185,7 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   check(unique(measures.map((measure) => measure.id)), 'measure ids must be unique')
   const minJoined = input.minJoined ?? 100
   const minUnits = input.minUnits ?? 20
+  const minMinority = input.minMinority ?? 20
   const resamples = input.resamples ?? 1000
   const confidence = input.confidence ?? 0.95
   const reduction = input.reduction ?? 'latest'
@@ -189,6 +197,10 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
   }
   check(Number.isSafeInteger(minJoined) && minJoined >= 3, 'minJoined must be an integer >= 3')
   check(Number.isSafeInteger(minUnits) && minUnits >= 2, 'minUnits must be an integer >= 2')
+  check(
+    Number.isSafeInteger(minMinority) && minMinority >= 1,
+    'minMinority must be a positive integer',
+  )
   check(Number.isSafeInteger(resamples) && resamples >= 1, 'resamples must be a positive integer')
   check(confidence > 0 && confidence < 1, 'confidence must be in (0,1)')
   check(input.seed === undefined || Number.isSafeInteger(input.seed), 'seed must be an integer')
@@ -225,6 +237,7 @@ function resolvePlan(input: MeasureValidityPlanInput): MeasureValidityPlan {
     measures,
     minJoined,
     minUnits,
+    minMinority,
     resamples,
     confidence,
     ...(input.seed === undefined ? {} : { seed: input.seed }),

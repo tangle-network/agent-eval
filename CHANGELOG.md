@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+- feat(meta-eval): `measureValidityStudy()` takes past changes (id, time, independent unit, numbers known at change time, optional before and after values) and later outcomes from the existing `OutcomeStore`, and reports for every measure and outcome whether the measure predicts the outcome on changes after a sealed cut. Directions are fixed before the cut and every test is one-sided in that direction, with whole-unit intervals and Benjamini-Hochberg across every pair tested. Each pair carries a pooled and a within-unit statistic; a pair that passes only pooled is `predicts-pooled-only`, because differences between units, not between changes, may carry it. Unmeasured values are reported as coverage, never zero; a measure on which too few held-out changes differ (`minMinority`, default 20) is `insufficient`. The report adds lead time, sensitivity and directional agreement under change, and a redundancy-penalized subset to climb with the remaining admitted measures returned as guards. `guardDrift()` checks a later batch for a climbed measure rising away from its guards. Prediction is not causation; the report's `claim` says what records would show cause.
+- feat(experiment): `sealMeasureValidityPlan()` and `verifyMeasureValidityPlan()` seal the cut, level, minimum counts, outcomes and measures under the RFC 8785 digest `sealExperiment` uses; the study refuses a plan whose seal does not verify.
+- feat(statistics): `clusteredAssociation()` tests an AUC or rank correlation, pooled or within units, with a whole-unit bootstrap standard error and a two-sided or one-sided Student-t p-value on `units - 1` degrees of freedom; `associationEstimate()` returns the point statistic alone.
+- refactor(meta-eval): `correlationStudy()` and `rubricPredictiveValidity()` share outcome grouping and reduction with the new study; their results are unchanged.
+
 ## [2.0.7] — 2026-11-21
 
 - A forked native rollout keeps its copied conversation and counts each model and tool call under the session that performed it. A renamed Prime file keeps its native ID and parent.
