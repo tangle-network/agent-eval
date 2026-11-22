@@ -17,7 +17,7 @@ No model is called.
 ```sh
 pnpm tsx examples/profile-matrix-report/index.ts <rows-dir> \
   --truth <truth.json> --label <field> --slice <field> --cluster <field> \
-  --baseline <cell> --out page.html
+  --baseline <cell> --out page.html [--min-coverage 0.9]
 ```
 
 Each file is named `<harness>-<model>-<effort>[-<instructions>].jsonl`, which gives the cell's factor levels.
@@ -31,6 +31,7 @@ The run prints, per cell, the cases scored, coverage of the baseline's cases, wh
 Every difference on the page is paired on the cases both profiles scored, so a profile that ran easier cases cannot look better, and a cell that ran fewer cases still gets its own paired difference without shrinking anyone else's.
 The panels that compare all profiles at once (frontiers, error overlap, difficulty, slices, power) use the common cases of the panel: the profiles that scored at least `minCoverage` (default 0.9) of the baseline's cases, or a race's survivors.
 The rest appear in a partial-coverage table, so one short cell cannot cut the common set to its size.
+When the baseline has run more cases than the other cells, lower `--min-coverage` so they can join the panel; the page says when the panel holds the baseline alone.
 Intervals are clustered when you pass a cluster per case (for example one per docket), because cases from one source are not independent.
 Quality is drawn against tokens and seconds as well as dollars, so the page stays useful on flat-rate seats where dollars are not measured.
 The power line says the smallest difference this design could detect, so an unresolved row reads as "not measurable here" rather than "equal".

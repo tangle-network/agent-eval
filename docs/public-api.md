@@ -781,7 +781,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `raceProfileMatrix` | planned | doc: docs/eval-surface-map.md |
 | `readExternalOptimizerObservationArtifact` | production | agent-builder:src/lib/.server/eval/loops/method-evidence.ts |
 | `readGepaCandidatePopulationArtifact` | production | agent-runtime:scripts/verify-official-optimizers-consumer.mjs |
-| `renderProfileMatrixReport` | planned | example: examples/profile-matrix-report/index.ts:29 |
+| `renderProfileMatrixReport` | planned | example: examples/profile-matrix-report/index.ts:30 |
 | `renderScoreboardMarkdown` | production | blueprint-agent:scripts/experiments/eval/launch-scoreboard/run.ts |
 | `renderSearchSummary` | production | agent-runtime:src/improvement/search-method.ts |
 | `renderSurfaceDiff` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-evidence-packet.ts |

@@ -208,6 +208,14 @@ function decision(a: ProfileMatrixAnalysis, race: ProfileMatrixRaceResult | unde
       `where the baseline scores ${num(base.quality?.estimate)} ${base.quality ? bounds(base.quality, num) : ''}` +
       `${partial ? `; ${partial} partial-coverage profile${partial === 1 ? '' : 's'} sit outside the frontier` : ''}.`,
   ]
+  if (a.panelProfiles.length === 1 && partial > 0) {
+    lines.push(
+      a.panelRule === 'race-survivors'
+        ? 'The race left the baseline alone, so the frontier, overlap and power have nothing to compare.'
+        : `No other profile scored ${pct(a.minCoverage)} of the baseline’s cases, so the frontier, overlap ` +
+            'and power have nothing to compare; a lower <code>minCoverage</code> widens the panel.',
+    )
+  }
   const by = (d: 'up' | 'down') =>
     a.profiles.filter((p) => p.vsBaseline && direction(p.vsBaseline) === d)
   const list = (ps: ProfileMatrixProfileStats[]) =>

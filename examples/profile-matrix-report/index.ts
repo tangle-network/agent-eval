@@ -3,7 +3,8 @@
  *
  * Run with:
  *   pnpm tsx examples/profile-matrix-report/index.ts <rows-dir> --truth <truth.json> \
- *     --label <field> --slice <field> --cluster <field> --baseline <cell> --out <page.html>
+ *     --label <field> --slice <field> --cluster <field> --baseline <cell> --out <page.html> \
+ *     [--min-coverage <share of the baseline's cases a panel cell must have scored, default 0.9>]
  *
  * `<rows-dir>` holds one JSONL file per cell, named `<harness>-<model>-<effort>[-<instructions>].jsonl`
  * with no hyphen inside a level; the name gives the cell's factor levels. Each row is one case:
@@ -121,6 +122,7 @@ function main(): void {
       cluster: { type: 'string' },
       baseline: { type: 'string' },
       out: { type: 'string' },
+      'min-coverage': { type: 'string' },
       title: { type: 'string', default: 'Profile matrix' },
     },
   })
@@ -163,6 +165,9 @@ function main(): void {
     clusters: field(cluster),
     slices: field(slice, 'unlabelled'),
     factors,
+    ...(values['min-coverage'] === undefined
+      ? {}
+      : { minCoverage: Number(values['min-coverage']) }),
     probabilityOf: (record) => record.outcome.raw.p_right,
     title: values.title,
   }
