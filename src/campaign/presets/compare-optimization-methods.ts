@@ -81,6 +81,7 @@ import {
   assertConfidence,
   minimumBootstrapResamples,
 } from './comparison-controls'
+import { gateArms } from './run-final-comparison'
 
 export interface OptimizationMethodScore {
   evidence?: { baseline: EvidenceReceipt; winner: EvidenceReceipt }
@@ -742,23 +743,6 @@ function comparisonResult<TScenario extends Scenario, TArtifact>(
       allComplete: optimized.every((result) => result.searchHistoryCoverage.status === 'complete'),
       producers: Object.freeze(optimized.map((result) => result.searchHistoryCoverage)),
     }),
-  }
-}
-
-/** The paired final-test cells of the baseline and one winner, keyed by cell id. */
-function gateArms<TScenario extends Scenario, TArtifact>(
-  baseline: CampaignResult<TArtifact, TScenario>,
-  candidate: CampaignResult<TArtifact, TScenario>,
-) {
-  return {
-    baselineArtifacts: new Map(baseline.cells.map((cell) => [cell.cellId, cell.artifact])),
-    candidateArtifacts: new Map(candidate.cells.map((cell) => [cell.cellId, cell.artifact])),
-    baselineJudgeScores: new Map(baseline.cells.map((cell) => [cell.cellId, cell.judgeScores])),
-    judgeScores: new Map(candidate.cells.map((cell) => [cell.cellId, cell.judgeScores])),
-    cost: {
-      candidate: candidate.aggregates.cost.totalCostUsd,
-      baseline: baseline.aggregates.cost.totalCostUsd,
-    },
   }
 }
 

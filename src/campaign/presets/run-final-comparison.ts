@@ -159,27 +159,8 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
     assertCompleteHoldout('winner', winnerOnHoldout)
   }
 
-  // Both arms share cell identifiers, so their scores need separate maps.
-  type ScoreMap = Map<
-    string,
-    Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
-  >
-  const candidateArtifacts = new Map<string, TArtifact>()
-  const baselineArtifacts = new Map<string, TArtifact>()
-  const judgeScores: ScoreMap = new Map()
-  const baselineJudgeScores: ScoreMap = new Map()
-  for (const cell of winnerOnHoldout.cells) {
-    candidateArtifacts.set(cell.cellId, cell.artifact)
-    judgeScores.set(cell.cellId, cell.judgeScores)
-  }
-  for (const cell of baselineOnHoldout.cells) {
-    baselineArtifacts.set(cell.cellId, cell.artifact)
-    baselineJudgeScores.set(cell.cellId, cell.judgeScores)
-  }
-
   // The optional control measures whether lift survives removal of the selected content.
-  let neutralizedArtifacts: Map<string, TArtifact> | undefined
-  let neutralizedJudgeScores: ScoreMap | undefined
+  let neutralized: ReturnType<typeof gateArms<TScenario, TArtifact>> | undefined
   let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
   let neutralizedSurface: MutableSurface | undefined
   if (controlSurface !== undefined) {
@@ -198,12 +179,7 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
       runDir: `${opts.runDir}/holdout-neutralized`,
     })
     assertCompleteHoldout('neutralized', neutralizedOnHoldout)
-    neutralizedArtifacts = new Map<string, TArtifact>()
-    neutralizedJudgeScores = new Map()
-    for (const cell of neutralizedOnHoldout.cells) {
-      neutralizedArtifacts.set(cell.cellId, cell.artifact)
-      neutralizedJudgeScores.set(cell.cellId, cell.judgeScores)
-    }
+    neutralized = gateArms(baselineOnHoldout, neutralizedOnHoldout)
   }
 
   // Model identity is a precondition of a prompt/code comparison, including a custom gate.
@@ -259,17 +235,10 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
             contributingGates: [],
           }
         : await opts.gate.decide({
-            candidateArtifacts,
-            baselineArtifacts,
-            judgeScores,
-            baselineJudgeScores,
-            neutralizedArtifacts,
-            neutralizedJudgeScores,
+            ...gateArms(baselineOnHoldout, winnerOnHoldout),
+            neutralizedArtifacts: neutralized?.candidateArtifacts,
+            neutralizedJudgeScores: neutralized?.judgeScores,
             scenarios: structuredClone(finalScenarios),
-            cost: {
-              candidate: winnerOnHoldout.aggregates.cost.totalCostUsd,
-              baseline: baselineOnHoldout.aggregates.cost.totalCostUsd,
-            },
             costLedger,
             costPhase: costPhase('promotion.gate'),
             signal: opts.signal ?? new AbortController().signal,
@@ -308,5 +277,22 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
     gateResult,
     modelComparison,
     promotedDiff,
+  }
+}
+
+/** The paired cells of a baseline and a candidate campaign, keyed by cell id, as a gate reads them. */
+export function gateArms<TScenario extends Scenario, TArtifact>(
+  baseline: CampaignResult<TArtifact, TScenario>,
+  candidate: CampaignResult<TArtifact, TScenario>,
+) {
+  return {
+    baselineArtifacts: new Map(baseline.cells.map((cell) => [cell.cellId, cell.artifact])),
+    candidateArtifacts: new Map(candidate.cells.map((cell) => [cell.cellId, cell.artifact])),
+    baselineJudgeScores: new Map(baseline.cells.map((cell) => [cell.cellId, cell.judgeScores])),
+    judgeScores: new Map(candidate.cells.map((cell) => [cell.cellId, cell.judgeScores])),
+    cost: {
+      candidate: candidate.aggregates.cost.totalCostUsd,
+      baseline: baseline.aggregates.cost.totalCostUsd,
+    },
   }
 }
