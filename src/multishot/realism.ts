@@ -366,7 +366,7 @@ export async function measureSimulatorRealism(
       ...(opts.costLedger ? { costLedger: opts.costLedger } : {}),
     })
     const unit = `${row.conversationId}:${row.turn}`
-    const answers: Array<{ answer: ReturnType<typeof judgedAnswer>; realOption: 'a' | 'b' }> = []
+    const answers: Array<ReturnType<typeof judgedAnswer>> = []
     for (const order of ['real-first', 'real-second'] as const) {
       const judged = await opts.judge.decide(
         {
@@ -393,20 +393,19 @@ export async function measureSimulatorRealism(
           costPhase: 'realism.judge',
         },
       )
-      const answer = judgedAnswer(judged)
-      if (!answer) failedJudgments += 1
-      answers.push({ answer, realOption: order === 'real-first' ? 'a' : 'b' })
+      answers.push(judgedAnswer(judged))
     }
-    const answered = answers.flatMap(({ answer, realOption }) =>
-      answer ? [{ answer, realOption }] : [],
-    )
+    const failed = answers.filter((answer) => !answer).length
+    failedJudgments += failed
     // A turn judged in one position only would let the judge's position bias
     // count, so it counts only when both orders were judged.
-    if (answered.length < answers.length) {
-      if (answered.length > 0) unbalancedTurns += 1
+    if (failed > 0) {
+      if (failed < answers.length) unbalancedTurns += 1
       continue
     }
-    for (const { answer, realOption } of answered) {
+    for (const [index, answer] of answers.entries()) {
+      if (!answer) continue
+      const realOption = index === 0 ? 'a' : 'b'
       reasons[answer.reason] = (reasons[answer.reason] ?? 0) + 1
       probabilitiesOnReal.push(answer.probabilities[realOption] ?? 0)
       const list = correctByConversation.get(row.conversationId) ?? []
