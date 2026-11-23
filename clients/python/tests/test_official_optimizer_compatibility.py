@@ -201,7 +201,8 @@ class _LocalChatHandler(BaseHTTPRequestHandler):
             }
         )
         handler_type = type(self)
-        if handler_type.request_limit is not None and len(self.requests) > handler_type.request_limit:
+        limit = handler_type.request_limit
+        if limit is not None and len(self.requests) > limit:
             reason = "optimizer model request limit reached"
             response = json.dumps({"error": reason}).encode()
             self.send_response(429)
