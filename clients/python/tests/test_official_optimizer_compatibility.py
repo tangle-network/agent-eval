@@ -423,8 +423,10 @@ def test_agent_eval_uses_official_gepa_lm_behavior(caplog) -> None:
     usage.close()
 
 
+@pytest.mark.parametrize("priced", [True, False], ids=["priced", "subscription"])
 def test_agent_eval_gepa_proxy_drives_the_official_engine(
     tmp_path: Path,
+    priced: bool,
 ) -> None:
     from gepa.lm import LM
     from gepa.optimize_anything import optimize_anything
@@ -461,7 +463,8 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
                     },
                 },
                 "maxEvaluations": 4,
-                "maxProposerCostUsd": 1.0,
+                # A subscription lane has no rates, so no dollar ceiling either.
+                **({"maxProposerCostUsd": 1.0} if priced else {}),
             },
             tmp_path / "proxied-gepa",
             seed=7,
@@ -470,16 +473,22 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
                 "baseUrl": base_url,
                 "model": "local-model",
                 "budget": {
-                    "maxCostUsd": 1,
                     "maxRequests": 10,
                     "maxRequestBytes": 100_000,
                     "maxResponseBytes": 100_000,
                     "maxOutputTokensPerRequest": 256,
                     "requestTimeoutMs": 5_000,
-                    "pricing": {
-                        "inputUsdPerMillion": 1.0,
-                        "outputUsdPerMillion": 2.0,
-                    },
+                    **(
+                        {
+                            "maxCostUsd": 1,
+                            "pricing": {
+                                "inputUsdPerMillion": 1.0,
+                                "outputUsdPerMillion": 2.0,
+                            },
+                        }
+                        if priced
+                        else {}
+                    ),
                 },
             },
             proxy_usage=usage,
@@ -504,15 +513,16 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
     assert model_requests[0]["path"] == "/v1/chat/completions"
     assert model_requests[0]["body"]["model"] == "local-model"
     assert model_requests[0]["body"]["max_tokens"] == 256
+    cost = 0.000037 if priced else 0.0
     assert usage.snapshot() == {
         "calls": 1,
         "requestAttempts": 1,
-        "costUsd": 0.000037,
+        "costUsd": cost,
         "inputTokens": 11,
         "outputTokens": 13,
         "totalTokens": 24,
     }
-    assert result.metadata["adapter_cost"] == 0.000037
+    assert result.metadata["adapter_cost"] == cost
     assert evaluations == [
         ("BASELINE", "selection"),
         ("BASELINE", "train"),

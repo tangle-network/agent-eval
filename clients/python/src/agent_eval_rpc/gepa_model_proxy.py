@@ -68,7 +68,9 @@ def _official_reflection_model(
 
     budget = config["budget"]
     request_options = _validated_reflection_options(options, budget)
-    pricing = budget["pricing"]
+    # Without rates (a subscription lane) GEPA's own tally reads $0; agent-eval's
+    # ledger still meters every call from its receipt.
+    pricing = budget.get("pricing") or {"inputUsdPerMillion": 0, "outputUsdPerMillion": 0}
     request_options["input_cost_per_token"] = pricing["inputUsdPerMillion"] / 1_000_000
     request_options["output_cost_per_token"] = pricing["outputUsdPerMillion"] / 1_000_000
     request_timeout = budget.get("requestTimeoutMs", 300_000) / 1000

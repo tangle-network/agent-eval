@@ -942,6 +942,36 @@ def test_engine_modules_are_validated_and_imported(monkeypatch, tmp_path: Path) 
             gepa_bridge._validate_input(input_value)
 
 
+def test_proxied_gepa_accepts_a_subscription_budget_without_rates(tmp_path: Path) -> None:
+    # ExternalOptimizerModelBudget leaves pricing out for a flat-rate plan; the
+    # bridge must take the same budget the TypeScript contract accepts.
+    run = _run("gepa", 1, 1.0)
+    del run["maxProposerCostUsd"]
+    input_value = _valid_input(tmp_path)
+    input_value["recipe"] = {"kind": "engine", "run": run}
+    input_value["modelProxy"] = {
+        "baseUrl": "http://127.0.0.1:1234/v1",
+        "apiKey": "local-token",
+        "model": "test-model",
+        "budget": {
+            "maxRequests": 10,
+            "maxRequestBytes": 100_000,
+            "maxResponseBytes": 100_000,
+            "maxOutputTokensPerRequest": 100,
+        },
+    }
+    gepa_bridge._validate_input(input_value)
+
+    # A dollar ceiling cannot be enforced without rates.
+    input_value["modelProxy"]["budget"]["maxCostUsd"] = 1
+    with pytest.raises(ValueError, match="pricing is required when maxCostUsd is supplied"):
+        gepa_bridge._validate_input(input_value)
+    del input_value["modelProxy"]["budget"]["maxCostUsd"]
+    run["maxProposerCostUsd"] = 1.0
+    with pytest.raises(ValueError, match="maxProposerCostUsd needs modelProxy.budget.pricing"):
+        gepa_bridge._validate_input(input_value)
+
+
 def test_proxied_gepa_rejects_proxy_transport_overrides(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["recipe"] = {
