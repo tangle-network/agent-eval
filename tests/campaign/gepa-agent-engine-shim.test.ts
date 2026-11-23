@@ -173,10 +173,11 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
         message: 'optimizer model request limit reached',
       },
     })
+    expect(refused.headers.get('x-agent-eval-refusal')).toBe('optimizer model request limit reached')
     expect(proxy.wireUsage().anthropic).toEqual({
       requestAttempts: 2,
       successfulCompletions: 2,
-      refusedRequests: 0,
+      refusedRequests: 1,
     })
   })
 
