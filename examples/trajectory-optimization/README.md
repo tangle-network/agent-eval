@@ -6,7 +6,7 @@ It measures candidates on training cases and evaluates the selected candidate on
 ## Run
 
 ```sh
-pnpm exec tsx examples/multi-shot-optimization/index.ts
+pnpm exec tsx examples/trajectory-optimization/index.ts
 ```
 
 No API key is required.

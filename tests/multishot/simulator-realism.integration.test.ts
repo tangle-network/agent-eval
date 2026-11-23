@@ -82,6 +82,7 @@ describe('simulator realism against recorded user turns', () => {
       turns: 8,
       presentations: 16,
       failedJudgments: 0,
+      unbalancedTurns: 0,
       indistinguishable: true,
     })
     expect(replayed.accuracy.mean).toBe(0.5)
@@ -116,6 +117,59 @@ describe('simulator realism against recorded user turns', () => {
     expect(offDistribution.indistinguishable).toBe(false)
     expect(offDistribution.driver).toBe(robot.identity)
     expect(offDistribution.meanProbabilityOnReal).toBeCloseTo(0.9, 12)
+  })
+
+  it('keeps indistinguishable apart from admission on a small, wide sample', async () => {
+    const store = new InMemoryTraceStore()
+    const runIds = await recordConversations(store, 'refund-desk')
+    const turns = await turnsFrom(store, runIds.slice(0, 2))
+    const realByContext = new Map(turns.map((turn) => [turn.contextDigest, turn.realMessage]))
+    // Off-distribution on one of two conversations, a replay on the other.
+    const driver: RealismDriver = {
+      identity: 'half-robot',
+      next: async ({ turn }) => {
+        const real = realByContext.get(turn.contextDigest)!
+        return turn.conversationId === runIds[0] ? `${ROBOT_TELL}, ${real}` : real
+      },
+    }
+    const report = await measureSimulatorRealism({
+      turns,
+      driver,
+      judge: judge(join(directory, 'small.jsonl')),
+      runId: 'realism-small',
+      at: '2026-11-21T00:00:00Z',
+      resamples: 200,
+    })
+    expect(report.conversations).toBe(2)
+    expect(report.accuracy.mean).toBe(0.75)
+    // Two conversations leave the interval wide enough to contain 0.5...
+    expect(report.indistinguishable).toBe(true)
+    // ...while its upper end is above the floor an adversarial plan is admitted under.
+    expect(report.accuracy.high).toBeGreaterThan(0.65)
+  })
+
+  it('drops a turn whose other order failed to judge and reports it as unbalanced', async () => {
+    const store = new InMemoryTraceStore()
+    const turns = await turnsFrom(store, await recordConversations(store, 'refund-desk'))
+    const failing = turns[0]!.realMessage
+    const report = await measureSimulatorRealism({
+      turns,
+      driver: { identity: 'echo', next: async () => 'ok' },
+      // Fails only the presentation with the first turn's real message second.
+      judge: judge(join(directory, 'unbalanced.jsonl'), true, (state) => state.b === failing),
+      runId: 'realism-unbalanced',
+      at: '2026-11-21T00:00:00Z',
+      resamples: 200,
+    })
+    expect(report).toMatchObject({
+      turns: 8,
+      presentations: 14,
+      failedJudgments: 1,
+      unbalancedTurns: 1,
+    })
+    // The judge always picks a on a coin: counted only in the first position,
+    // the dropped turn would read as a correct call and lift its conversation above 0.5.
+    expect(report.accuracy.mean).toBe(0.5)
   })
 
   it('reports an uncalibrated judge as uncalibrated', async () => {

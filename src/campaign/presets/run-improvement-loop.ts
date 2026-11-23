@@ -174,6 +174,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS
 
   // ── (1) optimization loop produces a winner ────────────────────────
+  opts.gate.admitHeldOut?.(opts.holdoutScenarios)
   if (opts.claim?.generalization === 'new-units') {
     assertIndependentEvaluationSplit(opts.claim, opts.holdoutScenarios, opts.scenarios)
   }

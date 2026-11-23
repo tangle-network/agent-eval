@@ -12,6 +12,7 @@
  * `FindingsStore` remains the unchained JSONL store for existing consumers.
  */
 
+import { statSync } from 'node:fs'
 import { z } from 'zod'
 import type { LedgerHash } from '../ledger-core/canonical'
 import { FileLedgerJournal, type LedgerJournalCodec } from '../ledger-core/journal'
@@ -170,10 +171,17 @@ async function outcome<T>(operation: () => Promise<T>): Promise<FindingsLedgerOu
 export function openFindingsLedger(options: { path: string }): FindingsLedger {
   if (!options.path.trim()) throw new TypeError('findings ledger: path is empty')
   const journal = new FileLedgerJournal(options.path, codec(), { requireTrustedHead: true })
+  // A read is reused while the journal and its pin file are unchanged on disk,
+  // so a caller that reads before every decision does not take the journal lock
+  // and rebuild the Merkle root each time. A write by this instance or any other
+  // changes a file's inode, size or times, and the next read replays.
+  let lastRead: { files: string; read: FindingsLedgerRead } | undefined
+  const files = () => [journal.path, journal.trustedHeadPath].map(fileStamp).join('|')
   return {
     path: journal.path,
     append: (runId, findings) =>
       outcome(async () => {
+        lastRead = undefined
         identity.parse(runId)
         let appended = 0
         let replayed = 0
@@ -201,9 +209,26 @@ export function openFindingsLedger(options: { path: string }): FindingsLedger {
       }),
     read: () =>
       outcome(async () => {
-        const findings = await journal.replay()
-        return { findings, merkleRoot: merkleRoot(findings.map((row) => row.entryHash)) }
+        // Stamped before the replay, so a write during it leaves a stale stamp.
+        const stamp = files()
+        if (lastRead?.files !== stamp) {
+          const findings = await journal.replay()
+          lastRead = {
+            files: stamp,
+            read: { findings, merkleRoot: merkleRoot(findings.map((row) => row.entryHash)) },
+          }
+        }
+        return { findings: [...lastRead.read.findings], merkleRoot: lastRead.read.merkleRoot }
       }),
+  }
+}
+
+function fileStamp(path: string): string {
+  try {
+    const stats = statSync(path, { bigint: true })
+    return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}`
+  } catch {
+    return 'absent'
   }
 }
 

@@ -70,6 +70,8 @@ import { surfaceContentHash } from '../surface-identity'
 import type {
   CampaignResult,
   DispatchContext,
+  Gate,
+  GateResult,
   JudgeConfig,
   MutableSurface,
   Scenario,
@@ -115,6 +117,8 @@ export interface OptimizationMethodScore {
   }>
   winnerSurface: MutableSurface
   composition?: OptimizationMethodComposition
+  /** The caller gate's decision on this winner against the baseline's final test cells. */
+  gate?: GateResult
   /** 1-based, by descending lift. */
   rank: number
 }
@@ -189,6 +193,11 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
     ctx: DispatchContext,
   ) => Promise<TArtifact>
   judges: JudgeConfig<TArtifact, TScenario>[]
+  /** Decides each method's winner against the baseline on the final test
+   *  cells, such as `conversationGate` for the simulated-user identity check.
+   *  Its `admitHeldOut` refuses `testScenarios` before any spend, and a gate
+   *  that throws refuses the comparison. */
+  gate?: Gate<TArtifact, TScenario>
   /** How every method's optimizer is shown a non-string artifact; see
    *  `OptimizationMethodInput.describeArtifact`. */
   describeArtifact?: DescribeArtifact<TArtifact, TScenario>
@@ -242,6 +251,7 @@ function normalizeComparisonOptions<TScenario extends Scenario, TArtifact>(prev:
     assertArtifactDescriptionSetOnce('compareOptimizationMethods', method, opts.describeArtifact)
   }
   assertComparisonPartitions(opts)
+  opts.gate?.admitHeldOut?.(opts.testScenarios)
   const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'
   assertSearchHistoryAdmissionOptions(opts)
   const seed = opts.seed ?? 42
@@ -306,6 +316,8 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
     label: string
     cells: CampaignResult<TArtifact, TScenario>['cells']
   }> = []
+  // Each surface's final-test campaign, for the caller's gate.
+  const testCampaignBySurface = new Map<string, CampaignResult<TArtifact, TScenario>>()
   const scoreOnTest = async (
     surface: MutableSurface,
     tag: string,
@@ -331,6 +343,7 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
       `compareOptimizationMethods: ${tag} final comparison`,
     )
     testCampaigns.push({ label: tag, cells: campaign.cells })
+    testCampaignBySurface.set(surfaceContentHash(measuredSurface), campaign)
     if (evidence)
       evidenceBySurface.set(
         surfaceContentHash(measuredSurface),
@@ -388,6 +401,7 @@ async function finalTestScoring<TScenario extends Scenario, TArtifact>(
     ...prev,
     scoreOnTest,
     testCampaigns,
+    testCampaignBySurface,
     scenarioIds,
     unitByScenario,
     units,
@@ -514,7 +528,16 @@ async function reserveTestMeasurement<TScenario extends Scenario, TArtifact>(
 async function measureWinners<TScenario extends Scenario, TArtifact>(
   prev: Awaited<ReturnType<typeof reserveTestMeasurement<TScenario, TArtifact>>>,
 ) {
-  const { baselineSurface, scoreOnTest, align, optimized, testCostPhase } = prev
+  const {
+    opts,
+    baselineSurface,
+    scoreOnTest,
+    align,
+    optimized,
+    testCostPhase,
+    testCampaignBySurface,
+    costLedger,
+  } = prev
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
   // spend and prevents model variance from inventing a difference between equal inputs.
   const baselineArr = align(
@@ -522,7 +545,7 @@ async function measureWinners<TScenario extends Scenario, TArtifact>(
     'baseline',
   )
   const testScoresBySurface = new Map([[surfaceContentHash(baselineSurface), baselineArr]])
-  const winners: Array<(typeof optimized)[number] & { arr: number[] }> = []
+  const winners: Array<(typeof optimized)[number] & { arr: number[]; gate?: GateResult }> = []
   for (const winner of optimized) {
     const surfaceKey = surfaceContentHash(winner.winnerSurface)
     let arr = testScoresBySurface.get(surfaceKey)
@@ -535,9 +558,22 @@ async function measureWinners<TScenario extends Scenario, TArtifact>(
       arr = align(byScenario, `method "${winner.name}"`)
       testScoresBySurface.set(surfaceKey, arr)
     }
+    const gate = opts.gate
+      ? await opts.gate.decide({
+          ...gateArms(
+            testCampaignBySurface.get(surfaceContentHash(baselineSurface))!,
+            testCampaignBySurface.get(surfaceKey)!,
+          ),
+          scenarios: structuredClone(opts.testScenarios),
+          costLedger,
+          costPhase: testCostPhase,
+          signal: opts.signal ?? new AbortController().signal,
+        })
+      : undefined
     winners.push({
       ...winner,
       arr,
+      ...(gate ? { gate } : {}),
     })
   }
 
@@ -594,6 +630,7 @@ function scoreMethods<TScenario extends Scenario, TArtifact>(
       score.evidence = { baseline, winner }
     }
     if (w.composition !== undefined) score.composition = structuredClone(w.composition)
+    if (w.gate !== undefined) score.gate = w.gate
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
     if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
     return score
@@ -705,6 +742,23 @@ function comparisonResult<TScenario extends Scenario, TArtifact>(
       allComplete: optimized.every((result) => result.searchHistoryCoverage.status === 'complete'),
       producers: Object.freeze(optimized.map((result) => result.searchHistoryCoverage)),
     }),
+  }
+}
+
+/** The paired final-test cells of the baseline and one winner, keyed by cell id. */
+function gateArms<TScenario extends Scenario, TArtifact>(
+  baseline: CampaignResult<TArtifact, TScenario>,
+  candidate: CampaignResult<TArtifact, TScenario>,
+) {
+  return {
+    baselineArtifacts: new Map(baseline.cells.map((cell) => [cell.cellId, cell.artifact])),
+    candidateArtifacts: new Map(candidate.cells.map((cell) => [cell.cellId, cell.artifact])),
+    baselineJudgeScores: new Map(baseline.cells.map((cell) => [cell.cellId, cell.judgeScores])),
+    judgeScores: new Map(candidate.cells.map((cell) => [cell.cellId, cell.judgeScores])),
+    cost: {
+      candidate: candidate.aggregates.cost.totalCostUsd,
+      baseline: baseline.aggregates.cost.totalCostUsd,
+    },
   }
 }
 

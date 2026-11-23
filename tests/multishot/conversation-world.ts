@@ -3,10 +3,12 @@
 // clock in a compared field, and the same request always gets the same reply.
 //
 // The agent confirms a refund only when its system prompt carries the
-// CONFIRM_ORDER_ID directive and the user's latest message names the order.
-// The simulated user answers the agent's request for the order id directly,
-// unless its prompt carries an adversarial plan:
+// CONFIRM_ORDER_ID directive and the user's latest message names the order;
+// with LOOK_UP_ORDER as well, it finds the order from the opener when the
+// user's answer does not name it. The simulated user answers the agent's
+// request for the order id directly, unless its prompt carries an adversarial plan:
 //   PLAN:INDIRECT  answers without the id, the way a hurried real user does;
+//   PLAN:WITHHOLD  leaves without answering, so no agent can confirm the order;
 //   PLAN:ROBOT     answers in a register no real user writes in.
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -31,6 +33,7 @@ export const AGENT_MODEL = 'gpt-4.1-2025-04-14'
 export const USER_MODEL = 'gpt-4.1-mini-2025-04-14'
 export const OTHER_USER_MODEL = 'gpt-4.1-nano-2025-04-14'
 export const DIRECTIVE = 'CONFIRM_ORDER_ID'
+export const LOOK_UP = 'LOOK_UP_ORDER'
 export const BASELINE_SURFACE = 'You are the refund desk. Help the customer.'
 export const ROBOT_TELL = 'As an AI language model'
 
@@ -73,7 +76,11 @@ export const agentTransport: MultishotTransport = async (req) => {
   if (!system.includes(DIRECTIVE)) {
     return reply(req, 'Thanks for reaching out. Could you describe the issue in more detail?')
   }
-  const named = userTurns.length > 1 ? ORDER_ID.exec(latest)?.[1] : undefined
+  const answered = userTurns.length > 1
+  const named = answered
+    ? (ORDER_ID.exec(latest)?.[1] ??
+      (system.includes(LOOK_UP) ? ORDER_ID.exec(text(userTurns[0]))?.[1] : undefined))
+    : undefined
   if (!named) return reply(req, 'I can help with that. Please confirm the order id.')
   // The opener carries the persona facts, so a flaky account shows there.
   if (/flaky: true/.test(text(req.messages[1])) && (req.seed ?? 0) % 2 === 1) {
@@ -97,6 +104,8 @@ export function userReply(req: Pick<MultishotTransportRequest, 'messages'>): str
       return `${ROBOT_TELL}, I would prefer not to restate the identifier of my order.`
     }
     if (system.includes('PLAN:INDIRECT')) return 'the one from last tuesday, you should have it'
+    if (system.includes('PLAN:WITHHOLD'))
+      return 'i dont want to get into that. forget it [[gave-up]]'
     return `its ${orderId}`
   }
   if (priorUserReplies >= 3) return 'forget it. [[gave-up]]'
@@ -183,8 +192,13 @@ export async function turnsFrom(store: InMemoryTraceStore, runIds: string[]) {
 }
 
 /** The scripted realism judge: a real user never writes in the robot's
- *  register. Two equal messages are a coin it always calls for A. */
-export function realismJudge(path: string, calibrated = true) {
+ *  register. Two equal messages are a coin it always calls for A. It fails to
+ *  judge a presentation `fails` names. */
+export function realismJudge(
+  path: string,
+  calibrated = true,
+  fails: (state: { a: string; b: string }) => boolean = () => false,
+) {
   return simulatorRealismJudge({
     id: 'refund-realism',
     version: '1',
@@ -193,6 +207,7 @@ export function realismJudge(path: string, calibrated = true) {
     evaluator: {
       evaluate: async (request) => {
         const state = request.state as { a: string; b: string }
+        if (fails(state)) throw new Error('the realism judge is unavailable')
         const aRobot = state.a.includes(ROBOT_TELL)
         const bRobot = state.b.includes(ROBOT_TELL)
         const pA = aRobot === bRobot ? 0.5 : aRobot ? 0.1 : 0.9

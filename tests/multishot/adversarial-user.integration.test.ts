@@ -1,8 +1,8 @@
 // The simulated user as a second optimizable role. Its objective is the agent's
 // failure rate, it is admitted only above a realism floor measured against
 // recorded real users, and what it finds becomes train scenarios for the agent
-// side that never enter the held-out split. Optimizing it on the agent's own
-// success score cannot be configured.
+// side, once a conversation shows they can be passed, that never enter the
+// held-out split. Optimizing it on the agent's own success score cannot be configured.
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,6 +29,7 @@ import {
   appendDirective,
   BASELINE_SURFACE,
   isPushback,
+  LOOK_UP,
   type RefundScenario,
   realismJudge,
   recordConversations,
@@ -52,6 +53,8 @@ const USER_TRAIN = Array.from({ length: 6 }, (_, i) => refundScenario(i, 'user-t
 const USER_HELD_OUT = Array.from({ length: 6 }, (_, i) => refundScenario(i + 20, 'user-held-'))
 const AGENT_HELD_OUT = Array.from({ length: 6 }, (_, i) => refundScenario(i + 40, 'held-'))
 const GOOD_AGENT = appendDirective(BASELINE_SURFACE)
+// Finds the order from the opener when the user's answer does not name it.
+const REFERENCE_AGENT = refundAgentProfile(`${GOOD_AGENT} ${LOOK_UP}`)
 
 function planProposer(plan: string): SurfaceProposer {
   return {
@@ -106,7 +109,10 @@ async function options(
 
 describe('an adversarial user as its own optimizable surface', () => {
   it('raises the agent failure rate, passes the realism floor, and emits train-only scenarios', async () => {
-    const result = await improveAdversarialUser(await options('PLAN:INDIRECT'))
+    const result = await improveAdversarialUser({
+      ...(await options('PLAN:INDIRECT')),
+      solvability: { referenceProfile: REFERENCE_AGENT, repeats: 1 },
+    })
 
     expect(result.improvement.gateDecision).toBe('ship')
     expect(result.plan).toContain('PLAN:INDIRECT')
@@ -121,9 +127,15 @@ describe('an adversarial user as its own optimizable surface', () => {
     expect(emitted.map((scenario) => scenario.origin?.sourceScenarioId).sort()).toEqual(
       USER_HELD_OUT.map((scenario) => scenario.id).sort(),
     )
+    expect(result.unsolvableScenarios).toEqual([])
     for (const scenario of emitted) {
       expect(scenario.userPlan).toBe(result.plan)
       expect(scenario.origin?.kind).toBe('adversarial-user')
+      // The reference agent passed it under the plan the agent failed under.
+      expect(scenario.origin?.solvedBy).toMatchObject({
+        agent: 'reference',
+        detail: 'the refund confirmation names the order',
+      })
       expect(AGENT_HELD_OUT.some((heldOut) => heldOut.id === scenario.id)).toBe(false)
     }
 
@@ -143,9 +155,13 @@ describe('an adversarial user as its own optimizable surface', () => {
       agentSide.simulatedUser({ ...emitted[0]!, userPlan: undefined }).digest,
     )
 
-    // ...and never enters the held-out split.
+    // ...and never enters the held-out split: refused before any conversation runs.
+    let dispatched = 0
     const error = await selfImprove<RefundScenario, ConversationArtifact>({
-      agent: agentSide.agent,
+      agent: (surface, scenario, ctx) => {
+        dispatched += 1
+        return agentSide.agent(surface, scenario, ctx)
+      },
       dispatchRef: agentSide.dispatchRef,
       scenarios: [...USER_TRAIN, ...emitted],
       judge: conversationJudge(),
@@ -161,6 +177,37 @@ describe('an adversarial user as its own optimizable surface', () => {
     expect(chain(error).some((cause) => cause instanceof AdversarialScenarioInHeldOutError)).toBe(
       true,
     )
+    expect(dispatched).toBe(0)
+  })
+
+  it('emits no train scenario from a plan that withholds what the outcome check needs', async () => {
+    const result = await improveAdversarialUser(await options('PLAN:WITHHOLD'))
+
+    // The plan reads like a real user and makes the agent fail every held-out case...
+    expect(result.improvement.gateDecision).toBe('ship')
+    expect(result.improvement.winner.compositeMean).toBe(1)
+    expect(result.admitted).toBe(true)
+    // ...but the same agent passes none of them in three seeded repeats.
+    expect(result.trainScenarios).toEqual([])
+    expect(
+      result.unsolvableScenarios.map((row) => row.scenario.origin?.sourceScenarioId).sort(),
+    ).toEqual(USER_HELD_OUT.map((scenario) => scenario.id).sort())
+    for (const row of result.unsolvableScenarios) {
+      expect(row.attempts).toBe(3)
+      expect(row.reason).toMatch(/same agent passed none of 3 conversation\(s\)/)
+      expect(row.reason).toMatch(/no refund confirmation names the order/)
+      expect(row.scenario.origin?.solvedBy).toBeUndefined()
+    }
+
+    // The reference agent cannot pass them either.
+    const referenced = await improveAdversarialUser({
+      ...(await options('PLAN:WITHHOLD')),
+      runDir: join(runDir, 'reference'),
+      solvability: { referenceProfile: REFERENCE_AGENT, repeats: 1 },
+    })
+    expect(referenced.trainScenarios).toEqual([])
+    expect(referenced.unsolvableScenarios).toHaveLength(USER_HELD_OUT.length)
+    expect(referenced.unsolvableScenarios[0]!.reason).toMatch(/reference agent passed none/)
   })
 
   it('does not admit an adversarial user below the realism floor', async () => {
@@ -171,6 +218,7 @@ describe('an adversarial user as its own optimizable surface', () => {
     expect(result.admitted).toBe(false)
     expect(result.reasons.join(' ')).toMatch(/realism/)
     expect(result.trainScenarios).toEqual([])
+    expect(result.unsolvableScenarios).toEqual([])
   })
 
   it('cannot be configured to optimize the user side on the agent success score', async () => {

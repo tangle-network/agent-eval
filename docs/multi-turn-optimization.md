@@ -51,7 +51,8 @@ Agent success moves with the user model as well as the agent, so a comparison ho
 
 - The simulated user is built from the scenario and the rollout's fixed options only. The candidate surface never reaches its prompt, opener or description of the agent.
 - `SimulatedUserIdentity` digests the user model, fallbacks, rigor, persona, prompt, opener and ending protocol. `dispatchRef` hashes the same options, so caches and premeasured baselines never cross users.
-- `conversationGate()` refuses with `SimulatedUserMismatchError` when any paired held-out conversation met a different user, ran on a different seed, or carries no identity. Outside the gate, call `assertSameSimulatedUser(baselineCells, candidateCells)`.
+- `conversationGate()` refuses with `SimulatedUserMismatchError` when any paired held-out conversation met a different user, ran on a different seed, or carries no identity, and reports the pairs it compared as `pairedConversations`. Outside the gate, call `assertSameSimulatedUser(baselineCells, candidateCells)`, which returns that count.
+- Pass `gate: conversationGate()` to `compareOptimizationMethods()` to run the same check on each method's winner against the baseline's final test cells; the decision is on each score's `gate`.
 
 ## Report reliability across repeats
 
@@ -68,6 +69,8 @@ A dispatch or judge failure is counted in `failedCells`, never as an agent failu
 3. `simulatorRealismJudge()` is a System One decision point at the turn layer. It sees the context and both messages, in both orders, and picks the one the real user wrote. Its calibration must reach `DECISION_POINT_MIN_KAPPA` and carry the `questionDigest` of this exact question and served model; otherwise every judgment is recorded as uncalibrated. Build that digest with `decisionQuestionDigest` from `/systemone` over `SIMULATOR_REALISM_QUESTIONS.real`, the text the judge asks, so a calibration set labelled under other wording cannot certify it.
 
 Accuracy is reported per independent conversation with a cluster bootstrap interval. 50% means the judge cannot tell the simulator from real users.
+A turn counts only when both of its orders were judged; a turn with one failed order is dropped and counted in `unbalancedTurns`, so the judge's position bias cannot count.
+`indistinguishable` says only that the interval contains 0.5, which a small sample satisfies with a wide interval. It is not an admission rule: admit on `accuracy.high` against a stated bound.
 A row without a context digest, or with a digest its context does not match, is refused with `SharedContextIdentityError` before any driver call.
 
 ## Optimize the user side
@@ -76,5 +79,6 @@ A row without a context digest, or with a digest its context does not match, is 
 
 - Its objective is the agent's failure rate. It builds that judge itself and refuses a caller `judge` or `gate`; `conversationJudge()` refuses every conversation whose user side was the candidate, both with `UserSideObjectiveError`.
 - A plan is admitted only when a calibrated realism judge's accuracy, at the upper end of its interval, stays at or below `realism.maxJudgeAccuracy`.
-- An admitted plan's failing held-out conversations become `trainScenarios` with the plan as `userPlan` and `origin.kind: 'adversarial-user'`. `conversationGate()` refuses them in a held-out split with `AdversarialScenarioInHeldOutError`; for other comparisons call `assertHeldOutExcludesAdversarial()`.
+- An admitted plan's failing held-out conversations are candidates with the plan as `userPlan` and `origin.kind: 'adversarial-user'`. Each runs again under its plan, with `solvability.referenceProfile` when given, else the same agent on `solvability.repeats` seeded repeats (default 3). A candidate passed at least once becomes a `trainScenarios` entry with the pass on `origin.solvedBy`; one never passed goes to `unsolvableScenarios` with the reason and the attempts, and is never emitted, since a plan that withholds what the outcome check needs teaches nothing.
+- `conversationGate()` refuses emitted scenarios in a held-out split with `AdversarialScenarioInHeldOutError` before the held-out run starts, so a refused split spends nothing; for other comparisons call `assertHeldOutExcludesAdversarial()`.
 - Scenarios that share an id or persona with the agent's held-out split are refused with `AdversarialSplitError`.

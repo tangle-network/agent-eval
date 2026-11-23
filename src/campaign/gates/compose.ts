@@ -18,6 +18,9 @@ export function composeGate<TArtifact = unknown, TScenario extends Scenario = Sc
   }
   return {
     name: `composed(${gates.map((g) => g.name).join(',')})`,
+    admitHeldOut(scenarios) {
+      for (const gate of gates) gate.admitHeldOut?.(scenarios)
+    },
     async decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult> {
       const results: Array<{ gate: Gate<TArtifact, TScenario>; res: GateResult }> = []
       for (const gate of gates) {

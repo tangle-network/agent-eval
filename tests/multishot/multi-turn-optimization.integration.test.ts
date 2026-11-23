@@ -1,7 +1,7 @@
 // Multi-turn conversations as an optimization target, through the public
 // entries: a simulated user and an agent converse through `multishotRollout`,
 // `selfImprove` and `compareOptimizationMethods` search and gate the agent
-// side, and `repeatReliability` reports success in all of k seeded repeats.
+// side (the comparison through its gate hook), and `repeatReliability` reports success in all of k seeded repeats.
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,12 +12,14 @@ import {
   compareOptimizationMethods,
   gepaOptimizationMethod,
   inMemoryCampaignStorage,
+  type OptimizationMethod,
   repeatReliability,
   runCampaign,
   type SurfaceProposer,
 } from '../../src/campaign'
 import { selfImprove } from '../../src/contract'
 import {
+  AdversarialScenarioInHeldOutError,
   assertSameSimulatedUser,
   type ConversationArtifact,
   conversationGate,
@@ -210,6 +212,87 @@ describe('equivalent conditions', () => {
     expect(() => assertSameSimulatedUser(baseline, anonymous)).toThrow(
       /carries no simulated-user identity/,
     )
+  })
+})
+
+describe('the conversation gate in a method comparison', () => {
+  const appendDirectiveMethod: OptimizationMethod<RefundScenario, ConversationArtifact> = {
+    name: 'append-directive',
+    optimize: async (input) => ({
+      winnerSurface: appendDirective(input.baselineSurface),
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
+    }),
+  }
+  const comparison = {
+    methods: [appendDirectiveMethod],
+    baselineSurface: BASELINE_SURFACE,
+    trainScenarios: TRAIN.slice(0, 2),
+    selectionScenarios: TRAIN.slice(2, 4),
+    testScenarios: HELD_OUT,
+    judges: [conversationJudge<RefundScenario>()],
+    gate: conversationGate<RefundScenario>(),
+    resamples: 40,
+  }
+
+  it('checks that each winner met the same simulated user as the baseline', async () => {
+    const conversation = rollout()
+    const compared = await compareOptimizationMethods<RefundScenario, ConversationArtifact>({
+      ...comparison,
+      dispatchWithSurface: conversation.agent,
+      dispatchRef: conversation.dispatchRef,
+      runDir: join(runDir, 'same-user'),
+    })
+    expect(compared.best.gate?.decision).toBe('ship')
+    expect(compared.best.gate?.contributingGates[0]).toEqual({
+      name: 'simulated-user-identity',
+      status: 'pass',
+      detail: { pairedConversations: HELD_OUT.length },
+    })
+
+    const other = rollout(OTHER_USER_MODEL)
+    await expect(
+      compareOptimizationMethods<RefundScenario, ConversationArtifact>({
+        ...comparison,
+        dispatchWithSurface: (surface, scenario, ctx) =>
+          (String(surface) === BASELINE_SURFACE ? conversation : other).agent(
+            surface,
+            scenario,
+            ctx,
+          ),
+        runDir: join(runDir, 'other-user'),
+      }),
+    ).rejects.toBeInstanceOf(SimulatedUserMismatchError)
+  })
+
+  it('refuses an adversarial-user scenario in the test split before any cell runs', async () => {
+    const conversation = rollout()
+    const emitted: RefundScenario = {
+      ...refundScenario(60, 'emitted-'),
+      userPlan: 'PLAN:INDIRECT',
+      origin: {
+        kind: 'adversarial-user',
+        sourceScenarioId: 'user-held-0',
+        planDigest: `sha256:${'c'.repeat(64)}`,
+      },
+    }
+    let dispatched = 0
+    await expect(
+      compareOptimizationMethods<RefundScenario, ConversationArtifact>({
+        ...comparison,
+        testScenarios: [...HELD_OUT, emitted],
+        dispatchWithSurface: (surface, scenario, ctx) => {
+          dispatched += 1
+          return conversation.agent(surface, scenario, ctx)
+        },
+        runDir: join(runDir, 'adversarial-test'),
+      }),
+    ).rejects.toBeInstanceOf(AdversarialScenarioInHeldOutError)
+    expect(dispatched).toBe(0)
   })
 })
 

@@ -6,6 +6,7 @@ export {
   type AdversarialUserOptions,
   type AdversarialUserResult,
   improveAdversarialUser,
+  type UnsolvableScenario,
 } from './adversarial-user'
 export {
   type MultishotConversation,
@@ -86,6 +87,7 @@ export {
   type MultishotRolloutOptions,
   multishotRollout,
   type PushbackReading,
+  type ScenarioSolvedBy,
   type SimulatedUserIdentity,
   type SimulatedUserOptions,
   type UserEndingClassification,

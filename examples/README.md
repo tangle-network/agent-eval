@@ -18,7 +18,7 @@ pnpm exec tsx examples/evaluate-a-change/index.ts
 | Score one change on the same cases | [`evaluate-a-change`](./evaluate-a-change/) | Offline |
 | See the case grid before you pay for it | [`plan-before-you-spend`](./plan-before-you-spend/) | Offline |
 | Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline |
-| Evaluate several attempts per case | [`multi-shot-optimization`](./multi-shot-optimization/) | Offline |
+| Evaluate several attempts per case | [`trajectory-optimization`](./trajectory-optimization/) | Offline |
 | Apply a release rule without any search | [`held-out-gate`](./held-out-gate/) | Offline |
 | Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
 | Record and compare scores over time | [`scorecard`](./scorecard/) | Offline |

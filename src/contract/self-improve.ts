@@ -750,6 +750,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
+  // A gate that would refuse the held-out split refuses it before the search spends.
+  opts.gate?.admitHeldOut?.(holdout)
   if (opts.claim?.generalization === 'new-units') {
     assertIndependentEvaluationSplit(opts.claim, holdout, train)
   }
