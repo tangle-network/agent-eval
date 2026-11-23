@@ -5,7 +5,10 @@
 // when a calibrated realism judge cannot tell it from real users above a
 // floor, so the search finds failures real users would cause, not failures of
 // a user no one is. What an admitted plan breaks becomes new train scenarios
-// for the agent side; they never enter a held-out split.
+// for the agent side; they never enter a held-out split. A failure becomes a
+// train scenario only once a conversation shows it can be passed under the
+// plan, by a reference agent or by the same agent on one of k seeded repeats:
+// a plan that withholds what the outcome check needs teaches nothing.
 //
 // The objective is fixed by construction: this entry builds the judge itself
 // and refuses a caller judge, `conversationJudge` refuses every user-side
@@ -13,7 +16,12 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { OptimizationMethod } from '../campaign/optimization-method'
-import type { CampaignStorage } from '../campaign/storage'
+import { runCampaign } from '../campaign/run-campaign'
+import {
+  type CampaignStorage,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from '../campaign/storage'
 import type { JudgeConfig, SurfaceProposer } from '../campaign/types'
 import {
   type SelfImproveBudget,
@@ -35,6 +43,7 @@ import {
   type ConversationArtifact,
   type ConversationScenario,
   type MultishotRolloutOptions,
+  type ScenarioSolvedBy,
   userSideRollout,
 } from './rollout'
 
@@ -88,6 +97,24 @@ export interface AdversarialUserOptions<TScenario extends ConversationScenario> 
     seed?: number
     costLedger?: CostLedgerHandle
   }
+  /** How an emitted scenario shows it can be passed under its plan. Default:
+   *  the same agent, 3 seeded repeats. */
+  solvability?: {
+    /** An agent that runs each candidate in place of `agentProfile`. */
+    referenceProfile?: AgentProfile
+    /** Seeded conversations per candidate; one pass is enough. Default 3. */
+    repeats?: number
+    /** Campaign seed of the repeats. Default 42. */
+    seed?: number
+  }
+}
+
+/** A failure the admitted plan caused that no solvability conversation passed. */
+export interface UnsolvableScenario<TScenario extends ConversationScenario> {
+  scenario: TScenario
+  reason: string
+  /** Conversations run on it. */
+  attempts: number
 }
 
 export interface AdversarialUserResult<TScenario extends ConversationScenario> {
@@ -99,9 +126,12 @@ export interface AdversarialUserResult<TScenario extends ConversationScenario> {
   realism: SimulatorRealismReport | null
   admitted: boolean
   reasons: string[]
-  /** One per held-out conversation the admitted plan made the agent fail:
-   *  the source scenario with the plan as its `userPlan`. Train only. */
+  /** One per held-out conversation the admitted plan made the agent fail
+   *  that a solvability conversation passed: the source scenario with the plan
+   *  as its `userPlan` and the pass on `origin.solvedBy`. Train only. */
   trainScenarios: TScenario[]
+  /** Failures no solvability conversation passed. Never emitted. */
+  unsolvableScenarios: UnsolvableScenario<TScenario>[]
 }
 
 /**
@@ -118,6 +148,10 @@ export async function improveAdversarialUser<TScenario extends ConversationScena
   }
   if (!(opts.realism.maxJudgeAccuracy >= 0.5 && opts.realism.maxJudgeAccuracy <= 1)) {
     throw new RangeError('improveAdversarialUser: realism.maxJudgeAccuracy must be in [0.5, 1]')
+  }
+  const repeats = opts.solvability?.repeats ?? 3
+  if (!Number.isSafeInteger(repeats) || repeats < 1) {
+    throw new RangeError('improveAdversarialUser: solvability.repeats must be a positive integer')
   }
   assertDisjointFromHeldOut(
     [...opts.scenarios, ...(opts.selectionScenarios ?? [])],
@@ -154,6 +188,7 @@ export async function improveAdversarialUser<TScenario extends ConversationScena
       admitted: false,
       reasons: [`the user-side search did not ship (${improvement.gateDecision})`],
       trainScenarios: [],
+      unsolvableScenarios: [],
     }
   }
 
@@ -180,14 +215,65 @@ export async function improveAdversarialUser<TScenario extends ConversationScena
     )
   }
   const admitted = reasons.length === 0
+  const candidates = admitted ? failedScenarios(improvement, opts.scenarios, plan) : []
   return {
     improvement,
     plan,
     realism,
     admitted,
     reasons,
-    trainScenarios: admitted ? emittedScenarios(improvement, opts.scenarios, plan) : [],
+    ...(await sortBySolvability(opts, candidates, repeats)),
   }
+}
+
+/** Run each candidate under its plan; one pass makes it a train scenario. */
+async function sortBySolvability<TScenario extends ConversationScenario>(
+  opts: AdversarialUserOptions<TScenario>,
+  candidates: TScenario[],
+  repeats: number,
+): Promise<Pick<AdversarialUserResult<TScenario>, 'trainScenarios' | 'unsolvableScenarios'>> {
+  if (candidates.length === 0) return { trainScenarios: [], unsolvableScenarios: [] }
+  const reference = opts.solvability?.referenceProfile
+  const profile = reference ?? opts.agentProfile
+  const solver = userSideRollout(opts.rollout, profile)
+  const campaign = await runCampaign<TScenario, ConversationArtifact>({
+    scenarios: candidates,
+    // A candidate carries the plan it failed under as its own `userPlan`.
+    dispatch: (scenario, ctx) => solver.agent('', scenario, ctx),
+    dispatchRef: `adversarial-solvability:${solver.dispatchRef}`,
+    reps: repeats,
+    seed: opts.solvability?.seed ?? 42,
+    runDir: opts.runDir ? `${opts.runDir}/solvability` : `mem://adversarial-solvability`,
+    storage: opts.storage ?? (opts.runDir ? fsCampaignStorage() : inMemoryCampaignStorage()),
+    expectUsage: opts.expectUsage ?? 'assert',
+  })
+  const agent = reference ? 'reference' : 'same'
+  const profileDigest = hashCanonical(jsonDocument(profile))
+  const trainScenarios: TScenario[] = []
+  const unsolvableScenarios: UnsolvableScenario<TScenario>[] = []
+  for (const scenario of candidates) {
+    const cells = campaign.cells.filter((cell) => cell.scenarioId === scenario.id)
+    const passed = cells.find((cell) => cell.error === undefined && cell.artifact.outcome.passed)
+    if (passed) {
+      const solvedBy: ScenarioSolvedBy = {
+        agent,
+        profileDigest,
+        seed: passed.artifact.seed,
+        detail: passed.artifact.outcome.detail,
+      }
+      trainScenarios.push({ ...scenario, origin: { ...scenario.origin!, solvedBy } })
+      continue
+    }
+    const last = cells.at(-1)
+    unsolvableScenarios.push({
+      scenario,
+      reason:
+        `the ${agent} agent passed none of ${cells.length} ` +
+        `conversation(s) under the plan (${last?.error ?? last?.artifact.outcome.detail ?? 'no conversation ran'})`,
+      attempts: cells.length,
+    })
+  }
+  return { trainScenarios, unsolvableScenarios }
 }
 
 /** Score of the user side: 1 when the agent failed the outcome check. */
@@ -231,7 +317,7 @@ function personaDigest(scenario: ConversationScenario): string {
   return hashCanonical(jsonDocument(scenario.persona))
 }
 
-function emittedScenarios<TScenario extends ConversationScenario>(
+function failedScenarios<TScenario extends ConversationScenario>(
   improvement: SelfImproveResult<TScenario, ConversationArtifact>,
   scenarios: readonly TScenario[],
   plan: string,

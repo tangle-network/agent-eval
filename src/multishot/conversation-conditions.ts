@@ -72,15 +72,18 @@ export class AdversarialScenarioInHeldOutError extends Error {
 /**
  * Refuse a comparison whose paired conversations (same cell id) met different
  * simulated users or ran on different seeds, or carry no identity to show it.
+ * Returns the number of pairs compared.
  */
 export function assertSameSimulatedUser(
   baseline: ReadonlyMap<string, ConversationArtifact>,
   candidate: ReadonlyMap<string, ConversationArtifact>,
-): void {
+): number {
   const mismatches: SimulatedUserMismatch[] = []
+  let pairs = 0
   for (const [cellId, other] of candidate) {
     const base = baseline.get(cellId)
     if (base === undefined) continue
+    pairs += 1
     const missing = (['baseline', 'candidate'] as const).filter(
       (arm) => !hasIdentity(arm === 'baseline' ? base : other),
     )
@@ -107,6 +110,7 @@ export function assertSameSimulatedUser(
     }
   }
   if (mismatches.length > 0) throw new SimulatedUserMismatchError(mismatches)
+  return pairs
 }
 
 /** The first three items, and an ellipsis when there are more. Package-internal. */
@@ -122,8 +126,9 @@ function hasIdentity(artifact: ConversationArtifact | undefined): boolean {
   )
 }
 
-/** Refuse a held-out split that contains an adversarial-user scenario. Run it
- *  on the test cases of any comparison that does not go through `conversationGate`. */
+/** Refuse a held-out split that contains an adversarial-user scenario.
+ *  `conversationGate` runs it before the held-out run starts; run it on the
+ *  test cases of any comparison that does not go through that gate. */
 export function assertHeldOutExcludesAdversarial(scenarios: readonly ConversationScenario[]): void {
   const emitted = scenarios.filter((scenario) => scenario.origin?.kind === 'adversarial-user')
   if (emitted.length > 0) {
@@ -196,6 +201,7 @@ export function conversationGate<TScenario extends ConversationScenario>(
 ): Gate<ConversationArtifact, TScenario> {
   return {
     name: 'conversation',
+    admitHeldOut: assertHeldOutExcludesAdversarial,
     async decide(ctx: GateContext<ConversationArtifact, TScenario>) {
       assertHeldOutExcludesAdversarial(ctx.scenarios)
       if (ctx.baselineArtifacts === undefined) {
@@ -207,7 +213,10 @@ export function conversationGate<TScenario extends ConversationScenario>(
           },
         ])
       }
-      assertSameSimulatedUser(ctx.baselineArtifacts, ctx.candidateArtifacts)
+      const pairedConversations = assertSameSimulatedUser(
+        ctx.baselineArtifacts,
+        ctx.candidateArtifacts,
+      )
       if (ctx.neutralizedArtifacts) {
         assertSameSimulatedUser(ctx.baselineArtifacts, ctx.neutralizedArtifacts)
       }
@@ -227,7 +236,7 @@ export function conversationGate<TScenario extends ConversationScenario>(
           {
             name: 'simulated-user-identity',
             status: 'pass' as const,
-            detail: { pairedConversations: ctx.candidateArtifacts.size },
+            detail: { pairedConversations },
           },
           ...result.contributingGates,
         ],

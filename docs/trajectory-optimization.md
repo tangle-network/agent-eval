@@ -72,4 +72,4 @@ if (result.gateResult.decision === 'ship') {
 - `result.promotedDiff` identifies the exact selected change.
 
 Calibrate the judge on known strong and weak artifacts before using its decision in production.
-The runnable offline example is [`examples/multi-shot-optimization`](../examples/multi-shot-optimization/).
+The runnable offline example is [`examples/trajectory-optimization`](../examples/trajectory-optimization/).

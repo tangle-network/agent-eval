@@ -7,7 +7,11 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "rootDir": ".",
-    "sourceMap": false
+    "sourceMap": false,
+    "paths": {
+      "@tangle-network/agent-eval": ["./src/index.ts"],
+      "@tangle-network/agent-eval/*": ["./src/*/index.ts"]
+    }
   },
   "include": ["examples/**/*.ts"],
   "exclude": ["node_modules", "dist"]

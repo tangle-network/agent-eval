@@ -328,14 +328,20 @@ export interface SimulatorRealismReport {
   }
   conversations: number
   turns: number
-  /** Judged presentations; each turn is shown in both orders. */
+  /** Judged presentations; each counted turn is shown in both orders. */
   presentations: number
   failedJudgments: number
+  /** Turns dropped because one of their two orders failed to judge: a turn
+   *  counts only when it was judged in both positions. */
+  unbalancedTurns: number
   /** Share of presentations where the judge picked the real message, each
    *  conversation weighted equally, with a bootstrap interval over conversations. */
   accuracy: { mean: number; low: number; high: number; confidence: number; resamples: number }
   meanProbabilityOnReal: number
-  /** The interval contains 0.5. */
+  /** The interval contains 0.5: this sample does not show the judge telling
+   *  the driver from real users. A small sample satisfies it with a wide
+   *  interval, so it is not an admission rule; admit on `accuracy.high`
+   *  against a stated bound, as `improveAdversarialUser` does. */
   indistinguishable: boolean
 }
 
@@ -351,6 +357,7 @@ export async function measureSimulatorRealism(
   const reasons: Record<string, number> = {}
   const probabilitiesOnReal: number[] = []
   let failedJudgments = 0
+  let unbalancedTurns = 0
 
   for (const row of turns) {
     const simulated = await opts.driver.next({
@@ -358,9 +365,9 @@ export async function measureSimulatorRealism(
       ...(opts.signal ? { signal: opts.signal } : {}),
       ...(opts.costLedger ? { costLedger: opts.costLedger } : {}),
     })
+    const unit = `${row.conversationId}:${row.turn}`
+    const answers: Array<ReturnType<typeof judgedAnswer>> = []
     for (const order of ['real-first', 'real-second'] as const) {
-      const realOption = order === 'real-first' ? 'a' : 'b'
-      const unit = `${row.conversationId}:${row.turn}`
       const judged = await opts.judge.decide(
         {
           runId: opts.runId,
@@ -386,11 +393,19 @@ export async function measureSimulatorRealism(
           costPhase: 'realism.judge',
         },
       )
-      const answer = judgedAnswer(judged)
-      if (!answer) {
-        failedJudgments += 1
-        continue
-      }
+      answers.push(judgedAnswer(judged))
+    }
+    const failed = answers.filter((answer) => !answer).length
+    failedJudgments += failed
+    // A turn judged in one position only would let the judge's position bias
+    // count, so it counts only when both orders were judged.
+    if (failed > 0) {
+      if (failed < answers.length) unbalancedTurns += 1
+      continue
+    }
+    for (const [index, answer] of answers.entries()) {
+      if (!answer) continue
+      const realOption = index === 0 ? 'a' : 'b'
       reasons[answer.reason] = (reasons[answer.reason] ?? 0) + 1
       probabilitiesOnReal.push(answer.probabilities[realOption] ?? 0)
       const list = correctByConversation.get(row.conversationId) ?? []
@@ -428,6 +443,7 @@ export async function measureSimulatorRealism(
     turns: turns.length,
     presentations: probabilitiesOnReal.length,
     failedJudgments,
+    unbalancedTurns,
     accuracy: {
       mean: interval.mean,
       low: interval.low,

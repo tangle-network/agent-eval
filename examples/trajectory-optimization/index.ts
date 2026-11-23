@@ -60,7 +60,7 @@ const proposer: SurfaceProposer = {
   },
 }
 
-const runDir = mkdtempSync(join(tmpdir(), 'multi-shot-'))
+const runDir = mkdtempSync(join(tmpdir(), 'trajectory-optimization-'))
 try {
   const result = await runImprovementLoop<Scenario, DemoArtifact>({
     scenarios: SCENARIOS,

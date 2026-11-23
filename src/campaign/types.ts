@@ -469,6 +469,10 @@ export interface GateResult {
 export interface Gate<TArtifact = unknown, TScenario extends Scenario = Scenario> {
   name: string
   decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult>
+  /** Throws when the gate would refuse this held-out split. `selfImprove`,
+   *  `runImprovementLoop` and `compareOptimizationMethods` call it before any
+   *  cell runs, so a refused split spends no budget. */
+  admitHeldOut?(scenarios: readonly TScenario[]): void
 }
 
 // ── Tracing / artifacts / cost ────────────────────────────────────────

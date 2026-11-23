@@ -208,6 +208,6 @@ Downstream integrations provide domain state, policy, tools, and storage.
   evidence inspection.
 - `examples/eval-fixtures-quickstart`: Vercel-style fixture folders with a
   dry-run plan and campaign cache reuse.
-- `examples/multi-shot-optimization`: full-trajectory optimization with a
+- `examples/trajectory-optimization`: full-trajectory optimization with a
   holdout gate.
 - `examples/benchmarks`: benchmark adapter contracts and reference wrappers.

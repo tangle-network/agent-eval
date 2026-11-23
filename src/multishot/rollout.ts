@@ -37,7 +37,23 @@ export interface ConversationScenario<TPersona extends MultishotPersona = Multis
   userPlan?: string
   /** Set on a scenario an adversarial-user search emitted. Such a scenario
    *  trains the agent side and never enters a held-out split. */
-  origin?: { kind: 'adversarial-user'; sourceScenarioId: string; planDigest: string }
+  origin?: {
+    kind: 'adversarial-user'
+    sourceScenarioId: string
+    planDigest: string
+    /** The conversation that showed the scenario can be passed under its
+     *  plan. Set on every emitted scenario; absent on an unsolvable candidate. */
+    solvedBy?: ScenarioSolvedBy
+  }
+}
+
+/** A passing conversation of an emitted scenario: which agent passed it, on
+ *  which seed, and what the outcome check said. */
+export interface ScenarioSolvedBy {
+  agent: 'reference' | 'same'
+  profileDigest: string
+  seed: number
+  detail: string
 }
 
 /** The code-checked outcome of one conversation: the objective part of its score. */
