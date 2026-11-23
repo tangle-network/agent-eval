@@ -173,7 +173,11 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
         message: 'optimizer model request limit reached',
       },
     })
-    expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 2, successfulCompletions: 2 })
+    expect(proxy.wireUsage().anthropic).toEqual({
+      requestAttempts: 2,
+      successfulCompletions: 2,
+      refusedRequests: 0,
+    })
   })
 
   it('serves a real CLI tool-call request end to end and discloses stripped fields', async () => {
@@ -212,7 +216,11 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
     )
     expect(sse).toContain('"stop_reason":"tool_use"')
 
-    expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 1, successfulCompletions: 1 })
+    expect(proxy.wireUsage().anthropic).toEqual({
+      requestAttempts: 1,
+      successfulCompletions: 1,
+      refusedRequests: 0,
+    })
     proxy.assertExecutionComplete()
     expect(executions).toHaveLength(1)
     expect(executions[0]).toMatchObject({ path: '/v1/messages', succeeded: true })
