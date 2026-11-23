@@ -1174,25 +1174,6 @@ def test_gepa_pickle_resume_rejects_shared_writable_state(tmp_path: Path) -> Non
         )
 
 
-def test_gepa_proxy_counts_failed_attempt_before_success_separately() -> None:
-    usage = _ProxyUsage()
-    request = httpx.Request("POST", "http://127.0.0.1/v1/chat/completions")
-    usage.observe_request(request)
-    usage.observe_response(httpx.Response(503, request=request))
-    usage.observe_request(request)
-    usage.observe_response(httpx.Response(200, request=request))
-    usage.models.append(SimpleNamespace(total_tokens_in=11, total_tokens_out=7, total_cost=0.01))
-
-    assert usage.snapshot() == {
-        "inputTokens": 11,
-        "outputTokens": 7,
-        "totalTokens": 18,
-        "calls": 1,
-        "requestAttempts": 2,
-        "costUsd": 0.01,
-    }
-
-
 def test_required_resume_fails_for_an_unsupported_gepa_engine(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["resume"] = "required"

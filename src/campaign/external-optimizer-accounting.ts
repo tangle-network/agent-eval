@@ -8,6 +8,11 @@ export interface ExternalOptimizerTokenUsage {
   calls: number
   /** Provider requests, including failed attempts before a successful call. */
   requestAttempts?: number
+  /**
+   * Requests among `requestAttempts` that the agent-eval proxy refused for its
+   * request or cost limit; they never reached the model.
+   */
+  refusedAttempts?: number
 }
 
 const TOKEN_USAGE_FIELDS = ['inputTokens', 'outputTokens', 'totalTokens', 'calls'] as const
@@ -48,6 +53,15 @@ export function assertExternalOptimizerTokenUsage(
   ) {
     throw new Error(`${name}: ${optimizer} bridge returned invalid tokenUsage.requestAttempts`)
   }
+  if (
+    usage.refusedAttempts !== undefined &&
+    (!Number.isSafeInteger(usage.refusedAttempts) ||
+      usage.refusedAttempts < 0 ||
+      usage.requestAttempts === undefined ||
+      usage.refusedAttempts > usage.requestAttempts - usage.calls)
+  ) {
+    throw new Error(`${name}: ${optimizer} bridge returned invalid tokenUsage.refusedAttempts`)
+  }
 }
 
 export function assertExternalOptimizerCompletionCount(
@@ -56,6 +70,8 @@ export function assertExternalOptimizerCompletionCount(
   successfulCompletions: number,
   name: string,
   optimizer: string,
+  /** Requests the proxy refused for its request or cost limit; the optimizer counts them too. */
+  refusedRequests = 0,
 ): void {
   if (!upstream) {
     throw new Error(`${name}: ${optimizer} did not report optimizer token usage`)
@@ -63,6 +79,8 @@ export function assertExternalOptimizerCompletionCount(
   if (
     !Number.isSafeInteger(requestAttempts) ||
     !Number.isSafeInteger(successfulCompletions) ||
+    !Number.isSafeInteger(refusedRequests) ||
+    refusedRequests < 0 ||
     requestAttempts < 0 ||
     successfulCompletions < 0 ||
     successfulCompletions > requestAttempts
@@ -74,9 +92,17 @@ export function assertExternalOptimizerCompletionCount(
       `${name}: ${optimizer} reported ${upstream.calls} successful model calls but the proxy completed ${successfulCompletions} across ${requestAttempts} attempts`,
     )
   }
-  if (upstream.requestAttempts !== undefined && upstream.requestAttempts !== requestAttempts) {
+  if (upstream.refusedAttempts !== undefined && upstream.refusedAttempts !== refusedRequests) {
     throw new Error(
-      `${name}: ${optimizer} reported ${upstream.requestAttempts} model attempts but the proxy received ${requestAttempts}`,
+      `${name}: ${optimizer} counted ${upstream.refusedAttempts} refused model attempts but the proxy refused ${refusedRequests}`,
+    )
+  }
+  if (
+    upstream.requestAttempts !== undefined &&
+    upstream.requestAttempts !== requestAttempts + refusedRequests
+  ) {
+    throw new Error(
+      `${name}: ${optimizer} reported ${upstream.requestAttempts} model attempts but the proxy admitted ${requestAttempts} and refused ${refusedRequests}`,
     )
   }
 }

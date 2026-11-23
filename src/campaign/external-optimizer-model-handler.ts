@@ -13,10 +13,11 @@ import {
   anthropicErrorEnvelope,
   anthropicErrorTypeForStatus,
 } from './external-optimizer-anthropic'
-import type {
-  ExternalOptimizerModelBudget,
-  ExternalOptimizerModelCall,
-  ExternalOptimizerModelExecutionObservation,
+import {
+  EXTERNAL_OPTIMIZER_REFUSAL_HEADER,
+  type ExternalOptimizerModelBudget,
+  type ExternalOptimizerModelCall,
+  type ExternalOptimizerModelExecutionObservation,
 } from './external-optimizer-contracts'
 import { sendJsonIfOpen } from './external-optimizer-http'
 import {
@@ -78,17 +79,23 @@ export async function handleModelProxyRequest(args: {
   // The `claude` CLI retries only 408/409/429/5xx. A budget or ledger refusal
   // must therefore surface as 402 on the Anthropic wire: retrying an exhausted
   // budget burns wall clock with no possible recovery.
-  const respondError = (status: number, message: string, errorType?: string): void => {
+  const respondError = (
+    status: number,
+    message: string,
+    errorType?: string,
+    headers: Record<string, string> = {},
+  ): void => {
     if (wire === 'anthropic') {
       const mapped = status === 429 ? 402 : status
       sendJsonIfOpen(
         response,
         mapped,
         anthropicErrorEnvelope(errorType ?? anthropicErrorTypeForStatus(mapped), message),
+        headers,
       )
       return
     }
-    sendJsonIfOpen(response, status, { error: message })
+    sendJsonIfOpen(response, status, { error: message }, headers)
   }
   try {
     const path = request.url ? new URL(request.url, 'http://127.0.0.1').pathname : ''
@@ -121,7 +128,9 @@ export async function handleModelProxyRequest(args: {
       : undefined
     const reservation = args.nextReservation(maximumCostUsd, wire)
     if (!reservation.accepted) {
-      respondError(429, reservation.reason)
+      respondError(429, reservation.reason, undefined, {
+        [EXTERNAL_OPTIMIZER_REFUSAL_HEADER]: reservation.reason,
+      })
       return
     }
 

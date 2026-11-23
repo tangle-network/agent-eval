@@ -96,6 +96,11 @@ export interface OptimizationMethodProvenance {
   gepaCandidatePopulation?: GepaCandidatePopulationSummary
   /** Opaque Runtime execution evidence for every invoked optimizer-model call. */
   modelExecutions?: ExternalOptimizerExecutionSummary
+  /**
+   * Optimizer-model proxy traffic on the OpenAI wire: admitted requests, their
+   * successes, and requests refused for the request or cost limit.
+   */
+  optimizerModelRequests?: ExternalOptimizerWireCounts
   /** Anthropic-endpoint proxy traffic from agent CLI engines, when enabled. */
   anthropicEndpoint?: ExternalOptimizerWireCounts
 }

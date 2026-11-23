@@ -10,6 +10,10 @@ from typing import Any
 
 import httpx
 
+# Set by agent-eval's model proxy on a request it refused for its request or
+# cost limit (EXTERNAL_OPTIMIZER_REFUSAL_HEADER in the TypeScript proxy).
+REFUSAL_HEADER = "x-agent-eval-refusal"
+
 
 @dataclass
 class _ProxyUsage:
@@ -17,6 +21,7 @@ class _ProxyUsage:
     clients: list[httpx.Client] = field(default_factory=list)
     request_attempts: int = 0
     successful_completions: int = 0
+    refused_attempts: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def observe_request(self, _request: httpx.Request) -> None:
@@ -24,9 +29,13 @@ class _ProxyUsage:
             self.request_attempts += 1
 
     def observe_response(self, response: httpx.Response) -> None:
-        if response.is_success:
+        refused = REFUSAL_HEADER in response.headers
+        if response.is_success or refused:
             with self.lock:
-                self.successful_completions += 1
+                if response.is_success:
+                    self.successful_completions += 1
+                else:
+                    self.refused_attempts += 1
 
     def register(self, model: Any, client: httpx.Client) -> None:
         with self.lock:
@@ -38,6 +47,7 @@ class _ProxyUsage:
             models = list(self.models)
             request_attempts = self.request_attempts
             successful_completions = self.successful_completions
+            refused_attempts = self.refused_attempts
         input_tokens = sum(int(model.total_tokens_in) for model in models)
         output_tokens = sum(int(model.total_tokens_out) for model in models)
         return {
@@ -46,6 +56,7 @@ class _ProxyUsage:
             "totalTokens": input_tokens + output_tokens,
             "calls": successful_completions,
             "requestAttempts": request_attempts,
+            "refusedAttempts": refused_attempts,
             "costUsd": sum(float(model.total_cost) for model in models),
         }
 
@@ -55,6 +66,22 @@ class _ProxyUsage:
             self.clients.clear()
         for client in clients:
             client.close()
+
+
+class ProxyBudgetStopper:
+    """GEPA stopper that ends the engine run once the proxy refuses a request.
+
+    GEPA treats a failed reflection as a proposal that did not happen and keeps
+    iterating, so without this it spends the rest of its evaluation budget on
+    minibatches it can no longer reflect on.
+    """
+
+    def __init__(self, usage: _ProxyUsage) -> None:
+        self.usage = usage
+
+    def __call__(self, _gepa_state: Any) -> bool:
+        with self.usage.lock:
+            return self.usage.refused_attempts > 0
 
 
 def _official_reflection_model(

@@ -71,8 +71,8 @@ export async function startExternalOptimizerModelProxy(
   let requestCount = 0
   let successfulCompletionCount = 0
   const wireCounts: Record<ModelProxyWire, ExternalOptimizerWireCounts> = {
-    openai: { requestAttempts: 0, successfulCompletions: 0 },
-    anthropic: { requestAttempts: 0, successfulCompletions: 0 },
+    openai: { requestAttempts: 0, successfulCompletions: 0, refusedRequests: 0 },
+    anthropic: { requestAttempts: 0, successfulCompletions: 0, refusedRequests: 0 },
   }
   let modelCallInvocations = 0
   let executionRecordCount = 0
@@ -109,6 +109,7 @@ export async function startExternalOptimizerModelProxy(
       args,
       nextReservation: (maximumCostUsd, wire) => {
         if (totalRequestCount >= args.budget.maxRequests) {
+          wireCounts[wire].refusedRequests += 1
           return { accepted: false as const, reason: 'optimizer model request limit reached' }
         }
         if (
@@ -117,6 +118,7 @@ export async function startExternalOptimizerModelProxy(
           committedForBudget + reservedForBudget + maximumCostUsd >
             args.budget.maxCostUsd + Number.EPSILON
         ) {
+          wireCounts[wire].refusedRequests += 1
           return { accepted: false as const, reason: 'optimizer model cost limit reached' }
         }
         requestCount += 1

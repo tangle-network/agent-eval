@@ -21,8 +21,13 @@ export function closeServer(server: Server): Promise<void> {
   })
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+function sendJson(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
+  response.writeHead(status, { ...headers, 'content-type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }
 
@@ -33,9 +38,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
  * already ended — must not write again; Node throws `ERR_STREAM_WRITE_AFTER_END`
  * and the throw escapes into the server's error path rather than the caller's.
  */
-export function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
+export function sendJsonIfOpen(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
   if (response.destroyed || response.writableEnded) return
-  sendJson(response, status, body)
+  sendJson(response, status, body, headers)
 }
 
 /**

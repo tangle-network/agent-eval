@@ -110,8 +110,8 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
     expect(proxy.requestAttempts()).toBe(1)
     expect(proxy.successfulCompletions()).toBe(1)
     expect(proxy.wireUsage()).toEqual({
-      openai: { requestAttempts: 0, successfulCompletions: 0 },
-      anthropic: { requestAttempts: 1, successfulCompletions: 1 },
+      openai: { requestAttempts: 0, successfulCompletions: 0, refusedRequests: 0 },
+      anthropic: { requestAttempts: 1, successfulCompletions: 1, refusedRequests: 0 },
     })
     proxy.assertExecutionComplete()
     expect(executions).toHaveLength(1)
@@ -173,7 +173,12 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
         message: 'optimizer model request limit reached',
       },
     })
-    expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 2, successfulCompletions: 2 })
+    expect(refused.headers.get('x-agent-eval-refusal')).toBe('optimizer model request limit reached')
+    expect(proxy.wireUsage().anthropic).toEqual({
+      requestAttempts: 2,
+      successfulCompletions: 2,
+      refusedRequests: 1,
+    })
   })
 
   it('serves a real CLI tool-call request end to end and discloses stripped fields', async () => {
@@ -212,7 +217,11 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
     )
     expect(sse).toContain('"stop_reason":"tool_use"')
 
-    expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 1, successfulCompletions: 1 })
+    expect(proxy.wireUsage().anthropic).toEqual({
+      requestAttempts: 1,
+      successfulCompletions: 1,
+      refusedRequests: 0,
+    })
     proxy.assertExecutionComplete()
     expect(executions).toHaveLength(1)
     expect(executions[0]).toMatchObject({ path: '/v1/messages', succeeded: true })
