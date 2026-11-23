@@ -166,7 +166,10 @@ async function runPastTheRequestCap(inflateAttempts: boolean) {
       baselineSurface: '{"k":1}',
       trainScenarios: [{ id: 'train', kind: 'qa', prompt: 'Set k to 2.' }],
       selectionScenarios: [{ id: 'selection', kind: 'qa', prompt: 'Set k to 2.' }],
-      testScenarios: [{ id: 'test-1', kind: 'qa', prompt: 'Set k to 2.' }],
+      testScenarios: [
+        { id: 'test-1', kind: 'qa', prompt: 'Set k to 2.' },
+        { id: 'test-2', kind: 'qa', prompt: 'Set k to 2 again.' },
+      ],
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [kEqualsTwoJudge],
       runDir,

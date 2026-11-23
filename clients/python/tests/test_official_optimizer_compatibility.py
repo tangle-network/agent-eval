@@ -202,12 +202,11 @@ class _LocalChatHandler(BaseHTTPRequestHandler):
         )
         handler_type = type(self)
         if handler_type.request_limit is not None and len(self.requests) > handler_type.request_limit:
-            from agent_eval_rpc.gepa_model_proxy import REFUSAL_HEADER
-
             reason = "optimizer model request limit reached"
             response = json.dumps({"error": reason}).encode()
             self.send_response(429)
-            self.send_header(REFUSAL_HEADER, reason)
+            # The wire name agent-eval's TypeScript proxy sets on a budget refusal.
+            self.send_header("x-agent-eval-refusal", reason)
             self.send_header("Content-Length", str(len(response)))
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -609,15 +608,15 @@ def test_official_gepa_engine_stops_at_the_first_proxy_refusal(tmp_path: Path) -
             config=config,
         )
 
-    snapshot = usage.snapshot()
-    assert snapshot["calls"] == 1
-    assert snapshot["refusedAttempts"] >= 1
-    assert snapshot["requestAttempts"] == len(requests) == 1 + snapshot["refusedAttempts"]
     # Seed on selection, then per iteration one parent minibatch (plus the
     # proposal's minibatch when one was made): the run ends at the refusal
     # instead of spending the rest of its 40 evaluations.
     assert len(evaluations) <= 4
     assert result.best_candidate == "BASELINE"
+    snapshot = usage.snapshot()
+    assert snapshot["calls"] == 1
+    assert snapshot["refusedAttempts"] >= 1
+    assert snapshot["requestAttempts"] == len(requests) == 1 + snapshot["refusedAttempts"]
     usage.close()
 
 
