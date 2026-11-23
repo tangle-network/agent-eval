@@ -681,6 +681,127 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
     assert state_path.stat().st_size > 0
 
 
+def test_concurrent_gepa_runs_keep_their_logs_off_the_process_streams(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Two explore runs on concurrent threads, then the continue stage.
+
+    GEPA's default run logger swaps sys.stdout and sys.stderr for its run, so
+    overlapping runs restored each other's swapped streams; a bridge process
+    then failed in the continue stage with a closed run log as its stdout.
+    """
+    import httpx
+
+    from agent_eval_rpc import gepa_bridge
+
+    _assert_installed_gepa_runtime()
+    stdout, stderr = sys.stdout, sys.stderr
+    streams_at_evaluation: list[bool] = []
+
+    def callback_post(url: str, **kwargs: Any) -> httpx.Response:
+        streams_at_evaluation.append(sys.stdout is stdout and sys.stderr is stderr)
+        candidate = kwargs["json"]["candidate"]
+        score = 1.0 if "ALWAYS_RETURN_READY" in candidate else 0.0
+        return httpx.Response(
+            200,
+            json={
+                "score": score,
+                "info": {"feedback": "The candidate must contain ALWAYS_RETURN_READY."},
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    def gepa_run(max_evaluations: int) -> dict[str, Any]:
+        return {
+            "engine": "gepa",
+            "engineConfig": {
+                "engine": {
+                    "capture_stdio": False,
+                    "max_workers": 1,
+                    "parallel": False,
+                    "raise_on_exception": True,
+                },
+                "reflection": {
+                    "reflection_minibatch_size": 1,
+                    "skip_perfect_score": False,
+                },
+            },
+            "maxEvaluations": max_evaluations,
+        }
+
+    monkeypatch.setattr(httpx, "post", callback_post)
+    output_root = tmp_path / "bridge-output"
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    compatible_run_id = "b" * 64
+    with _local_chat_server("```\nALWAYS_RETURN_READY\n```") as (base_url, _):
+        input_path.write_text(
+            json.dumps(
+                {
+                    "engineModules": [],
+                    "attemptId": "omni-run",
+                    "compatibleRunId": compatible_run_id,
+                    "runId": f"{compatible_run_id}-omni-run",
+                    "runtimeIdentity": gepa_bridge._runtime_identity([]),
+                    "resume": "if-compatible",
+                    "trustedResumeState": True,
+                    "evaluationId": "concurrent-logs-test",
+                    "seed": 7,
+                    "callbackUrl": "http://127.0.0.1:9/evaluate",
+                    "callbackToken": "local-callback-token",
+                    "timeoutMs": 1_800_000,
+                    "recipe": {
+                        "kind": "omni",
+                        "maxWorkers": 2,
+                        "explore": [gepa_run(4), gepa_run(4)],
+                        "continueWith": gepa_run(4),
+                    },
+                    "objective": "Add the required response rule.",
+                    "seedCandidate": "BASELINE",
+                    "trainSet": [{"id": "train", "data": {"prompt": "Return READY."}}],
+                    "selectionSet": [{"id": "selection", "data": {"prompt": "Return READY."}}],
+                    "maxCandidateChars": 1_000,
+                    "maxPopulationCandidates": 4,
+                    "maxEvidenceChars": 10_000,
+                    "modelProxy": {
+                        "apiKey": "local-model-token",
+                        "baseUrl": base_url,
+                        "model": "local-model",
+                        "budget": {
+                            "maxRequests": 10,
+                            "maxRequestBytes": 100_000,
+                            "maxResponseBytes": 100_000,
+                            "maxOutputTokensPerRequest": 256,
+                            "requestTimeoutMs": 5_000,
+                        },
+                    },
+                    "outputDir": str(output_root),
+                }
+            )
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["gepa-bridge", "--input", str(input_path), "--output", str(output_path)],
+        )
+        try:
+            gepa_bridge.main()
+            streams_after = (sys.stdout, sys.stderr)
+        finally:
+            sys.stdout, sys.stderr = stdout, stderr
+
+    output = json.loads(output_path.read_text())
+    assert output["recipeKind"] == "omni"
+    assert output["bestCandidate"] == "ALWAYS_RETURN_READY"
+    assert streams_at_evaluation and all(streams_at_evaluation)
+    assert streams_after[0] is stdout
+    assert streams_after[1] is stderr
+    run_dir = output_root / "runs" / output["runId"]
+    for stage in ("explore-0", "explore-1", "continue"):
+        assert (run_dir / stage / "state" / "run_log.txt").read_text().strip()
+
+
 def test_installed_skillopt_runs_reflact_with_packaged_prompts(
     tmp_path: Path,
 ) -> None:
