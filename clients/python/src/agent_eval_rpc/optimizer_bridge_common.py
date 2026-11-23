@@ -90,9 +90,16 @@ def validate_optimizer_model_budget(value: Any, label: str) -> None:
         isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0
     ):
         raise ValueError(f"{label}.requestTimeoutMs must be a positive integer")
+    # Optional too, as in ExternalOptimizerModelBudget: a subscription lane
+    # states no rates, and the TypeScript cost ledger meters its calls from
+    # their receipts. A dollar ceiling needs rates to be enforced.
     pricing = value.get("pricing")
+    if pricing is None:
+        if max_cost is not None:
+            raise ValueError(f"{label}.pricing is required when maxCostUsd is supplied")
+        return
     if not isinstance(pricing, dict):
-        raise ValueError(f"{label}.pricing must be an object")
+        raise ValueError(f"{label}.pricing must be an object when supplied")
     for key in ("inputUsdPerMillion", "outputUsdPerMillion"):
         rate = pricing.get(key)
         if (

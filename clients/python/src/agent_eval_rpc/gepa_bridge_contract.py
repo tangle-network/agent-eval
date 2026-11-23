@@ -276,6 +276,10 @@ def _validate_model_proxy(value: Any, recipe: dict[str, Any]) -> None:
         raise ValueError("GEPA bridge input modelProxy.anthropicEndpoint must be a boolean")
 
     for index, run in enumerate(_recipe_engine_runs(recipe)):
+        if run.get("maxProposerCostUsd") is not None and value["budget"].get("pricing") is None:
+            raise ValueError(
+                f"GEPA recipe engine {index}.maxProposerCostUsd needs modelProxy.budget.pricing"
+            )
         if run["engine"] in AGENT_CLI_ENGINES and anthropic_endpoint:
             engine_config = run["engineConfig"]
             validate_no_secrets(
