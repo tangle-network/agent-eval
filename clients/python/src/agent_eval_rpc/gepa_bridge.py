@@ -44,6 +44,9 @@ from agent_eval_rpc.gepa_compat_0_1_4 import (
     load_restore_observer,
 )
 from agent_eval_rpc.gepa_model_proxy import (
+    ProxyBudgetStopper,
+)
+from agent_eval_rpc.gepa_model_proxy import (
     _official_reflection_model as _official_reflection_model,
 )
 from agent_eval_rpc.gepa_model_proxy import _ProxyUsage as _ProxyUsage
@@ -328,6 +331,7 @@ def _main() -> None:
                 "totalTokens",
                 "calls",
                 "requestAttempts",
+                "refusedAttempts",
             )
         }
     elif proposer_cost is not None:
@@ -813,6 +817,9 @@ def _engine_config(
     proxy_usage: _ProxyUsage | None,
 ) -> Any:
     engine_config = copy.deepcopy(run["engineConfig"])
+    if "stop_callbacks" in engine_config:
+        raise ValueError("GEPA engineConfig.stop_callbacks cannot be serialized; use stopAtScore")
+    stop_callbacks: list[Any] = []
     agent_cli_run = run["engine"] in AGENT_CLI_ENGINES and bool(
         model_proxy is not None and model_proxy.get("anthropicEndpoint")
     )
@@ -836,6 +843,7 @@ def _engine_config(
             options=reflection_options,
             shared_usage=proxy_usage,
         )
+        stop_callbacks.append(ProxyBudgetStopper(proxy_usage))
     if run["engine"] == "gepa":
         tracking = engine_config.setdefault("tracking", {})
         if not isinstance(tracking, dict):
@@ -863,6 +871,8 @@ def _engine_config(
             kwargs["stop_at_score"] = run["stopAtScore"]
         if run.get("sandbox") is not None:
             kwargs["sandbox"] = run["sandbox"]
+        if stop_callbacks:
+            engine_config["stop_callbacks"] = stop_callbacks
         return api.config_class(**kwargs)
 
     if run["engine"] != "gepa":
@@ -878,13 +888,11 @@ def _engine_config(
     nested_engine["run_dir"] = str(output_dir / "state")
     nested_engine["max_workers"] = run.get("maxConcurrency", 1)
     if run.get("stopAtScore") is not None:
-        if "stop_callbacks" in engine_config:
-            raise ValueError(
-                "GEPA engineConfig.stop_callbacks cannot be serialized; use stopAtScore"
-            )
         from gepa.utils import ScoreThresholdStopper
 
-        engine_config["stop_callbacks"] = [ScoreThresholdStopper(run["stopAtScore"])]
+        stop_callbacks.append(ScoreThresholdStopper(run["stopAtScore"]))
+    if stop_callbacks:
+        engine_config["stop_callbacks"] = stop_callbacks
     return api.config_class(**engine_config)
 
 

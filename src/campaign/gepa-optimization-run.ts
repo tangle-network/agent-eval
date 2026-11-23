@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
+import { errorMessage } from '../errors'
 import { contentHash } from '../verdict-cache'
 import {
   assertExternalOptimizerCompletionCount,
@@ -510,6 +511,21 @@ export async function runBridge<TScenario extends Scenario, TArtifact>(
   return { result, outputDir, modelProxy }
 }
 
+/**
+ * Keep the bridge's selection before any check can throw. The bridge writes its
+ * output to a temporary directory that is removed on return, so without this
+ * copy a failed check discards the search's pick with it.
+ */
+export function persistGepaSelection<TScenario extends Scenario, TArtifact>(
+  ctx: GepaRun<TScenario, TArtifact>,
+  result: GepaBridgeOutput,
+  outputDir: string,
+): string {
+  const path = `${outputDir}/selection-${ctx.attemptId}.json`
+  ctx.storage.write(path, `${JSON.stringify(result, null, 1)}\n`)
+  return path
+}
+
 /** Check the bridge output against the run it was started for, and return the candidate population it reports. */
 export function verifyBridgeResult<TScenario extends Scenario, TArtifact>(
   ctx: GepaRun<TScenario, TArtifact>,
@@ -615,7 +631,7 @@ export function gepaCosts<TScenario extends Scenario, TArtifact>(
   result: GepaBridgeOutput,
   modelProxy: ExternalOptimizerModelProxy | undefined,
 ) {
-  const { costLedger, runtimeIdentity, runBudget, name, config } = ctx
+  const { costLedger, runtimeIdentity, runBudget } = ctx
   const evaluationCost = costFromLedgerSummary(
     costLedger.summary({
       phase: 'gepa.external-evaluation',
@@ -632,43 +648,80 @@ export function gepaCosts<TScenario extends Scenario, TArtifact>(
   })
   const optimizerCost = costFromLedgerSummary(optimizerSummary)
   const reportedProposerCost = result.proposerCostUsd ?? 0
-  if (modelProxy) {
-    modelProxy.assertExecutionComplete()
-    // The bridge's httpx hooks observe exactly the reflection (OpenAI-wire)
-    // traffic. Anthropic-wire calls come from the claude CLI, which cannot
-    // self-report counts; their receipts are cross-checked below.
-    const wires = modelProxy.wireUsage()
+  const usageFailures = modelProxy ? gepaUsageCheck(ctx, result, modelProxy) : []
+  const tokenUsage = modelProxy
+    ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
+    : undefined
+  const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
+  const combinedCost = modelProxy
+    ? combineComparisonCosts([
+        { label: 'evaluation', cost: evaluationCost },
+        { label: 'optimizer model', cost: optimizerCost },
+      ])
+    : undefined
+  // A failed usage check leaves the spend unproven, not the search: the pick
+  // stands and the cost reports itself incomplete.
+  const meteredCost =
+    combinedCost && usageFailures.length > 0
+      ? {
+          ...combinedCost,
+          accountingComplete: false,
+          incompleteReasons: [
+            ...combinedCost.incompleteReasons,
+            ...usageFailures.map((failure) => `usage check failed: ${failure}`),
+          ],
+        }
+      : combinedCost
+  const externalTotalCostUsd = evaluationCost.totalCostUsd + reportedProposerCost
+  return { evaluationCost, tokenUsage, runtime, meteredCost, externalTotalCostUsd }
+}
+
+/**
+ * The proxy's completeness checks against the bridge's own counts. Each failure
+ * is returned, never thrown: by now the search has finished and its selection
+ * is persisted, so a count disagreement marks the spend unproven instead.
+ */
+function gepaUsageCheck<TScenario extends Scenario, TArtifact>(
+  ctx: GepaRun<TScenario, TArtifact>,
+  result: GepaBridgeOutput,
+  modelProxy: ExternalOptimizerModelProxy,
+): string[] {
+  const { costLedger, runBudget, name, config } = ctx
+  const failures: string[] = []
+  const check = (assertion: () => void) => {
+    try {
+      assertion()
+    } catch (error) {
+      failures.push(errorMessage(error))
+    }
+  }
+  check(() => modelProxy.assertExecutionComplete())
+  // The bridge's httpx hooks observe exactly the reflection (OpenAI-wire)
+  // traffic. Anthropic-wire calls come from the claude CLI, which cannot
+  // self-report counts; their receipts are cross-checked below.
+  const wires = modelProxy.wireUsage()
+  check(() =>
     assertExternalOptimizerCompletionCount(
       result.tokenUsage,
       wires.openai.requestAttempts,
       wires.openai.successfulCompletions,
       name,
       'GEPA',
-    )
-    if (config.optimizer?.anthropicEndpoint === true) {
-      const anthropicReceipts = costLedger.list({
-        phase: 'gepa.optimizer-model',
-        tags: { ...runBudget.attemptTags, wire: 'anthropic' },
-      })
-      if (anthropicReceipts.length !== wires.anthropic.requestAttempts) {
-        throw new Error(
-          `${name}: the Anthropic endpoint admitted ${wires.anthropic.requestAttempts} model calls but the ledger holds ${anthropicReceipts.length} receipts`,
-        )
-      }
+      wires.openai.refusedRequests,
+    ),
+  )
+  if (config.optimizer?.anthropicEndpoint === true) {
+    const anthropicReceipts = costLedger.list({
+      phase: 'gepa.optimizer-model',
+      tags: { ...runBudget.attemptTags, wire: 'anthropic' },
+    })
+    if (anthropicReceipts.length !== wires.anthropic.requestAttempts) {
+      failures.push(
+        `${name}: the Anthropic endpoint admitted ${wires.anthropic.requestAttempts} model calls but the ledger holds ${anthropicReceipts.length} receipts`,
+      )
     }
   }
-  const tokenUsage = modelProxy
-    ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
-    : undefined
-  const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
-  const meteredCost = modelProxy
-    ? combineComparisonCosts([
-        { label: 'evaluation', cost: evaluationCost },
-        { label: 'optimizer model', cost: optimizerCost },
-      ])
-    : undefined
-  const externalTotalCostUsd = evaluationCost.totalCostUsd + reportedProposerCost
-  return { evaluationCost, tokenUsage, runtime, meteredCost, externalTotalCostUsd }
+  return failures
 }
 
 /** The method result: the winning surface, its cost and the provenance of the run. */
@@ -714,6 +767,7 @@ export function buildGepaOutcome<TScenario extends Scenario, TArtifact>(
             optimizerCallRef: config.optimizer.callRef,
           }
         : {}),
+      ...(modelProxy ? { optimizerModelRequests: modelProxy.wireUsage().openai } : {}),
       ...(modelProxy && config.optimizer?.anthropicEndpoint === true
         ? { anthropicEndpoint: modelProxy.wireUsage().anthropic }
         : {}),

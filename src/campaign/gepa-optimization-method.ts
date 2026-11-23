@@ -11,6 +11,7 @@ import {
 import {
   buildGepaOutcome,
   gepaCosts,
+  persistGepaSelection,
   prepareGepaRun,
   recordGepaSearchHistory,
   runBridge,
@@ -187,6 +188,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
     async optimize(input) {
       const ctx = await prepareGepaRun(config, input, name)
       const { result, outputDir, modelProxy } = await runBridge(ctx)
+      persistGepaSelection(ctx, result, outputDir)
       const population = verifyBridgeResult(ctx, result)
       const searchHistory = await recordGepaSearchHistory(ctx, result, population)
       const costs = gepaCosts(ctx, result, modelProxy)

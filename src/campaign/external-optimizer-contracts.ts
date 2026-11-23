@@ -295,7 +295,16 @@ export interface ExternalOptimizerWireCounts {
   requestAttempts: number
   /** Successful 2xx responses recorded on this wire. */
   successfulCompletions: number
+  /**
+   * Requests refused because the request or cost limit was reached. They never
+   * reach the execution owner, and each refusal carries
+   * `EXTERNAL_OPTIMIZER_REFUSAL_HEADER` so the optimizer process counts it too.
+   */
+  refusedRequests: number
 }
+
+/** Response header on a proxy budget refusal; its value is the refusal reason. */
+export const EXTERNAL_OPTIMIZER_REFUSAL_HEADER = 'x-agent-eval-refusal'
 
 export interface ExternalOptimizerModelProxy {
   /** OpenAI-compatible base URL supplied to the optimizer process. */
