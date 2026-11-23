@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -17,6 +18,29 @@ class GepaEvaluationBudgetExhausted(BaseException):
     GEPA's evaluator wrapper can convert ordinary Exceptions to measured zeroes
     when raise_on_exception=False. Budget exhaustion is control flow instead.
     """
+
+
+class GepaRunLog:
+    """GEPA's run log for one engine run, written without touching the process streams.
+
+    GEPA 0.1.4's default ``Logger`` replaces ``sys.stdout`` and ``sys.stderr`` with
+    tees into the run directory and, on exit, restores the streams it saved. The
+    composition recipes run engines on concurrent threads, so when the first run
+    to start also finishes first, the last run restores a tee of the first run's
+    closed file, and the next print stops the process. GEPA enters only its own
+    ``Logger`` as a context manager, so this logger leaves both streams alone and
+    appends each message to the run's own ``run_log.txt`` under a lock.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def log(self, message: str) -> None:
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{message}\n")
 
 
 @dataclass

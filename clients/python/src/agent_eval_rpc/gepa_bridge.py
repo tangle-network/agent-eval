@@ -40,6 +40,7 @@ from agent_eval_rpc.gepa_compat_0_1_4 import (
     GepaBudgetObserver,
     GepaEvaluationBudgetExhausted,
     GepaRestoreObserver,
+    GepaRunLog,
     load_restore_observer,
 )
 from agent_eval_rpc.gepa_model_proxy import (
@@ -835,6 +836,13 @@ def _engine_config(
             options=reflection_options,
             shared_usage=proxy_usage,
         )
+    if run["engine"] == "gepa":
+        tracking = engine_config.setdefault("tracking", {})
+        if not isinstance(tracking, dict):
+            raise ValueError("GEPA engineConfig.tracking must be an object")
+        if "logger" in tracking:
+            raise ValueError("GEPA engineConfig.tracking.logger is set by the bridge")
+        tracking["logger"] = GepaRunLog(output_dir / "state" / "run_log.txt")
 
     if api.config_shape == "engine":
         # Agent engines construct strict config dataclasses without a seed
