@@ -1189,8 +1189,80 @@ def test_gepa_proxy_counts_failed_attempt_before_success_separately() -> None:
         "totalTokens": 18,
         "calls": 1,
         "requestAttempts": 2,
+        "refusedAttempts": 0,
         "costUsd": 0.01,
     }
+
+
+def test_gepa_proxy_counts_budget_refusals_apart_from_provider_failures() -> None:
+    from agent_eval_rpc.gepa_model_proxy import REFUSAL_HEADER, ProxyBudgetStopper
+
+    usage = _ProxyUsage()
+    stopper = ProxyBudgetStopper(usage)
+    request = httpx.Request("POST", "http://127.0.0.1/v1/chat/completions")
+    usage.observe_request(request)
+    usage.observe_response(httpx.Response(200, request=request))
+    # A provider rate limit through the proxy is a failed attempt, not a refusal.
+    usage.observe_request(request)
+    usage.observe_response(httpx.Response(429, request=request))
+    assert not stopper(None)
+    for _ in range(2):
+        usage.observe_request(request)
+        usage.observe_response(
+            httpx.Response(
+                429,
+                headers={REFUSAL_HEADER: "optimizer model request limit reached"},
+                request=request,
+            )
+        )
+
+    assert stopper(None)
+    snapshot = usage.snapshot()
+    assert (snapshot["calls"], snapshot["requestAttempts"], snapshot["refusedAttempts"]) == (1, 4, 2)
+
+
+def test_gepa_engine_config_adds_the_proxy_budget_stopper(monkeypatch, tmp_path: Path) -> None:
+    from agent_eval_rpc.gepa_model_proxy import ProxyBudgetStopper
+
+    monkeypatch.setattr(
+        gepa_bridge, "_official_reflection_model", lambda **_: SimpleNamespace(name="reflection")
+    )
+    config_calls: list[dict[str, Any]] = []
+
+    class FakeLauncherConfig:
+        def __init__(self, **kwargs: Any) -> None:
+            config_calls.append(kwargs)
+
+    usage = _ProxyUsage()
+    gepa_bridge._engine_config(
+        GepaApi(module=SimpleNamespace(), config_class=FakeLauncherConfig, config_shape="launcher"),
+        {
+            "engine": "gepa",
+            "engineConfig": {"engine": {}, "reflection": {}},
+            "maxEvaluations": 8,
+            "stopAtScore": 0.9,
+        },
+        tmp_path / "published",
+        seed=7,
+        model_proxy={"budget": {"maxRequests": 1}},
+        proxy_usage=usage,
+    )
+
+    stoppers = config_calls[0]["stop_callbacks"]
+    assert [type(stopper).__name__ for stopper in stoppers] == [
+        "ProxyBudgetStopper",
+        "ScoreThresholdStopper",
+    ]
+    assert isinstance(stoppers[0], ProxyBudgetStopper) and stoppers[0].usage is usage
+    with pytest.raises(ValueError, match="stop_callbacks cannot be serialized"):
+        gepa_bridge._engine_config(
+            GepaApi(module=SimpleNamespace(), config_class=FakeLauncherConfig, config_shape="launcher"),
+            {"engine": "gepa", "engineConfig": {"engine": {}, "stop_callbacks": []}},
+            tmp_path / "caller-stoppers",
+            seed=7,
+            model_proxy=None,
+            proxy_usage=None,
+        )
 
 
 def test_required_resume_fails_for_an_unsupported_gepa_engine(tmp_path: Path) -> None:

@@ -110,8 +110,8 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
     expect(proxy.requestAttempts()).toBe(1)
     expect(proxy.successfulCompletions()).toBe(1)
     expect(proxy.wireUsage()).toEqual({
-      openai: { requestAttempts: 0, successfulCompletions: 0 },
-      anthropic: { requestAttempts: 1, successfulCompletions: 1 },
+      openai: { requestAttempts: 0, successfulCompletions: 0, refusedRequests: 0 },
+      anthropic: { requestAttempts: 1, successfulCompletions: 1, refusedRequests: 0 },
     })
     proxy.assertExecutionComplete()
     expect(executions).toHaveLength(1)

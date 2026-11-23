@@ -187,6 +187,8 @@ class _LocalChatHandler(BaseHTTPRequestHandler):
     response_content: str | None = None
     failures_remaining: int = 0
     finish_reason: str = "stop"
+    # Answer like agent-eval's proxy once this many requests were served.
+    request_limit: int | None = None
 
     def do_POST(self) -> None:
         content_length = int(self.headers["Content-Length"])
@@ -199,6 +201,18 @@ class _LocalChatHandler(BaseHTTPRequestHandler):
             }
         )
         handler_type = type(self)
+        if handler_type.request_limit is not None and len(self.requests) > handler_type.request_limit:
+            from agent_eval_rpc.gepa_model_proxy import REFUSAL_HEADER
+
+            reason = "optimizer model request limit reached"
+            response = json.dumps({"error": reason}).encode()
+            self.send_response(429)
+            self.send_header(REFUSAL_HEADER, reason)
+            self.send_header("Content-Length", str(len(response)))
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(response)
+            return
         if handler_type.failures_remaining > 0:
             handler_type.failures_remaining -= 1
             response = json.dumps(
@@ -279,6 +293,7 @@ def _local_chat_server(
     *,
     failures: int = 0,
     finish_reason: str = "stop",
+    request_limit: int | None = None,
 ) -> Iterator[tuple[str, list[dict[str, Any]]]]:
     requests: list[dict[str, Any]] = []
     handler = type(
@@ -287,6 +302,7 @@ def _local_chat_server(
         {
             "failures_remaining": failures,
             "finish_reason": finish_reason,
+            "request_limit": request_limit,
             "requests": requests,
             "response_content": response_content,
         },
@@ -416,6 +432,7 @@ def test_agent_eval_uses_official_gepa_lm_behavior(caplog) -> None:
     assert snapshot == {
         "calls": 3,
         "requestAttempts": 4,
+        "refusedAttempts": 0,
         "inputTokens": 33,
         "outputTokens": 39,
         "totalTokens": 72,
@@ -517,6 +534,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
     assert usage.snapshot() == {
         "calls": 1,
         "requestAttempts": 1,
+        "refusedAttempts": 0,
         "costUsd": cost,
         "inputTokens": 11,
         "outputTokens": 13,
@@ -529,6 +547,77 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
         ("ALWAYS_RETURN_READY", "train"),
         ("ALWAYS_RETURN_READY", "selection"),
     ]
+    usage.close()
+
+
+def test_official_gepa_engine_stops_at_the_first_proxy_refusal(tmp_path: Path) -> None:
+    from gepa.optimize_anything import optimize_anything
+
+    from agent_eval_rpc.gepa_api import load_gepa_api
+    from agent_eval_rpc.gepa_bridge import _engine_config, _ProxyUsage
+
+    evaluations: list[str] = []
+
+    def evaluate(candidate: str, example: dict[str, str]) -> tuple[float, dict[str, str]]:
+        evaluations.append(example["id"])
+        return 0.0, {"feedback": "The candidate must contain ALWAYS_RETURN_READY."}
+
+    usage = _ProxyUsage()
+    # The one admitted reflection proposes a candidate that still scores 0, so
+    # GEPA would keep iterating; every later reflection is refused.
+    with _local_chat_server("```\nSTILL_WRONG\n```", request_limit=1) as (base_url, requests):
+        config = _engine_config(
+            load_gepa_api(),
+            {
+                "engine": "gepa",
+                "engineConfig": {
+                    "engine": {
+                        "capture_stdio": False,
+                        "max_workers": 1,
+                        "parallel": False,
+                        "raise_on_exception": True,
+                    },
+                    "reflection": {
+                        "reflection_minibatch_size": 1,
+                        "skip_perfect_score": False,
+                    },
+                },
+                "maxEvaluations": 40,
+            },
+            tmp_path / "refused-gepa",
+            seed=7,
+            model_proxy={
+                "apiKey": "local-test-key",
+                "baseUrl": base_url,
+                "model": "local-model",
+                "budget": {
+                    "maxRequests": 1,
+                    "maxRequestBytes": 100_000,
+                    "maxResponseBytes": 100_000,
+                    "maxOutputTokensPerRequest": 256,
+                    "requestTimeoutMs": 5_000,
+                },
+            },
+            proxy_usage=usage,
+        )
+        result = optimize_anything(
+            "BASELINE",
+            evaluator=evaluate,
+            dataset=[{"id": "train"}],
+            valset=[{"id": "selection"}],
+            objective="Add the required response rule.",
+            config=config,
+        )
+
+    snapshot = usage.snapshot()
+    assert snapshot["calls"] == 1
+    assert snapshot["refusedAttempts"] >= 1
+    assert snapshot["requestAttempts"] == len(requests) == 1 + snapshot["refusedAttempts"]
+    # Seed on selection, then per iteration one parent minibatch (plus the
+    # proposal's minibatch when one was made): the run ends at the refusal
+    # instead of spending the rest of its 40 evaluations.
+    assert len(evaluations) <= 4
+    assert result.best_candidate == "BASELINE"
     usage.close()
 
 
