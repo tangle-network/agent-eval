@@ -12,6 +12,7 @@
 
 import { asRecord, nonEmptyString as str } from './source-facts'
 import {
+  type GraphStopSource,
   type Measured,
   type SupervisorStatusSource,
   type TerminalFailure,
@@ -35,6 +36,11 @@ export interface TerminalRecordInput {
    * none; `undefined` when the store has no such document type.
    */
   readonly failure: Record<string, unknown> | null | undefined
+  /**
+   * The stopping node's output, read beside a `stopped` no-winner result;
+   * undefined when the source has none.
+   */
+  readonly graphStop?: GraphStopSource
 }
 
 export interface TerminalRecord {
@@ -52,6 +58,37 @@ export interface TerminalRecord {
    * other recorded terminal state; null when no terminal record exists.
    */
   readonly completed: boolean | null
+  /**
+   * Why a `stopped` no-winner with no error reports no graph-stop failure:
+   * the stopping node, its output or its `reason` is absent. Unset otherwise.
+   */
+  readonly graphStopGap?: string
+}
+
+/** Runtime's `SupervisedResult` reason for a graph that stopped itself. */
+export const GRAPH_STOPPED_REASON = 'stopped'
+
+/**
+ * The graph's own stop as the run's failure: the stopping node's label and the
+ * `reason` string of its output. Returns the absence when either is missing.
+ */
+function graphStopFailure(
+  stop: GraphStopSource | undefined,
+): { failure: TerminalFailure } | { gap: string } {
+  if (stop === undefined) return { gap: 'graph stop: the source carries no stopping node output' }
+  const node = stop.label === null ? 'the last node in result.tree.nodes' : stop.label
+  if (stop.absent !== null) return { gap: `graph stop: ${node}: ${stop.absent}` }
+  const reason = str(asRecord(stop.output).reason)
+  if (reason === null) return { gap: `graph stop: ${node}: output carries no string reason` }
+  return {
+    failure: {
+      source: 'graph-stop',
+      name: stop.label,
+      message: reason,
+      at: null,
+      earlierAttempt: false,
+    },
+  }
 }
 
 function errorRecord(
@@ -83,13 +120,22 @@ export function readTerminalRecord(input: TerminalRecordInput): TerminalRecord {
     // Runtime's settle record is the status. A failure record beside it is an
     // earlier attempt's throw (Runtime never writes one after a settle), kept
     // as the recorded error with `earlierAttempt` set; a `driver-failed`
-    // no-winner carries its own rejection instead.
+    // no-winner carries its own rejection instead. A graph that stopped itself
+    // records no error; the stopping node's output says why, and any error
+    // record outranks it.
+    const reason = str(result.reason)
+    const failure = failureRecord ?? errorRecord(result, 'runtime-result', false)
+    const stop =
+      failure === null && resultKind === 'no-winner' && reason === GRAPH_STOPPED_REASON
+        ? graphStopFailure(input.graphStop)
+        : null
     return {
       supStatus: resultKind,
       supStatusSource: 'runtime-result',
-      supReason: str(result.reason),
-      failure: failureRecord ?? errorRecord(result, 'runtime-result', false),
+      supReason: reason,
+      failure: stop !== null && 'failure' in stop ? stop.failure : failure,
       completed: resultKind === 'winner',
+      ...(stop !== null && 'gap' in stop ? { graphStopGap: stop.gap } : {}),
     }
   }
 

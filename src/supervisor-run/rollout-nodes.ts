@@ -118,6 +118,7 @@ function rolloutContext(
     state,
     result,
     failure: src.failure === undefined ? undefined : parseJsonRecord(src.failure),
+    graphStop: src.graphStop,
   })
 
   const rootId = tree.rootId

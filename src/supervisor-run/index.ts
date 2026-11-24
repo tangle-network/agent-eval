@@ -73,6 +73,7 @@ export {
 export {
   type DecisionMetrics,
   type EconomicsMetrics,
+  type GraphStopSource,
   isUnavailable,
   type Measured,
   type NamedResourceReceipt,

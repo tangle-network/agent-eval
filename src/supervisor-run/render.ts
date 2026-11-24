@@ -48,12 +48,16 @@ export function renderSupervisorRunHeadline(r: SupervisorRunReport): string {
 
 /**
  * The recorded error on one line; `none recorded` and `unavailable` stay
- * distinct, and a throw the run outlived is labeled so it is not read as the
- * outcome of the settled result beside it.
+ * distinct, a graph's own stop names the stopping node and its reason, and a
+ * throw the run outlived is labeled so it is not read as the outcome of the
+ * settled result beside it.
  */
 function fmtFailure(v: Measured<TerminalFailure | null>): string {
   if (isUnavailable(v)) return `unavailable — ${v.unavailable}`
   if (v === null) return 'none recorded'
+  if (v.source === 'graph-stop') {
+    return `graph-stop ${v.name ?? 'unavailable — no stopping node label'}: ${v.message}`
+  }
   const name = v.name ?? 'unavailable — record has no error.name'
   const message = v.message ?? 'unavailable — record has no error.message'
   const attempt = v.earlierAttempt ? ', earlier attempt' : ''

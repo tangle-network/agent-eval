@@ -210,6 +210,12 @@ export interface SupervisorRunSources {
    */
   readonly failure?: string | null
   /**
+   * The output of the node that stopped the graph, read for a `stopped`
+   * no-winner `result.json`: the last node in `result.tree.nodes` and its
+   * output blob. Absent when the source has no such record.
+   */
+  readonly graphStop?: GraphStopSource
+  /**
    * Judge verdict document (JSON), or the matching ledger row re-encoded as
    * one. Runners that write the verdict straight to a ledger leave no judge
    * document, so the ledger row is the same fact from the same run — not a
@@ -500,16 +506,34 @@ export type SupervisorStatusSource =
   /** Runtime's `failure.json`: `supervise()` threw before a result landed. */
   | 'runtime-failure'
 
+/** The last settled node of a `stopped` graph and the output that stopped it. */
+export interface GraphStopSource {
+  /** The node's `label`; null when the node or its label is absent. */
+  readonly label: string | null
+  /** The parsed output blob; undefined when it could not be read. */
+  readonly output?: unknown
+  /** Why `output` is absent; null when it was read. */
+  readonly absent: string | null
+}
+
 /** The error a run directory recorded. */
 export interface TerminalFailure {
   /**
-   * Which record carried the error: Runtime's `failure.json`, or the driver
-   * rejection inside a `driver-failed` no-winner `result.json`.
+   * Which record carried the error: Runtime's `failure.json`, the driver
+   * rejection inside a `driver-failed` no-winner `result.json`, or the output
+   * of the node whose result stopped the graph (`graph-stop`, a `stopped`
+   * no-winner with no error).
    */
-  readonly source: 'runtime-failure' | 'runtime-result'
-  /** `error.name` exactly as recorded; null when the record has none. */
+  readonly source: 'runtime-failure' | 'runtime-result' | 'graph-stop'
+  /**
+   * `error.name` exactly as recorded; for `graph-stop`, the stopping node's
+   * label. Null when the record has none.
+   */
   readonly name: string | null
-  /** `error.message` exactly as recorded; null when the record has none. */
+  /**
+   * `error.message` exactly as recorded; for `graph-stop`, the `reason` of the
+   * stopping node's output. Null when the record has none.
+   */
   readonly message: string | null
   /** ISO timestamp the record carries; null when it carries none. */
   readonly at: string | null
