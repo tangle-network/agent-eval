@@ -206,8 +206,10 @@ class _LocalChatHandler(BaseHTTPRequestHandler):
             reason = "optimizer model request limit reached"
             response = json.dumps({"error": reason}).encode()
             self.send_response(429)
-            # The wire name agent-eval's TypeScript proxy sets on a budget refusal.
-            self.send_header("x-agent-eval-refusal", reason)
+            # The wire name agent-eval's TypeScript proxy sets on a budget
+            # refusal; its value is the fixed ASCII refusal kind, and the
+            # reason text stays in the JSON body.
+            self.send_header("x-agent-eval-refusal", "request-limit")
             self.send_header("Content-Length", str(len(response)))
             self.send_header("Content-Type", "application/json")
             self.end_headers()

@@ -110,7 +110,11 @@ export async function startExternalOptimizerModelProxy(
       nextReservation: (maximumCostUsd, wire) => {
         if (totalRequestCount >= args.budget.maxRequests) {
           wireCounts[wire].refusedRequests += 1
-          return { accepted: false as const, reason: 'optimizer model request limit reached' }
+          return {
+            accepted: false as const,
+            kind: 'request-limit' as const,
+            reason: 'optimizer model request limit reached',
+          }
         }
         if (
           args.budget.maxCostUsd !== undefined &&
@@ -119,7 +123,11 @@ export async function startExternalOptimizerModelProxy(
             args.budget.maxCostUsd + Number.EPSILON
         ) {
           wireCounts[wire].refusedRequests += 1
-          return { accepted: false as const, reason: 'optimizer model cost limit reached' }
+          return {
+            accepted: false as const,
+            kind: 'cost-limit' as const,
+            reason: 'optimizer model cost limit reached',
+          }
         }
         requestCount += 1
         wireCounts[wire].requestAttempts += 1

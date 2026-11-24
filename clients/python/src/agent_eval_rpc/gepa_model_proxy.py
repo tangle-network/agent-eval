@@ -11,7 +11,9 @@ from typing import Any
 import httpx
 
 # Set by agent-eval's model proxy on a request it refused for its request or
-# cost limit (EXTERNAL_OPTIMIZER_REFUSAL_HEADER in the TypeScript proxy).
+# cost limit (EXTERNAL_OPTIMIZER_REFUSAL_HEADER in the TypeScript proxy). The
+# value is a fixed ASCII refusal kind while the reason text stays in the JSON
+# body, so the refusal is counted by the header's presence, never its value.
 REFUSAL_HEADER = "x-agent-eval-refusal"
 
 
