@@ -23,6 +23,7 @@ export function createAnalysis(src: SupervisorRunSources) {
     state,
     result,
     failure: src.failure === undefined ? undefined : parseJsonRecord(src.failure),
+    graphStop: src.graphStop,
   })
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
   const rootSpawn =

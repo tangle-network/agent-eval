@@ -18,6 +18,7 @@ export function buildOutcome(a: Analysis, t: TotalUsd): OutcomeMetrics {
       ? gap('patch', src.limits.deliverables ?? 'delivered patch file absent')
       : parsePatch(src.patch)
 
+  if (terminal.graphStopGap !== undefined) gap('failure', terminal.graphStopGap)
   const outcome: OutcomeMetrics = {
     supStatus: isUnavailable(terminal.supStatus)
       ? gap('supStatus', terminal.supStatus.unavailable)

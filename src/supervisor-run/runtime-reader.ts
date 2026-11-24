@@ -34,14 +34,16 @@
  */
 
 import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
 import type { RolloutWorkspaceCapture } from '../rollout/schema'
 import { readCoordinationLog, readFileText, readMaybe } from './coordination-reader'
 import { expandJournalEventGroup } from './journal-event-group'
 import { sourceLimits } from './runtime-source-limits'
 import { nonEmptyString, recordOrNull as record } from './source-facts'
+import { GRAPH_STOPPED_REASON } from './terminal-record'
 import {
+  type GraphStopSource,
   NO_SOURCE_LIMITS,
   type SupervisorRunSources,
   type WorkerLogSource,
@@ -405,6 +407,46 @@ function blobFile(runDir: string, ref: unknown): string | null {
   return typeof ref === 'string' && /^sha256:[0-9a-f]{64}$/u.test(ref)
     ? join(runDir, BLOB_DIR, `${ref.replace(':', '-')}.json`)
     : null
+}
+
+/**
+ * The output of the node that stopped the graph, for a `stopped` no-winner
+ * result: the last node in `result.tree.nodes` and the blob its `outRef`
+ * names. Undefined for every other result. Each absence is named.
+ */
+async function readGraphStop(
+  runDir: string,
+  result: Record<string, unknown> | null,
+  read: typeof readFileText,
+): Promise<GraphStopSource | undefined> {
+  if (result === null || result.kind !== 'no-winner' || result.reason !== GRAPH_STOPPED_REASON) {
+    return undefined
+  }
+  const nodes = record(result.tree)?.nodes
+  const last = Array.isArray(nodes) ? record(nodes.at(-1)) : null
+  if (last === null) return { label: null, absent: 'result.tree.nodes has no last node' }
+  const label = nonEmptyString(last.label)
+  const absent = (reason: string): GraphStopSource => ({ label, absent: reason })
+  const blobPath = blobFile(runDir, last.outRef)
+  if (blobPath === null) return absent('node has no valid outRef')
+  const outputName = relative(runDir, blobPath)
+  if (!(await isFile(blobPath))) return absent(`output blob ${outputName} is missing`)
+  const raw = await readMaybe(blobPath, read)
+  if (raw === null) return absent(`output blob ${outputName} is missing`)
+  let output: unknown
+  try {
+    output = JSON.parse(raw)
+  } catch {
+    return absent(`output blob ${outputName} is not JSON`)
+  }
+  try {
+    if (hashCanonical(output) !== last.outRef) {
+      return absent(`output blob ${outputName} does not match its content address`)
+    }
+  } catch {
+    return absent(`output blob ${outputName} cannot be canonically hashed`)
+  }
+  return { label, output, absent: null }
 }
 
 type NodeTranscript = Pick<
@@ -847,6 +889,7 @@ export async function readRuntimeSupervisorRun(
       patchPath: null,
     }
   })
+  const graphStop = await readGraphStop(runDir, result, read)
   // Runtime appends every root provider event to the root stream as it arrives.
   const rootStream = join(runDir, ROOT_STREAM_FILE)
 
@@ -876,6 +919,7 @@ export async function readRuntimeSupervisorRun(
     rootTranscriptRef: (await isFile(rootStream)) ? rootStream : null,
     rootWorkspaceCaptures: transcripts.get(normalized.root)?.workspaceCaptures ?? null,
     traceCommand: nativeTraceSummary(workers, transcripts.get(normalized.root)),
+    ...(graphStop === undefined ? {} : { graphStop }),
   }
 }
 
