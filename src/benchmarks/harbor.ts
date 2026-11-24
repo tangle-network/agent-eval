@@ -27,9 +27,10 @@ import type {
   BenchmarkAdapter,
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
+  BenchmarkLoadOptions,
   BenchmarkSource,
 } from './types'
-import { deterministicSplit } from './types'
+import { deterministicSplit, selectBenchmarkItems } from './types'
 
 const execute = promisify(execFile)
 
@@ -244,8 +245,11 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
     source: options.source,
     defaultMetric: 'reward',
     loadAll,
-    async loadDataset(tag: RunSplitTag) {
-      return (await loadAll()).filter((item) => item.split === tag)
+    async loadDataset(tag: RunSplitTag, options?: BenchmarkLoadOptions) {
+      return selectBenchmarkItems(
+        (await loadAll()).filter((item) => item.split === tag),
+        options,
+      )
     },
     async evaluate(item: HarborTaskItem, artifact: TArtifact): Promise<BenchmarkEvaluation> {
       const outcome = await options.grade(item, artifact)

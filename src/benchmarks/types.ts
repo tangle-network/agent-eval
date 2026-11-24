@@ -87,12 +87,61 @@ export interface BenchmarkSource {
   contamination?: 'unknown' | 'none-known' | 'suspected' | 'confirmed'
 }
 
+/**
+ * What a caller may ask of `loadDataset` beyond the split: a sample, or exact items. An adapter applies them with
+ * `selectBenchmarkItems`: the asked `ids` that are in the split, in the asked order, then at most `limit` items.
+ */
+export interface BenchmarkLoadOptions {
+  limit?: number
+  ids?: readonly string[]
+}
+
+/**
+ * What an agent runtime needs from a benchmark to run its items as agent turns, beyond loading and scoring. agent-eval
+ * names the shapes and a runtime supplies the execution, so this package never imports a runtime: `TEvent` is the
+ * runtime's own event type. `prompt` is required; every other hook is optional.
+ */
+export interface BenchmarkRuntimeHooks<TPayload = unknown, TArtifact = string, TEvent = unknown> {
+  /** The task statement handed to the agent for one item. */
+  prompt(item: BenchmarkDatasetItem<TPayload>): string
+  /** Throw with actionable guidance when the benchmark's harness or grader cannot run on this host. */
+  preflight?(): Promise<void>
+  /** A known-good artifact, so a runner can check the grader before it spends model tokens. */
+  goldArtifact?(item: BenchmarkDatasetItem<TPayload>): Promise<TArtifact | undefined>
+  /** The judged artifact read from the run's collected events, when it is not the agent's final answer text. */
+  output?: { parse(events: TEvent[]): TArtifact }
+  /** A command run in the agent's workspace before the turn, such as checking the task's repository out at its base commit. */
+  workspaceSetup?(item: BenchmarkDatasetItem<TPayload>): { command: string; cwd?: string }
+  /** A command run in the agent's workspace after the turn whose output is the judged artifact, such as `git diff`. */
+  workspaceExtract?(item: BenchmarkDatasetItem<TPayload>): { command: string; cwd?: string }
+  /** A benchmark-owned worker, for a benchmark whose own protocol is the worker (an interactive episode); opaque here. */
+  worker?(config: { model: string; routerBaseUrl: string; routerKey: string }): unknown
+}
+
+/** `BenchmarkLoadOptions` applied to one split's items: the asked ids present in the split, in order, then the limit. */
+export function selectBenchmarkItems<T extends { id: string }>(
+  items: readonly T[],
+  options?: BenchmarkLoadOptions,
+): T[] {
+  let selected = [...items]
+  if (options?.ids?.length) {
+    const byId = new Map(items.map((item) => [item.id, item]))
+    selected = options.ids.flatMap((id) => byId.get(id) ?? [])
+  }
+  return options?.limit === undefined ? selected : selected.slice(0, Math.max(0, options.limit))
+}
+
 /** Common signature implemented by every adapter under `src/benchmarks/*`. */
 // `TPayload` is the per-item payload type; `_TItem` is preserved for
 // downstream type-narrowing extensions (a richer `BenchmarkDatasetItem`
 // subclass that adds e.g. provenance metadata) but is intentionally
 // unused here. `noUnusedLocals` requires the leading underscore.
-export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown, TArtifact = string> {
+export interface BenchmarkAdapter<
+  _TItem = unknown,
+  TPayload = unknown,
+  TArtifact = string,
+  TEvent = unknown,
+> {
   /** Stable benchmark id such as `beir/nfcorpus` or `crag/smoke`. */
   id?: string
   family?: BenchmarkFamily | string
@@ -108,7 +157,12 @@ export interface BenchmarkAdapter<_TItem = unknown, TPayload = unknown, TArtifac
    *  first call but should be cache-friendly. Adapters that don't
    *  ship the dataset itself MUST throw a clearly-marked error
    *  pointing the caller at the loader script. */
-  loadDataset(split: RunSplitTag): Promise<BenchmarkDatasetItem<TPayload>[]>
+  loadDataset(
+    split: RunSplitTag,
+    options?: BenchmarkLoadOptions,
+  ): Promise<BenchmarkDatasetItem<TPayload>[]>
+  /** Present when an agent runtime can run this benchmark's items as agent turns. */
+  runtime?: BenchmarkRuntimeHooks<TPayload, TArtifact, TEvent>
   /** Score a single response. Pure with respect to the inputs. */
   evaluate(item: BenchmarkDatasetItem<TPayload>, artifact: TArtifact): Promise<BenchmarkEvaluation>
   /** Optional identity-bound receipt, retained by the runner without executing the checker twice. */
