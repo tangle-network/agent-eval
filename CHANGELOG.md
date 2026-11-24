@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.11] — 2026-11-24
+
+- feat(benchmarks): BenchmarkRuntimeHooks and load options make BenchmarkAdapter the one benchmark contract (#1348)
+
 ## [2.0.10] — 2026-11-24
 
 - Graph-stop failure misses command-node stops: the reason sits under the envelope's json (#1346)
