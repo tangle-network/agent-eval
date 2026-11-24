@@ -303,8 +303,22 @@ export interface ExternalOptimizerWireCounts {
   refusedRequests: number
 }
 
-/** Response header on a proxy budget refusal; its value is the refusal reason. */
+/**
+ * Response header on a proxy budget refusal. Its value is the fixed ASCII
+ * `ExternalOptimizerRefusalKind` code; the reason text travels only in the
+ * JSON error body, because a header value must be Latin-1 without control
+ * characters and a reason need not be.
+ */
 export const EXTERNAL_OPTIMIZER_REFUSAL_HEADER = 'x-agent-eval-refusal'
+
+/** Header-safe codes identifying which limit refused a request. */
+export const EXTERNAL_OPTIMIZER_REFUSAL_KINDS = {
+  requestLimit: 'request-limit',
+  costLimit: 'cost-limit',
+} as const
+
+export type ExternalOptimizerRefusalKind =
+  (typeof EXTERNAL_OPTIMIZER_REFUSAL_KINDS)[keyof typeof EXTERNAL_OPTIMIZER_REFUSAL_KINDS]
 
 export interface ExternalOptimizerModelProxy {
   /** OpenAI-compatible base URL supplied to the optimizer process. */

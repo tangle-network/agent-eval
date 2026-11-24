@@ -1,8 +1,11 @@
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ExternalOptimizerRefusalKind } from '../../src/campaign/external-optimizer-contracts'
+import { handleModelProxyRequest } from '../../src/campaign/external-optimizer-model-handler'
 import {
   runExternalOptimizerProcess,
   runWithCleanup,
@@ -1336,6 +1339,7 @@ describe('external optimizer model proxy', () => {
       const second = await postModel(proxy, request)
       expect([first.status, second.status]).toEqual(statuses)
       if (second.status === 429) {
+        expect(second.headers.get('x-agent-eval-refusal')).toBe('cost-limit')
         expect(await second.json()).toEqual({ error: 'optimizer model cost limit reached' })
       }
       const served = statuses.filter((status) => status === 200).length
@@ -1836,11 +1840,111 @@ describe('external optimizer model proxy', () => {
         max_tokens: 1,
       })
       expect(response.status).toBe(429)
+      expect(response.headers.get('x-agent-eval-refusal')).toBe('cost-limit')
       expect(await response.json()).toEqual({ error: 'optimizer model cost limit reached' })
       expect(providerCalls).toBe(0)
       expect(proxy.requestAttempts()).toBe(0)
     } finally {
       await proxy.close()
+    }
+  })
+
+  it('answers a budget refusal with a header-safe code whatever the reason text', async () => {
+    // A reason with a non-Latin-1 character and a line feed cannot travel as a
+    // header value at all: writeHead rejects it, so the refusal would never
+    // reach the client. The header carries the fixed kind code; the reason
+    // text travels only in the JSON error body.
+    const reason = '请求已达上限\nrequest limit reached'
+    const ownerActivity: string[] = []
+    const servers: Server[] = []
+    const startRefusing = async (
+      refusal: { kind: ExternalOptimizerRefusalKind; reason: string },
+      anthropicEndpoint: boolean,
+    ): Promise<string> => {
+      const server = createServer((request, response) => {
+        // The production proxy ignores handler rejections the same way; any
+        // rejection is still recorded so the final assertion can catch it.
+        void handleModelProxyRequest({
+          request,
+          response,
+          controller: new AbortController(),
+          token: 'refusal-token',
+          args: {
+            call: async () => {
+              throw new Error('a refused request must not reach the execution owner')
+            },
+            callRef: 'test-owner:refusal-header',
+            recordExecution: () => ownerActivity.push('recordExecution'),
+            model: 'model-a',
+            budget: modelBudget({ maxRequests: 1 }),
+            costLedger: new CostLedger(),
+            phase: 'optimizer',
+            actor: 'official-library',
+            ...(anthropicEndpoint ? { anthropicEndpoint: true } : {}),
+          },
+          nextReservation: () => ({ accepted: false, ...refusal }),
+          settleReservation: () => ownerActivity.push('settleReservation'),
+          recordSuccessfulCompletion: () => ownerActivity.push('recordSuccessfulCompletion'),
+          recordExecutionReceipt: () => ownerActivity.push('recordExecutionReceipt'),
+          recordModelCallInvocation: () => ownerActivity.push('recordModelCallInvocation'),
+          recordFailure: () => ownerActivity.push('recordFailure'),
+        }).catch((error: unknown) => ownerActivity.push(`handler: ${String(error)}`))
+      })
+      servers.push(server)
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, '127.0.0.1', () => {
+          server.off('error', reject)
+          resolve()
+        })
+      })
+      const address = server.address()
+      if (address === null || typeof address === 'string') {
+        throw new Error('refusing server did not bind')
+      }
+      return `http://127.0.0.1:${address.port}`
+    }
+    const post = (origin: string, path: string, body: Record<string, unknown>) =>
+      fetch(`${origin}${path}`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer refusal-token', 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+    try {
+      for (const kind of ['request-limit', 'cost-limit'] as const) {
+        const origin = await startRefusing({ kind, reason }, false)
+        const response = await post(origin, '/v1/chat/completions', {
+          model: 'model-a',
+          messages: [],
+          max_tokens: 1,
+        })
+        expect(response.status).toBe(429)
+        expect(response.headers.get('x-agent-eval-refusal')).toBe(kind)
+        expect(await response.json()).toEqual({ error: reason })
+      }
+      const origin = await startRefusing({ kind: 'request-limit', reason }, true)
+      const response = await post(origin, '/v1/messages', {
+        model: 'model-a',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'x' }],
+      })
+      // 402, not 429: the Anthropic wire must not offer a budget refusal for retry.
+      expect(response.status).toBe(402)
+      expect(response.headers.get('x-agent-eval-refusal')).toBe('request-limit')
+      expect(await response.json()).toEqual({
+        type: 'error',
+        error: { type: 'invalid_request_error', message: reason },
+      })
+      // A refused request must not touch the execution owner or its ledger.
+      expect(ownerActivity).toEqual([])
+    } finally {
+      for (const server of servers) {
+        server.closeAllConnections?.()
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()))
+        })
+      }
     }
   })
 
@@ -1880,6 +1984,7 @@ describe('external optimizer model proxy', () => {
       })
       expect(first.status).toBe(200)
       expect(second.status).toBe(429)
+      expect(second.headers.get('x-agent-eval-refusal')).toBe('request-limit')
       expect(await second.json()).toEqual({ error: 'optimizer model request limit reached' })
       expect(providerCalls).toBe(1)
       expect(proxy.requestAttempts()).toBe(1)
@@ -1940,6 +2045,7 @@ describe('external optimizer model proxy', () => {
     try {
       const response = await postModel(proxy, requestBody)
       expect(response.status).toBe(429)
+      expect(response.headers.get('x-agent-eval-refusal')).toBe('cost-limit')
       expect(await response.json()).toEqual({ error: 'optimizer model cost limit reached' })
       expect(providerCalls).toBe(0)
       expect(proxy.requestAttempts()).toBe(0)
@@ -1994,6 +2100,7 @@ describe('external optimizer model proxy', () => {
       await waitFor(() => providerCalls === 1)
       const second = await postModel(proxy, requestBody)
       expect(second.status).toBe(429)
+      expect(second.headers.get('x-agent-eval-refusal')).toBe('cost-limit')
       expect(await second.json()).toEqual({ error: 'optimizer model cost limit reached' })
       expect(providerCalls).toBe(1)
       releaseProvider?.()

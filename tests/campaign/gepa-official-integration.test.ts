@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 import {
   compareOptimizationMethods,
@@ -9,6 +11,8 @@ import {
   type JudgeConfig,
   type Scenario,
 } from '../../src/campaign'
+import { startExternalOptimizerModelProxy } from '../../src/campaign/external-optimizer-process'
+import { CostLedger } from '../../src/cost-ledger'
 import { localOptimizerModel, startModelServer } from './official-optimizer-test-support'
 
 interface TestScenario extends Scenario {
@@ -21,6 +25,101 @@ interface TestArtifact {
 
 const officialPython = process.env.AGENT_EVAL_TEST_PYTHON?.trim()
 const officialIt = officialPython ? it : it.skip
+const execute = promisify(execFile)
+
+officialIt(
+  'counts a proxy refusal the real bridge reads off the real proxy',
+  async () => {
+    // The budget is already spent, so the production reservation logic refuses
+    // the bridge's one reflection before it reaches the execution owner; the
+    // header name the bridge counts by must survive the real refusal path.
+    const proxy = await startExternalOptimizerModelProxy({
+      callRef: 'test-owner:refusing-proxy',
+      call: async () => {
+        throw new Error('a refused request must not reach the execution owner')
+      },
+      recordExecution: () => {},
+      model: 'model-a',
+      budget: {
+        maxRequests: 1,
+        maxRequestBytes: 100_000,
+        maxResponseBytes: 100_000,
+        maxOutputTokensPerRequest: 64,
+      },
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+      initialUsage: { requests: 1 },
+    })
+
+    try {
+      const script = [
+        'import json',
+        'from agent_eval_rpc.gepa_bridge import _ProxyUsage, _official_reflection_model',
+        'from agent_eval_rpc.gepa_model_proxy import ProxyBudgetStopper',
+        'usage = _ProxyUsage()',
+        'model = _official_reflection_model(',
+        '    config={',
+        `        "apiKey": ${JSON.stringify(proxy.apiKey)},`,
+        `        "baseUrl": ${JSON.stringify(proxy.baseUrl)},`,
+        '        "model": "model-a",',
+        '        "budget": {',
+        '            "maxRequests": 1,',
+        '            "maxRequestBytes": 100000,',
+        '            "maxResponseBytes": 100000,',
+        '            "maxOutputTokensPerRequest": 64,',
+        '            "requestTimeoutMs": 5000,',
+        '        },',
+        '    },',
+        '    options={"num_retries": 0},',
+        '    shared_usage=usage,',
+        ')',
+        'error = ""',
+        'try:',
+        '    model("hello")',
+        'except BaseException as caught:',
+        '    error = str(caught)',
+        'print("BRIDGE_REPORT:" + json.dumps({',
+        '    "snapshot": usage.snapshot(),',
+        '    "stopped": ProxyBudgetStopper(usage)(None),',
+        '    "error": error,',
+        '}))',
+      ].join('\n')
+      const { stdout } = await execute(officialPython!, ['-c', script], {
+        timeout: 90_000,
+        encoding: 'utf8',
+      })
+      const reportLine = stdout.split('\n').find((line) => line.startsWith('BRIDGE_REPORT:'))
+      expect(reportLine).toBeDefined()
+      const report = JSON.parse(reportLine!.slice('BRIDGE_REPORT:'.length)) as {
+        snapshot: Record<string, number>
+        stopped: boolean
+        error: string
+      }
+
+      expect(report.snapshot).toEqual({
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        calls: 0,
+        requestAttempts: 1,
+        refusedAttempts: 1,
+        costUsd: 0,
+      })
+      expect(report.stopped).toBe(true)
+      expect(report.error).toContain('optimizer model request limit reached')
+      expect(proxy.requestAttempts()).toBe(0)
+      expect(proxy.wireUsage().openai).toEqual({
+        requestAttempts: 0,
+        successfulCompletions: 0,
+        refusedRequests: 1,
+      })
+    } finally {
+      await proxy.close()
+    }
+  },
+  180_000,
+)
 
 officialIt(
   'runs the installed GEPA optimizer and observes an upstream-generated candidate',

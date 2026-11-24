@@ -446,6 +446,7 @@ System text translates from both slots the CLI uses: the top-level `system` fiel
 Claude-specific control fields (`thinking`, `context_management`, `output_config`) carry no token-billing semantics on the owner wire; the shim strips them and records the names in the ledger tag `strippedFields`.
 It still refuses images, server tools, `top_p`, `top_k`, and `stop_sequences` with a loud Anthropic error envelope.
 A budget refusal surfaces to the CLI as HTTP 402, which the CLI treats as terminal instead of retrying.
+Every refusal also sets `x-agent-eval-refusal` to its kind code (`request-limit` or `cost-limit`) and carries the reason text in the error body, so a reason outside Latin-1 cannot corrupt the header.
 Agent sessions are chatty: size `budget.maxRequests` for tens of calls per engine run.
 Without the flag, agent engines stay rejected in proxied mode.
 

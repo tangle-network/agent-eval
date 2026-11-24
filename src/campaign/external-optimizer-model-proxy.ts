@@ -5,6 +5,7 @@ import { errorMessage as toErrorMessage } from '../errors'
 import { assertServedModelPolicy, type ServedModelPolicy } from '../integrity/served-model'
 import {
   assertExternalOptimizerModelBudget,
+  EXTERNAL_OPTIMIZER_REFUSAL_KINDS,
   type ExternalOptimizerModelBudget,
   type ExternalOptimizerModelCall,
   type ExternalOptimizerModelExecutionObservation,
@@ -110,7 +111,11 @@ export async function startExternalOptimizerModelProxy(
       nextReservation: (maximumCostUsd, wire) => {
         if (totalRequestCount >= args.budget.maxRequests) {
           wireCounts[wire].refusedRequests += 1
-          return { accepted: false as const, reason: 'optimizer model request limit reached' }
+          return {
+            accepted: false as const,
+            kind: EXTERNAL_OPTIMIZER_REFUSAL_KINDS.requestLimit,
+            reason: 'optimizer model request limit reached',
+          }
         }
         if (
           args.budget.maxCostUsd !== undefined &&
@@ -119,7 +124,11 @@ export async function startExternalOptimizerModelProxy(
             args.budget.maxCostUsd + Number.EPSILON
         ) {
           wireCounts[wire].refusedRequests += 1
-          return { accepted: false as const, reason: 'optimizer model cost limit reached' }
+          return {
+            accepted: false as const,
+            kind: EXTERNAL_OPTIMIZER_REFUSAL_KINDS.costLimit,
+            reason: 'optimizer model cost limit reached',
+          }
         }
         requestCount += 1
         wireCounts[wire].requestAttempts += 1
