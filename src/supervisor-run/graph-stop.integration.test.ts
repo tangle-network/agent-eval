@@ -2,7 +2,9 @@
  * A graph that stops itself settles `no-winner` / `stopped` with no error. The
  * run report reads the stop from the last node in `result.tree.nodes` and the
  * `reason` of that node's output blob, so the cause is on the RUN-REPORT line
- * instead of `failure=none recorded`.
+ * instead of `failure=none recorded`. An agent node's output is the settled
+ * object; a command node's output is the command envelope, its settled value
+ * under `json`.
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -22,6 +24,12 @@ const BUILD_OUTPUT = { built: true, head: HEAD }
 const STOP_REF = hashCanonical(STOP_OUTPUT)
 const BUILD_REF = hashCanonical(BUILD_OUTPUT)
 const STOP_BLOB = `sha256-${STOP_REF.slice('sha256:'.length)}.json`
+const COMMAND_STOP_OUTPUT = {
+  pass: false,
+  exitCode: 1,
+  output: 'verify pass=false\n',
+  json: { unchanged: true, head: HEAD, prior: HEAD, reason: 'verify pass=false', note: '' },
+}
 
 let dir: string
 
@@ -43,7 +51,8 @@ const node = (n: number, label: string, outRef: string) => ({
   spent: { iterations: 1, ms: 1, tokens: { input: 0, output: 0 }, usd: 0 },
 })
 
-async function writeRun(): Promise<void> {
+async function writeRun(stopOutput: Record<string, unknown> = STOP_OUTPUT): Promise<void> {
+  const stopRef = hashCanonical(stopOutput)
   const event = (seq: number, body: Record<string, unknown>) =>
     JSON.stringify({ kind: 'event', root: ROOT, event: { ...body, seq, at: AT } })
   const journal = [
@@ -52,7 +61,7 @@ async function writeRun(): Promise<void> {
     event(1, { kind: 'spawned', id: `${ROOT}:s0`, parent: ROOT, label: 'build', runtime: 'cli' }),
     event(2, { kind: 'settled', id: `${ROOT}:s0`, status: 'done', outRef: BUILD_REF }),
     event(3, { kind: 'spawned', id: `${ROOT}:s1`, parent: ROOT, label: 'repair-head' }),
-    event(4, { kind: 'settled', id: `${ROOT}:s1`, status: 'done', outRef: STOP_REF }),
+    event(4, { kind: 'settled', id: `${ROOT}:s1`, status: 'done', outRef: stopRef }),
   ]
   await writeFile(join(dir, 'spawn-journal.jsonl'), `${journal.join('\n')}\n`)
   await writeFile(
@@ -63,7 +72,7 @@ async function writeRun(): Promise<void> {
       tree: {
         root: ROOT,
         inFlight: 0,
-        nodes: [node(0, 'build', BUILD_REF), node(1, 'repair-head', STOP_REF)],
+        nodes: [node(0, 'build', BUILD_REF), node(1, 'repair-head', stopRef)],
       },
     }),
   )
@@ -72,7 +81,10 @@ async function writeRun(): Promise<void> {
     join(dir, 'blobs', `sha256-${BUILD_REF.slice('sha256:'.length)}.json`),
     JSON.stringify(BUILD_OUTPUT),
   )
-  await writeFile(join(dir, 'blobs', STOP_BLOB), JSON.stringify(STOP_OUTPUT))
+  await writeFile(
+    join(dir, 'blobs', `sha256-${stopRef.slice('sha256:'.length)}.json`),
+    JSON.stringify(stopOutput),
+  )
 }
 
 async function headline(): Promise<{ text: string; gaps: readonly string[] }> {
@@ -84,6 +96,15 @@ async function headline(): Promise<{ text: string; gaps: readonly string[] }> {
 
 it('reports the stopping node and its reason as the graph-stop failure', async () => {
   await writeRun()
+  const { text, gaps } = await headline()
+  expect(text).toContain(
+    '  status=no-winner source=runtime-result reason=stopped failure=graph-stop repair-head: verify pass=false\n',
+  )
+  expect(gaps.some((gap) => gap.startsWith('failure:'))).toBe(false)
+})
+
+it('reads the reason under json when a command node stops the graph', async () => {
+  await writeRun(COMMAND_STOP_OUTPUT)
   const { text, gaps } = await headline()
   expect(text).toContain(
     '  status=no-winner source=runtime-result reason=stopped failure=graph-stop repair-head: verify pass=false\n',

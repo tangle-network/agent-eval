@@ -70,7 +70,10 @@ export const GRAPH_STOPPED_REASON = 'stopped'
 
 /**
  * The graph's own stop as the run's failure: the stopping node's label and the
- * `reason` string of its output. Returns the absence when either is missing.
+ * `reason` string of its output. An agent node's output is the settled object
+ * itself; a command node's output is the command envelope, whose settled value
+ * sits under `json`, so its `reason` is read there when the top level has none.
+ * Returns the absence when either is missing.
  */
 function graphStopFailure(
   stop: GraphStopSource | undefined,
@@ -78,7 +81,8 @@ function graphStopFailure(
   if (stop === undefined) return { gap: 'graph stop: the source carries no stopping node output' }
   const node = stop.label === null ? 'the last node in result.tree.nodes' : stop.label
   if (stop.absent !== null) return { gap: `graph stop: ${node}: ${stop.absent}` }
-  const reason = str(asRecord(stop.output).reason)
+  const output = asRecord(stop.output)
+  const reason = str(output.reason) ?? str(asRecord(output.json).reason)
   if (reason === null) return { gap: `graph stop: ${node}: output carries no string reason` }
   return {
     failure: {
