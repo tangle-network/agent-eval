@@ -18,6 +18,7 @@ import {
   type ExternalOptimizerModelBudget,
   type ExternalOptimizerModelCall,
   type ExternalOptimizerModelExecutionObservation,
+  type ExternalOptimizerRefusalKind,
 } from './external-optimizer-contracts'
 import { sendJsonIfOpen } from './external-optimizer-http'
 import {
@@ -63,7 +64,8 @@ export async function handleModelProxyRequest(args: {
     | { accepted: true }
     | {
         accepted: false
-        reason: 'optimizer model request limit reached' | 'optimizer model cost limit reached'
+        kind: ExternalOptimizerRefusalKind
+        reason: string
       }
   settleReservation: (
     maximumCostUsd: number | undefined,
@@ -128,8 +130,11 @@ export async function handleModelProxyRequest(args: {
       : undefined
     const reservation = args.nextReservation(maximumCostUsd, wire)
     if (!reservation.accepted) {
+      // A header value must be Latin-1 without control characters, so only the
+      // fixed ASCII kind code crosses into the header; the reason text stays
+      // in the JSON body and a non-Latin-1 reason cannot drop the response.
       respondError(429, reservation.reason, undefined, {
-        [EXTERNAL_OPTIMIZER_REFUSAL_HEADER]: reservation.reason,
+        [EXTERNAL_OPTIMIZER_REFUSAL_HEADER]: reservation.kind,
       })
       return
     }
