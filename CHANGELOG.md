@@ -4,7 +4,46 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [2.0.10] — 2026-11-24
+
+- Graph-stop failure misses command-node stops: the reason sits under the envelope's json (#1346)
+- Run report reads failure=none for a graph's own stop; read the stopping node's reason (#1343)
+- Put the fixed refusal kind, not the reason, in the refusal header (#1339)
+- Count a realism turn only when both orders judged, in one pass (#1325)
+- Share the gate's paired-cell maps between the final comparison and method comparison (#1325)
+- Repin the analyst benchmark implementation digest (#1325)
+- Multi-turn optimization follow-ups (#1325)
+- Tests: keep the refusal branch within the line limit
+- Tests: the Anthropic-wire budget refusal carries the refusal header and counts as refused
+- Tests: the Anthropic-endpoint wire counts include the refused count
+- GEPA: the reflection request cap ends the run, refusals count on both sides, the selection survives a usage mismatch
+- Tests: two final cases for the comparison, the refusal header by its wire name, the run length checked first; drop unit tests the integration tests cover
+- Tests: the reflection request cap ends the GEPA run, refusals count on both sides, the selection survives a usage mismatch
+- GEPA runs log to their own run_log.txt without swapping the process streams
+- Test: concurrent GEPA runs leave the process streams alone
+- Optimizer bridges accept a budget without rates, as the TypeScript contract does
+- fix(llm-client): a call allowed more than 300 s gets that long under Node
+- docs(examples): record the example output under the format 2 plan
+- docs(api): regenerate the public API census
+- chore(analyst): pin the benchmark implementation digest for the stratified scope
+- style: format the plan format, read-time and example history changes
+- docs(examples): say the measure validity example passes its read time
+- fix(experiment): keep the sealed plan format a literal type
+- docs(meta-eval): say the second families hold every tested pair with the statistic
+- feat(meta-eval): close outcome windows at the read time as well as at the cut
+- fix(meta-eval): read the minimum effect inside exposure bins
+- fix(experiment): keep plans sealed by the released version verifying under their rules
+- test(meta-eval): plant a released seal, a size-inflated pooled effect and late censoring
+- refactor(examples): move the measure validity history into its own module
+- feat(meta-eval): climb only measures whose after-cut effect clears a minimum
+- test(meta-eval): plant one-class units and a tiny effect that must not be climbed
+- feat(meta-eval): test measures inside exposure bins, close outcome windows at the cut, report thin within-unit estimates
+- feat(experiment): an outcome window and exposure in the measure validity plan
+- feat(statistics): a stratified scope for clusteredAssociation
+- docs(changelog): file the stale unreleased notes under the releases that shipped them
+- style(tests): format the planted-truth tests
+- test(meta-eval): plant exposure, right-censoring and a thin within-unit estimate
+- test(meta-eval): share the planted-truth helpers of the measure validity tests
 
 - The run report reads a graph's own stop. A Runtime `no-winner` result with reason `stopped` and no error now reports `failure=graph-stop <label>: <reason>`, from the last node in `result.tree.nodes` and the `reason` of its output blob, as `TerminalFailure.source` `graph-stop` (`SupervisorRunSources.graphStop` carries the output). A missing blob or an output with no string `reason` still reads `none recorded`, and the report's gaps name what was absent. An error record still outranks the stop.
 - A model call allowed more than 300 s now gets that long under Node. Node's fetch drops a request whose response headers have not arrived within 300 s, and a non-streaming completion sends none until the answer is whole, so `timeoutMs`, `defaultTimeoutMs` and `TANGLE_LLM_TIMEOUT_MS` above 300 s ended every attempt at 300 s with `fetch failed`, and the retry repeated it. Such a call now leaves on node:http, where the attempt's own timer is the only deadline. Calls of 300 s or less, calls with a caller-supplied `fetch`, and other runtimes are unchanged.
