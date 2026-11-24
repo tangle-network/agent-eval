@@ -9,7 +9,12 @@ import {
   benchmarkResultEvidenceDigest,
   defineBenchmarkResult,
 } from './result'
-import type { BenchmarkAdapter, BenchmarkDatasetItem, BenchmarkEvaluation } from './types'
+import {
+  type BenchmarkAdapter,
+  type BenchmarkDatasetItem,
+  type BenchmarkEvaluation,
+  selectBenchmarkItems,
+} from './types'
 
 export interface NativeBenchmarkOptions<TPayload, TArtifact> {
   definition: BenchmarkDefinition
@@ -174,8 +179,11 @@ export function createNativeBenchmarkAdapter<TPayload, TArtifact>(
         throw new Error(`native benchmark: load the task snapshot before assigning split for ${id}`)
       return split
     },
-    async loadDataset(split) {
-      return (await loadAll()).filter((item) => item.split === split)
+    async loadDataset(split, options) {
+      return selectBenchmarkItems(
+        (await loadAll()).filter((item) => item.split === split),
+        options,
+      )
     },
     evaluateResult,
     async evaluate(item, artifact) {

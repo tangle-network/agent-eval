@@ -6,7 +6,7 @@ import type {
   BenchmarkSource,
   BenchmarkTaskKind,
 } from './types'
-import { deterministicSplit } from './types'
+import { deterministicSplit, selectBenchmarkItems } from './types'
 
 export interface StandardRetrievalDocument {
   id: string
@@ -206,8 +206,11 @@ export function createRetrievalIdBenchmarkAdapter(
     taskKind: 'retrieval' satisfies BenchmarkTaskKind,
     source: options.source,
     defaultMetric: options.primaryMetric ?? 'ndcg@10',
-    async loadDataset(split) {
-      return items.filter((item) => item.split === split)
+    async loadDataset(split, options) {
+      return selectBenchmarkItems(
+        items.filter((item) => item.split === split),
+        options,
+      )
     },
     async evaluate(item, artifact) {
       return evaluateStandardRetrieval(item.payload, artifact, options)

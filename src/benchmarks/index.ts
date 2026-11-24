@@ -99,9 +99,11 @@ export type {
   BenchmarkDatasetItem,
   BenchmarkEvaluation,
   BenchmarkFamily,
+  BenchmarkLoadOptions,
   BenchmarkResponder,
+  BenchmarkRuntimeHooks,
   BenchmarkScenario,
   BenchmarkSource,
   BenchmarkTaskKind,
 } from './types'
-export { BENCHMARK_SPLIT_SEED, deterministicSplit } from './types'
+export { BENCHMARK_SPLIT_SEED, deterministicSplit, selectBenchmarkItems } from './types'

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, describe, expect, it } from 'vitest'
-import type { BenchmarkDatasetItem } from '../src/benchmarks'
+import type { BenchmarkAdapter, BenchmarkDatasetItem } from '../src/benchmarks'
 import {
   type BenchmarkDefinition,
   type BenchmarkEvaluation,
@@ -85,6 +85,43 @@ const digestFile = async (file: string) =>
     .digest('hex')}`
 
 describe('native benchmark through real file/process/campaign boundaries', () => {
+  it('loads a sample or exact items for a runtime, and carries the hooks a runtime runs items with', async () => {
+    const ids = ['exact', 'partial', 'zero', 'invalid']
+    const items: Item[] = ids.map((id) => ({ id, payload: { expected: [2, 3, 5] }, split: 'dev' }))
+    const adapter = createNativeBenchmarkAdapter({
+      definition: definitionFor(ids),
+      implementationRef: 'file-adapter@1',
+      load: async () => items,
+      checker: nativeChecker(),
+      artifactDigest: digestFile,
+    })
+    expect((await adapter.loadDataset('dev', { limit: 2 })).map((item) => item.id)).toEqual([
+      'exact',
+      'partial',
+    ])
+    expect(
+      (await adapter.loadDataset('dev', { ids: ['zero', 'missing', 'exact'] })).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['zero', 'exact'])
+    expect(
+      (await adapter.loadDataset('dev', { ids: ['zero', 'exact'], limit: 1 })).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['zero'])
+    expect(await adapter.loadDataset('holdout', { ids: ['exact'] })).toEqual([])
+    // A runtime reads the item's task statement and the benchmark's own extraction from its events.
+    const runnable: BenchmarkAdapter<Item, Item['payload'], string, { text: string }> = {
+      ...adapter,
+      runtime: {
+        prompt: (item) => `Return ${JSON.stringify(item.payload.expected)} for ${item.id}`,
+        output: { parse: (events) => events.map((event) => event.text).join('') },
+      },
+    }
+    expect(runnable.runtime!.prompt(items[0]!)).toBe('Return [2,3,5] for exact')
+    expect(runnable.runtime!.output!.parse([{ text: '[2,' }, { text: '3,5]' }])).toBe('[2,3,5]')
+  })
+
   it('retains native values, artifact binding and certification; excludes missing grading and binds resumptions', async () => {
     const root = await temporary()
     const ids = ['exact', 'partial', 'zero', 'invalid']
