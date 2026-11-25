@@ -215,7 +215,8 @@ export async function runProcedureRegistryCommand(
     const registry = await buildProcedureRegistry(
       {
         searches,
-        sessions: changeLedger === undefined ? transcripts : withChangeLedger(transcripts, changeLedger),
+        sessions:
+          changeLedger === undefined ? transcripts : withChangeLedger(transcripts, changeLedger),
         outcomes,
       },
       {
