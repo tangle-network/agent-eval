@@ -37,6 +37,8 @@ Evaluation measures whether the result met its requirements, whether another att
 | “Improve an agent over conversations with a simulated user.” | `multishotRollout` with `selfImprove`, `conversationJudge`, `conversationGate` | Each cell is one conversation under a fixed simulated user; see [multi-turn optimization](./multi-turn-optimization.md). |
 | “Is my simulated user realistic?” | `measureSimulatorRealism` | A calibrated judge picks the real user's message at recorded turns; 50% is indistinguishable. |
 | “Improve prompts, then code if prompts plateau.” | `gepaOptimizationMethod` or `externalTextOptimizationMethod` for the prompt; agent-runtime's worktree path for the code | Text search stays here; executable code changes belong to the runtime. |
+| “Does this skill or instruction block earn its place?” | `runSkillEval` | Runs the same cases with and without it, judges answers blind, and returns keep, cut or inconclusive; see [skill eval](./skill-eval.md). |
+| “Which skills do my agents use, and what follows?” | `agent-eval skill-usage` | Counts invocations in recorded sessions by skill and version; see [skill usage](./skill-eval.md#skill-usage). |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
 | “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript apps. |
 
