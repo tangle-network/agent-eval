@@ -32,15 +32,33 @@ describe('costForUsage', () => {
     expect(r.costUsd).toBe(0)
   })
 
-  it('bills cache reads and writes at the input rate when provider cost is unavailable', () => {
-    const base = costForUsage('gpt-4o', { inputTokens: 1000, outputTokens: 0 })
-    const cached = costForUsage('gpt-4o', {
+  it('prices cache reads and writes at the model cache rates, never as fresh input', () => {
+    const r = costForUsage('claude-opus-5-5', {
       inputTokens: 1000,
       outputTokens: 0,
-      cachedTokens: 1000,
+      cachedTokens: 1_000_000,
       cacheWriteTokens: 1000,
     })
-    expect(cached.costUsd).toBeCloseTo(base.costUsd * 3, 6)
+    // 1k input at $4/Mtok + 1M cache reads at $0.20/Mtok + 1k cache write at $5/Mtok
+    expect(r.costUnknown).toBe(false)
+    expect(r.costUsd).toBeCloseTo(0.004 + 0.2 + 0.005, 6)
+  })
+
+  it('reports cost unknown for cache tokens on a model with no cache rate', () => {
+    const r = costForUsage('gpt-4o', { inputTokens: 1000, outputTokens: 0, cachedTokens: 1000 })
+    expect(r.costUnknown).toBe(true)
+    expect(r.costUsd).toBe(0)
+  })
+
+  it('applies the long-prompt rates when a prompt passes the model threshold', () => {
+    const short = costForUsage('claude-haiku-5-5', { inputTokens: 100_000, outputTokens: 1000 })
+    const long = costForUsage('claude-haiku-5-5', {
+      inputTokens: 1000,
+      outputTokens: 1000,
+      cachedTokens: 100_000,
+    })
+    expect(short.costUsd).toBeCloseTo(0.01 + 0.0005, 6)
+    expect(long.costUsd).toBeCloseTo(0.0005 + 0.005 + 0.0025, 6)
   })
 
   it('preserves reasoning and cache-write dimensions in durable receipts', async () => {

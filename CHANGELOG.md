@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Breaking: `buildSkillUsageReport` under `./analyst` now takes `(source, options)`; it reads any iterable of session records, so the old scan-the-directory call is gone (#1350)
+- Cost ledger: the model table moves to `src/cost-ledger/pricing.ts` with published cache-read and cache-write rates, and prices `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`; cache tokens on a model without a cache rate are unpriced, not billed as fresh input
+
 ## [2.0.11] — 2026-11-24
 
 - feat(benchmarks): BenchmarkRuntimeHooks and load options make BenchmarkAdapter the one benchmark contract (#1348)

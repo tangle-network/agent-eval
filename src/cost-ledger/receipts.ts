@@ -1,7 +1,6 @@
 /** Create, validate, filter, and detach the receipts stored by a cost ledger. */
 import { z } from 'zod'
 import { ValidationError } from '../errors'
-import { resolveModelPricing } from '../metrics'
 import type {
   CostCallBase,
   CostLedgerFilter,
@@ -12,7 +11,13 @@ import type {
   PendingCostCall,
   RunPaidCallInput,
 } from './contract'
-import { costForUsage, costFromPricing, pricingSnapshot } from './pricing'
+import {
+  costForUsage,
+  costFromPricing,
+  modelPricingSnapshot,
+  pricingSnapshot,
+  resolveModelPricing,
+} from './pricing'
 import { assertNonNegative, assertString, assertUsage, validationMessage } from './validation'
 
 const NonEmptyString = z.string().refine((value) => value.trim().length > 0, 'must be non-empty')
@@ -233,12 +238,7 @@ export function buildReceipt(
   const receiptPricing =
     !hasActual && !hasExternalEstimate && !costUnknown
       ? (customPricingSnapshot ??
-        (resolvedModelPricing
-          ? {
-              inputUsdPerThousand: resolvedModelPricing.input,
-              outputUsdPerThousand: resolvedModelPricing.output,
-            }
-          : undefined))
+        (resolvedModelPricing ? modelPricingSnapshot(resolvedModelPricing, observed) : undefined))
       : undefined
   return parseReceipt(
     {
@@ -301,10 +301,14 @@ export function parseImportedReceipt(value: unknown, path: string): CostReceipt 
   ) {
     const pricing = resolveModelPricing(candidate.model)
     if (pricing) {
-      candidate.pricing = {
-        inputUsdPerThousand: pricing.input,
-        outputUsdPerThousand: pricing.output,
-      }
+      candidate.pricing = modelPricingSnapshot(pricing, {
+        inputTokens: typeof candidate.inputTokens === 'number' ? candidate.inputTokens : 0,
+        outputTokens: 0,
+        ...(typeof candidate.cachedTokens === 'number' ? { cachedTokens: candidate.cachedTokens } : {}),
+        ...(typeof candidate.cacheWriteTokens === 'number'
+          ? { cacheWriteTokens: candidate.cacheWriteTokens }
+          : {}),
+      })
     }
   }
   return parseReceipt(candidate, path)

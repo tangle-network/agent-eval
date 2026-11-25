@@ -10,7 +10,8 @@
  * |---|---|
  * | A | an agent invokes `tidy` twice (one version), a tool error after it, a response split over two records, a request snapshot that quotes the first call |
  * | A's subagent | the harness preloads `helper-contract`, the agent invokes `tidy`, a model with no rate, a tool call with no result |
- * | B | a copy of A's first call, a command the CLI answers itself, a typed `tidy` command at a newer version, a bundled skill, a refused skill, a subagent's record |
+ * | B | a copy of A's first call, a command the CLI answers itself, a typed `tidy` command at a newer version, a bundled skill,
+ *     a refused skill, a subagent's record |
  * | C | one older `tidy` call and a line that is not JSON |
  *
  * `{{SKILL_ROOT}}` in the transcripts becomes a real folder holding the current

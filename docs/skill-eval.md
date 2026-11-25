@@ -30,7 +30,7 @@ The report has one row per skill and version:
 
 Three things never print as zero: a transcript that could not be read (`unreadable`), a version the session did not record (`version: null`), and a measure with no reading (`null`, with the count of what is missing beside it).
 
-Cost uses the cost ledger's model table, which has one input rate: it charges cache reads and cache writes as fresh input, so it overstates a session that reads mostly from cache.
+Cost uses the cost ledger's model table in `src/cost-ledger/pricing.ts`. It prices cache reads and writes only at a rate the table names for that model; a call with cache tokens on a model without one, or a model with no row, is not priced and stays out of the total.
 A model the table does not know is `not priced`, not free.
 `--pricing` takes a JSON object of per-million rates by model id (`inputUsdPerMillion`, `cachedInputUsdPerMillion`, `cacheWriteUsdPerMillion`, `outputUsdPerMillion`) and prices those models with it.
 
