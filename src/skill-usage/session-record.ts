@@ -82,6 +82,18 @@ export interface SessionChange {
   at: string | null
 }
 
+/**
+ * A message a person typed, in the session's order. The text is the person's own
+ * words: a consumer reads it to label the turn and keeps only a digest.
+ */
+export interface SessionUserTurn {
+  id: string
+  at: string | null
+  /** How many events the session recorded before this turn. */
+  eventIndex: number
+  text: string
+}
+
 export interface SkillSessionRecord {
   harness: string
   sessionId: string
@@ -96,6 +108,11 @@ export interface SkillSessionRecord {
    * does not look for them; an empty list when it looked and found none.
    */
   changes?: SessionChange[]
+  /**
+   * What a person typed, in recorded order. Undefined when the reader does not
+   * tell a person's turn from an agent's relay or a harness's injection.
+   */
+  turns?: SessionUserTurn[]
   /** What the reader could not read in this session, in its own words. */
   gaps: string[]
 }

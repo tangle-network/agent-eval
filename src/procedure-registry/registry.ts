@@ -21,6 +21,9 @@ import type { SearchEdgeAttribution, SearchEdgeOperator } from '../campaign/sear
 import type { SearchStateView } from '../campaign/search-state'
 import type { SearchNode } from '../campaign/search-state-types'
 import { ValidationError } from '../errors'
+import type { IntentLabeler, IntentReport, IntentTurn } from '../intent-record/contract'
+import { deriveSessionIntents } from '../intent-record/derive'
+import { buildIntentReport, type SessionIntents } from '../intent-record/report'
 import type {
   SkillInvocationEvent,
   SkillInvoker,
@@ -60,6 +63,12 @@ export interface ProcedureRegistryOptions extends SkillUsageReportOptions {
   procedureOfNode?: (node: SearchNode, search: SearchStateView) => ProcedureNodeIdentity | null
   /** What kind of procedure a session's skill is. Default: `skill`. */
   kindOfSkill?: (skill: string) => ProcedureKind
+  /**
+   * Cut each session's typed turns into intents and join them to the versions
+   * and outcomes. Absent: no intents are derived. A labeler is the caller's;
+   * without one every turn is an unlabeled intent.
+   */
+  intents?: { labeler?: IntentLabeler; ignore?: (turn: IntentTurn) => boolean }
 }
 
 /** A measure summed over the executions that reported it. */
@@ -215,6 +224,8 @@ export interface ProcedureRegistry {
   invocations: number
   changeJoin: ChangeJoinSummary
   versions: ProcedureVersion[]
+  /** Present when the options asked for intents. */
+  intents: IntentReport | null
   unreadable: Array<{ source: string; error: string }>
   notes: string[]
 }
@@ -503,6 +514,7 @@ export async function buildProcedureRegistry(
   const unreadable: Array<{ source: string; error: string }> = []
   const seenCalls = new Set<string>()
   const sessions = { read: 0, unreadable: 0, withInvocation: 0 }
+  const intentSessions: SessionIntents[] = []
 
   const versionDigest = (event: SkillInvocationEvent): string | null => {
     if (event.version !== null) return event.version.bodySha256
@@ -524,6 +536,7 @@ export async function buildProcedureRegistry(
       refs: session.changes?.map((change) => change.ref),
     })
     let counted = false
+    const placed: SessionIntents['invocations'] = []
     session.events.forEach((event, position) => {
       if (event.kind !== 'skill') return
       if (seenCalls.has(event.callId)) return
@@ -538,6 +551,7 @@ export async function buildProcedureRegistry(
       const builder = registry.builder(key)
       builder.names.add(event.skill)
       builder.kind ??= options.kindOfSkill?.(event.skill) ?? 'skill'
+      placed.push({ index: position, at: event.at, key })
       const after = afterInvocation(session, position, event.at, options)
       pending.push({
         builderKey: key,
@@ -553,6 +567,19 @@ export async function buildProcedureRegistry(
       })
     })
     if (counted) sessions.withInvocation += 1
+    if (options.intents !== undefined) {
+      intentSessions.push({
+        sessionId: session.sessionId,
+        parentSessionId: session.parentSessionId,
+        drafts: await deriveSessionIntents(
+          session,
+          options.intents.labeler,
+          options,
+          options.intents.ignore,
+        ),
+        invocations: placed,
+      })
+    }
   }
 
   const joins = { joined: 0, none: 0, notRecorded: 0, withOutcome: 0 }
@@ -655,6 +682,7 @@ export async function buildProcedureRegistry(
       outcomesInWrongWindow: outcomes.otherWindow,
     },
     versions,
+    intents: options.intents === undefined ? null : buildIntentReport(intentSessions, outcomes),
     unreadable,
     notes: [...NOTES],
   }
