@@ -897,16 +897,16 @@ describe('runCampaign — core primitive', () => {
       dispatch: async (scenario, ctx) => {
         const paid = await ctx.cost.runPaidCall({
           actor: 'worker',
-          model: 'gpt-4o',
+          model: 'claude-sonnet-5-5',
           maximumCharge: {
-            model: 'gpt-4o',
+            model: 'claude-sonnet-5-5',
             inputTokens: 600,
             outputTokens: 0,
             cachedTokens: 400,
           },
           execute: async () => ({ text: '', intent: scenario.intent }),
           receipt: () => ({
-            model: 'gpt-4o',
+            model: 'claude-sonnet-5-5',
             inputTokens: 600,
             outputTokens: 0,
             cachedTokens: 400,
@@ -920,7 +920,7 @@ describe('runCampaign — core primitive', () => {
       runDir,
     })
 
-    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.0025, 9)
+    expect(ledger.summary().totalCostUsd).toBeCloseTo(0.00124, 9)
   })
 
   it('actually invokes judge.score and records the real composite', async () => {

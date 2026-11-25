@@ -436,12 +436,15 @@ function ruleOf(settings: Settings, control: boolean): string[] {
   const level = percent(settings.confidence)
   const floor = settings.floor === null ? '' : `, or at most ${percent(settings.floor)},`
   return [
-    `A suite that passes 100% is not evidence. When \`without\` passes at least ${percent(settings.ceiling)}${floor} of the cases with a known outcome, or no outcome is known, the suite cannot separate the arms: inconclusive, and no other arm runs.`,
+    `A suite that passes 100% is not evidence. When \`without\` passes at least ${percent(settings.ceiling)}${floor} of the cases ` +
+      `with a known outcome, or no outcome is known, the suite cannot separate the arms: inconclusive, and no other arm runs.`,
     `Cut when blind judges reliably prefer \`without\`${control ? ' or the control' : ''} over \`with\`.`,
     `Keep when blind judges reliably prefer \`with\` over \`without\`${control ? ', and over the control' : ''}.`,
-    `Cut when the comparison with \`without\` rules out a net preference for \`with\` of ${percent(settings.smallestBenefit)} of cases and no process measure is reliably lower under \`with\`.`,
+    `Cut when the comparison with \`without\` rules out a net preference for \`with\` of ${percent(settings.smallestBenefit)} of ` +
+      `cases and no process measure is reliably lower under \`with\`.`,
     'Otherwise inconclusive.',
-    `Reliably preferred: the ${level} paired interval on (wins - losses) / judged cases excludes zero, the exact test agrees, and enough cases were judged for that test.`,
+    `Reliably preferred: the ${level} paired interval on (wins - losses) / judged cases excludes zero, the exact test agrees, and ` +
+      `enough cases were judged for that test.`,
   ]
 }
 
@@ -464,12 +467,21 @@ function decide(
     if (control === undefined || control.preference.withReliablyPreferred) {
       return {
         decision: 'keep',
-        reason: `Blind judges reliably prefer \`with\` over \`without\` (${tally})${control === undefined ? '' : ` and over the control (${control.preference.wins} to ${control.preference.losses}, ${control.preference.ties} ties)`}.`,
+        reason:
+          `Blind judges reliably prefer \`with\` over \`without\` ` +
+          `(${tally})${
+            control === undefined
+              ? ''
+              : ` and over the control (${control.preference.wins} to ${control.preference.losses}, ${control.preference.ties} ties)`
+          }.`,
       }
     }
     return {
       decision: 'inconclusive',
-      reason: `Blind judges prefer \`with\` over \`without\` (${tally}) but not reliably over the control (${control.preference.wins} to ${control.preference.losses}, ${control.preference.ties} ties): the gain may come from added text, not from what the unit says.`,
+      reason:
+        `Blind judges prefer \`with\` over \`without\` (${tally}) but not reliably over the control (${control.preference.wins} to ` +
+        `${control.preference.losses}, ${control.preference.ties} ties): the gain may come from added text, not from what the unit ` +
+        `says.`,
     }
   }
   const { net } = preference
@@ -487,17 +499,24 @@ function decide(
     if (baseline.reliablyLower.length === 0) {
       return {
         decision: 'cut',
-        reason: `The net preference for \`with\` is ${interval} (${tally}), which rules out a gain of ${percent(settings.smallestBenefit)}, and no process measure is reliably lower.`,
+        reason:
+          `The net preference for \`with\` is ${interval} (${tally}), which rules out a gain of ${percent(settings.smallestBenefit)}, ` +
+          `and no process measure is reliably lower.`,
       }
     }
     return {
       decision: 'inconclusive',
-      reason: `Answers are not preferred (net ${interval}; ${tally}), but ${baseline.reliablyLower.join(', ')} ${baseline.reliablyLower.length === 1 ? 'is' : 'are'} reliably lower under \`with\`: the unit may earn its place on cost, which this rule does not decide.`,
+      reason:
+        `Answers are not preferred (net ${interval}; ${tally}), but ${baseline.reliablyLower.join(', ')} ` +
+        `${baseline.reliablyLower.length === 1 ? 'is' : 'are'} reliably lower under \`with\`: the unit may earn its place on cost, ` +
+        `which this rule does not decide.`,
     }
   }
   return {
     decision: 'inconclusive',
-    reason: `The net preference for \`with\` is ${interval} (${tally}): it includes both no preference and a gain of ${percent(settings.smallestBenefit)}. More cases would narrow it.`,
+    reason:
+      `The net preference for \`with\` is ${interval} (${tally}): it includes both no preference and a gain of ` +
+      `${percent(settings.smallestBenefit)}. More cases would narrow it.`,
   }
 }
 
@@ -567,7 +586,12 @@ export async function runSkillEval<TCase extends { id: string }>(
     const reason =
       headroom.verdict === 'unknown'
         ? `No \`without\` run reported pass or fail, so headroom cannot be checked.`
-        : `\`without\` passes ${headroom.passed} of ${known} cases with a known outcome: the suite cannot separate the arms. ${headroom.verdict === 'saturated' ? 'A suite that passes 100% is not evidence; add cases the baseline fails.' : 'Add cases the baseline can pass, or set headroom.floor to null for a unit meant to make these passable.'}`
+        : `\`without\` passes ${headroom.passed} of ${known} cases with a known outcome: the suite cannot separate the arms. ` +
+          `${
+            headroom.verdict === 'saturated'
+              ? 'A suite that passes 100% is not evidence; add cases the baseline fails.'
+              : 'Add cases the baseline can pass, or set headroom.floor to null for a unit meant to make these passable.'
+          }`
     return report(['without'], headroom, [], { decision: 'inconclusive', reason })
   }
 

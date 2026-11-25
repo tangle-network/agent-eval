@@ -1,101 +1,12 @@
-interface TokenPrice {
-  input: number
-  output: number
-}
-
-/** Per-1K token pricing for exact model ids. */
-export const MODEL_PRICING: Record<string, TokenPrice> = {
-  'gpt-4o': { input: 0.0025, output: 0.01 },
-  'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
-  'gpt-4-turbo': { input: 0.01, output: 0.03 },
-  'claude-sonnet-4-20250514': { input: 0.003, output: 0.015 },
-  'claude-opus-4-20250514': { input: 0.015, output: 0.075 },
-  'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
-  // Router response-header rates observed for the exact served model on
-  // 2026-08-15. Keep this exact row ahead of the deliberately coarse family
-  // fallback so glm-5.3 campaign costs are not understated by ~2.5x.
-  'glm-5.3': { input: 0.00168, output: 0.00528 },
-  // Tangle Router's published rate (`GET /v1/models`) on 2026-10-09:
-  // $0.10 / $0.50 per Mtok. Exact, because the coarse gpt-5 family row would
-  // overstate it 12x on input and 20x on output.
-  'gpt-6-luna': { input: 0.0001, output: 0.0005 },
-  // Router receipts for the served id `gpt-5-mini-2025-08-07` solve exactly
-  // to $0.25 / $2 per Mtok; the gpt-5 family row is 5x too high.
-  'gpt-5-mini': { input: 0.00025, output: 0.002 },
-}
-
-/** Family-level pricing fallbacks (per-1K), matched against a normalized id
- *  after exact lookup misses. Ordered — first match wins. Covers the model
- *  ids actually used through the Tangle router + cli-bridge harnesses, none
- *  of which appear in the exact table above — without this they priced to a
- *  silent $0, blanking every cost/Pareto axis downstream. */
-const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
-  // OpenRouter stealth previews (`stealth/union-alpha`, …) bill $0 during
-  // their preview window. A real zero row lets the budget ledger admit them;
-  // an unpriced id is refused before the first call.
-  [/^stealth\//, { input: 0, output: 0 }],
-  [/claude.*opus/, { input: 0.015, output: 0.075 }],
-  [/claude.*haiku/, { input: 0.0008, output: 0.004 }],
-  [/claude.*sonnet|claude-code|claude-sonnet/, { input: 0.003, output: 0.015 }],
-  [/gpt-4o-mini/, { input: 0.00015, output: 0.0006 }],
-  [/gpt-5|gpt-4\.1|o[134]\b/, { input: 0.00125, output: 0.01 }],
-  [/gpt-4o|gpt-4/, { input: 0.0025, output: 0.01 }],
-  [/deepseek/, { input: 0.0003, output: 0.0011 }],
-  [/glm|zhipu|zai/, { input: 0.0006, output: 0.0022 }],
-  [/kimi|moonshot/, { input: 0.0006, output: 0.0025 }],
-  [/qwen/, { input: 0.0004, output: 0.0012 }],
-  [/gemini.*flash/, { input: 0.0001, output: 0.0004 }],
-  [/gemini/, { input: 0.00125, output: 0.005 }],
-  [/llama/, { input: 0.0002, output: 0.0006 }],
-]
-
-/** Normalize a model id for pricing: drop `@snapshot` and trailing
- *  `-YYYY-MM-DD` dated-snapshot suffixes, lowercase, and return the complete
- *  id plus its final served-model segment for exact-row lookup. */
-function normalizedModelIds(model: string): string[] {
-  const stripped = (model.split('@')[0] ?? model).trim().toLowerCase()
-  const id = stripped.replace(/-(?:19|20)\d{2}-\d{2}-\d{2}$/, '')
-  const finalSegment = id.slice(id.lastIndexOf('/') + 1)
-  return finalSegment === id ? [id] : [id, finalSegment]
-}
-
-/** Resolve pricing for a model id: exact table, then family fallback.
- *  Returns null when the id matches nothing (caller decides — never a
- *  silent-zero masquerading as a real $0 cost). */
-export function resolveModelPricing(model: string): TokenPrice | null {
-  if (MODEL_PRICING[model]) return MODEL_PRICING[model]
-  const ids = normalizedModelIds(model)
-  for (const id of ids) {
-    if (MODEL_PRICING[id]) return MODEL_PRICING[id]
-  }
-  for (const [pattern, price] of FAMILY_PRICING) {
-    if (ids.some((id) => pattern.test(id))) return price
-  }
-  return null
-}
-
-/** True when `model` has known pricing: distinguishes a real $0 from unpriced. */
-export function isModelPriced(model: string): boolean {
-  return resolveModelPricing(model) !== null
-}
-
-const warnedUnpricedModels = new Set<string>()
+export {
+  estimateCost,
+  isModelPriced,
+  MODEL_PRICING,
+  resolveModelPricing,
+  type TokenPrice,
+} from './cost-ledger/pricing'
 
 /** Estimate token count from string length (chars / 4 approximation) */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
-}
-
-/** Calculate cost in USD from token counts and model. Unknown models warn once
- *  (not a silent zero) and return 0; cost-sensitive callers gate on {@link isModelPriced}. */
-export function estimateCost(inputTokens: number, outputTokens: number, model: string): number {
-  const pricing = resolveModelPricing(model)
-  if (!pricing) {
-    if (!warnedUnpricedModels.has(model)) {
-      warnedUnpricedModels.add(model)
-      console.warn(`estimateCost: no pricing for "${model}" — returning 0; add it to MODEL_PRICING`)
-    }
-    return 0
-  }
-  return (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output
 }

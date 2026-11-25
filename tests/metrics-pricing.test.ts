@@ -78,3 +78,22 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
     expect(estimateCost(1000, 1000, 'totally-made-up-model-xyz')).toBe(0)
   })
 })
+
+describe('Anthropic rows carry the published cache rates', () => {
+  it('prices the served Fable, Opus, Sonnet and Haiku ids', () => {
+    for (const id of [
+      'claude-fable-5-2',
+      'claude-opus-5-5',
+      'claude-sonnet-5-5',
+      'claude-haiku-5-5',
+    ]) {
+      const price = resolveModelPricing(id)
+      expect(price?.cacheRead).toBeGreaterThan(0)
+      expect(price?.cacheWrite).toBeGreaterThan(price?.input ?? 0)
+    }
+    expect(resolveModelPricing('claude-fable-5-2')).toMatchObject({
+      input: 0.008,
+      cacheRead: 0.0002,
+    })
+  })
+})
