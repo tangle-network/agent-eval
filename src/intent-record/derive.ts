@@ -14,7 +14,13 @@ import { createHash } from 'node:crypto'
 import type { InvocationChanges } from '../procedure-registry/change-outcome'
 import type { SessionChange, SkillSessionRecord, SkillUsageReportOptions } from '../skill-usage'
 import { afterInvocation, instant } from '../skill-usage/report'
-import type { IntentCost, IntentLabeler, IntentRecord, IntentTurnLabel } from './contract'
+import type {
+  IntentCost,
+  IntentLabeler,
+  IntentRecord,
+  IntentTurn,
+  IntentTurnLabel,
+} from './contract'
 
 interface Thread {
   openedAtIndex: number
@@ -128,10 +134,7 @@ export async function deriveSessionIntents(
       previousText,
     }
     if (ignore?.(context) === true) continue
-    const label =
-      labeler === undefined
-        ? null
-        : await labeler(context)
+    const label = labeler === undefined ? null : await labeler(context)
     previousText = turn.text
     const correction = isCorrection(label)
     const reask = label === null ? null : label.reask
