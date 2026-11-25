@@ -19,7 +19,7 @@ import { replaySearchLedgerText } from '../campaign/search-ledger'
 import type { SearchStateView } from '../campaign/search-state'
 import type { CustomTokenPricing } from '../cost-ledger/contract'
 import { errorMessage } from '../errors'
-import type { IntentLabeler } from '../intent-record/contract'
+import type { IntentLabeler, IntentTurn } from '../intent-record/contract'
 import { claudeCodeSkillSessions } from '../skill-usage/claude-code'
 import { parseSince, readPricingFile } from '../skill-usage/command'
 import { readSkillFile } from '../skill-usage/skill-file'
@@ -141,12 +141,22 @@ function readOutcomes(path: string): ChangeOutcome[] {
 }
 
 /** A labeler module: its default export is an {@link IntentLabeler}. It lives with the caller, where the labels and the words they read do. */
-async function loadLabeler(path: string): Promise<IntentLabeler> {
-  const loaded = (await import(pathToFileURL(resolve(path)).href)) as { default?: unknown }
+async function loadLabeler(
+  path: string,
+): Promise<{ labeler: IntentLabeler; ignore?: (turn: IntentTurn) => boolean }> {
+  const loaded = (await import(pathToFileURL(resolve(path)).href)) as {
+    default?: unknown
+    ignore?: unknown
+  }
   if (typeof loaded.default !== 'function') {
     throw new Error(`--intents ${path}: the module must export a labeler function as its default`)
   }
-  return loaded.default as IntentLabeler
+  return {
+    labeler: loaded.default as IntentLabeler,
+    ...(typeof loaded.ignore === 'function'
+      ? { ignore: loaded.ignore as (turn: IntentTurn) => boolean }
+      : {}),
+  }
 }
 
 async function readLedger(path: string): Promise<SearchStateView> {
@@ -196,7 +206,7 @@ export async function runProcedureRegistryCommand(
         readSkillFile,
         ...(args.intents === null
           ? {}
-          : { intents: { ...(labeler === undefined ? {} : { labeler }) } }),
+          : { intents: { ...labeler } }),
       },
     )
     const table = renderProcedureRegistryTable(registry, args.limit)

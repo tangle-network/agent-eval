@@ -95,6 +95,8 @@ export async function deriveSessionIntents(
   session: SkillSessionRecord,
   labeler: IntentLabeler | undefined,
   options: SkillUsageReportOptions,
+  /** True for a typed turn that is no intent: another agent's relay, a harness probe. Such a turn is skipped whole. */
+  ignore?: (turn: IntentTurn) => boolean,
 ): Promise<IntentDraft[] | null> {
   if (session.turns === undefined) return null
   const threads: Thread[] = []
@@ -117,17 +119,19 @@ export async function deriveSessionIntents(
       const at = instant(turn.at)
       if (at === null || at < options.sinceMs) continue
     }
+    const context: IntentTurn = {
+      harness: session.harness,
+      sessionId: session.sessionId,
+      index,
+      at: turn.at,
+      text: turn.text,
+      previousText,
+    }
+    if (ignore?.(context) === true) continue
     const label =
       labeler === undefined
         ? null
-        : await labeler({
-            harness: session.harness,
-            sessionId: session.sessionId,
-            index,
-            at: turn.at,
-            text: turn.text,
-            previousText,
-          })
+        : await labeler(context)
     previousText = turn.text
     const correction = isCorrection(label)
     const reask = label === null ? null : label.reask

@@ -21,7 +21,7 @@ import type { SearchEdgeAttribution, SearchEdgeOperator } from '../campaign/sear
 import type { SearchStateView } from '../campaign/search-state'
 import type { SearchNode } from '../campaign/search-state-types'
 import { ValidationError } from '../errors'
-import type { IntentLabeler, IntentReport } from '../intent-record/contract'
+import type { IntentLabeler, IntentReport, IntentTurn } from '../intent-record/contract'
 import { deriveSessionIntents } from '../intent-record/derive'
 import { buildIntentReport, type SessionIntents } from '../intent-record/report'
 import type {
@@ -68,7 +68,7 @@ export interface ProcedureRegistryOptions extends SkillUsageReportOptions {
    * and outcomes. Absent: no intents are derived. A labeler is the caller's;
    * without one every turn is an unlabeled intent.
    */
-  intents?: { labeler?: IntentLabeler }
+  intents?: { labeler?: IntentLabeler; ignore?: (turn: IntentTurn) => boolean }
 }
 
 /** A measure summed over the executions that reported it. */
@@ -571,7 +571,12 @@ export async function buildProcedureRegistry(
       intentSessions.push({
         sessionId: session.sessionId,
         parentSessionId: session.parentSessionId,
-        drafts: await deriveSessionIntents(session, options.intents.labeler, options),
+        drafts: await deriveSessionIntents(
+          session,
+          options.intents.labeler,
+          options,
+          options.intents.ignore,
+        ),
         invocations: placed,
       })
     }

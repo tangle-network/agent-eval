@@ -183,7 +183,11 @@ beforeAll(async () => {
         },
       ],
     },
-    { sinceMs: NOW - 30 * 86_400_000, intents: { labeler } },
+    {
+      sinceMs: NOW - 30 * 86_400_000,
+      // Another agent's relay is no intent.
+      intents: { labeler, ignore: (turn) => turn.text.includes('subtask') },
+    },
   )
 })
 
@@ -258,6 +262,10 @@ describe('intent records', () => {
     expect(first?.end).toMatchObject({ corrections: null, reasks: null, closedBy: 'next-intent' })
     expect(first?.end).toMatchObject({ reachedDone: true, evidence: 'moved-on' })
     expect(second?.end).toMatchObject({ corrections: 0, reasks: 0 })
+  })
+
+  it('skips a turn the caller says is no intent', () => {
+    expect(intentsOf('cd34')).toEqual([])
   })
 
   it('holds no prompt text', () => {
