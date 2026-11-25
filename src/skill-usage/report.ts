@@ -131,7 +131,7 @@ export interface SkillUsageModel {
   priced: boolean
 }
 
-interface SessionAfter {
+export interface SessionAfter {
   toolCalls: number
   toolErrors: number
   toolCallsUnsettled: number
@@ -178,7 +178,7 @@ function addUsage(tokens: SkillUsageTokens, usage: CostUsage): void {
   tokens.total += usage.inputTokens + usage.outputTokens + cached + cacheWrite
 }
 
-function instant(value: string | null): number | null {
+export function instant(value: string | null): number | null {
   if (value === null) return null
   const ms = Date.parse(value)
   return Number.isFinite(ms) ? ms : null
@@ -198,7 +198,7 @@ function modelCallCost(
 }
 
 /** What one session did after position `from`, to its end. */
-function afterInvocation(
+export function afterInvocation(
   session: SkillSessionRecord,
   from: number,
   startedAt: string | null,

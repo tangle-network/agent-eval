@@ -102,6 +102,15 @@ export interface SearchCell {
   spentUsd: number
   /** Every attempt's cost is known. */
   costKnown: boolean
+  /** Tokens summed over the attempts that reported them. Read `tokensKnown`
+   * before treating the sum as the cell's total. */
+  tokens: { inputTokens: number; outputTokens: number; cachedTokens: number }
+  /** Every attempt reported its tokens; false once one did not, and the sum above is then a floor. */
+  tokensKnown: boolean
+  /** Wall time summed over the attempts that reported it, in milliseconds. */
+  wallMs: number
+  /** Every attempt reported its wall time; false once one did not, and the sum above is then a floor. */
+  wallKnown: boolean
   traceId: string | null
   allocatedSequence: number
   updatedSequence: number

@@ -58,7 +58,7 @@ const DURATION = /^(\d+(?:\.\d+)?)([dhm])$/
 const UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000 } as const
 
 /** `7d`, `36h` or `90m` back from `nowMs`, or an ISO instant. */
-function parseSince(raw: string, nowMs: number): number {
+export function parseSince(raw: string, nowMs: number): number {
   const duration = DURATION.exec(raw)
   if (duration !== null) {
     return nowMs - Number(duration[1]) * UNIT_MS[duration[2] as keyof typeof UNIT_MS]
@@ -121,7 +121,7 @@ const RATE_FIELDS = [
 ] as const
 
 /** A rates file: `{ "<model id>": { inputUsdPerMillion, outputUsdPerMillion, ... } }`. */
-function readPricingFile(path: string): Map<string, CustomTokenPricing> {
+export function readPricingFile(path: string): Map<string, CustomTokenPricing> {
   const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`--pricing ${path}: expected a JSON object of rates by model id`)

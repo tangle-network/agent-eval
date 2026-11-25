@@ -5,6 +5,7 @@
  * session the shared reader normalizes into a record.
  */
 
+export { githubPullRequestRefs } from './change-refs'
 export type { ClaudeCodeSkillSessionsOptions } from './claude-code'
 export { claudeCodeSkillSessions } from './claude-code'
 export type {
@@ -24,6 +25,7 @@ export type {
 export { buildSkillUsageReport, renderSkillUsageTable } from './report'
 export type {
   ModelCallEvent,
+  SessionChange,
   SkillInvocationEvent,
   SkillInvoker,
   SkillSessionEvent,

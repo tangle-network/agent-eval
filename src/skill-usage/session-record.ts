@@ -70,6 +70,18 @@ export interface ModelCallEvent {
 
 export type SkillSessionEvent = SkillInvocationEvent | ToolCallEvent | ModelCallEvent
 
+/**
+ * A change the session produced, named by a reference the caller's outcome
+ * source also uses, for example `owner/repo#123` for a pull request. The
+ * reference is opaque here: this package never reads what it names.
+ */
+export interface SessionChange {
+  ref: string
+  /** The tool call that named the change. */
+  callId: string
+  at: string | null
+}
+
 export interface SkillSessionRecord {
   harness: string
   sessionId: string
@@ -79,6 +91,11 @@ export interface SkillSessionRecord {
   /** Skill invocations, tool calls and model calls in recorded order. A skill
    *  invoked as a tool call appears once, as the invocation. */
   events: SkillSessionEvent[]
+  /**
+   * Changes the session produced, in recorded order. Undefined when the reader
+   * does not look for them; an empty list when it looked and found none.
+   */
+  changes?: SessionChange[]
   /** What the reader could not read in this session, in its own words. */
   gaps: string[]
 }

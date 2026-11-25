@@ -10,6 +10,7 @@
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval
  *   agent-eval search show <search-ledger.jsonl>
  *   agent-eval skill-usage <transcripts-dir> [--since 7d]
+ *   agent-eval procedure-registry <sessions-dir> [--ledger <path>]... [--since 30d] [--outcomes <file>]
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -19,6 +20,7 @@
 import { writeFileSync } from 'node:fs'
 import { runAnalystBenchmarkCommand } from './analyst/benchmark-command'
 import { resolveCliLlmConfig } from './cli-config'
+import { runProcedureRegistryCommand } from './procedure-registry/command'
 import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
 import { runSearchCommand } from './search-command'
 import { runSkillUsageCommand } from './skill-usage/command'
@@ -105,6 +107,11 @@ Commands:
         version: invocations by agent, user and harness, sessions, and the tool
         calls, tool errors, tokens, wall time and cost after its first invocation.
         The JSON report goes to stdout and the table to stderr.
+  procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
+        Join search ledgers and recorded Claude Code sessions on the version digest:
+        per procedure version, its lineage, every execution, tokens, cost and wall
+        time, the outcome of the changes its sessions produced, and the decisions
+        taken on it. The JSON registry goes to stdout and the table to stderr.
   version
         Print server + wire-protocol version JSON.
 
@@ -193,6 +200,9 @@ async function main(): Promise<number> {
     case 'skill-usage': {
       return await runSkillUsageCommand(process.argv.slice(3))
     }
+    case 'procedure-registry': {
+      return await runProcedureRegistryCommand(process.argv.slice(3))
+    }
     case 'version': {
       process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
@@ -233,6 +243,7 @@ function assertKnownFlags(command: string, flags: Record<string, string>): void 
     command === 'analyst-benchmark' ||
     command === 'supervisor-run' ||
     command === 'skill-usage' ||
+    command === 'procedure-registry' ||
     command === 'search'
   ) {
     return
