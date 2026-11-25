@@ -11,7 +11,7 @@
  * | `lead` and a subagent | the subagent commits | observed under the subagent's id | the commit is the subagent's, not the lead intent's |
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -204,10 +204,11 @@ describe('change ledger', () => {
     expect(intentsOf('acme/widgets#9').map((intent) => intent.changes.status)).toEqual(['joined'])
   })
 
-  it('does not give a subagent commit to the intent of the session that spawned it', () => {
+  it('keys a subagent by its own id, so its commit is never the spawning session’s', () => {
+    const ledger = parseChangeLedger(readFileSync(ledgerFile, 'utf8'))
+    expect(ledger.sessions.get('claude-code\u0000sub1')?.changes).toHaveLength(1)
+    expect(ledger.sessions.has('claude-code\u0000lead')).toBe(false)
     const refs = registry.intents.intents.flatMap((intent) => intent.changes.refs ?? [])
-    expect(refs.filter((ref) => ref.endsWith(`@${'b'.repeat(40)}`))).toHaveLength(1)
-    const lead = registry.intents.intents.filter((intent) => intent.changes.status === 'not-recorded')
-    expect(lead.every((intent) => !(intent.changes.refs ?? []).length)).toBe(true)
+    expect(refs.filter((ref) => ref.endsWith(`@${'b'.repeat(40)}`))).toHaveLength(0)
   })
 })
