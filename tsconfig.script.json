@@ -12,6 +12,7 @@
     "scripts/redaction-corpus.ts",
     "scripts/search-meta-sim.ts",
     "scripts/search-sim.ts",
+    "scripts/skill-usage.ts",
     "scripts/synthetic-search-ledger.ts",
     "scripts/tb-corpus-rows.ts",
     "scripts/tb-gated-stop-ab.ts",

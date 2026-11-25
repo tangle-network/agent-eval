@@ -9,6 +9,7 @@
  *   agent-eval supervisor-run report <runDir> [--format headline|markdown|json]
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval
  *   agent-eval search show <search-ledger.jsonl>
+ *   agent-eval skill-usage <transcripts-dir> [--since 7d]
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -20,6 +21,7 @@ import { runAnalystBenchmarkCommand } from './analyst/benchmark-command'
 import { resolveCliLlmConfig } from './cli-config'
 import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
 import { runSearchCommand } from './search-command'
+import { runSkillUsageCommand } from './skill-usage/command'
 import { runSupervisorRunCommand } from './supervisor-run/report-command'
 import { handleVersion } from './wire/handlers'
 import { buildOpenApi } from './wire/openapi'
@@ -98,6 +100,11 @@ Commands:
   search show <search-ledger.jsonl>
         Verify a search ledger and print its summary: leading nodes, recently
         discarded nodes and recent proposals, the same text a proposer reads.
+  skill-usage <transcripts-dir> [--since <7d|36h|90m|ISO time>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
+        Read a directory of Claude Code transcripts and report each skill and
+        version: invocations by agent, user and harness, sessions, and the tool
+        calls, tool errors, tokens, wall time and cost after its first invocation.
+        The JSON report goes to stdout and the table to stderr.
   version
         Print server + wire-protocol version JSON.
 
@@ -183,6 +190,9 @@ async function main(): Promise<number> {
       // The subcommand owns its own flag grammar; pass raw argv through.
       return await runSupervisorRunCommand(process.argv.slice(3))
     }
+    case 'skill-usage': {
+      return await runSkillUsageCommand(process.argv.slice(3))
+    }
     case 'version': {
       process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
@@ -222,6 +232,7 @@ function assertKnownFlags(command: string, flags: Record<string, string>): void 
     command === 'rollout-release' ||
     command === 'analyst-benchmark' ||
     command === 'supervisor-run' ||
+    command === 'skill-usage' ||
     command === 'search'
   ) {
     return

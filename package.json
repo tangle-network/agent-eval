@@ -244,7 +244,8 @@
     "contract:finding:check": "node --import tsx scripts/emit-finding-contract.ts --check",
     "evidence:render": "tsx scripts/render-evidence-index.ts",
     "evidence:check": "node --import tsx scripts/render-evidence-index.ts --check",
-    "redaction:corpus": "tsx scripts/redaction-corpus.ts"
+    "redaction:corpus": "tsx scripts/redaction-corpus.ts",
+    "skill-usage": "tsx scripts/skill-usage.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
