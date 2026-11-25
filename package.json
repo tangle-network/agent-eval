@@ -245,6 +245,7 @@
     "evidence:render": "tsx scripts/render-evidence-index.ts",
     "evidence:check": "node --import tsx scripts/render-evidence-index.ts --check",
     "redaction:corpus": "tsx scripts/redaction-corpus.ts",
+    "procedure-registry": "tsx scripts/procedure-registry.ts",
     "skill-usage": "tsx scripts/skill-usage.ts"
   },
   "dependencies": {

@@ -24,6 +24,7 @@ import { readSessionInput, type SessionToolCall } from '@tangle-network/harness-
 import { record, stringField } from '../contract/intake/code-agent-fields'
 import { parseCodeAgentJsonlFile } from '../contract/intake/code-agent-jsonl'
 import { errorMessage, ValidationError } from '../errors'
+import { githubPullRequestRefs } from './change-refs'
 import {
   type LoadedSkillText,
   type MessageSkillInvocation,
@@ -221,6 +222,7 @@ function skillSession(records: readonly unknown[], identity: SessionIdentity): S
   )
   return skillSessionFromHarnessSession(session, {
     skillOfToolCall,
+    changesOfToolCall: githubPullRequestRefs,
     ...skillMarkers(records, identity.parentSessionId !== null),
   })
 }

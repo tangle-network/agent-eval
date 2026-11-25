@@ -12,6 +12,7 @@ import type { CostUsage } from '../cost-ledger/contract'
 import type {
   SkillInvocationEvent,
   SkillInvoker,
+  SessionChange,
   SkillSessionEvent,
   SkillSessionRecord,
 } from './session-record'
@@ -39,6 +40,11 @@ export interface HarnessSkillMarkers {
   loadedByCallId?: ReadonlyMap<string, LoadedSkillText>
   /** Invocations that are not tool calls, by the id of the message that carries them. */
   invocationsByMessageId?: ReadonlyMap<string, MessageSkillInvocation>
+  /**
+   * The changes a tool call produced, as references. Giving this marks the
+   * session's `changes` as read, so a session with none records an empty list.
+   */
+  changesOfToolCall?: (call: SessionToolCall) => readonly string[]
 }
 
 /** A response's usage as the cost ledger prices it; null unless input and output are both recorded. */
@@ -83,6 +89,7 @@ export function skillSessionFromHarnessSession(
   const placedModelCalls = new Set<string>()
   const placedToolCalls = new Set<string>()
   const events: SkillSessionEvent[] = []
+  const changes: SessionChange[] = []
 
   const placeModelCall = (id: string): void => {
     const call = modelCalls.get(id)
@@ -105,6 +112,9 @@ export function skillSessionFromHarnessSession(
     placedToolCalls.add(id)
     if (call.inherited === true) return
     const failed = call.result === null ? null : call.result.isError
+    for (const ref of markers.changesOfToolCall?.(call) ?? []) {
+      changes.push({ ref, callId: id, at: call.startedAt })
+    }
     const skill = markers.skillOfToolCall?.(call) ?? null
     if (skill === null) {
       events.push({ kind: 'tool', id, name: call.name, at: call.startedAt, failed })
@@ -166,6 +176,7 @@ export function skillSessionFromHarnessSession(
     parentSessionId: session.parentNativeSessionId,
     endedAt: session.endedAt,
     events,
+    ...(markers.changesOfToolCall === undefined ? {} : { changes }),
     gaps,
   }
 }
