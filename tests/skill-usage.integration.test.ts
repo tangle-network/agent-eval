@@ -422,7 +422,9 @@ describe('skill usage from any session source', () => {
       'tool',
       'model',
     ])
-    const report = await buildSkillUsageReport([{ succeeded: true, source: 'codex', value: record }])
+    const report = await buildSkillUsageReport([
+      { succeeded: true, source: 'codex', value: record },
+    ])
     expect(report.sessions).toMatchObject({ read: 1, withInvocation: 0 })
     expect(report.invocations.total).toBe(0)
     expect(report.rows).toEqual([])

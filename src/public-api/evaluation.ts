@@ -29,6 +29,23 @@ export type {
 } from '../contract/self-improve'
 export type { DatasetManifest, DatasetScenario, DatasetSplit } from '../dataset'
 export type {
+  SkillEvalArm,
+  SkillEvalArmInput,
+  SkillEvalComparison,
+  SkillEvalDecision,
+  SkillEvalFailure,
+  SkillEvalHeadroom,
+  SkillEvalJudgeInput,
+  SkillEvalMetric,
+  SkillEvalOptions,
+  SkillEvalPreference,
+  SkillEvalPreferenceResult,
+  SkillEvalReport,
+  SkillEvalRun,
+  SkillEvalTrace,
+  SkillEvalUnit,
+} from '../skill-eval'
+export type {
   ArtifactCheck,
   ArtifactResult,
   CheckResult,
