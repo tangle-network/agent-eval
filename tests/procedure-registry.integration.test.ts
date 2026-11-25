@@ -71,7 +71,8 @@ function transcript(
   const owner = subagent?.agentId ?? sessionId
   let previous: string | null = null
   let tick = 0
-  const at = (): string => new Date(Date.parse('2026-11-10T10:00:00Z') + 60_000 * tick++).toISOString()
+  const at = (): string =>
+    new Date(Date.parse('2026-11-10T10:00:00Z') + 60_000 * tick++).toISOString()
   const base = (type: string, uuid: string, message: unknown, extra: object = {}): unknown => {
     const line = {
       parentUuid: previous,
@@ -272,7 +273,6 @@ async function writeSearch(
   }
 }
 
-
 const NOW = Date.parse('2026-11-20T00:00:00Z')
 
 async function run(...args: string[]): Promise<{ code: number; out: string; err: string }> {
@@ -341,9 +341,9 @@ describe('procedure registry over ledgers and transcripts', () => {
       reproposal: false,
     })
     expect(improve?.parents.map((parent) => parent.digest)).toEqual([digestOf(V1)])
-    expect(second.edges.some((edge) => edge.operator === 'seed' && edge.searchId === 'search-b')).toBe(
-      true,
-    )
+    expect(
+      second.edges.some((edge) => edge.operator === 'seed' && edge.searchId === 'search-b'),
+    ).toBe(true)
     expect(version(registry, digestOf(V3)).parents).toEqual([digestOf(V2)])
     expect(version(registry, digestOf(V1)).parents).toEqual([])
   })
@@ -443,7 +443,15 @@ describe('procedure registry over ledgers and transcripts', () => {
   })
 
   it('prints the join share the program reads', async () => {
-    const result = await run(projects, '--ledger', ledgerA, '--outcomes', outcomesFile, '--format', 'table')
+    const result = await run(
+      projects,
+      '--ledger',
+      ledgerA,
+      '--outcomes',
+      outcomesFile,
+      '--format',
+      'table',
+    )
     expect(result.code).toBe(0)
     expect(result.out).toContain('joined to a change: 5 of 7 invocations (71.4%)')
     expect(result.out).toContain('hot-fix window 7 days')
@@ -520,8 +528,20 @@ describe('what the join does not know', () => {
     await expect(
       buildProcedureRegistry({
         outcomes: [
-          { ref: 'a/b#1', merged: true, gateGreenFirstTry: null, hotfixed: false, hotfixWindowDays: 7 },
-          { ref: 'a/b#1', merged: false, gateGreenFirstTry: null, hotfixed: false, hotfixWindowDays: 7 },
+          {
+            ref: 'a/b#1',
+            merged: true,
+            gateGreenFirstTry: null,
+            hotfixed: false,
+            hotfixWindowDays: 7,
+          },
+          {
+            ref: 'a/b#1',
+            merged: false,
+            gateGreenFirstTry: null,
+            hotfixed: false,
+            hotfixWindowDays: 7,
+          },
         ],
       }),
     ).rejects.toThrow(/two different outcomes/)

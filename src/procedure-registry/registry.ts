@@ -33,8 +33,8 @@ import {
   type ChangeOutcomeIndex,
   type ChangeOutcomeReading,
   HOTFIX_WINDOW_DAYS,
-  indexChangeOutcomes,
   type InvocationChanges,
+  indexChangeOutcomes,
   joinInvocationToChanges,
   type SessionChanges,
 } from './change-outcome'
@@ -391,7 +391,8 @@ function addSearch(
         edgeId,
         operator: edge.operator,
         attribution: edge.attribution,
-        proposer: edge.proposer === null ? null : { kind: edge.proposer.kind, name: edge.proposer.name },
+        proposer:
+          edge.proposer === null ? null : { kind: edge.proposer.kind, name: edge.proposer.name },
         parents: edge.parents.map((parent) => ({
           searchId: parent.searchId,
           nodeId: parent.nodeId,

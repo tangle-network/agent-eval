@@ -10,9 +10,9 @@
 import type { HarnessSession, SessionToolCall, TokenUsage } from '@tangle-network/harness-sessions'
 import type { CostUsage } from '../cost-ledger/contract'
 import type {
+  SessionChange,
   SkillInvocationEvent,
   SkillInvoker,
-  SessionChange,
   SkillSessionEvent,
   SkillSessionRecord,
 } from './session-record'
