@@ -194,7 +194,9 @@ export async function runProcedureRegistryCommand(
         ...(sinceMs === undefined ? {} : { sinceMs }),
         ...(rates === undefined ? {} : { pricing: (model: string) => rates?.get(model) }),
         readSkillFile,
-        ...(args.intents === null ? {} : { intents: { ...(labeler === undefined ? {} : { labeler }) } }),
+        ...(args.intents === null
+          ? {}
+          : { intents: { ...(labeler === undefined ? {} : { labeler }) } }),
       },
     )
     const table = renderProcedureRegistryTable(registry, args.limit)

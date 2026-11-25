@@ -59,7 +59,9 @@ export interface IntentTurn {
 }
 
 /** The labeler is the caller's: a model pass, a lexical rule, a person's labels looked up by turn. */
-export type IntentLabeler = (turn: IntentTurn) => IntentTurnLabel | null | Promise<IntentTurnLabel | null>
+export type IntentLabeler = (
+  turn: IntentTurn,
+) => IntentTurnLabel | null | Promise<IntentTurnLabel | null>
 
 export interface IntentCost {
   /** Tokens of the model calls in the intent's span; null where any call recorded no usage, or there was none. */

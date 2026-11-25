@@ -218,7 +218,8 @@ export function afterInvocation(
     pricedModelCalls: 0,
     unpricedModelCalls: 0,
   }
-  const stop = until === null ? session.events.length : Math.min(until.eventIndex, session.events.length)
+  const stop =
+    until === null ? session.events.length : Math.min(until.eventIndex, session.events.length)
   for (let index = from + 1; index < stop; index++) {
     const event = session.events[index] as SkillSessionEvent
     if (event.kind === 'tool') {

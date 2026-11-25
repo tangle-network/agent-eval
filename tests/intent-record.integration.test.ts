@@ -235,7 +235,11 @@ describe('intent records', () => {
     const [task, next] = intentsOf('s1')
     // The pull request merged and then needed a fix inside the window: not done.
     expect(task?.changes).toMatchObject({ status: 'joined', refs: ['acme/widgets#7'] })
-    expect(task?.end).toMatchObject({ reachedDone: false, abandoned: false, evidence: 'change-outcome' })
+    expect(task?.end).toMatchObject({
+      reachedDone: false,
+      abandoned: false,
+      evidence: 'change-outcome',
+    })
     // The session just ends after this one: nothing says whether it was done.
     expect(next?.changes).toEqual({ status: 'none' })
     expect(next?.end).toMatchObject({ reachedDone: null, abandoned: null, evidence: 'none' })
@@ -274,7 +278,12 @@ describe('intent records', () => {
       joinedToChange: 1,
       withChangeOutcome: 1,
     })
-    expect(row('problem')).toMatchObject({ intents: 1, knownEnd: 0, joinedToChange: 1, withChangeOutcome: 0 })
+    expect(row('problem')).toMatchObject({
+      intents: 1,
+      knownEnd: 0,
+      joinedToChange: 1,
+      withChangeOutcome: 0,
+    })
     expect(row(null)?.intents).toBeGreaterThanOrEqual(2)
     expect(summary?.knownEndShare).toBeGreaterThan(0)
   })

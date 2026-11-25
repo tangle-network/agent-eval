@@ -14,12 +14,7 @@ import { createHash } from 'node:crypto'
 import type { InvocationChanges } from '../procedure-registry/change-outcome'
 import type { SessionChange, SkillSessionRecord, SkillUsageReportOptions } from '../skill-usage'
 import { afterInvocation, instant } from '../skill-usage/report'
-import type {
-  IntentCost,
-  IntentLabeler,
-  IntentRecord,
-  IntentTurnLabel,
-} from './contract'
+import type { IntentCost, IntentLabeler, IntentRecord, IntentTurnLabel } from './contract'
 
 interface Thread {
   openedAtIndex: number
@@ -65,13 +60,10 @@ function cost(
   thread: Thread,
   options: SkillUsageReportOptions,
 ): IntentCost {
-  const after = afterInvocation(
-    session,
-    thread.startEvent - 1,
-    thread.startAt,
-    options,
-    { eventIndex: thread.endEvent, at: thread.endAt },
-  )
+  const after = afterInvocation(session, thread.startEvent - 1, thread.startAt, options, {
+    eventIndex: thread.endEvent,
+    at: thread.endAt,
+  })
   return {
     tokens: after.modelCalls > 0 && after.modelCallsWithoutUsage === 0 ? after.tokens.total : null,
     usd: after.pricedModelCalls > 0 && after.unpricedModelCalls === 0 ? after.costUsd : null,
@@ -80,11 +72,7 @@ function cost(
   }
 }
 
-function refsInSpan(
-  session: SkillSessionRecord,
-  from: number,
-  to: number,
-): string[] | undefined {
+function refsInSpan(session: SkillSessionRecord, from: number, to: number): string[] | undefined {
   if (session.changes === undefined) return undefined
   const position = new Map<string, number>()
   session.events.forEach((event, index) => {
@@ -205,9 +193,10 @@ export async function deriveSessionIntents(
 }
 
 /** Whether a change reading says the change reached its done line: merged and not fixed within the window. */
-export function changesReachedDone(
-  changes: InvocationChanges,
-): { reachedDone: boolean | null; abandoned: boolean | null } {
+export function changesReachedDone(changes: InvocationChanges): {
+  reachedDone: boolean | null
+  abandoned: boolean | null
+} {
   if (changes.status !== 'joined' || changes.outcomes.length === 0) {
     return { reachedDone: null, abandoned: null }
   }

@@ -1,9 +1,6 @@
 /** Join intent drafts to the procedure versions that served them and the outcomes of their changes. */
 
-import {
-  type ChangeOutcomeIndex,
-  type InvocationChanges,
-} from '../procedure-registry/change-outcome'
+import type { ChangeOutcomeIndex, InvocationChanges } from '../procedure-registry/change-outcome'
 import { instant } from '../skill-usage/report'
 import { INTENT_KINDS, type IntentKind, type IntentRecord, type IntentReport } from './contract'
 import { changesReachedDone, type IntentDraft } from './derive'
