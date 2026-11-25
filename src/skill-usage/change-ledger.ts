@@ -52,9 +52,21 @@
 
 import { readFile } from 'node:fs/promises'
 import { errorMessage, ValidationError } from '../errors'
-import type { SessionChange, SkillSessionRead, SkillSessionRecord, SkillSessionSource } from './session-record'
+import type {
+  SessionChange,
+  SkillSessionRead,
+  SkillSessionRecord,
+  SkillSessionSource,
+} from './session-record'
 
-export const CHANGE_LEDGER_ACTIONS = ['observed', 'commit', 'pr-create', 'pr-merge', 'turn', 'push'] as const
+export const CHANGE_LEDGER_ACTIONS = [
+  'observed',
+  'commit',
+  'pr-create',
+  'pr-merge',
+  'turn',
+  'push',
+] as const
 export type ChangeLedgerAction = (typeof CHANGE_LEDGER_ACTIONS)[number]
 
 export interface ChangeLedgerRow {
@@ -205,14 +217,16 @@ export function parseChangeLedger(text: string): ChangeLedger {
     }
     if (row.action === 'turn') {
       session.observed = true
-      if (row.incomplete) session.incomplete.set(row.incomplete, (session.incomplete.get(row.incomplete) ?? 0) + 1)
+      if (row.incomplete)
+        session.incomplete.set(row.incomplete, (session.incomplete.get(row.incomplete) ?? 0) + 1)
       continue
     }
     // A writer that records a change has run in the session, whatever its first row was.
     session.observed = true
     const ref = refOf(row)
     if (ref === null) session.unnamed += 1
-    else if (row.toolUseId === null && row.turnStartedAt) session.timed.push({ ref, from: row.turnStartedAt, to: row.at })
+    else if (row.toolUseId === null && row.turnStartedAt)
+      session.timed.push({ ref, from: row.turnStartedAt, to: row.at })
     else session.changes.push({ ref, callId: row.toolUseId ?? '', at: row.at })
   }
   return { sessions, rows, malformed }
@@ -296,7 +310,8 @@ function joinRead(read: SkillSessionRead, ledger: ChangeLedger): SkillSessionRea
       `the change ledger's writer said some turns' changes may be incomplete (${incomplete.map(([why, n]) => `${why}: ${n}`).join(', ')}), so the session's changes are unknown`,
     )
   }
-  const known = unplaced === 0 && incomplete.length === 0 && (held?.observed === true || changes.length > 0)
+  const known =
+    unplaced === 0 && incomplete.length === 0 && (held?.observed === true || changes.length > 0)
   return { ...read, value: { ...rest, gaps, ...(known ? { changes } : {}) } }
 }
 
