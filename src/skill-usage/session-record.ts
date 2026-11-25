@@ -109,6 +109,14 @@ export interface SkillSessionRecord {
    */
   changes?: SessionChange[]
   /**
+   * Other ids a harness's own hooks name a tool call by, mapped to the id of
+   * the event that holds it. A change ledger row carries the id its hook saw;
+   * where that is not the id the session recorded the call under (a call a
+   * Codex script made inside one `exec` call), this is how the row finds its
+   * place. Undefined when every hook id is the recorded id.
+   */
+  callAliases?: Readonly<Record<string, string>>
+  /**
    * What a person typed, in recorded order. Undefined when the reader does not
    * tell a person's turn from an agent's relay or a harness's injection.
    */

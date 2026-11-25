@@ -24,6 +24,12 @@
  * `observed` is written once per session or subagent, at its first call. It says
  * the writer was running, which is the only thing that lets "no change rows"
  * mean "no change". A session with no row of any action is unknown, never none.
+ *
+ * A row's `toolUseId` is the id the harness's hook saw. Where the session record
+ * holds the call under that id, or names it in `callAliases`, the change belongs
+ * to the turn that made the call. A row that matches neither makes the whole
+ * session unknown, with a gap that says so: the change happened, and which turn
+ * made it cannot be said, so no turn may be called change-free.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -181,7 +187,19 @@ function joinRead(read: SkillSessionRead, ledger: ChangeLedger): SkillSessionRea
   const held = ledger.sessions.get(key(value.harness, value.sessionId))
   const seen = new Set<string>()
   const changes: SessionChange[] = []
-  for (const change of [...(value.changes ?? []), ...(held?.changes ?? [])]) {
+  const aliases = value.callAliases ?? {}
+  const placeable = new Set(
+    value.events.flatMap((event) =>
+      event.kind === 'tool' ? [event.id] : event.kind === 'skill' ? [event.callId] : [],
+    ),
+  )
+  let unplaced = 0
+  for (const row of [...(value.changes ?? []), ...(held?.changes ?? [])]) {
+    // A hook can name a call by an id the session recorded it under another way.
+    const change = Object.hasOwn(aliases, row.callId)
+      ? { ...row, callId: aliases[row.callId] as string }
+      : row
+    if (!placeable.has(change.callId)) unplaced += 1
     const id = `${change.ref}\u0000${change.callId}`
     if (seen.has(id)) continue
     seen.add(id)
@@ -193,10 +211,16 @@ function joinRead(read: SkillSessionRead, ledger: ChangeLedger): SkillSessionRea
       `${held.unnamed} changes the change ledger recorded could not be named (no repository, or no commit or pull request number)`,
     )
   }
+  if (unplaced > 0) {
+    gaps.push(
+      `${unplaced} changes name a tool call this session record does not hold, so the turn that made them is unknown and no turn is reported as having made none`,
+    )
+  }
   const { changes: _transcriptChanges, ...rest } = value
   // Observed: the ledger writer ran here, so no row means no change. Otherwise a
   // transcript that shows no change proves nothing about commits, and stays unknown.
-  const known = held?.observed === true || changes.length > 0
+  // A change that cannot be placed in a turn makes every turn unknown.
+  const known = unplaced === 0 && (held?.observed === true || changes.length > 0)
   return { ...read, value: { ...rest, gaps, ...(known ? { changes } : {}) } }
 }
 
