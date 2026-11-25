@@ -467,7 +467,8 @@ function decide(
     if (control === undefined || control.preference.withReliablyPreferred) {
       return {
         decision: 'keep',
-        reason: `Blind judges reliably prefer \`with\` over \`without\` ` +
+        reason:
+          `Blind judges reliably prefer \`with\` over \`without\` ` +
           `(${tally})${
             control === undefined
               ? ''
@@ -477,7 +478,8 @@ function decide(
     }
     return {
       decision: 'inconclusive',
-      reason: `Blind judges prefer \`with\` over \`without\` (${tally}) but not reliably over the control (${control.preference.wins} to ` +
+      reason:
+        `Blind judges prefer \`with\` over \`without\` (${tally}) but not reliably over the control (${control.preference.wins} to ` +
         `${control.preference.losses}, ${control.preference.ties} ties): the gain may come from added text, not from what the unit ` +
         `says.`,
     }
@@ -497,20 +499,23 @@ function decide(
     if (baseline.reliablyLower.length === 0) {
       return {
         decision: 'cut',
-        reason: `The net preference for \`with\` is ${interval} (${tally}), which rules out a gain of ${percent(settings.smallestBenefit)}, ` +
+        reason:
+          `The net preference for \`with\` is ${interval} (${tally}), which rules out a gain of ${percent(settings.smallestBenefit)}, ` +
           `and no process measure is reliably lower.`,
       }
     }
     return {
       decision: 'inconclusive',
-      reason: `Answers are not preferred (net ${interval}; ${tally}), but ${baseline.reliablyLower.join(', ')} ` +
+      reason:
+        `Answers are not preferred (net ${interval}; ${tally}), but ${baseline.reliablyLower.join(', ')} ` +
         `${baseline.reliablyLower.length === 1 ? 'is' : 'are'} reliably lower under \`with\`: the unit may earn its place on cost, ` +
         `which this rule does not decide.`,
     }
   }
   return {
     decision: 'inconclusive',
-    reason: `The net preference for \`with\` is ${interval} (${tally}): it includes both no preference and a gain of ` +
+    reason:
+      `The net preference for \`with\` is ${interval} (${tally}): it includes both no preference and a gain of ` +
       `${percent(settings.smallestBenefit)}. More cases would narrow it.`,
   }
 }

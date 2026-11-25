@@ -304,7 +304,9 @@ export function parseImportedReceipt(value: unknown, path: string): CostReceipt 
       candidate.pricing = modelPricingSnapshot(pricing, {
         inputTokens: typeof candidate.inputTokens === 'number' ? candidate.inputTokens : 0,
         outputTokens: 0,
-        ...(typeof candidate.cachedTokens === 'number' ? { cachedTokens: candidate.cachedTokens } : {}),
+        ...(typeof candidate.cachedTokens === 'number'
+          ? { cachedTokens: candidate.cachedTokens }
+          : {}),
         ...(typeof candidate.cacheWriteTokens === 'number'
           ? { cacheWriteTokens: candidate.cacheWriteTokens }
           : {}),

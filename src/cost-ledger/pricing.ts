@@ -47,7 +47,12 @@ export const MODEL_PRICING: Record<string, TokenPrice> = {
   'gpt-4o': { input: 0.0025, output: 0.01 },
   'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
   'gpt-4-turbo': { input: 0.01, output: 0.03 },
-  'claude-sonnet-4-20250514': { input: 0.003, output: 0.015, cacheRead: 0.0003, cacheWrite: 0.00375 },
+  'claude-sonnet-4-20250514': {
+    input: 0.003,
+    output: 0.015,
+    cacheRead: 0.0003,
+    cacheWrite: 0.00375,
+  },
   'claude-opus-4-20250514': { input: 0.015, output: 0.075, cacheRead: 0.0015, cacheWrite: 0.01875 },
   'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
   // Router response-header rates observed for the exact served model on
@@ -158,7 +163,10 @@ export function costForUsage(model: string, usage: CostUsage): CostResult {
   const price = priceForUsage(row, usage)
   const cached = usage.cachedTokens ?? 0
   const written = usage.cacheWriteTokens ?? 0
-  if ((cached > 0 && price.cacheRead === undefined) || (written > 0 && price.cacheWrite === undefined)) {
+  if (
+    (cached > 0 && price.cacheRead === undefined) ||
+    (written > 0 && price.cacheWrite === undefined)
+  ) {
     return { costUsd: 0, costUnknown: true }
   }
   return {
