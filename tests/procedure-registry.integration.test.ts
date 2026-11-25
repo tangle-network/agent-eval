@@ -273,6 +273,86 @@ async function writeSearch(
   }
 }
 
+const outcomes: ChangeOutcome[] = [
+  // Merged, red on its first gate run, and fixed within the week.
+  {
+    ref: 'acme/widgets#7',
+    merged: true,
+    gateGreenFirstTry: false,
+    hotfixed: true,
+    hotfixWindowDays: 7,
+  },
+  // Merged, and the week passed with no fix; the gate result is not known.
+  {
+    ref: 'acme/gadgets#8',
+    merged: true,
+    gateGreenFirstTry: null,
+    hotfixed: false,
+    hotfixWindowDays: 7,
+  },
+  // Judged over 14 days: its "no fix" is not the 7-day claim, so it reads as unknown.
+  {
+    ref: 'acme/widgets#9',
+    merged: true,
+    gateGreenFirstTry: true,
+    hotfixed: false,
+    hotfixWindowDays: 14,
+  },
+]
+
+beforeAll(async () => {
+  root = mkdtempSync(join(tmpdir(), 'procedure-registry-'))
+  projects = join(root, 'projects')
+  const app = join(projects, '-work-app')
+  write(
+    join(app, 's1.jsonl'),
+    transcript('s1', [
+      skill('tidy', V1),
+      bash('gh pr create --title t', 'https://github.com/acme/widgets/pull/7\n'),
+      bash('gh-drew pr merge 8 -R acme/gadgets --merge', 'merged'),
+    ]),
+  )
+  write(
+    join(app, 's1', 'subagents', 'agent-ab12.jsonl'),
+    transcript('s1', [skill('tidy', V1)], { agentId: 'ab12' }),
+  )
+  write(
+    join(app, 's2.jsonl'),
+    transcript('s2', [
+      skill('tidy', V2),
+      skill('audit'),
+      bash('gh pr create', 'https://github.com/acme/widgets/pull/9\n'),
+    ]),
+  )
+  write(
+    join(app, 's3.jsonl'),
+    transcript('s3', [skill('tidy', V1), bash('gh pr merge 5', 'merged')]),
+  )
+  write(
+    join(app, 's4.jsonl'),
+    transcript('s4', [skill('tidy', V1), bash('gh pr create', 'could not create', true)]),
+  )
+  write(
+    join(app, 's5.jsonl'),
+    transcript('s5', [
+      skill('audit'),
+      bash('gh pr create', 'https://github.com/acme/other/pull/3\n'),
+    ]),
+  )
+  ledgerA = join(root, 'a', 'search-ledger.jsonl')
+  ledgerB = join(root, 'b', 'search-ledger.jsonl')
+  mkdirSync(join(root, 'a'), { recursive: true })
+  mkdirSync(join(root, 'b'), { recursive: true })
+  await writeSearch(ledgerA, 'search-a', [V1, V2, V3], 'known')
+  await writeSearch(ledgerB, 'search-b', [V2], 'unknown')
+  outcomesFile = join(root, 'changes.json')
+  writeFileSync(outcomesFile, JSON.stringify(outcomes))
+})
+
+afterAll(() => {
+  rmSync(root, { recursive: true, force: true })
+})
+
 const NOW = Date.parse('2026-11-20T00:00:00Z')
 
 async function run(...args: string[]): Promise<{ code: number; out: string; err: string }> {

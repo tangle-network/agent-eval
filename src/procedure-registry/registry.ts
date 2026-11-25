@@ -377,7 +377,7 @@ function addSearch(
 
     const resolve = (ref: NodeRef): string | null => {
       const parentKey = keys.get(nodeKey(ref.searchId, ref.nodeId))
-      return parentKey !== undefined && parentKey.startsWith('sha256:') ? parentKey : null
+      return parentKey?.startsWith('sha256:') ? parentKey : null
     }
     for (const parent of node.parents) {
       const digest = resolve(parent)
