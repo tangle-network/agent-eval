@@ -47,6 +47,12 @@ Codex has no skill tool: the agent uses a skill by reading its `SKILL.md` with a
 The read is often partial, so the session gives no version; the report reads the skill file as it is when it runs, and marks the version `file`, which can be newer than the call.
 A script run by Codex's code-mode `exec` tool makes several shell commands under one call. The change ledger's hook names such a command by its own `exec-<id>`; the rollout names the same id on the command's completion between the call and its output, which places the change in the turn that ran the script. When several scripts are open at once the id names none of them, the session says so in its gaps, and a ledger change that cannot be placed makes the whole session's changes unknown rather than none.
 
+A gateway that runs the harness for a caller can write change ledger rows with no hook in the harness: it sees turns, not tool calls.
+Its rows carry the gateway's `sessionId`, the harness's `nativeSessionId` (the reader keys by it, so the row joins that harness's transcript), a `turnId`, and `turnStartedAt`; the change belongs to the last tool call of the session record whose time lies between `turnStartedAt` and the row's `at`.
+Each turn also writes a `turn` row with the repository's HEAD before and after, and a `push` row for each remote branch it pushed.
+A `turn` row whose `incomplete` is set (a checkout shared with another running turn, a failed pull request read, more commits than the list holds) leaves the session's changes unknown, with a gap that names the reason.
+The field list is the header of `src/skill-usage/change-ledger.ts`.
+
 ## The recipe
 
 Use `runSkillEval` before adopting a unit, before cutting one the usage report shows is rare or costly, and when a unit's text changes materially.
