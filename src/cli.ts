@@ -10,7 +10,7 @@
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval
  *   agent-eval search show <search-ledger.jsonl>
  *   agent-eval skill-usage <transcripts-dir> [--since 7d]
- *   agent-eval procedure-registry <sessions-dir> [--ledger <path>]... [--since 30d] [--outcomes <file>]
+ *   agent-eval procedure-registry <sessions-dir> [--ledger <path>]... [--since 30d] [--outcomes <file>] [--change-ledger <file>]...
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -107,7 +107,7 @@ Commands:
         version: invocations by agent, user and harness, sessions, and the tool
         calls, tool errors, tokens, wall time and cost after its first invocation.
         The JSON report goes to stdout and the table to stderr.
-  procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
+  procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--change-ledger <changes.jsonl>]... [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
         Join search ledgers and recorded Claude Code sessions on the version digest:
         per procedure version, its lineage, every execution, tokens, cost and wall
         time, the outcome of the changes its sessions produced, and the decisions

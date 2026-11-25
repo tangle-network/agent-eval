@@ -5,6 +5,18 @@
  * session the shared reader normalizes into a record.
  */
 
+export type {
+  ChangeLedger,
+  ChangeLedgerAction,
+  ChangeLedgerRow,
+  ChangeLedgerSession,
+} from './change-ledger'
+export {
+  CHANGE_LEDGER_ACTIONS,
+  parseChangeLedger,
+  readChangeLedger,
+  withChangeLedger,
+} from './change-ledger'
 export { githubPullRequestRefs } from './change-refs'
 export type { ClaudeCodeSkillSessionsOptions } from './claude-code'
 export { claudeCodeSkillSessions } from './claude-code'
