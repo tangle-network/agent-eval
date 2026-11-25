@@ -163,16 +163,17 @@ describe('skill usage from Claude Code transcripts', () => {
       pricedModelCalls: 4,
       unpricedModelCalls: 2,
     })
-    // The ledger's rate for the priced model is $3 and $15 per million; it charges cached and
-    // cache-write tokens as input. A: (1200 + 12000 + 100) in, 240 out. C: 20 in, 4 out.
-    expect(tidy.costUsd).toBeCloseTo(0.0435 + 0.00012, 10)
+    // The ledger's rates for the priced model are $3 in, $15 out, $0.30 cache read and $3.75
+    // cache write per million. A: 1200 in, 12000 cache reads, 100 cache writes, 240 out.
+    // C: 20 in, 4 out.
+    expect(tidy.costUsd).toBeCloseTo(0.011175 + 0.00012, 10)
     expect(tidy.perSessionMedian).toMatchObject({
       toolCalls: 2,
       toolErrors: 0,
       tokens: 1456,
       wallMs: 50_000,
     })
-    expect(tidy.perSessionMedian.costUsd).toBeCloseTo((0.0435 + 0.00012) / 2, 10)
+    expect(tidy.perSessionMedian.costUsd).toBeCloseTo((0.011175 + 0.00012) / 2, 10)
 
     // Every response after the preload came from a model with no rate: unknown, not free.
     const preload = row(report, 'helper-contract', HELPER).afterFirstInvocation
