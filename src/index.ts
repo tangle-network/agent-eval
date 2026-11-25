@@ -352,6 +352,7 @@ export {
   summarizeDistribution,
   type SampleDistribution,
 } from './statistics/distribution-summary'
+export { runSkillEval, skillEvalTraceFromRun } from './skill-eval'
 export { PairwiseSteeringOptimizer } from './steering-optimizer'
 
 export { InMemoryRawProviderSink } from './trace/raw-provider-sink'

@@ -20,6 +20,7 @@ pnpm exec tsx examples/evaluate-a-change/index.ts
 | Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline |
 | Evaluate several attempts per case | [`trajectory-optimization`](./trajectory-optimization/) | Offline |
 | Apply a release rule without any search | [`held-out-gate`](./held-out-gate/) | Offline |
+| Decide whether a skill or instruction block earns its place | [`skill-eval`](./skill-eval/) | Offline |
 | Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
 | Record and compare scores over time | [`scorecard`](./scorecard/) | Offline |
 | Run the same cases across several profiles | [`profile-matrix`](./profile-matrix/) | Offline |

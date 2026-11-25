@@ -45,6 +45,7 @@ Each shared concern has one owner. Import it; do not re-implement it.
 - For registered experiments, read [experiment.md](docs/experiment.md).
 - For grading an app by operating its running build, read [app-grade.md](docs/app-grade.md).
 - For checks without an answer key, read [verification-strategies.md](docs/verification-strategies.md).
+- For which skills recorded sessions used, or whether a skill or instruction block earns its place, read [skill-eval.md](docs/skill-eval.md).
 - For result vocabulary and certification, read [verdicts.md](docs/verdicts.md).
 - For conversation-engine regressions, read [multishot-golden-records.md](docs/multishot-golden-records.md).
 - For optimizing an agent over conversations with a simulated user, or measuring that user against real ones, read [multi-turn-optimization.md](docs/multi-turn-optimization.md).

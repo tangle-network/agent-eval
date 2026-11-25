@@ -6,6 +6,36 @@
 // tolerant JSON coercion, tool groups, prose-recovery, the judge/verifier
 // adapters — lives here so it has a home without crowding the root surface.
 
+export type {
+  ClaudeCodeSkillSessionsOptions,
+  HarnessSkillMarkers,
+  LoadedSkillText,
+  MessageSkillInvocation,
+  ModelCallEvent,
+  SkillFileRead,
+  SkillFileState,
+  SkillInvocationEvent,
+  SkillInvoker,
+  SkillSessionEvent,
+  SkillSessionRead,
+  SkillSessionRecord,
+  SkillSessionSource,
+  SkillUsageAfterInvocation,
+  SkillUsageReport,
+  SkillUsageReportOptions,
+  SkillUsageRow,
+  SkillUsageTokens,
+  SkillVersionEvidence,
+  ToolCallEvent,
+} from '../skill-usage'
+// Skill usage is a deterministic reading of recorded sessions: no model call.
+export {
+  buildSkillUsageReport,
+  claudeCodeSkillSessions,
+  readSkillFile,
+  renderSkillUsageTable,
+  skillSessionFromHarnessSession,
+} from '../skill-usage'
 export type { SemanticConceptJudgeAdapterOpts } from './adapters'
 
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
@@ -360,12 +390,6 @@ export {
   ControlIntegrityAnalyst,
   emitControlIntegrityFindings,
 } from './kinds/control-integrity'
-export type {
-  SkillUsageRecord,
-  SkillUsageReport,
-  SkillUsageScanConfig,
-} from './kinds/skill-usage'
-export { buildSkillUsageReport } from './kinds/skill-usage'
 export { stripCodeFences } from './parse-tolerant'
 export {
   analystUsageReceiptFromPrimeUsage,
