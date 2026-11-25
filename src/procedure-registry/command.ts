@@ -2,6 +2,12 @@
  * `agent-eval procedure-registry <sessions-dir>` prints the procedure registry
  * for a directory of Claude Code transcripts and any number of search ledgers.
  *
+ * `--change-ledger <file>` (repeatable) names a change ledger, the harness's own
+ * record of each commit and pull request a session made (see
+ * `src/skill-usage/change-ledger.ts`). A session the ledger observed has exactly
+ * the changes it lists; a session it never saw has only what its transcript
+ * shows, and none recorded when the transcript shows none.
+ *
  * `--outcomes <file>` names a JSON array of {@link ChangeOutcome}: what the
  * caller knows of each change the sessions produced. Without it every change is
  * joined and none has an outcome. The JSON registry goes to stdout and the
@@ -20,6 +26,7 @@ import type { SearchStateView } from '../campaign/search-state'
 import type { CustomTokenPricing } from '../cost-ledger/contract'
 import { errorMessage } from '../errors'
 import type { IntentLabeler, IntentTurn } from '../intent-record/contract'
+import { readChangeLedger, withChangeLedger } from '../skill-usage/change-ledger'
 import { claudeCodeSkillSessions } from '../skill-usage/claude-code'
 import { parseSince, readPricingFile } from '../skill-usage/command'
 import { readSkillFile } from '../skill-usage/skill-file'
@@ -31,7 +38,7 @@ type Format = 'both' | 'json' | 'table'
 const FORMATS: readonly Format[] = ['both', 'json', 'table']
 
 const USAGE =
-  'usage: agent-eval procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
+  'usage: agent-eval procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--change-ledger <changes.jsonl>]... [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
 
 export interface ProcedureRegistryCommandIo {
   readonly stdout: (text: string) => void
@@ -54,6 +61,7 @@ interface Args {
   ledgers: string[]
   since: string | null
   outcomes: string | null
+  changeLedgers: string[]
   intents: { labeler: string | null } | null
   format: Format
   limit: number
@@ -66,6 +74,7 @@ function parseArgs(argv: readonly string[]): Args {
     ledgers: [],
     since: null,
     outcomes: null,
+    changeLedgers: [],
     intents: null,
     format: 'both',
     limit: 30,
@@ -81,6 +90,7 @@ function parseArgs(argv: readonly string[]): Args {
     if (arg === '--ledger') args.ledgers.push(value(arg, ++i))
     else if (arg === '--since') args.since = value(arg, ++i)
     else if (arg === '--outcomes') args.outcomes = value(arg, ++i)
+    else if (arg === '--change-ledger') args.changeLedgers.push(value(arg, ++i))
     else if (arg === '--intents') {
       // The labeler module is optional: a value that is not a flag.
       const next = argv[i + 1]
@@ -191,13 +201,22 @@ export async function runProcedureRegistryCommand(
     const labeler =
       args.intents?.labeler == null ? undefined : await loadLabeler(args.intents.labeler)
     const searches = await Promise.all(args.ledgers.map((path) => readLedger(resolve(path))))
+    const changeLedger =
+      args.changeLedgers.length === 0
+        ? undefined
+        : await readChangeLedger(args.changeLedgers.map((path) => resolve(path)))
+    if (changeLedger !== undefined && changeLedger.malformed > 0) {
+      io.stderr(`change ledger: ${changeLedger.malformed} lines are not rows and were not read\n`)
+    }
+    const transcripts = claudeCodeSkillSessions(
+      resolve(args.directory),
+      sinceMs === undefined ? {} : { sinceMs },
+    )
     const registry = await buildProcedureRegistry(
       {
         searches,
-        sessions: claudeCodeSkillSessions(
-          resolve(args.directory),
-          sinceMs === undefined ? {} : { sinceMs },
-        ),
+        sessions:
+          changeLedger === undefined ? transcripts : withChangeLedger(transcripts, changeLedger),
         outcomes,
       },
       {
