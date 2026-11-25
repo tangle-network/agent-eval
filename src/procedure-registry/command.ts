@@ -14,10 +14,12 @@
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { replaySearchLedgerText } from '../campaign/search-ledger'
 import type { SearchStateView } from '../campaign/search-state'
 import type { CustomTokenPricing } from '../cost-ledger/contract'
 import { errorMessage } from '../errors'
+import type { IntentLabeler } from '../intent-record/contract'
 import { claudeCodeSkillSessions } from '../skill-usage/claude-code'
 import { parseSince, readPricingFile } from '../skill-usage/command'
 import { readSkillFile } from '../skill-usage/skill-file'
@@ -29,7 +31,7 @@ type Format = 'both' | 'json' | 'table'
 const FORMATS: readonly Format[] = ['both', 'json', 'table']
 
 const USAGE =
-  'usage: agent-eval procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
+  'usage: agent-eval procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
 
 export interface ProcedureRegistryCommandIo {
   readonly stdout: (text: string) => void
@@ -52,6 +54,7 @@ interface Args {
   ledgers: string[]
   since: string | null
   outcomes: string | null
+  intents: { labeler: string | null } | null
   format: Format
   limit: number
   pricing: string | null
@@ -63,6 +66,7 @@ function parseArgs(argv: readonly string[]): Args {
     ledgers: [],
     since: null,
     outcomes: null,
+    intents: null,
     format: 'both',
     limit: 30,
     pricing: null,
@@ -77,7 +81,13 @@ function parseArgs(argv: readonly string[]): Args {
     if (arg === '--ledger') args.ledgers.push(value(arg, ++i))
     else if (arg === '--since') args.since = value(arg, ++i)
     else if (arg === '--outcomes') args.outcomes = value(arg, ++i)
-    else if (arg === '--pricing') args.pricing = value(arg, ++i)
+    else if (arg === '--intents') {
+      // The labeler module is optional: a value that is not a flag.
+      const next = argv[i + 1]
+      const labeler = next !== undefined && !next.startsWith('--') ? next : null
+      if (labeler !== null) i += 1
+      args.intents = { labeler }
+    } else if (arg === '--pricing') args.pricing = value(arg, ++i)
     else if (arg === '--format') {
       const raw = value(arg, ++i)
       if (!(FORMATS as readonly string[]).includes(raw)) {
@@ -130,6 +140,15 @@ function readOutcomes(path: string): ChangeOutcome[] {
   })
 }
 
+/** A labeler module: its default export is an {@link IntentLabeler}. It lives with the caller, where the labels and the words they read do. */
+async function loadLabeler(path: string): Promise<IntentLabeler> {
+  const loaded = (await import(pathToFileURL(resolve(path)).href)) as { default?: unknown }
+  if (typeof loaded.default !== 'function') {
+    throw new Error(`--intents ${path}: the module must export a labeler function as its default`)
+  }
+  return loaded.default as IntentLabeler
+}
+
 async function readLedger(path: string): Promise<SearchStateView> {
   const text = await readFile(path, 'utf8')
   const first = JSON.parse(text.slice(0, Math.max(0, text.indexOf('\n')))) as { searchId?: unknown }
@@ -159,6 +178,8 @@ export async function runProcedureRegistryCommand(
     return 2
   }
   try {
+    const labeler =
+      args.intents?.labeler == null ? undefined : await loadLabeler(args.intents.labeler)
     const searches = await Promise.all(args.ledgers.map((path) => readLedger(resolve(path))))
     const registry = await buildProcedureRegistry(
       {
@@ -173,6 +194,7 @@ export async function runProcedureRegistryCommand(
         ...(sinceMs === undefined ? {} : { sinceMs }),
         ...(rates === undefined ? {} : { pricing: (model: string) => rates?.get(model) }),
         readSkillFile,
+        ...(args.intents === null ? {} : { intents: { ...(labeler === undefined ? {} : { labeler }) } }),
       },
     )
     const table = renderProcedureRegistryTable(registry, args.limit)

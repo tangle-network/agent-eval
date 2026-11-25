@@ -107,11 +107,14 @@ Commands:
         version: invocations by agent, user and harness, sessions, and the tool
         calls, tool errors, tokens, wall time and cost after its first invocation.
         The JSON report goes to stdout and the table to stderr.
-  procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
+  procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]
         Join search ledgers and recorded Claude Code sessions on the version digest:
         per procedure version, its lineage, every execution, tokens, cost and wall
         time, the outcome of the changes its sessions produced, and the decisions
-        taken on it. The JSON registry goes to stdout and the table to stderr.
+        taken on it. With --intents, also each typed turn's intent: the versions
+        that served it, its cost and how it ended; the labeler module's default
+        export labels turns, and without one no turn has a kind or a correction.
+        The JSON registry goes to stdout and the table to stderr.
   version
         Print server + wire-protocol version JSON.
 

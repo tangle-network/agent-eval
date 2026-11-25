@@ -11,6 +11,7 @@ import type { HarnessSession, SessionToolCall, TokenUsage } from '@tangle-networ
 import type { CostUsage } from '../cost-ledger/contract'
 import type {
   SessionChange,
+  SessionUserTurn,
   SkillInvocationEvent,
   SkillInvoker,
   SkillSessionEvent,
@@ -90,6 +91,7 @@ export function skillSessionFromHarnessSession(
   const placedToolCalls = new Set<string>()
   const events: SkillSessionEvent[] = []
   const changes: SessionChange[] = []
+  const turns: SessionUserTurn[] = []
 
   const placeModelCall = (id: string): void => {
     const call = modelCalls.get(id)
@@ -137,6 +139,15 @@ export function skillSessionFromHarnessSession(
       }
       continue
     }
+    if (message.role === 'user' && message.actor === 'human') {
+      const text = message.parts
+        .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+        .join('\n')
+        .trim()
+      if (text !== '') {
+        turns.push({ id: message.id, at: message.at, eventIndex: events.length, text })
+      }
+    }
     const marker = markers.invocationsByMessageId?.get(message.id)
     if (marker !== undefined) {
       events.push(
@@ -177,6 +188,7 @@ export function skillSessionFromHarnessSession(
     endedAt: session.endedAt,
     events,
     ...(markers.changesOfToolCall === undefined ? {} : { changes }),
+    turns,
     gaps,
   }
 }

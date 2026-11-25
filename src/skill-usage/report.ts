@@ -203,6 +203,8 @@ export function afterInvocation(
   from: number,
   startedAt: string | null,
   options: SkillUsageReportOptions,
+  /** Stop at this event position and this instant instead of the session's end. */
+  until: { eventIndex: number; at: string | null } | null = null,
 ): SessionAfter {
   const after: SessionAfter = {
     toolCalls: 0,
@@ -216,7 +218,8 @@ export function afterInvocation(
     pricedModelCalls: 0,
     unpricedModelCalls: 0,
   }
-  for (let index = from + 1; index < session.events.length; index++) {
+  const stop = until === null ? session.events.length : Math.min(until.eventIndex, session.events.length)
+  for (let index = from + 1; index < stop; index++) {
     const event = session.events[index] as SkillSessionEvent
     if (event.kind === 'tool') {
       after.toolCalls += 1
@@ -239,7 +242,7 @@ export function afterInvocation(
     }
   }
   const start = instant(startedAt)
-  const end = instant(session.endedAt)
+  const end = instant(until === null ? session.endedAt : until.at)
   if (start !== null && end !== null && end >= start) after.wallMs = end - start
   return after
 }

@@ -53,6 +53,30 @@ export function renderProcedureRegistryTable(registry: ProcedureRegistry, limit 
   if (registry.versions.length > limit) {
     lines.push(`... ${registry.versions.length - limit} more versions in the JSON`)
   }
+  const intents = registry.intents
+  if (intents !== null) {
+    const summary = intents.summary
+    lines.push(
+      '',
+      `${summary.intents} intents in ${summary.sessionsWithTurns} sessions (${summary.sessionsWithoutTurns} record no typed turns); ${summary.labeled} labeled; known end ${summary.knownEnd} (${percent(summary.knownEndShare)})`,
+      'kind          intents  known-end  share   corrections-known  joined-to-change  with-outcome',
+    )
+    for (const row of summary.byKind) {
+      if (row.intents === 0) continue
+      lines.push(
+        [
+          (row.kind ?? 'unlabeled').padEnd(12),
+          String(row.intents).padStart(8),
+          String(row.knownEnd).padStart(10),
+          percent(row.knownEndShare).padStart(7),
+          String(row.knownCorrections).padStart(18),
+          String(row.joinedToChange).padStart(17),
+          String(row.withChangeOutcome).padStart(13),
+        ].join('  '),
+      )
+    }
+    for (const note of intents.notes) lines.push('', `note: ${note}`)
+  }
   for (const note of registry.notes) lines.push('', `note: ${note}`)
   return `${lines.join('\n')}\n`
 }
