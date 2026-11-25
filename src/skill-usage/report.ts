@@ -160,7 +160,7 @@ interface RowAccumulator {
 const OVERLAP_NOTE =
   'A session that invokes several skills counts its later work under each of them, so the after-invocation columns overlap across rows and do not add up.'
 const PRICING_NOTE =
-  'costUsd prices each model call with the cost ledger: the rates the caller gave for that model, else its model table, which charges cached and cache-write tokens at the input rate.'
+  'costUsd prices each model call with the cost ledger: the rates the caller gave for that model, else the ledger model table. That table has no cache rate and charges cache reads and cache writes as fresh input, so it overstates a session that reads mostly from cache; give rates with cache prices for a real figure.'
 
 function emptyTokens(): SkillUsageTokens {
   return { input: 0, output: 0, cached: 0, cacheWrite: 0, total: 0 }
@@ -522,7 +522,7 @@ export function renderSkillUsageTable(report: SkillUsageReport, limit = 30): str
     'tool errors',
     'tokens',
     'wall',
-    'cost',
+    'ledger cost',
   ]
   const body = report.rows.slice(0, limit).map((row) => {
     const after = row.afterFirstInvocation
