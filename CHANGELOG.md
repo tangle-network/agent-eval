@@ -4,7 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [2.0.12] — 2026-11-25
+
+- test: restore setup; lint
+- style: format
+- feat(procedure-registry): project search ledgers and sessions into one registry keyed by version digest, with a change-outcome join
+- test: cache rates in the skill-usage and campaign cost expectations
+- style: format; repin the analyst benchmark implementation digest
+- fix(cost-ledger): own cache-read and cache-write rates in the price table; price Fable, Opus, Sonnet and Haiku 5.x from the published page
+- docs(public-api): regenerate the export census; say what the ledger cost overstates
+- docs: skill usage and the skill eval recipe
+- feat(skill-eval): runSkillEval decides keep, cut or inconclusive for one unit
+- feat(skill-usage): report skill usage from recorded sessions, one row per skill and version
 
 - Breaking: `buildSkillUsageReport` under `./analyst` now takes `(source, options)`; it reads any iterable of session records, so the old scan-the-directory call is gone (#1350)
 - Cost ledger: the model table moves to `src/cost-ledger/pricing.ts` with published cache-read and cache-write rates, and prices `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`; cache tokens on a model without a cache rate are unpriced, not billed as fresh input
