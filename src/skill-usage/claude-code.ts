@@ -18,7 +18,7 @@
  * ran, whatever the skill file holds today.
  */
 
-import { readdir, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { readSessionInput, type SessionToolCall } from '@tangle-network/harness-sessions'
 import { record, stringField } from '../contract/intake/code-agent-fields'
@@ -31,6 +31,7 @@ import {
   skillSessionFromHarnessSession,
 } from './harness-session'
 import type { SkillSessionRead, SkillSessionRecord } from './session-record'
+import { type TranscriptWalk, walkTranscripts } from './transcript-walk'
 
 const SKILL_TOOL = 'Skill'
 const COMMAND_NAME = /<command-name>([\s\S]*?)<\/command-name>/
@@ -230,29 +231,6 @@ function skillSession(records: readonly unknown[], identity: SessionIdentity): S
 export interface ClaudeCodeSkillSessionsOptions {
   /** Skip transcripts not written since this instant (epoch ms): they hold nothing newer. */
   sinceMs?: number
-}
-
-interface TranscriptWalk {
-  files: string[]
-  unreadable: Array<{ source: string; error: string }>
-}
-
-async function walkTranscripts(directory: string, walk: TranscriptWalk): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true })
-  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  for (const entry of entries) {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) {
-      try {
-        await walkTranscripts(path, walk)
-      } catch (error) {
-        walk.unreadable.push({ source: path, error: errorMessage(error) })
-      }
-    } else if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith('.jsonl')) {
-      // A link is read through; one that points nowhere is a failed read, not a skipped file.
-      walk.files.push(path)
-    }
-  }
 }
 
 /**

@@ -42,9 +42,10 @@ A session that invokes several skills counts its later work under each of them, 
 `claudeCodeSkillSessions(directory)` is the adapter for a Claude Code projects directory.
 `skillSessionFromHarnessSession(session, markers)` maps any session `@tangle-network/harness-sessions` normalizes; `markers` says which tool calls or messages invoke a skill, because that is the one thing that differs by harness.
 
-Codex sessions map this way today and report tool and model calls with no skill invocations.
-A Codex session records no invocation: the agent uses a skill by reading its file with an ordinary shell command, which looks like any other read, and the list of skills arrives as developer text.
-A caller that knows how its Codex setup marks a skill supplies `skillOfToolCall`; a general reader needs Codex to record the invocation.
+`codexSkillSessions(directory)` is the adapter for a Codex sessions directory (`~/.codex/sessions`, or one account's), and `--harness codex` selects it in `skill-usage` and `procedure-registry`.
+Codex has no skill tool: the agent uses a skill by reading its `SKILL.md` with a shell command (`cat`, `sed`, `head`), so the reader counts a shell call that views a file named `skills/<name>/SKILL.md` as that skill's invocation.
+The read is often partial, so the session gives no version; the report reads the skill file as it is when it runs, and marks the version `file`, which can be newer than the call.
+A script run by Codex's code-mode `exec` tool makes several shell commands under one call. The change ledger's hook names such a command by its own `exec-<id>`; the rollout names the same id on the command's completion between the call and its output, which places the change in the turn that ran the script. When several scripts are open at once the id names none of them, the session says so in its gaps, and a ledger change that cannot be placed makes the whole session's changes unknown rather than none.
 
 ## The recipe
 

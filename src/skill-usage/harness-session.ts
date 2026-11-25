@@ -37,6 +37,14 @@ export interface MessageSkillInvocation {
 export interface HarnessSkillMarkers {
   /** The skill a tool call invokes, or null when it invokes none. */
   skillOfToolCall?: (call: SessionToolCall) => string | null
+  /**
+   * The skill file a tool call read, for a harness that loads a skill by
+   * reading its file. The call is then the invocation; the session holds no
+   * loaded text a version can come from, so the report reads the file.
+   */
+  skillFileOfToolCall?: (call: SessionToolCall) => string | null
+  /** Hook ids of tool calls, by the id the session recorded the call under; see {@link SkillSessionRecord.callAliases}. */
+  callAliases?: Readonly<Record<string, string>>
   /** Loaded text by the id of the tool call it answers. */
   loadedByCallId?: ReadonlyMap<string, LoadedSkillText>
   /** Invocations that are not tool calls, by the id of the message that carries them. */
@@ -62,13 +70,14 @@ function costUsage(usage: TokenUsage | null): CostUsage | null {
 function invocation(
   fields: Pick<SkillInvocationEvent, 'callId' | 'skill' | 'invoker' | 'at' | 'failed'>,
   loaded: LoadedSkillText | null | undefined,
+  skillFile: string | null = null,
 ): SkillInvocationEvent {
   return {
     kind: 'skill',
     ...fields,
     version:
       loaded == null ? null : { bodySha256: skillBodySha256(loaded.body), source: 'session' },
-    skillFile: loaded?.skillFile ?? null,
+    skillFile: loaded?.skillFile ?? skillFile,
   }
 }
 
@@ -126,6 +135,7 @@ export function skillSessionFromHarnessSession(
       invocation(
         { callId: id, skill, invoker: 'agent', at: call.startedAt, failed },
         markers.loadedByCallId?.get(id),
+        markers.skillFileOfToolCall?.(call) ?? null,
       ),
     )
   }
@@ -188,6 +198,9 @@ export function skillSessionFromHarnessSession(
     endedAt: session.endedAt,
     events,
     ...(markers.changesOfToolCall === undefined ? {} : { changes }),
+    ...(markers.callAliases === undefined || Object.keys(markers.callAliases).length === 0
+      ? {}
+      : { callAliases: markers.callAliases }),
     turns,
     gaps,
   }

@@ -1,6 +1,7 @@
 /**
- * `agent-eval skill-usage <transcripts-dir>` reads a directory of Claude Code
- * transcripts and prints the skill-usage report.
+ * `agent-eval skill-usage <sessions-dir>` reads a directory of Claude Code
+ * transcripts (or, with `--harness codex`, Codex rollouts) and prints the
+ * skill-usage report.
  *
  * By default the JSON report goes to stdout and the short table to stderr, so
  * `> report.json` keeps the report while the table stays on the terminal.
@@ -19,7 +20,9 @@ import type { CustomTokenPricing } from '../cost-ledger/contract'
 import { costForTokenPricing } from '../cost-ledger/pricing'
 import { errorMessage } from '../errors'
 import { claudeCodeSkillSessions } from './claude-code'
+import { codexSkillSessions } from './codex'
 import { buildSkillUsageReport, renderSkillUsageTable } from './report'
+import type { SkillSessionSource } from './session-record'
 import { readSkillFile } from './skill-file'
 
 type SkillUsageFormat = 'both' | 'json' | 'table'
@@ -27,7 +30,7 @@ type SkillUsageFormat = 'both' | 'json' | 'table'
 const FORMATS: readonly SkillUsageFormat[] = ['both', 'json', 'table']
 
 const USAGE =
-  'usage: agent-eval skill-usage <transcripts-dir> [--since <7d|36h|90m|ISO time>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
+  'usage: agent-eval skill-usage <sessions-dir> [--harness claude-code|codex] [--since <7d|36h|90m|ISO time>] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
 
 /** Output sinks, injectable so a test reads the exact bytes a terminal would. */
 export interface SkillUsageCommandIo {
@@ -46,8 +49,34 @@ const PROCESS_IO: SkillUsageCommandIo = {
   },
 }
 
+/** The harnesses whose session stores the commands read. */
+export const SESSION_HARNESSES = ['claude-code', 'codex'] as const
+export type SessionHarness = (typeof SESSION_HARNESSES)[number]
+
+/** The sessions under a harness's store: Claude Code's projects directory, or Codex's sessions directory. */
+export function harnessSkillSessions(
+  harness: SessionHarness,
+  directory: string,
+  options: { sinceMs?: number },
+): SkillSessionSource {
+  return harness === 'codex'
+    ? codexSkillSessions(directory, options)
+    : claudeCodeSkillSessions(directory, options)
+}
+
+/** The value of `--harness`, checked. */
+export function parseHarness(raw: string): SessionHarness {
+  if (!(SESSION_HARNESSES as readonly string[]).includes(raw)) {
+    throw new Error(
+      `--harness expects one of ${SESSION_HARNESSES.join('|')}, got ${JSON.stringify(raw)}`,
+    )
+  }
+  return raw as SessionHarness
+}
+
 interface SkillUsageArgs {
   directory: string
+  harness: SessionHarness
   since: string | null
   format: SkillUsageFormat
   limit: number
@@ -75,6 +104,7 @@ export function parseSince(raw: string, nowMs: number): number {
 function parseArgs(argv: readonly string[]): SkillUsageArgs {
   const args: SkillUsageArgs = {
     directory: '',
+    harness: 'claude-code',
     since: null,
     format: 'both',
     limit: 30,
@@ -87,7 +117,9 @@ function parseArgs(argv: readonly string[]): SkillUsageArgs {
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
-    if (arg === '--since') {
+    if (arg === '--harness') {
+      args.harness = parseHarness(value(arg, ++i))
+    } else if (arg === '--since') {
       args.since = value(arg, ++i)
     } else if (arg === '--format') {
       const raw = value(arg, ++i)
@@ -165,7 +197,11 @@ export async function runSkillUsageCommand(
   }
   try {
     const report = await buildSkillUsageReport(
-      claudeCodeSkillSessions(resolve(args.directory), sinceMs === undefined ? {} : { sinceMs }),
+      harnessSkillSessions(
+        args.harness,
+        resolve(args.directory),
+        sinceMs === undefined ? {} : { sinceMs },
+      ),
       {
         ...(sinceMs === undefined ? {} : { sinceMs }),
         ...(rates === undefined ? {} : { pricing: (model: string) => rates?.get(model) }),

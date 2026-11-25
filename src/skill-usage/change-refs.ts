@@ -12,17 +12,39 @@
 import type { SessionToolCall } from '@tangle-network/harness-sessions'
 import { record } from '../contract/intake/code-agent-fields'
 
-const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash'])
+/** Claude Code's shell tool, and Codex's: `exec_command`, `shell`, and `exec`, the code-mode tool whose JavaScript runs the shell. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set([
+  'Bash',
+  'exec_command',
+  'shell',
+  'shell_command',
+  'exec',
+])
 /** `gh pr create`, or a wrapper named `gh-<identity>`, including its flags up to the subcommand. */
 const PR_COMMAND = /\bgh(?:-[\w-]+)?\s+(?:-\S+\s+\S+\s+)*pr\s+(create|merge)\b/g
 const PULL_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g
 const MERGE_ARGS = /\bpr\s+merge\s+(?:(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/)?(\d+))/
 const REPO_FLAG = /(?:-R|--repo)[\s=]+([\w.-]+\/[\w.-]+)/
 
+/**
+ * The shell text of a call: the `command` or `cmd` of its input (a string, or an
+ * argv joined), or, for Codex's `exec`, the JavaScript, which holds the commands.
+ */
+export function shellCommandText(call: SessionToolCall): string | null {
+  if (!SHELL_TOOLS.has(call.name)) return null
+  if (typeof call.input === 'string') return call.name === 'exec' ? call.input : null
+  const input = record(call.input)
+  const command = input?.command ?? input?.cmd
+  if (typeof command === 'string') return command
+  if (Array.isArray(command) && command.every((part) => typeof part === 'string')) {
+    return command.join(' ')
+  }
+  return null
+}
+
 export function githubPullRequestRefs(call: SessionToolCall): string[] {
-  if (!SHELL_TOOLS.has(call.name)) return []
-  const command = record(call.input)?.command
-  if (typeof command !== 'string') return []
+  const command = shellCommandText(call)
+  if (command === null) return []
   const kinds = new Set<string>()
   for (const match of command.matchAll(PR_COMMAND)) kinds.add(match[1] as string)
   if (kinds.size === 0) return []

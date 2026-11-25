@@ -1,6 +1,7 @@
 /**
  * `agent-eval procedure-registry <sessions-dir>` prints the procedure registry
- * for a directory of Claude Code transcripts and any number of search ledgers.
+ * for a directory of Claude Code transcripts (or, with `--harness codex`, Codex
+ * rollouts) and any number of search ledgers.
  *
  * `--change-ledger <file>` (repeatable) names a change ledger, the harness's own
  * record of each commit and pull request a session made (see
@@ -27,8 +28,13 @@ import type { CustomTokenPricing } from '../cost-ledger/contract'
 import { errorMessage } from '../errors'
 import type { IntentLabeler, IntentTurn } from '../intent-record/contract'
 import { readChangeLedger, withChangeLedger } from '../skill-usage/change-ledger'
-import { claudeCodeSkillSessions } from '../skill-usage/claude-code'
-import { parseSince, readPricingFile } from '../skill-usage/command'
+import {
+  harnessSkillSessions,
+  parseHarness,
+  parseSince,
+  readPricingFile,
+  type SessionHarness,
+} from '../skill-usage/command'
 import { readSkillFile } from '../skill-usage/skill-file'
 import type { ChangeOutcome } from './change-outcome'
 import { buildProcedureRegistry } from './registry'
@@ -38,7 +44,7 @@ type Format = 'both' | 'json' | 'table'
 const FORMATS: readonly Format[] = ['both', 'json', 'table']
 
 const USAGE =
-  'usage: agent-eval procedure-registry <sessions-dir> [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--change-ledger <changes.jsonl>]... [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
+  'usage: agent-eval procedure-registry <sessions-dir> [--harness claude-code|codex] [--ledger <search-ledger.jsonl>]... [--since <7d|36h|90m|ISO time>] [--outcomes <changes.json>] [--change-ledger <changes.jsonl>]... [--intents [<labeler.mjs>]] [--format both|json|table] [--limit <rows>] [--pricing <rates.json>]'
 
 export interface ProcedureRegistryCommandIo {
   readonly stdout: (text: string) => void
@@ -58,6 +64,7 @@ const PROCESS_IO: ProcedureRegistryCommandIo = {
 
 interface Args {
   directory: string
+  harness: SessionHarness
   ledgers: string[]
   since: string | null
   outcomes: string | null
@@ -71,6 +78,7 @@ interface Args {
 function parseArgs(argv: readonly string[]): Args {
   const args: Args = {
     directory: '',
+    harness: 'claude-code',
     ledgers: [],
     since: null,
     outcomes: null,
@@ -87,7 +95,8 @@ function parseArgs(argv: readonly string[]): Args {
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
-    if (arg === '--ledger') args.ledgers.push(value(arg, ++i))
+    if (arg === '--harness') args.harness = parseHarness(value(arg, ++i))
+    else if (arg === '--ledger') args.ledgers.push(value(arg, ++i))
     else if (arg === '--since') args.since = value(arg, ++i)
     else if (arg === '--outcomes') args.outcomes = value(arg, ++i)
     else if (arg === '--change-ledger') args.changeLedgers.push(value(arg, ++i))
@@ -208,7 +217,8 @@ export async function runProcedureRegistryCommand(
     if (changeLedger !== undefined && changeLedger.malformed > 0) {
       io.stderr(`change ledger: ${changeLedger.malformed} lines are not rows and were not read\n`)
     }
-    const transcripts = claudeCodeSkillSessions(
+    const transcripts = harnessSkillSessions(
+      args.harness,
       resolve(args.directory),
       sinceMs === undefined ? {} : { sinceMs },
     )
