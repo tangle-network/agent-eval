@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.15] — 2026-11-26
+
+- feat(skill-usage): a tool call that starts a subagent names its type
+
 ## [2.0.14] — 2026-11-26
 
 - fix(analyst): export the Codex session reader and the change ledger readers
