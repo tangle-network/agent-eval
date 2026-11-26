@@ -54,6 +54,8 @@ export interface HarnessSkillMarkers {
    * session's `changes` as read, so a session with none records an empty list.
    */
   changesOfToolCall?: (call: SessionToolCall) => readonly string[]
+  /** The subagent type a tool call starts, or null when it starts none or the call does not say. */
+  subagentOfToolCall?: (call: SessionToolCall) => string | null
 }
 
 /** A response's usage as the cost ledger prices it; null unless input and output are both recorded. */
@@ -128,7 +130,15 @@ export function skillSessionFromHarnessSession(
     }
     const skill = markers.skillOfToolCall?.(call) ?? null
     if (skill === null) {
-      events.push({ kind: 'tool', id, name: call.name, at: call.startedAt, failed })
+      const subagent = markers.subagentOfToolCall?.(call) ?? null
+      events.push({
+        kind: 'tool',
+        id,
+        name: call.name,
+        at: call.startedAt,
+        failed,
+        ...(subagent === null ? {} : { subagent }),
+      })
       return
     }
     events.push(

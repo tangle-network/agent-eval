@@ -8,7 +8,7 @@
  *
  * | Session | What it records |
  * |---|---|
- * | A | an agent invokes `tidy` twice (one version), a tool error after it, a response split over two records, a request snapshot that quotes the first call |
+ * | A | an agent invokes `tidy` twice (one version), starts a `reviewer` subagent, a tool error after it, a response split over two records, a request snapshot that quotes the first call |
  * | A's subagent | the harness preloads `helper-contract`, the agent invokes `tidy`, a model with no rate, a tool call with no result |
  * | B | a copy of A's first call, a command the CLI answers itself, a typed `tidy` command at a newer version, a bundled skill,
  *     a refused skill, a subagent's record |
@@ -267,6 +267,24 @@ describe('skill usage from Claude Code transcripts', () => {
     // Without a file reader the file is named and marked unread.
     const unread = await buildSkillUsageReport(claudeCodeSkillSessions(projects))
     expect(row(unread, 'tidy', TIDY_V1).skillFile).toEqual({ path: tidyFile, state: 'not-read' })
+  })
+
+  it('names the subagent type a tool call starts', async () => {
+    const sessions: SkillSessionRead[] = []
+    for await (const read of claudeCodeSkillSessions(projects)) sessions.push(read)
+    const a = sessions.find(
+      (read) => read.succeeded && read.value.sessionId === 'aaaaaaaa-0000-4000-8000-000000000001',
+    )
+    if (a === undefined || !a.succeeded) throw new Error('session A was not read')
+    const tools = a.value.events.flatMap((event) => (event.kind === 'tool' ? [event] : []))
+    // A's `Agent` call names the type it started; its `Edit` call starts none.
+    expect(tools.find((event) => event.id === 'toolu_a_agent1')).toMatchObject({
+      name: 'Agent',
+      subagent: 'reviewer',
+    })
+    const edit = tools.find((event) => event.id === 'toolu_a_edit1')
+    expect(edit?.name).toBe('Edit')
+    expect(edit).not.toHaveProperty('subagent')
   })
 
   it('counts only invocations inside the window', async () => {

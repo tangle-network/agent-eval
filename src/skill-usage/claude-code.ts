@@ -94,6 +94,16 @@ function firstLoadedSkillText(
   return null
 }
 
+/** Claude Code's subagent tools: `Agent`, and `Task` in older versions. */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+
+/** The subagent type a Claude Code tool call starts, or null when it names none. */
+function subagentOfToolCall(call: SessionToolCall): string | null {
+  if (!SUBAGENT_TOOLS.has(call.name)) return null
+  const type = record(call.input)?.subagent_type
+  return typeof type === 'string' && type !== '' ? type : null
+}
+
 /** The skill a Claude Code tool call invokes, or null. */
 function skillOfToolCall(call: SessionToolCall): string | null {
   if (call.name !== SKILL_TOOL) return null
@@ -223,6 +233,7 @@ function skillSession(records: readonly unknown[], identity: SessionIdentity): S
   )
   return skillSessionFromHarnessSession(session, {
     skillOfToolCall,
+    subagentOfToolCall,
     changesOfToolCall: githubPullRequestRefs,
     ...skillMarkers(records, identity.parentSessionId !== null),
   })

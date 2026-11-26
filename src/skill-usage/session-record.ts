@@ -56,6 +56,12 @@ export interface ToolCallEvent {
   at: string | null
   /** null while the call has no recorded result. */
   failed: boolean | null
+  /**
+   * The subagent type the call started, for a harness whose sessions name it,
+   * such as Claude Code's `Agent` tool with `subagent_type`. Absent when the
+   * call starts no subagent or the session does not say which type.
+   */
+  subagent?: string
 }
 
 export interface ModelCallEvent {
