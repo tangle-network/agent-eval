@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.13] — 2026-11-26
+
+- docs(search-ledger): the subscription cost basis
+- feat(search-ledger): a subscription seat is a known cost basis with no dollar figure
+- style: format change-ledger
+- feat(skill-usage): read change ledger rows a gateway writes for whole turns
+- feat(skill-usage): read Codex rollouts as skill sessions, with change ledger rows placed by the id the hook saw
+- test(change-ledger): a subagent is keyed by its own id
+- style: format the change-ledger join
+- feat(change-ledger): read the harness's record of each commit and pull request, so an intent joins exactly the changes its span made
+- fix: import IntentTurn
+- feat(intent-record): let the caller skip typed turns that are no intent
+- style: format
+- feat(intent-record): cut typed turns into intents, join them to procedure versions and change outcomes
+
 ## [2.0.12] — 2026-11-25
 
 - test: restore setup; lint
