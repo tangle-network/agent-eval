@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.14] — 2026-11-26
+
+- fix(analyst): export the Codex session reader and the change ledger readers
+
 ## [2.0.13] — 2026-11-26
 
 - docs(search-ledger): the subscription cost basis
