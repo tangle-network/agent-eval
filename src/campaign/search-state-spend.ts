@@ -32,7 +32,11 @@ export class SearchSpendBook {
 
   /** Book an attempt's or operation's accounting into the running totals. An
    * unknown cost counts as its proven floor. */
-  book(accounting: SearchAttemptAccounting): { usd: number; unknown: boolean } {
+  book(accounting: SearchAttemptAccounting): {
+    usd: number
+    unknown: boolean
+    subscription: boolean
+  } {
     const { tokens, cost } = accounting
     if (tokens.status === 'known') {
       this.audit.tokens.inputTokens += tokens.inputTokens
@@ -45,7 +49,11 @@ export class SearchSpendBook {
     if (cost.status === 'known') this.audit.spend.knownUsd += usd
     else this.audit.spend.floorUsd += usd
     this.audit.spend.committedUsd += usd
-    return { usd, unknown: cost.status === 'unknown' }
+    return {
+      usd,
+      unknown: cost.status === 'unknown',
+      subscription: cost.status === 'known' && cost.source === 'subscription',
+    }
   }
 
   /** A new claim cell's hold counts against the claim reserve. */

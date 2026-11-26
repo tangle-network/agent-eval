@@ -158,7 +158,13 @@ export type SearchCostAccounting =
   | {
       status: 'known'
       usd: number
-      source: 'provider' | 'pricing-table' | 'free'
+      /**
+       * `free` is a measured zero: a call priced at nothing. `subscription` is a
+       * seat that bills nothing per call, so there is no dollar figure at all;
+       * `usd` is 0 only so sums stay valid, and readers that report dollars read
+       * the source first.
+       */
+      source: 'provider' | 'pricing-table' | 'free' | 'subscription'
     }
   | {
       status: 'unknown'

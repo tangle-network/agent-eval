@@ -142,12 +142,12 @@ const KnownCostSchema = z
   .object({
     status: z.literal('known'),
     usd: USD,
-    source: z.enum(['provider', 'pricing-table', 'free']),
+    source: z.enum(['provider', 'pricing-table', 'free', 'subscription']),
   })
   .strict()
   .superRefine((cost, ctx) => {
-    if (cost.source === 'free' && cost.usd !== 0) {
-      ctx.addIssue({ code: 'custom', message: 'free cost source must have usd 0' })
+    if ((cost.source === 'free' || cost.source === 'subscription') && cost.usd !== 0) {
+      ctx.addIssue({ code: 'custom', message: `${cost.source} cost source must have usd 0` })
     }
   })
 

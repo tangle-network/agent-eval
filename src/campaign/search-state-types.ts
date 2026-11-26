@@ -102,6 +102,8 @@ export interface SearchCell {
   spentUsd: number
   /** Every attempt's cost is known. */
   costKnown: boolean
+  /** Attempts whose cost basis is a subscription seat: known, with no dollar figure. */
+  subscriptionAttempts: number
   /** Tokens summed over the attempts that reported them. Read `tokensKnown`
    * before treating the sum as the cell's total. */
   tokens: { inputTokens: number; outputTokens: number; cachedTokens: number }

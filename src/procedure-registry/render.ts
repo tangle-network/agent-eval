@@ -28,6 +28,7 @@ export function renderProcedureRegistryTable(registry: ProcedureRegistry, limit 
     `${registry.versions.length} procedure versions; ${registry.invocations} invocations in ${registry.sessions.read} sessions (${registry.sessions.unreadable} unreadable); ${registry.searches.read} searches`,
     `joined to a change: ${join.joined} of ${join.invocations} invocations (${percent(join.joinedShare)}); none ${join.none}, not recorded ${join.notRecorded}`,
     `with an outcome for a change: ${join.withOutcome} (${percent(join.withOutcomeShare)}); ${join.distinctChanges} distinct changes, ${join.outcomesSupplied} outcomes supplied (hot-fix window ${join.hotfixWindowDays} days)`,
+    `cells on a subscription seat (a known basis with no dollar figure): ${registry.versions.reduce((n, v) => n + v.cells.subscription, 0)}`,
     '',
     'version       kind        names                          cells  runs  chg-joined  merged y/n/?  hotfix y/n/?  tokens(runs)  decided',
   ]

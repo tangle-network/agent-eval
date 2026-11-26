@@ -97,6 +97,12 @@ export interface CellExecution extends ExecutionMeasures {
   /** `passed`, `failed` or `errored`; null for a cell never settled. */
   outcome: string | null
   score: number | null
+  /**
+   * How the cell's dollars are known. `measured`: `usd` is the charge. `subscription`: every
+   * attempt ran on a seat that bills nothing per call, so there is no dollar figure and `usd`
+   * is null by design, neither unknown nor a measured zero. `unknown`: no charge was read.
+   */
+  costBasis: 'measured' | 'subscription' | 'unknown'
 }
 
 export interface SessionExecution extends ExecutionMeasures {
@@ -187,6 +193,8 @@ export interface ProcedureVersion {
     passed: number
     failed: number
     errored: number
+    /** Cells whose dollars are a subscription seat's: a known basis with no figure, counted in neither `usd.measured` nor `usd.unmeasured`. */
+    subscription: number
     tokens: MeasureTotal
     usd: MeasureTotal
     wallMs: MeasureTotal
@@ -429,6 +437,7 @@ function addSearch(
     for (const cell of search.cells({ nodeId: node.nodeId })) {
       // A cell that never ran, or never settled, is not an execution.
       if (cell.attempts === 0) continue
+      const onSeat = cell.subscriptionAttempts === cell.attempts
       builder.executions.push({
         source: 'search-cell',
         searchId: search.searchId,
@@ -441,7 +450,8 @@ function addSearch(
         tokens: cell.tokensKnown
           ? cell.tokens.inputTokens + cell.tokens.outputTokens + cell.tokens.cachedTokens
           : null,
-        usd: cell.costKnown ? cell.spentUsd : null,
+        usd: cell.costKnown && !onSeat ? cell.spentUsd : null,
+        costBasis: !cell.costKnown ? 'unknown' : onSeat ? 'subscription' : 'measured',
         wallMs: cell.wallKnown ? cell.wallMs : null,
       })
     }
@@ -616,6 +626,7 @@ export async function buildProcedureRegistry(
       passed: 0,
       failed: 0,
       errored: 0,
+      subscription: 0,
       tokens: emptyMeasure(),
       usd: emptyMeasure(),
       wallMs: emptyMeasure(),
@@ -634,7 +645,8 @@ export async function buildProcedureRegistry(
         else if (execution.outcome === 'failed') cells.failed += 1
         else if (execution.outcome === 'errored') cells.errored += 1
         addMeasure(cells.tokens, execution.tokens)
-        addMeasure(cells.usd, execution.usd)
+        if (execution.costBasis === 'subscription') cells.subscription += 1
+        else addMeasure(cells.usd, execution.usd)
         addMeasure(cells.wallMs, execution.wallMs)
       } else {
         sessionRuns.invocations += 1
