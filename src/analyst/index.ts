@@ -7,11 +7,18 @@
 // adapters — lives here so it has a home without crowding the root surface.
 
 export type {
+  ChangeLedger,
+  ChangeLedgerAction,
+  ChangeLedgerRow,
+  ChangeLedgerSession,
   ClaudeCodeSkillSessionsOptions,
+  CodexSkillSessionsOptions,
   HarnessSkillMarkers,
   LoadedSkillText,
   MessageSkillInvocation,
   ModelCallEvent,
+  SessionChange,
+  SessionUserTurn,
   SkillFileRead,
   SkillFileState,
   SkillInvocationEvent,
@@ -29,12 +36,18 @@ export type {
   ToolCallEvent,
 } from '../skill-usage'
 // Skill usage is a deterministic reading of recorded sessions: no model call.
+// Each harness has one session reader, and the change ledger joins any of them.
 export {
   buildSkillUsageReport,
+  CHANGE_LEDGER_ACTIONS,
   claudeCodeSkillSessions,
+  codexSkillSessions,
+  parseChangeLedger,
+  readChangeLedger,
   readSkillFile,
   renderSkillUsageTable,
   skillSessionFromHarnessSession,
+  withChangeLedger,
 } from '../skill-usage'
 export type { SemanticConceptJudgeAdapterOpts } from './adapters'
 
