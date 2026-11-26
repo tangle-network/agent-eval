@@ -18,8 +18,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+// The published `./analyst` entry, so a reader it does not export fails here.
+import { codexSkillSessions, readChangeLedger, withChangeLedger } from '../src/analyst'
 import { runProcedureRegistryCommand } from '../src/procedure-registry'
-import { codexSkillSessions, readChangeLedger, withChangeLedger } from '../src/skill-usage'
 import { runSkillUsageCommand } from '../src/skill-usage/command'
 
 const TIDY = '# Tidy\n\nRemove dead code, then run the checks.\n'

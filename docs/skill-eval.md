@@ -53,6 +53,8 @@ Each turn also writes a `turn` row with the repository's HEAD before and after, 
 A `turn` row whose `incomplete` is set (a checkout shared with another running turn, a failed pull request read, more commits than the list holds) leaves the session's changes unknown, with a gap that names the reason.
 The field list is the header of `src/skill-usage/change-ledger.ts`.
 
+Both session readers and the ledger are exported from `@tangle-network/agent-eval/analyst`: `readChangeLedger(paths)` reads one or more ledger files, `parseChangeLedger(text)` reads ledger text, and `withChangeLedger(source, ledger)` joins the ledger to any session source, so a caller reads `withChangeLedger(codexSkillSessions(directory), await readChangeLedger([file]))` as the command does.
+
 ## The recipe
 
 Use `runSkillEval` before adopting a unit, before cutting one the usage report shows is rare or costly, and when a unit's text changes materially.

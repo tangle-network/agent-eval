@@ -18,8 +18,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { parseChangeLedger } from '../src/analyst'
 import { runProcedureRegistryCommand } from '../src/procedure-registry'
-import { parseChangeLedger } from '../src/skill-usage'
 
 let root: string
 let projects: string
