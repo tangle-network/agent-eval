@@ -485,6 +485,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       cancelled: null,
       spentUsd: 0,
       costKnown: true,
+      subscriptionAttempts: 0,
       tokens: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
       tokensKnown: true,
       wallMs: 0,
@@ -552,6 +553,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       this.audit.spend.unknownCostCells += 1
       node.spend.unknownCostCells += 1
     }
+    if (cost.subscription) cell.subscriptionAttempts += 1
     const tokens = event.accounting.tokens
     if (tokens.status === 'known') {
       cell.tokens.inputTokens += tokens.inputTokens

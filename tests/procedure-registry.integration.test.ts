@@ -25,6 +25,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openSearchLedger, replaySearchLedgerText } from '../src/campaign/search-ledger'
 import { SearchRecorder, surfaceNode } from '../src/campaign/search-ledger-recording'
+import type { SearchCostAccounting } from '../src/campaign/search-ledger-types'
 import { hashCanonical } from '../src/ledger-core/canonical'
 import {
   buildProcedureRegistry,
@@ -162,6 +163,7 @@ async function writeSearch(
   searchId: string,
   skillTexts: readonly string[],
   tokens: 'known' | 'unknown',
+  cost: SearchCostAccounting = { status: 'known', usd: 0.25, source: 'provider' },
 ): Promise<void> {
   const tasks = ['t0', 't1'].map((taskId) => ({
     taskId,
@@ -243,7 +245,7 @@ async function writeSearch(
             tokens === 'known'
               ? { status: 'known', inputTokens: 1000, outputTokens: 200, cachedTokens: 300 }
               : { status: 'unknown', reason: 'the lane reports no tokens' },
-          cost: { status: 'known', usd: 0.25, source: 'provider' },
+          cost,
         },
         wallMs: tokens === 'known' ? 4000 : null,
         identity: {
@@ -644,5 +646,70 @@ describe('the ledger records what a cell cost in tokens and time', () => {
       tokensKnown: false,
       wallKnown: false,
     })
+  })
+})
+
+describe('a subscription seat is a known cost basis with no dollar figure', () => {
+  const costs: Record<string, SearchCostAccounting> = {
+    seat: { status: 'known', usd: 0, source: 'subscription' },
+    free: { status: 'known', usd: 0, source: 'free' },
+    unread: { status: 'unknown', knownLowerBoundUsd: 0, reason: 'no charge was read' },
+  }
+
+  it('keeps a seat apart from a measured zero and from an unknown charge, in the ledger and the registry', async () => {
+    const searches = []
+    for (const [name, cost] of Object.entries(costs)) {
+      const path = join(root, `cost-${name}`, 'search-ledger.jsonl')
+      mkdirSync(join(root, `cost-${name}`), { recursive: true })
+      await writeSearch(path, `search-${name}`, [`# ${name}\n\nbody`], 'known', cost)
+      searches.push(replaySearchLedgerText(readFileSync(path, 'utf8'), `search-${name}`, path))
+    }
+    const registry = await buildProcedureRegistry(
+      { searches, sessions: [], outcomes: [] },
+      {
+        sinceMs: 0,
+        procedureOfNode: (node, search) => {
+          const text = nodeText.get(`${search.searchId}:${node.nodeId}`)
+          return text === undefined
+            ? null
+            : { digest: digestOf(text), name: search.searchId, kind: 'skill' }
+        },
+      },
+    )
+    const cells = (name: string) => version(registry, digestOf(`# ${name}\n\nbody`)).cells
+    expect(cells('seat')).toMatchObject({
+      count: 2,
+      subscription: 2,
+      usd: { measured: 0, unmeasured: 0 },
+    })
+    expect(cells('free')).toMatchObject({
+      count: 2,
+      subscription: 0,
+      usd: { sum: 0, measured: 2, unmeasured: 0 },
+    })
+    expect(cells('unread')).toMatchObject({
+      count: 2,
+      subscription: 0,
+      usd: { measured: 0, unmeasured: 2 },
+    })
+    const executions = (name: string) =>
+      searches
+        .find((search) => search.searchId === `search-${name}`)!
+        .cells()
+        .map((cell) => cell.subscriptionAttempts)
+    expect(executions('seat')).toEqual([1, 1])
+    expect(executions('free')).toEqual([0, 0])
+  })
+
+  it('refuses a seat that carries a dollar figure', async () => {
+    const path = join(root, 'cost-bad', 'search-ledger.jsonl')
+    mkdirSync(join(root, 'cost-bad'), { recursive: true })
+    await expect(
+      writeSearch(path, 'search-bad', ['# bad\n\nbody'], 'known', {
+        status: 'known',
+        usd: 1.5,
+        source: 'subscription',
+      }),
+    ).rejects.toThrow(/subscription cost source must have usd 0/)
   })
 })
