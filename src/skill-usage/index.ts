@@ -40,6 +40,7 @@ export { buildSkillUsageReport, renderSkillUsageTable } from './report'
 export type {
   ModelCallEvent,
   SessionChange,
+  SessionContractCheck,
   SessionUserTurn,
   SkillInvocationEvent,
   SkillInvoker,

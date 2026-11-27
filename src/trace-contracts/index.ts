@@ -60,6 +60,7 @@
 export { traceContract } from './builder'
 export { checkTraceContracts, evaluateTraceContract } from './evaluate'
 export { explainTraceContract } from './explain'
+export { contractSpansFromHarnessSession } from './harness-session'
 export {
   type ContractLintFinding,
   compileTraceContractSpec,

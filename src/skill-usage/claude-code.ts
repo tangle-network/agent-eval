@@ -24,7 +24,9 @@ import { readSessionInput, type SessionToolCall } from '@tangle-network/harness-
 import { record, stringField } from '../contract/intake/code-agent-fields'
 import { parseCodeAgentJsonlFile } from '../contract/intake/code-agent-jsonl'
 import { errorMessage, ValidationError } from '../errors'
+import type { TraceContract } from '../trace-contracts/types'
 import { githubPullRequestRefs } from './change-refs'
+import { checkSessionContracts } from './contract-checks'
 import {
   type LoadedSkillText,
   type MessageSkillInvocation,
@@ -225,23 +227,31 @@ function transcriptIdentity(records: readonly unknown[], fallbackId: string): Se
 }
 
 /** One transcript's parsed lines as a skill session record. */
-function skillSession(records: readonly unknown[], identity: SessionIdentity): SkillSessionRecord {
+function skillSession(
+  records: readonly unknown[],
+  identity: SessionIdentity,
+  contracts: readonly TraceContract[] | undefined,
+): SkillSessionRecord {
   const session = readSessionInput(
     'claude-code',
     { records },
     { nativeSessionId: identity.sessionId, parentNativeSessionId: identity.parentSessionId },
   )
-  return skillSessionFromHarnessSession(session, {
+  const value = skillSessionFromHarnessSession(session, {
     skillOfToolCall,
     subagentOfToolCall,
     changesOfToolCall: githubPullRequestRefs,
     ...skillMarkers(records, identity.parentSessionId !== null),
   })
+  if (contracts !== undefined) value.contractChecks = checkSessionContracts(session, contracts)
+  return value
 }
 
 export interface ClaudeCodeSkillSessionsOptions {
   /** Skip transcripts not written since this instant (epoch ms): they hold nothing newer. */
   sinceMs?: number
+  /** Check each session against these contracts; the counts land on `contractChecks`. */
+  contracts?: readonly TraceContract[]
 }
 
 /**
@@ -270,6 +280,7 @@ export async function* claudeCodeSkillSessions(
       const value = skillSession(
         parsed.entries,
         transcriptIdentity(parsed.entries, basename(path, '.jsonl').replace(/^agent-/, '')),
+        options.contracts,
       )
       if (parsed.malformedLines > 0) {
         value.gaps.push(`${parsed.malformedLines} lines are not JSON`)

@@ -44,6 +44,7 @@ import {
   skillSessionFromHarnessSession,
 } from '../src/skill-usage'
 import { runSkillUsageCommand } from '../src/skill-usage/command'
+import { compileTraceContractSpec } from '../src/trace-contracts'
 
 const FIXTURE = join(import.meta.dirname, 'fixtures/skill-usage')
 const SESSION_C = '-work-notes/cccccccc-0000-4000-8000-000000000003.jsonl'
@@ -285,6 +286,53 @@ describe('skill usage from Claude Code transcripts', () => {
     const edit = tools.find((event) => event.id === 'toolu_a_edit1')
     expect(edit?.name).toBe('Edit')
     expect(edit).not.toHaveProperty('subagent')
+  })
+
+  // A procedure contract checked while the sessions are read: a tool call's command and an
+  // answer's text are what its rules match, and each session carries its counts.
+  it('checks each session against the contracts it is given while reading it', async () => {
+    const contract = compileTraceContractSpec({
+      name: 'fixture-procedure',
+      rules: [
+        {
+          kind: 'never',
+          label: 'checks-run-directly',
+          p: { kind: 'TOOL', attr: { 'input.value': { $regex: 'run-checks', flags: '' } } },
+        },
+        {
+          kind: 'neverUnless',
+          label: 'edit-before-read',
+          p: { kind: 'TOOL', tool: 'Edit' },
+          prior: { kind: 'TOOL', tool: 'Read' },
+        },
+        {
+          kind: 'never',
+          label: 'done-without-evidence',
+          p: { kind: 'LLM', attr: { 'output.value': { $regex: '^Done\\.$', flags: '' } } },
+        },
+      ],
+    })
+    const sessions: SkillSessionRead[] = []
+    for await (const read of claudeCodeSkillSessions(projects, { contracts: [contract] }))
+      sessions.push(read)
+    const a = sessions.find(
+      (read) => read.succeeded && read.value.sessionId === 'aaaaaaaa-0000-4000-8000-000000000001',
+    )
+    if (a === undefined || !a.succeeded) throw new Error('session A was not read')
+    // A runs the checks once by hand and ends with a bare "Done.", and reads before it edits.
+    expect(a.value.contractChecks).toEqual([
+      {
+        contract: 'fixture-procedure',
+        status: 'fail',
+        violations: { 'checks-run-directly': 1, 'done-without-evidence': 1 },
+        errors: [],
+      },
+    ])
+    for (const read of sessions) if (read.succeeded) expect(read.value.contractChecks).toHaveLength(1)
+
+    const unchecked: SkillSessionRead[] = []
+    for await (const read of claudeCodeSkillSessions(projects)) unchecked.push(read)
+    for (const read of unchecked) if (read.succeeded) expect(read.value.contractChecks).toBeUndefined()
   })
 
   it('counts only invocations inside the window', async () => {
