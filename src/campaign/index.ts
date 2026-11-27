@@ -527,6 +527,8 @@ export {
   type SearchTask,
   type SearchTaskOutcome,
   type SearchTokenAccounting,
+  type SearchTokenCounts,
+  type SearchTokenUnknownCause,
   type SearchTraceRef,
   type SearchUnknown,
   validateSearchLedgerEvent,

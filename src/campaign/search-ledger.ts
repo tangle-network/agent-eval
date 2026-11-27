@@ -136,7 +136,31 @@ const KnownTokensSchema = z
   })
   .strict()
 
-const UnknownTokensSchema = z.object({ status: z.literal('unknown'), reason: NON_EMPTY }).strict()
+const TokenCountsSchema = z
+  .object({
+    inputTokens: NON_NEGATIVE_INT,
+    outputTokens: NON_NEGATIVE_INT,
+    cachedTokens: NON_NEGATIVE_INT,
+  })
+  .strict()
+
+// A partial count carries the part that reported; any other cause carries none, so a floor is never read as a total.
+const UnknownTokensSchema = z
+  .object({
+    status: z.literal('unknown'),
+    reason: NON_EMPTY,
+    cause: z.enum(['not-recorded', 'partial', 'not-measurable']).optional(),
+    lowerBound: TokenCountsSchema.optional(),
+  })
+  .strict()
+  .superRefine((tokens, ctx) => {
+    if ((tokens.cause === 'partial') !== (tokens.lowerBound !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'unknown tokens carry a lowerBound exactly when their cause is partial',
+      })
+    }
+  })
 
 const KnownCostSchema = z
   .object({

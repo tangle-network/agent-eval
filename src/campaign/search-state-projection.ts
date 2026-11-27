@@ -480,6 +480,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       attempts: 0,
       lastRunId: null,
       outcome: null,
+      outcomeReason: null,
       score: null,
       final: false,
       cancelled: null,
@@ -488,6 +489,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       subscriptionAttempts: 0,
       tokens: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
       tokensKnown: true,
+      tokensUnknown: null,
       wallMs: 0,
       wallKnown: true,
       traceId: null,
@@ -561,12 +563,25 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       cell.tokens.cachedTokens += tokens.cachedTokens
     } else {
       cell.tokensKnown = false
+      cell.tokensUnknown = { cause: tokens.cause ?? null, reason: tokens.reason }
+      // A partial count is part of the floor the cell's sum already is once one attempt did not report.
+      if (tokens.lowerBound !== undefined) {
+        cell.tokens.inputTokens += tokens.lowerBound.inputTokens
+        cell.tokens.outputTokens += tokens.lowerBound.outputTokens
+        cell.tokens.cachedTokens += tokens.lowerBound.cachedTokens
+      }
     }
     if (event.wallMs === null) cell.wallKnown = false
     else cell.wallMs += event.wallMs
     cell.attempts = event.attempt
     cell.lastRunId = runId
     cell.outcome = event.outcome.status
+    cell.outcomeReason =
+      event.outcome.status === 'failed'
+        ? { code: event.outcome.failure.code, message: event.outcome.failure.message }
+        : event.outcome.status === 'errored'
+          ? { code: event.outcome.error.code, message: event.outcome.error.message }
+          : null
     cell.spentUsd += cost.usd
     cell.updatedSequence = index
     if ('traceId' in event.traceRef) cell.traceId = event.traceRef.traceId
