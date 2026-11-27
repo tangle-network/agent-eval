@@ -91,7 +91,10 @@
    "curve",
    "samplesPerHour",
    "freshTokensPerSample",
-   "modelTurnsPerHour"
+   "modelTurnsPerHour",
+   "wallClockWindow",
+   "refusalShare",
+   "refusals"
   ],
   "interpretation": [
    {
@@ -117,6 +120,14 @@
    {
     "onQualitative": "samplesPerHour (scored programs from model proposals for program search; graded construction versions for chat), freshTokensPerSample and modelTurnsPerHour are primary diagnostics, read whatever the outcome; ShinkaEvolve's published circle-packing result took about 150 scored programs",
     "consequence": "if program search does not beat chat while scoring far fewer programs than that, the limit is the model's throughput on the seat (slow, reasoning-heavy turns), not evidence against the instrument; the report says which limit bound each board"
+   },
+   {
+    "onQualitative": "seat contention is not matched: both arms share one flat-rate plan with other runs, the program-search runs were admitted at 23:12:45Z and the chat runs pressed at 23:29Z and 23:31Z start only as the plan's queue frees a slot, so each arm reports its wall-clock window, its refusal share (the share of its harness invocations the plan refused for request rate, upstream code 1302: seat turns for program search, Runtime driver attempts for chat, each after its harness's own retries), samples per hour, model turns per hour and fresh tokens per sample",
+    "consequence": "the arms are compared on fresh tokens and samples, never on wall clock; per-hour figures are read beside each arm's refusal share and window, and a difference that the refusal shares could explain is reported as such"
+   },
+   {
+    "onQualitative": "stopped engine attempts a to d (evolve-*-20261127a..d) are pilots, each with its stop reason in operator-stop.json; attempt b reached 2.6181 on circle packing in about 166k fresh tokens before it was stopped for the concurrency amendment",
+    "consequence": "pilots are reported beside the result and never as the program-search arm's outcome; the arm is attempt e (evolve-*-20261127e)"
    }
   ]
  },
