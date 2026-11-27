@@ -123,6 +123,7 @@ describe('randomized served canary', () => {
     expect(decision.coverage.control).toEqual({
       checkedOutcomes: 120,
       billedAssignments: 120,
+      subscriptionAssignments: 0,
       turnReceipts: 120,
       traceReceipts: 120,
     })
