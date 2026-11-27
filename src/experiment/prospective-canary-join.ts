@@ -36,7 +36,11 @@ export interface ProspectiveCanaryExecution {
 export interface ProspectiveCanaryBilling {
   assignmentId: string
   billingSourceId: string
-  settlement: 'settled' | 'unknown'
+  /**
+   * `settled` is a dollar charge. `subscription` is a subscription seat's record: a known basis
+   * with no dollar figure, so `billedCostUsd` stays null. `unknown` is billing not yet known.
+   */
+  settlement: 'settled' | 'subscription' | 'unknown'
   billedCostUsd: number | null
   providerCallIds: readonly string[]
   recordedAt: string
@@ -220,6 +224,10 @@ export function joinProspectiveCanaryReceipts(
             'prospective canary: settled billing needs nonnegative actual cost',
           )
         }
+      } else if (bill.settlement === 'subscription') {
+        if (bill.billedCostUsd !== null) {
+          throw new ValidationError('prospective canary: subscription billing has no dollar figure')
+        }
       } else if (bill.settlement !== 'unknown' || bill.billedCostUsd !== null) {
         throw new ValidationError('prospective canary: unknown billing cost must stay null')
       }
@@ -240,6 +248,7 @@ export function joinProspectiveCanaryReceipts(
       outcomeSourceId: outcome?.outcomeSourceId ?? null,
       billedCostUsd: bill?.settlement === 'settled' ? bill.billedCostUsd : null,
       billingSourceId: bill?.billingSourceId ?? null,
+      ...(bill?.settlement === 'subscription' ? { billingBasis: 'subscription' as const } : {}),
       traceSourceId: execution?.traceSourceId ?? null,
       noExecutionSourceId: execution?.noExecutionSourceId ?? null,
       servedProfileDigest: execution?.servedProfileDigest ?? null,

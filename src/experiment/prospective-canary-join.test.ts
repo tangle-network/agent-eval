@@ -154,4 +154,112 @@ describe('prospective served canary receipt join', () => {
       }),
     ).toThrow(/orphan billing/)
   })
+
+  // A delegated task runs on a subscription seat in one of the repositories it changes. Tasks
+  // are randomized one by one, so one repository holds tasks of both arms; the seat has no
+  // dollar figure, which is a known basis, not missing billing.
+  it('decides task assignments clustered by repository on subscription seats', () => {
+    const base = synthetic()
+    const sealed = sealRandomizedCanaryRule({
+      ...base.sealed.rule,
+      experimentId: 'synthetic-task-canary',
+      assignmentUnit: 'task',
+      clusterUnit: 'repository',
+    })
+    // Each of 48 repositories holds two tasks, one in each arm.
+    const assignments = Array.from({ length: 96 }, (_, i) => ({
+      assignmentId: `task-${i}`,
+      assignmentSourceId: `assignment-ledger:${i}`,
+      sourceUnitId: `brief-${i}`,
+      clusterId: `example/repository-${i % 48}`,
+      arm: i < 48 === (i % 2 === 0) ? ('control' as const) : ('candidate' as const),
+      assignedAt: '2026-09-25T05:00:00.000Z',
+    }))
+    const input: ProspectiveCanaryJoinInput = {
+      ...base,
+      sealed,
+      assignments,
+      outcomes: assignments.map((row, i) => ({
+        assignmentId: row.assignmentId,
+        outcomeSourceId: `checked-outcome:${i}`,
+        checkedOutcome:
+          row.arm === 'candidate' ? (i % 5 === 0 ? 0 : 1) : i % 5 < 2 ? (1 as const) : (0 as const),
+        outcomeCheckerDigest: 'checker:revision-1',
+        checkedAt: '2026-09-25T05:01:00.000Z',
+      })),
+      executions: assignments.map((row, i) => ({
+        assignmentId: row.assignmentId,
+        traceSourceId: `session-transcript:${i}`,
+        noExecutionSourceId: null,
+        servedProfileDigest: row.arm === 'control' ? 'profile:control' : 'profile:candidate',
+        servedCodeRevisionDigest: 'served:revision-1',
+        turns: 30,
+        providerCallIds: [`turn:${i}`],
+        recordedAt: '2026-09-25T05:01:00.000Z',
+      })),
+      billing: assignments.map((row, i) => ({
+        assignmentId: row.assignmentId,
+        billingSourceId: `seat-record:${i}`,
+        settlement: 'subscription' as const,
+        billedCostUsd: null,
+        providerCallIds: [`turn:${i}`],
+        recordedAt: '2026-09-25T05:02:00.000Z',
+      })),
+    }
+    const rows = joinProspectiveCanaryReceipts(input)
+    expect(rows.every((row) => row.billingBasis === 'subscription')).toBe(true)
+    const decision = decideRandomizedCanary(
+      sealed,
+      {
+        protocolDigest: sealed.digest,
+        assignmentRosterDigest: randomizedCanaryRosterDigest(rows),
+        assignmentCount: rows.length,
+        assignmentLedgerSourceId: 'assignment-ledger:synthetic',
+        assignmentLedgerTipDigest: `sha256:${'b'.repeat(64)}`,
+        outcomeLedgerSourceId: 'checker-ledger:synthetic',
+        billingLedgerSourceId: 'seat-ledger:synthetic',
+        observationSnapshotDigest: randomizedCanaryObservationDigest(rows),
+        observationFrozenAt: '2026-09-25T06:02:00.000Z',
+        authorityId: 'platform-ledger',
+        attestationSourceId: 'synthetic-attestation',
+        closedAt: '2026-09-25T06:00:00.000Z',
+        attestedAt: '2026-09-25T06:02:01.000Z',
+      },
+      rows,
+      () => ({
+        verified: true,
+        authorityId: 'platform-ledger',
+        protocolWitnessedBeforeTraffic: true,
+        familySlotReservedBeforeTraffic: true,
+        eligibilityAndDispositionVerified: true,
+        randomizationVerified: true,
+        rosterCompleteAtCutoff: true,
+        outcomeAndBillingSnapshotFrozen: true,
+        sourceJoinsVerified: true,
+        armIsolationVerified: true,
+      }),
+    )
+    expect(decision.refusal).toBeNull()
+    expect(decision.clusters).toBe(48)
+    expect(decision.controlClusters).toBe(48)
+    expect(decision.candidateClusters).toBe(48)
+    expect(decision.missingBilling).toBe(0)
+    expect(decision.coverage.candidate.billedAssignments).toBe(48)
+    expect(decision.coverage.candidate.subscriptionAssignments).toBe(48)
+    expect(decision.controlBilledCostUsd).toBeNull()
+    expect(decision.candidateSuccessRate).toBeGreaterThan(decision.controlSuccessRate!)
+    expect(decision.headline95Pass).toBe(true)
+
+    expect(() =>
+      joinProspectiveCanaryReceipts({
+        ...input,
+        billing: input.billing.map((row, index) =>
+          index === 0 ? { ...row, billedCostUsd: 0.01 } : row,
+        ),
+      }),
+    ).toThrow(/subscription billing has no dollar figure/)
+    expect(() =>
+      sealRandomizedCanaryRule({ ...sealed.rule, assignmentUnit: 'task', clusterUnit: 'customer' }),
+    ).toThrow(/task assignments must cluster by task or repository/)
+  })
 })

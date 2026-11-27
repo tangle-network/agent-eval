@@ -6,6 +6,17 @@ import { studentTCdf, studentTQuantile } from '../math/student-t'
 
 export type CanaryArm = 'control' | 'candidate'
 
+export type CanaryBillingBasis = 'measured' | 'subscription'
+
+/** The unit randomized to an arm. */
+export type CanaryAssignmentUnit = 'customer' | 'session' | 'task'
+
+/**
+ * The independent unit of the variance. A customer holds sessions and a repository holds tasks,
+ * so either may hold assignments in both arms; a session or task cluster holds exactly one.
+ */
+export type CanaryClusterUnit = 'customer' | 'session' | 'repository' | 'task'
+
 /** One assigned unit, including unsuccessful and unobserved executions. */
 export interface CanaryAssignmentReceipt {
   assignmentId: string
@@ -21,6 +32,12 @@ export interface CanaryObservation extends CanaryAssignmentReceipt {
   /** Billed cost, including measured zero. Null means billing is unavailable. */
   billedCostUsd: number | null
   billingSourceId: string | null
+  /**
+   * How the assignment's cost is known. `measured` (the default) is a dollar charge in
+   * `billedCostUsd`. `subscription` is a subscription seat: a known basis with no dollar figure,
+   * so `billedCostUsd` is null and `billingSourceId` names the seat record.
+   */
+  billingBasis?: CanaryBillingBasis
   /** Trace identity may be null for an assigned unit that never executed. */
   traceSourceId: string | null
   /** Required when no trace exists; identifies the independent no-execution record. */
@@ -48,9 +65,9 @@ export interface RandomizedCanaryRule {
   confirmatoryFamilySize: number
   confirmatoryIndex: number
   familyReservationSourceId: string
-  assignmentUnit: 'customer' | 'session'
-  /** Customer clustering also permits sessions of one customer in both arms. */
-  clusterUnit: 'customer' | 'session'
+  assignmentUnit: CanaryAssignmentUnit
+  /** Customer or repository clustering also permits its assignments in both arms. */
+  clusterUnit: CanaryClusterUnit
   stoppingRule: 'fixed-time'
   /** No assignment after this UTC time enters the frozen cohort. */
   analysisCutoff: string
@@ -134,7 +151,10 @@ export interface RandomizedCanaryDecision {
     CanaryArm,
     {
       checkedOutcomes: number
+      /** Assignments whose cost is known: a measured charge or a subscription seat. */
       billedAssignments: number
+      /** Assignments billed to a subscription seat, with no dollar figure. */
+      subscriptionAssignments: number
       turnReceipts: number
       traceReceipts: number
     }
@@ -221,6 +241,7 @@ export function randomizedCanaryObservationDigest(rows: readonly CanaryObservati
     outcomeSourceId: row.outcomeSourceId,
     billedCostUsd: row.billedCostUsd,
     billingSourceId: row.billingSourceId,
+    billingBasis: row.billingBasis ?? 'measured',
     traceSourceId: row.traceSourceId,
     noExecutionSourceId: row.noExecutionSourceId,
     servedProfileDigest: row.servedProfileDigest,
@@ -266,14 +287,21 @@ function validateRule(rule: RandomizedCanaryRule): void {
       'randomized canary: confirmatoryIndex must name a reserved family slot',
     )
   }
-  if (rule.assignmentUnit !== 'customer' && rule.assignmentUnit !== 'session') {
-    throw new ValidationError('randomized canary: assignmentUnit must be customer or session')
+  const clustersFor: Record<CanaryAssignmentUnit, readonly CanaryClusterUnit[]> = {
+    customer: ['customer'],
+    session: ['session', 'customer'],
+    task: ['task', 'repository'],
   }
-  if (rule.clusterUnit !== 'customer' && rule.clusterUnit !== 'session') {
-    throw new ValidationError('randomized canary: clusterUnit must be customer or session')
+  const allowed = Object.hasOwn(clustersFor, rule.assignmentUnit)
+    ? clustersFor[rule.assignmentUnit]
+    : undefined
+  if (allowed === undefined) {
+    throw new ValidationError('randomized canary: assignmentUnit must be customer, session or task')
   }
-  if (rule.assignmentUnit === 'customer' && rule.clusterUnit !== 'customer') {
-    throw new ValidationError('randomized canary: customer assignments must cluster by customer')
+  if (!allowed.includes(rule.clusterUnit)) {
+    throw new ValidationError(
+      `randomized canary: ${rule.assignmentUnit} assignments must cluster by ${allowed.join(' or ')}`,
+    )
   }
   if (rule.stoppingRule !== 'fixed-time') {
     throw new ValidationError('randomized canary: only fixed-time stopping is supported')
@@ -431,18 +459,33 @@ function checkObservationRow(row: CanaryObservation, index: number, tally: Canar
         `randomized canary: assignment ${index} has an outcome without its source`,
       )
   } else nonEmpty(row.outcomeSourceId, `assignment ${index} outcome source id`)
-  if (row.billedCostUsd === null) tally.missingBilling++
-  else if (!Number.isFinite(row.billedCostUsd) || row.billedCostUsd < 0) {
+  const basis = row.billingBasis ?? 'measured'
+  if (basis !== 'measured' && basis !== 'subscription') {
     throw new ValidationError(
-      `randomized canary: assignment ${index} billed cost must be nonnegative`,
+      `randomized canary: assignment ${index} billing basis must be measured or subscription`,
     )
   }
-  if (row.billingSourceId === null) {
-    if (row.billedCostUsd !== null)
+  if (basis === 'subscription') {
+    if (row.billedCostUsd !== null || row.billingSourceId === null) {
       throw new ValidationError(
-        `randomized canary: assignment ${index} has billed cost without its source`,
+        `randomized canary: assignment ${index} subscription billing has a seat record and no dollar figure`,
       )
-  } else nonEmpty(row.billingSourceId, `assignment ${index} billing source id`)
+    }
+    nonEmpty(row.billingSourceId, `assignment ${index} billing source id`)
+  } else {
+    if (row.billedCostUsd === null) tally.missingBilling++
+    else if (!Number.isFinite(row.billedCostUsd) || row.billedCostUsd < 0) {
+      throw new ValidationError(
+        `randomized canary: assignment ${index} billed cost must be nonnegative`,
+      )
+    }
+    if (row.billingSourceId === null) {
+      if (row.billedCostUsd !== null)
+        throw new ValidationError(
+          `randomized canary: assignment ${index} has billed cost without its source`,
+        )
+    } else nonEmpty(row.billingSourceId, `assignment ${index} billing source id`)
+  }
   if (row.turns === null) tally.missingTurns++
   else if (!Number.isSafeInteger(row.turns) || row.turns < 0) {
     throw new ValidationError(
@@ -457,10 +500,11 @@ function checkObservationRow(row: CanaryObservation, index: number, tally: Canar
       `randomized canary: assignment ${index} has conflicting trace and no-execution receipts`,
     )
   }
+  // A unit that never ran spent nothing, under either basis: a measured zero, or a seat it never used.
   const noExecution =
     row.noExecutionSourceId !== null &&
     row.turns === 0 &&
-    row.billedCostUsd === 0 &&
+    (basis === 'subscription' || row.billedCostUsd === 0) &&
     row.checkedOutcome === 0
   if (row.traceSourceId === null && !noExecution) tally.missingTraces++
   for (const field of [
@@ -539,13 +583,19 @@ function baseDecision(
       }
     }
   }
+  const subscription = (row: CanaryObservation) => row.billingBasis === 'subscription'
   const coverage = (arm: CanaryArm) => ({
     checkedOutcomes: arms[arm].filter((row) => row.checkedOutcome !== null).length,
-    billedAssignments: arms[arm].filter((row) => row.billedCostUsd !== null).length,
+    billedAssignments: arms[arm].filter((row) => row.billedCostUsd !== null || subscription(row))
+      .length,
+    subscriptionAssignments: arms[arm].filter(subscription).length,
     turnReceipts: arms[arm].filter((row) => row.turns !== null).length,
     traceReceipts: arms[arm].filter((row) => row.traceSourceId !== null).length,
   })
   const armCoverage = { control: coverage('control'), candidate: coverage('candidate') }
+  const dollarsKnown = (arm: CanaryArm) =>
+    armCoverage[arm].billedAssignments === arms[arm].length &&
+    armCoverage[arm].subscriptionAssignments === 0
   const sum = (arm: CanaryArm, field: 'checkedOutcome' | 'billedCostUsd' | 'turns'): number =>
     arms[arm].reduce((total, row) => total + (row[field] ?? 0), 0)
   const n0 = arms.control.length
@@ -582,10 +632,9 @@ function baseDecision(
     familyAdjustedInterval: null,
     familywisePass: false,
     unadjustedPValue: null,
-    controlBilledCostUsd:
-      armCoverage.control.billedAssignments === n0 ? sum('control', 'billedCostUsd') : null,
-    candidateBilledCostUsd:
-      armCoverage.candidate.billedAssignments === n1 ? sum('candidate', 'billedCostUsd') : null,
+    // A dollar total exists only when every assignment of the arm carries a measured charge.
+    controlBilledCostUsd: dollarsKnown('control') ? sum('control', 'billedCostUsd') : null,
+    candidateBilledCostUsd: dollarsKnown('candidate') ? sum('candidate', 'billedCostUsd') : null,
     controlTurns: armCoverage.control.turnReceipts === n0 ? sum('control', 'turns') : null,
     candidateTurns: armCoverage.candidate.turnReceipts === n1 ? sum('candidate', 'turns') : null,
     refusal: null,
@@ -688,6 +737,18 @@ export function decideRandomizedCanary(
   verifyCohort: CanaryCohortVerifier,
 ): RandomizedCanaryDecision {
   verifyCohortEvidence(sealed, cohort, rows, verifyCohort)
+  return analyzeVerifiedCanaryRows(sealed, cohort, rows)
+}
+
+/**
+ * The registered analysis on rows whose cohort evidence is already verified. Internal: the power
+ * simulation runs this same estimator, so its refusals and intervals are the decision's own.
+ */
+export function analyzeVerifiedCanaryRows(
+  sealed: SealedRandomizedCanaryRule,
+  cohort: CanaryCohortReceipt,
+  rows: readonly CanaryObservation[],
+): RandomizedCanaryDecision {
   const tally = tallyObservations(sealed.rule, rows)
   const result = baseDecision(sealed, cohort, rows.length, tally)
   const refusal = refusalReason(sealed.rule, tally, result)
