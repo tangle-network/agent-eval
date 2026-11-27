@@ -166,12 +166,13 @@ describe('prospective served canary receipt join', () => {
       assignmentUnit: 'task',
       clusterUnit: 'repository',
     })
+    // Each of 48 repositories holds two tasks, one in each arm.
     const assignments = Array.from({ length: 96 }, (_, i) => ({
       assignmentId: `task-${i}`,
       assignmentSourceId: `assignment-ledger:${i}`,
       sourceUnitId: `brief-${i}`,
       clusterId: `example/repository-${i % 48}`,
-      arm: (i % 96 < 48 ? i % 2 : (i + 1) % 2) === 0 ? ('control' as const) : ('candidate' as const),
+      arm: i < 48 === (i % 2 === 0) ? ('control' as const) : ('candidate' as const),
       assignedAt: '2026-09-25T05:00:00.000Z',
     }))
     const input: ProspectiveCanaryJoinInput = {

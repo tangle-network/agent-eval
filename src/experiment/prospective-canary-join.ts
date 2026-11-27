@@ -226,9 +226,7 @@ export function joinProspectiveCanaryReceipts(
         }
       } else if (bill.settlement === 'subscription') {
         if (bill.billedCostUsd !== null) {
-          throw new ValidationError(
-            'prospective canary: subscription billing has no dollar figure',
-          )
+          throw new ValidationError('prospective canary: subscription billing has no dollar figure')
         }
       } else if (bill.settlement !== 'unknown' || bill.billedCostUsd !== null) {
         throw new ValidationError('prospective canary: unknown billing cost must stay null')
