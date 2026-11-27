@@ -18,7 +18,10 @@ function epochMs(at: string | null): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 
-function timed(start: string | null, end: string | null): Pick<ContractSpan, 'startedAt' | 'endedAt'> {
+function timed(
+  start: string | null,
+  end: string | null,
+): Pick<ContractSpan, 'startedAt' | 'endedAt'> {
   const startedAt = epochMs(start)
   const endedAt = epochMs(end) ?? startedAt
   return {

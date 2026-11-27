@@ -23,6 +23,11 @@ export function checkSessionContracts(
     const violations: Record<string, number> = {}
     for (const violation of verdict.violations)
       violations[violation.rule] = (violations[violation.rule] ?? 0) + 1
-    return { contract: verdict.contract, status: verdict.status, violations, errors: verdict.errors }
+    return {
+      contract: verdict.contract,
+      status: verdict.status,
+      violations,
+      errors: verdict.errors,
+    }
   })
 }
