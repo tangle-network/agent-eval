@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+- Harbor imports expose selected task asset commitments and refuse changed imported assets during preparation or grading. Image rebuilding shares the environment commitment. Replay consumers must bind these identities before reusing campaign evidence; historical imports without them remain unqualified for that reuse.
+
 ## [2.0.16] — 2026-11-27
 
 - feat(search-ledger): an unknown token count says why, and an unscored cell carries its code to the registry

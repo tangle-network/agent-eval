@@ -20,13 +20,14 @@
 
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { readdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import type { HarborTaskItem } from './harbor'
+import { assertHarborTaskAssets, harborDirectoryDigest } from './harbor-assets'
 
 const execute = promisify(execFile)
 
@@ -48,7 +49,10 @@ export interface CaseEnvironmentOptions {
 export const dockerHostEnv = (host?: string): NodeJS.ProcessEnv =>
   host ? { ...process.env, DOCKER_HOST: `ssh://${host}` } : process.env
 
-const live = new Map<string, { host?: string; image: Promise<string> }>()
+const live = new Map<
+  string,
+  { host?: string; image: Promise<string>; environment?: string | null }
+>()
 const waiters: (() => void)[] = []
 const wake = () => {
   for (const resume of waiters.splice(0)) resume()
@@ -68,15 +72,11 @@ const alive = (pid: number) => {
 /** `harbor-case/<task dir>` and the digest of every file under `environment/`. */
 async function caseImage(item: HarborTaskItem): Promise<{ repository: string; digest: string }> {
   const dir = join(item.payload.taskDir, 'environment')
-  const digest = createHash('sha256')
-  for (const file of (await readdir(dir, { recursive: true, withFileTypes: true }))
-    .filter((entry) => entry.isFile())
-    .map((entry) => join(entry.parentPath, entry.name))
-    .sort())
-    digest.update(`${file.slice(dir.length)}\0`).update(await readFile(file))
+  const digest = await harborDirectoryDigest(dir)
+  if (!digest) throw new Error('Harbor task has no environment directory')
   return {
     repository: `harbor-case/${item.payload.dir.toLowerCase()}`,
-    digest: digest.digest('hex').slice(0, 16),
+    digest: digest.slice('sha256:'.length, 'sha256:'.length + 16),
   }
 }
 
@@ -143,6 +143,7 @@ export async function prepareCaseEnvironment(
   item: HarborTaskItem,
   options: CaseEnvironmentOptions = {},
 ): Promise<string> {
+  await assertHarborTaskAssets(item.payload)
   const key = item.payload.taskDir
   while (!live.has(key) && live.size >= (options.maxLive ?? 2)) {
     options.signal?.throwIfAborted()
@@ -152,15 +153,23 @@ export async function prepareCaseEnvironment(
     })
   }
   let entry = live.get(key)
+  if (entry && entry.environment !== item.payload.assetIdentity?.components.environment)
+    throw new Error('Harbor environment changed while prepared; release it before preparing again')
   if (!entry) {
-    entry = { host: options.host, image: build(item, options) }
+    entry = {
+      host: options.host,
+      image: build(item, options),
+      environment: item.payload.assetIdentity?.components.environment,
+    }
     live.set(key, entry)
     entry.image.catch(() => {
       live.delete(key)
       wake()
     })
   }
-  return entry.image
+  const image = await entry.image
+  await assertHarborTaskAssets(item.payload)
+  return image
 }
 
 /**
