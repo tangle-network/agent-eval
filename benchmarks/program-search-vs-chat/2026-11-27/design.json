@@ -1,7 +1,7 @@
 {
  "spec": {
   "id": "program-search-vs-chat-boards-20261127",
-  "hypothesis": "On record boards with a graded scorer, an evolutionary program-search instrument (ShinkaEvolve 0.0.8, each proposal one harness turn on the seat) closes more of the gap to the best known bound than a chat-agent run on the same model, seat and wall budget, compared at matched fresh tokens. Each program-search play matches its chat play's budget, input and stop: circle packing is the two-hour attempt play that stops on a pass, from no published configuration; the first autocorrelation inequality is the four-hour record play, from the published construction. Units: two boards, circle packing (n = 26, maximise the sum of radii; validation only, its best known value is a reproduction target) and the first autocorrelation inequality (minimise C_1a; the improvement target, against 1.50274348670958). Both arms are scored by the same frozen board scorer; fresh tokens are uncached input plus cache writes plus output plus reasoning, as each harness meters them; cached tokens are reported beside them. Cost is tokens: a proxy in USD at the router catalog's published zai/glm-5.3 rate, read at report time and labelled as a proxy, beside the billed USD, which is 0 because the seat is flat-rate. Priors folded in, not re-run: M1 (search, G 0.34 on c1c) and M2 (test-time training, G 0.77 against a shuffled control at 0.69). Secondary reference only: the GLM-5.3 chat runs board-circle-packing-attempt-20261116a and record-first-autocorrelation-inequality-20261117a (the latter scored 1.5615). With one run per arm and board there is no interval: the result is the per-board table and both progress curves.",
+  "hypothesis": "On record boards with a graded scorer, an evolutionary program-search instrument (ShinkaEvolve 0.0.8, each proposal one harness turn on the seat, continued once in its session when its reasoning reaches the harness's output cap, as a chat agent's next step would) closes more of the gap to the best known bound than a chat-agent run on the same model, seat and wall budget, compared at matched fresh tokens. Each program-search play matches its chat play's budget, input and stop: circle packing is the two-hour attempt play that stops on a pass, from no published configuration; the first autocorrelation inequality is the four-hour record play, from the published construction. Units: two boards, circle packing (n = 26, maximise the sum of radii; validation only, its best known value is a reproduction target) and the first autocorrelation inequality (minimise C_1a; the improvement target, against 1.50274348670958). Both arms are scored by the same frozen board scorer; fresh tokens are uncached input plus cache writes plus output plus reasoning, as each harness meters them; cached tokens are reported beside them. Cost is tokens: a proxy in USD at the router catalog's published zai/glm-5.3 rate, read at report time and labelled as a proxy, beside the billed USD, which is 0 because the seat is flat-rate. Priors folded in, not re-run: M1 (search, G 0.34 on c1c) and M2 (test-time training, G 0.77 against a shuffled control at 0.69). Secondary reference only: the GLM-5.3 chat runs board-circle-packing-attempt-20261116a and record-first-autocorrelation-inequality-20261117a (the latter scored 1.5615). With one run per arm and board there is no interval: the result is the per-board table and both progress curves.",
   "arms": [
    {
     "id": "chat-glm54",
@@ -33,12 +33,13 @@
      },
      "freshTokenCap": 6000000,
      "generations": 400,
-     "proposalsInFlight": 2,
-     "evaluationsInFlight": 2,
+     "proposalsInFlight": 4,
+     "evaluationsInFlight": 4,
      "programCpuSeconds": {
       "circle-packing": 60,
       "first-autocorrelation": 300
-     }
+     },
+     "concurrencyBasis": "four mutation sessions in flight on the one seat, as the chat plays run up to four workers beside their root (profiles/roles/board-solver.json metadata.playRoot.workerSlots 4), under the same fresh-token cap and hours"
     }
    },
    {
@@ -88,7 +89,10 @@
     "cachedTokensTotal",
     "proxyUsd",
     "billedUsd",
-    "curve"
+    "curve",
+    "samplesPerHour",
+    "freshTokensPerSample",
+    "modelTurnsPerHour"
    ],
    "interpretation": [
     {
@@ -110,6 +114,10 @@
     {
      "onQualitative": "a construction is claimed to beat a bound",
      "consequence": "the claim stands only after exact_check.py re-scores it in rational arithmetic and its exactly feasible value strictly beats the bound, with the open claims on that bound reported beside it"
+    },
+    {
+     "onQualitative": "samplesPerHour (scored programs from model proposals for program search; graded construction versions for chat), freshTokensPerSample and modelTurnsPerHour are primary diagnostics, read whatever the outcome; ShinkaEvolve's published circle-packing result took about 150 scored programs",
+     "consequence": "if program search does not beat chat while scoring far fewer programs than that, the limit is the model's throughput on the seat (slow, reasoning-heavy turns), not evidence against the instrument; the report says which limit bound each board"
     }
    ]
   },
@@ -128,7 +136,7 @@
    "onFail": "refuse-contrast"
   }
  },
- "digest": "bf64d4569d2aa96fff35146ca30fd2c6ed697a9cacc975e3cdbab21509bd3570",
+ "digest": "931fdf865fe8313313ff5f3da7781a64f5ba490c43c80c2bc84adccde608d18a",
  "algo": "sha256-rfc8785",
  "sealedAt": "2026-11-27T21:40:00Z",
  "initialDigest": "5482568bfcc6d643bfa4ffd1d1c93fd681879de4e8bbeb7907d2e05648e62fff",
@@ -141,6 +149,15 @@
     "No earlier run of these arms on GLM-5.4 exists."
    ],
    "digest": "bf64d4569d2aa96fff35146ca30fd2c6ed697a9cacc975e3cdbab21509bd3570"
+  },
+  {
+   "at": "2026-11-27T22:55:00Z",
+   "reason": "Two changes to the program-search arm, both decided on throughput, not on any outcome. First, at 22:42Z the engine's seat began continuing a turn once in its session when its reasoning reaches OpenCode's 32,000-token output cap with no answer, as a chat agent's next step would (disco 6eefa056d): in the first attempts (runs evolve-*-20261127a, stopped at 22:42Z) 4 of 5 finished seat turns ended at that cap with reasoning only. Second, the arm now runs four mutation sessions and four program evaluations in flight instead of two, on the same seat under the same fresh-token cap and hours, because the chat plays run up to four workers beside their root (profiles/roles/board-solver.json metadata.playRoot.workerSlots 4) and at two in flight the arm made about one model turn per ten minutes per board, roughly 12 scored programs for circle packing and 24 for the autocorrelation board against the roughly 150 of ShinkaEvolve's published circle-packing result. Samples per hour, fresh tokens per sample and model turns per hour are added as primary diagnostics.",
+   "blind": [
+    "Interim program-search rows were read: at 22:51Z circle packing attempt b (evolve-circle-packing-20261127b) had scored 2 programs and the autocorrelation attempt b 2, each best still its starting construction (circle packing 2.08, the autocorrelation board the published 1.5027434867095835), so no progress on either board had been seen.",
+    "No chat-arm construction, check or token count exists: neither GLM-5.4 chat arm has started, because the Lab's deploy check held both presses."
+   ],
+   "digest": "931fdf865fe8313313ff5f3da7781a64f5ba490c43c80c2bc84adccde608d18a"
   }
  ]
 }
