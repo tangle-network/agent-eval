@@ -25,7 +25,11 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openSearchLedger, replaySearchLedgerText } from '../src/campaign/search-ledger'
 import { SearchRecorder, surfaceNode } from '../src/campaign/search-ledger-recording'
-import type { SearchCostAccounting } from '../src/campaign/search-ledger-types'
+import type {
+  SearchCostAccounting,
+  SearchTaskOutcome,
+  SearchTokenAccounting,
+} from '../src/campaign/search-ledger-types'
 import { hashCanonical } from '../src/ledger-core/canonical'
 import {
   buildProcedureRegistry,
@@ -162,8 +166,9 @@ async function writeSearch(
   path: string,
   searchId: string,
   skillTexts: readonly string[],
-  tokens: 'known' | 'unknown',
+  tokens: 'known' | 'unknown' | SearchTokenAccounting,
   cost: SearchCostAccounting = { status: 'known', usd: 0.25, source: 'provider' },
+  outcome?: SearchTaskOutcome,
 ): Promise<void> {
   const tasks = ['t0', 't1'].map((taskId) => ({
     taskId,
@@ -239,12 +244,14 @@ async function writeSearch(
       })
       await recorder.settleCell({
         cellId,
-        outcome: { status: 'passed', score: 0.5 + 0.1 * index, metrics: {} },
+        outcome: outcome ?? { status: 'passed', score: 0.5 + 0.1 * index, metrics: {} },
         accounting: {
           tokens:
             tokens === 'known'
               ? { status: 'known', inputTokens: 1000, outputTokens: 200, cachedTokens: 300 }
-              : { status: 'unknown', reason: 'the lane reports no tokens' },
+              : tokens === 'unknown'
+                ? { status: 'unknown', reason: 'the lane reports no tokens' }
+                : tokens,
           cost,
         },
         wallMs: tokens === 'known' ? 4000 : null,
@@ -711,5 +718,122 @@ describe('a subscription seat is a known cost basis with no dollar figure', () =
         source: 'subscription',
       }),
     ).rejects.toThrow(/subscription cost source must have usd 0/)
+  })
+})
+
+// The shapes a Discovery run's settle step writes, with the figures of one real run (2026-11-27): Runtime counted
+// 897,000 input tokens (818,688 of them cache reads) and 17,660 output tokens over the attempts that reported, and one
+// attempt, stopped when the run's check passed, reported none.
+describe('an unknown count and an unscored cell say why', () => {
+  const partial: SearchTokenAccounting = {
+    status: 'unknown',
+    cause: 'partial',
+    reason: 'Runtime counted only the attempts that reported usage (1 did not)',
+    lowerBound: { inputTokens: 78_312, outputTokens: 17_660, cachedTokens: 818_688 },
+  }
+  const seat: SearchCostAccounting = { status: 'known', usd: 0, source: 'subscription' }
+  const driverFailed: SearchTaskOutcome = {
+    status: 'errored',
+    metrics: {},
+    error: { code: 'driver-failed', message: 'the run ended driver-failed', retryable: false },
+  }
+
+  async function registryOf(
+    name: string,
+    tokens: SearchTokenAccounting,
+    outcome?: SearchTaskOutcome,
+  ) {
+    const path = join(root, `why-${name}`, 'search-ledger.jsonl')
+    mkdirSync(join(root, `why-${name}`), { recursive: true })
+    await writeSearch(path, `search-why-${name}`, [`# why ${name}\n\nbody`], tokens, seat, outcome)
+    const search = replaySearchLedgerText(readFileSync(path, 'utf8'), `search-why-${name}`, path)
+    const registry = await buildProcedureRegistry(
+      { searches: [search], sessions: [], outcomes: [] },
+      {
+        sinceMs: 0,
+        procedureOfNode: (node, read) => {
+          const text = nodeText.get(`${read.searchId}:${node.nodeId}`)
+          return text === undefined
+            ? null
+            : { digest: digestOf(text), name: read.searchId, kind: 'skill' }
+        },
+      },
+    )
+    return { search, executions: version(registry, digestOf(`# why ${name}\n\nbody`)).executions }
+  }
+
+  it('keeps a partial count as a floor with its cause, never as the total', async () => {
+    const { search, executions } = await registryOf('partial', partial)
+    expect(search.cells()[0]).toMatchObject({
+      tokensKnown: false,
+      tokens: { inputTokens: 78_312, outputTokens: 17_660, cachedTokens: 818_688 },
+      tokensUnknown: { cause: 'partial', reason: partial.reason },
+    })
+    expect(executions[0]).toMatchObject({
+      tokens: null,
+      tokensFloor: 914_660,
+      tokensUnknown: { cause: 'partial', reason: partial.reason },
+      outcome: 'passed',
+      outcomeReason: null,
+    })
+  })
+
+  it('keeps a count nothing recorded apart from zero and from a harness that cannot count', async () => {
+    const notRecorded = await registryOf('not-recorded', {
+      status: 'unknown',
+      cause: 'not-recorded',
+      reason: 'the attempt ran and no record holds its count',
+    })
+    const notMeasurable = await registryOf('not-measurable', {
+      status: 'unknown',
+      cause: 'not-measurable',
+      reason: 'the harness reports no token counts',
+    })
+    const unclassified = await registryOf('unclassified', {
+      status: 'unknown',
+      reason: 'tokens not recorded',
+    })
+    expect(notRecorded.executions[0]).toMatchObject({
+      tokens: null,
+      tokensFloor: null,
+      tokensUnknown: { cause: 'not-recorded' },
+    })
+    expect(notMeasurable.executions[0]).toMatchObject({
+      tokens: null,
+      tokensFloor: null,
+      tokensUnknown: { cause: 'not-measurable' },
+    })
+    expect(unclassified.executions[0]).toMatchObject({
+      tokens: null,
+      tokensUnknown: { cause: null, reason: 'tokens not recorded' },
+    })
+  })
+
+  it('carries an errored cell its code, so a reader can rank the causes', async () => {
+    const { executions } = await registryOf('errored', partial, driverFailed)
+    expect(executions.map((execution) => execution.outcome)).toEqual(['errored', 'errored'])
+    expect(executions[0]?.outcomeReason).toEqual({
+      code: 'driver-failed',
+      message: 'the run ended driver-failed',
+    })
+  })
+
+  it('refuses a floor without the partial cause, and a partial cause without its floor', async () => {
+    mkdirSync(join(root, 'why-bad'), { recursive: true })
+    await expect(
+      writeSearch(join(root, 'why-bad', 'a.jsonl'), 'search-why-bad-a', ['# bad a\n\nbody'], {
+        status: 'unknown',
+        cause: 'partial',
+        reason: 'no floor',
+      }),
+    ).rejects.toThrow(/lowerBound exactly when their cause is partial/)
+    await expect(
+      writeSearch(join(root, 'why-bad', 'b.jsonl'), 'search-why-bad-b', ['# bad b\n\nbody'], {
+        status: 'unknown',
+        cause: 'not-recorded',
+        reason: 'a floor on the wrong cause',
+        lowerBound: { inputTokens: 1, outputTokens: 1, cachedTokens: 0 },
+      }),
+    ).rejects.toThrow(/lowerBound exactly when their cause is partial/)
   })
 })
