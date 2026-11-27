@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises'
+import { lstat, readdir, readFile, readlink, realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
 
