@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.17] — 2026-11-27
+
+- docs(trace-contracts): check recorded harness sessions
+- style(skill-usage): format the session contract checks
+- feat(skill-usage): check each recorded session against trace contracts while reading it
+- docs(experiment): task units, subscription billing and power for the served canary
+- test(experiment): coverage reports subscription assignments
+- style(experiment): format the canary join
+- feat(experiment): canary task assignments by repository, subscription billing, and canary power
+
 ## [2.0.16] — 2026-11-27
 
 - feat(search-ledger): an unknown token count says why, and an unscored cell carries its code to the registry
