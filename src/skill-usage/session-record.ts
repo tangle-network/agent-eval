@@ -100,6 +100,16 @@ export interface SessionUserTurn {
   text: string
 }
 
+/** One contract's verdict on a session, as counts. */
+export interface SessionContractCheck {
+  contract: string
+  status: 'pass' | 'fail' | 'error'
+  /** Violations per rule label; a rule that passed is absent. */
+  violations: Record<string, number>
+  /** Why rules could not be evaluated, one line each. */
+  errors: string[]
+}
+
 export interface SkillSessionRecord {
   harness: string
   sessionId: string
@@ -127,6 +137,11 @@ export interface SkillSessionRecord {
    * tell a person's turn from an agent's relay or a harness's injection.
    */
   turns?: SessionUserTurn[]
+  /**
+   * The session checked against the contracts the reader was given, in their
+   * order. Undefined when the reader was given none.
+   */
+  contractChecks?: SessionContractCheck[]
   /** What the reader could not read in this session, in its own words. */
   gaps: string[]
 }

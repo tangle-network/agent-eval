@@ -110,6 +110,29 @@ A call without captured arguments fails when its tool is called more than once, 
 Grouping matches arguments exactly: a retry that re-encodes a value (`42.5` vs `"42.50"`) is not recognized as the same call.
 Independent of grouping, a declared write whose call itself errored (including a timeout) and carries no idempotency key always fails — its outcome at the target is unknown, so nothing proves a retry, however it was encoded, would be safe.
 
+## Check recorded harness sessions
+
+`contractSpansFromHarnessSession` turns a recorded Claude Code or Codex session into the spans a contract reads.
+Each tool call is a `TOOL` span with its arguments as `args` and its input and result text as `input.value` and `output.value`.
+Each assistant message with text is an `LLM` span with that text as `output.value`.
+Calls and messages a fork copied from its parent are left out.
+
+The skill-usage readers check each session while they read it: pass `contracts` to `claudeCodeSkillSessions` or `codexSkillSessions`, and each record's `contractChecks` holds, per contract, its status and the violations per rule.
+A rule that matches a command or an answer's text states a procedure, for example that a check's output is never piped into `tail`:
+
+```json
+{
+  "name": "procedure",
+  "rules": [
+    {
+      "kind": "never",
+      "label": "check-output-piped",
+      "p": { "kind": "TOOL", "attr": { "input.value": { "$regex": "run-checks[^|\\n]*\\|\\s*tail", "flags": "" } } }
+    }
+  ]
+}
+```
+
 ## Rule semantics
 
 Every rule reports `pass`, `fail` or `error` in `ContractVerdict.ruleExecutions`.

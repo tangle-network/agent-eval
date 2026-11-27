@@ -18,6 +18,7 @@ export type {
   MessageSkillInvocation,
   ModelCallEvent,
   SessionChange,
+  SessionContractCheck,
   SessionUserTurn,
   SkillFileRead,
   SkillFileState,
