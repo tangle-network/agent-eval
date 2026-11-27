@@ -1,6 +1,6 @@
 {
  "id": "program-search-vs-chat-boards-20261127",
- "hypothesis": "On record boards with a graded scorer, an evolutionary program-search instrument (ShinkaEvolve 0.0.8, each proposal one harness turn on the seat) closes more of the gap to the best known bound than a chat-agent run on the same model, seat and wall budget, compared at matched fresh tokens. Units: two boards, circle packing (n = 26, maximise the sum of radii; validation only, its best known value is a reproduction target) and the first autocorrelation inequality (minimise C_1a; the improvement target, against 1.50274348670958). Both arms are scored by the same frozen board scorer; fresh tokens are uncached input plus cache writes plus output plus reasoning, as each harness meters them; cached tokens are reported beside them. Cost is tokens: a proxy in USD at the router catalog's published zai/glm-5.3 rate, read at report time and labelled as a proxy, beside the billed USD, which is 0 because the seat is flat-rate. Priors folded in, not re-run: M1 (search, G 0.34 on c1c) and M2 (test-time training, G 0.77 against a shuffled control at 0.69). Secondary reference only: the GLM-5.3 chat runs board-circle-packing-attempt-20261116a and record-first-autocorrelation-inequality-20261117a (the latter scored 1.5615). With one run per arm and board there is no interval: the result is the per-board table and both progress curves.",
+ "hypothesis": "On record boards with a graded scorer, an evolutionary program-search instrument (ShinkaEvolve 0.0.8, each proposal one harness turn on the seat) closes more of the gap to the best known bound than a chat-agent run on the same model, seat and wall budget, compared at matched fresh tokens. Each program-search play matches its chat play's budget, input and stop: circle packing is the two-hour attempt play that stops on a pass, from no published configuration; the first autocorrelation inequality is the four-hour record play, from the published construction. Units: two boards, circle packing (n = 26, maximise the sum of radii; validation only, its best known value is a reproduction target) and the first autocorrelation inequality (minimise C_1a; the improvement target, against 1.50274348670958). Both arms are scored by the same frozen board scorer; fresh tokens are uncached input plus cache writes plus output plus reasoning, as each harness meters them; cached tokens are reported beside them. Cost is tokens: a proxy in USD at the router catalog's published zai/glm-5.3 rate, read at report time and labelled as a proxy, beside the billed USD, which is 0 because the seat is flat-rate. Priors folded in, not re-run: M1 (search, G 0.34 on c1c) and M2 (test-time training, G 0.77 against a shuffled control at 0.69). Secondary reference only: the GLM-5.3 chat runs board-circle-packing-attempt-20261116a and record-first-autocorrelation-inequality-20261117a (the latter scored 1.5615). With one run per arm and board there is no interval: the result is the per-board table and both progress curves.",
  "arms": [
   {
    "id": "chat-glm54",
@@ -9,10 +9,12 @@
     "model": "glm-5.4",
     "seat": "opencode/zai-coding-plan/glm-5.4",
     "credential": "flat-rate subscription seat (billed USD 0)",
-    "wallHours": 4,
-    "boardScorer": "play_check.py sha256 e0534bdc79c6d8b8bdf8af8e673c00f25be318d7cd906a8d8ad6e55689b2343b",
-    "instrument": "Discovery board play, chat agents in OpenCode",
-    "budget": "the board play's own budget (hours 4, its roots and check)"
+    "boardScorer": "play_check.py sha256 e0534bdc79c6d8b8bdf8af8e673c00f25be318d7cd906a8d8ad6e55689b2343b, applied to every construction of both arms after the runs",
+    "instrument": "Discovery chat plays, each pressed with --seat opencode/zai-coding-plan/glm-5.4 on the served Lab",
+    "plays": {
+     "circle-packing": "plays/board-circle-packing/attempt.md: hours 2, stop on-pass, no published configuration",
+     "first-autocorrelation": "plays/board-first-autocorrelation-inequality/record.md: hours 4, stop at the deadline, from the published construction (published.json sha256 41728c8f9f903f3a6e3567096a865e7b0fff1bfa61c737bebbed2036fb2ba6f2)"
+    }
    }
   },
   {
@@ -22,18 +24,20 @@
     "model": "glm-5.4",
     "seat": "opencode/zai-coding-plan/glm-5.4",
     "credential": "flat-rate subscription seat (billed USD 0)",
-    "wallHours": 4,
-    "boardScorer": "play_check.py sha256 e0534bdc79c6d8b8bdf8af8e673c00f25be318d7cd906a8d8ad6e55689b2343b",
-    "instrument": "ShinkaEvolve 0.0.8 (wheel sha256 5b99b6250fb6d7e9d1e7868bcaf5d333782fb328aed55a4ee458aac9a145c156)",
-    "budget": "hours 4 and a cap of 6000000 fresh tokens",
+    "boardScorer": "play_check.py sha256 e0534bdc79c6d8b8bdf8af8e673c00f25be318d7cd906a8d8ad6e55689b2343b, applied to every construction of both arms after the runs",
+    "instrument": "ShinkaEvolve 0.0.8 (wheel sha256 5b99b6250fb6d7e9d1e7868bcaf5d333782fb328aed55a4ee458aac9a145c156) through disco evolve",
+    "plays": {
+     "circle-packing": "plays/evolve-circle-packing: hours 2, stop on-pass, from 26 circles of radius 0.08",
+     "first-autocorrelation": "plays/evolve-first-autocorrelation-inequality-record: hours 4, stop at the deadline, from the same published construction"
+    },
+    "freshTokenCap": 6000000,
     "generations": 400,
     "proposalsInFlight": 2,
     "evaluationsInFlight": 2,
     "programCpuSeconds": {
      "circle-packing": 60,
-     "first-autocorrelation": 120
-    },
-    "start": "a naive valid construction (26 circles of radius 0.08; a constant step function, C = 2)"
+     "first-autocorrelation": 300
+    }
    }
   },
   {
@@ -61,7 +65,7 @@
    "treatment": "program-search-glm54",
    "control": "chat-glm54",
    "pairBy": "board",
-   "value": "gapClosed",
+   "value": "progress",
    "missing": "zero-diff"
   }
  },
@@ -75,7 +79,7 @@
    "board",
    "arm",
    "runId",
-   "gapClosed",
+   "progress",
    "bestDistance",
    "bestValue",
    "matchedFreshTokens",
@@ -87,8 +91,8 @@
   ],
   "interpretation": [
    {
-    "onQualitative": "gapClosed is the share of the board's reference gap (its naive start's distance to the bar: 2.6359830849176076 - 2.08 for circle packing, 2 - 1.502743486709583 for the autocorrelation constant) that the arm's best graded construction had closed by the matched token point, clipped to [0, 1]; an arm with no graded construction there scores 0",
-    "consequence": "the matched token point of a board is the smaller of the two GLM-5.4 arms' total fresh tokens; each arm's best is read from its own progress curve (graded constructions against cumulative tokens), and the same table is reported at the arms' full budgets"
+    "onQualitative": "progress is read at the board's matched token point from the arm's own curve of graded constructions against cumulative fresh tokens, in [0, 1]. Circle packing: the share of the gap from a naive packing's 2.08 to the record 2.6359830849176076 that the best construction closed, 1 - min(1, max(0, distance) / 0.5559830849176076). First autocorrelation, where both arms start at the published value: how far the best construction beat the bar 1.502743486709583 in units of the board's minimum improvement, min(1, max(0, (bar - C) / 1e-8)). An arm with no graded construction by that point scores 0",
+    "consequence": "the matched token point of a board is the smaller of the two GLM-5.4 arms' total fresh tokens; the same table is reported at each arm's full budget"
    },
    {
     "onQualitative": "program search closes more of the gap than chat on both boards at matched tokens",
