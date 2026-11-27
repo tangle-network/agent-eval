@@ -50,7 +50,7 @@ from .models import (
 try:
     __version__ = version("agent-eval-rpc")
 except PackageNotFoundError:
-    __version__ = "2.0.17"
+    __version__ = "2.0.18"
 
 __all__ = [
     "Client",
