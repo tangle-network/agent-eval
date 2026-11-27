@@ -22,6 +22,7 @@ import { promisify, stripVTControlCharacters } from 'node:util'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 
 import type { RunSplitTag } from '../run-record'
+import { assertHarborTaskAssets, harborTaskAssetIdentity } from './harbor-assets'
 import { preparedImage } from './harbor-environment'
 import type {
   BenchmarkAdapter,
@@ -67,6 +68,8 @@ export interface HarborTaskPayload {
   config?: Record<string, unknown>
   /** Byte identity of the imported task.toml, independent of its declared upstream revision. */
   configDigest?: string
+  /** Commitments to this task's admitted configuration, instruction, environment and verifier assets. */
+  assetIdentity?: Awaited<ReturnType<typeof harborTaskAssetIdentity>>
   /** Native metadata, including domain/field/subfield/tags in science datasets. */
   metadata?: Record<string, unknown>
   /** The environment starts more than one container (a docker-compose file). */
@@ -136,6 +139,14 @@ async function readHarborTask(taskDir: string, relativePath: string): Promise<Ha
   )
   const environmentFiles = await readdir(join(dir, 'environment')).catch(() => [] as string[])
   const name = dir.split('/').pop() ?? dir
+  const configDigest = `sha256:${createHash('sha256').update(configText).digest('hex')}`
+  const assetIdentity = await harborTaskAssetIdentity(dir)
+  if (
+    assetIdentity.components.configuration !== configDigest ||
+    assetIdentity.components.instruction !==
+      `sha256:${createHash('sha256').update(instruction).digest('hex')}`
+  )
+    throw new Error('Harbor task changed during import')
   return {
     name: textOrNull(task.name) ?? name,
     dir: name,
@@ -154,7 +165,8 @@ async function readHarborTask(taskDir: string, relativePath: string): Promise<Ha
     artifacts: artifactMappings.map((entry) => entry.source),
     artifactMappings,
     config,
-    configDigest: `sha256:${createHash('sha256').update(configText).digest('hex')}`,
+    configDigest,
+    assetIdentity,
     metadata,
     multiContainer: environmentFiles.some((file) => /compose\.ya?ml$/u.test(file)),
     category: textOrNull(metadata.category),
@@ -252,7 +264,9 @@ export function createHarborBenchmarkAdapter<TArtifact = string>(
       )
     },
     async evaluate(item: HarborTaskItem, artifact: TArtifact): Promise<BenchmarkEvaluation> {
+      await assertHarborTaskAssets(item.payload)
       const outcome = await options.grade(item, artifact)
+      await assertHarborTaskAssets(item.payload)
       if (!outcome.succeeded)
         throw new Error(
           `${options.id} ${item.id}: the verifier did not score this artifact: ${outcome.error}`,
@@ -343,7 +357,9 @@ export function gradeHarborPatch(
     const work = await mkdtemp(join(tmpdir(), 'harbor-grade-'))
     try {
       const task = join(work, item.payload.dir)
+      await assertHarborTaskAssets(item.payload)
       await cp(item.payload.taskDir, task, { recursive: true })
+      await assertHarborTaskAssets({ ...item.payload, taskDir: task })
       await rm(join(task, 'solution'), { recursive: true, force: true })
       await mkdir(join(task, 'solution'))
       await writeFile(join(task, 'solution/patch.diff'), artifact.patch)

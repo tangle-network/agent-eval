@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -60,6 +70,57 @@ async function dataset(): Promise<string> {
   return root
 }
 
+it('commits only selected Harbor task assets, independently of checkout path, and refuses changed imported assets', async () => {
+  const root = await dataset()
+  const adapter = (datasetDir: string) =>
+    createHarborBenchmarkAdapter<{ patch: string }>({
+      id: 'selected-assets',
+      datasetDir,
+      tasks: ['greet'],
+      source: { name: 'synthetic-patch', revision: 'unchanged' },
+      grade: gradeHarborPatch(),
+    })
+  const selected = adapter(root)
+  const [original] = await selected.loadAll()
+  expect(original!.payload.assetIdentity).toMatchObject({
+    version: 1,
+    digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    components: {
+      environment: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      tests: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      verifier: null,
+    },
+  })
+  const copy = await mkdtemp(join(tmpdir(), 'eval-harbor-assets-copy-'))
+  roots.push(copy)
+  await cp(root, copy, { recursive: true })
+  expect((await adapter(copy).loadAll())[0]!.payload.assetIdentity).toEqual(
+    original!.payload.assetIdentity,
+  )
+  // This task is not admitted: even malformed configuration cannot affect the selected identity.
+  await writeFile(join(root, 'tasks/broken/task.toml'), 'not valid TOML {')
+  expect((await selected.loadAll())[0]!.payload.assetIdentity).toEqual(
+    original!.payload.assetIdentity,
+  )
+  await writeFile(join(root, 'tasks/greet/tests/private-data.txt'), 'independent grading data')
+  const [changed] = await selected.loadAll()
+  expect(changed!.payload.assetIdentity!.digest).not.toBe(original!.payload.assetIdentity!.digest)
+  expect(changed!.payload.assetIdentity!.components.environment).toBe(
+    original!.payload.assetIdentity!.components.environment,
+  )
+  expect(JSON.stringify(changed!.payload.assetIdentity)).not.toContain('independent grading data')
+  await expect(selected.evaluate(original!, { patch: PASSING_PATCH })).rejects.toThrow(
+    /assets changed since import/,
+  )
+  await chmod(join(root, 'tasks/greet/environment/Dockerfile'), 0o755)
+  const [modeChanged] = await selected.loadAll()
+  expect(modeChanged!.payload.assetIdentity!.components.environment).not.toBe(
+    changed!.payload.assetIdentity!.components.environment,
+  )
+  await symlink(join(root, 'tasks/broken/task.toml'), join(root, 'tasks/greet/tests/foreign'))
+  await expect(selected.loadAll()).rejects.toThrow(/link escapes its declared directory/)
+})
+
 describe.skipIf(!harborAndDocker)('gradeHarborPatch through real Harbor and Docker', () => {
   it('scores a passing patch 1, an empty patch a measured 0, and refuses a run with no reward', async () => {
     const root = await dataset()
@@ -101,6 +162,19 @@ describe.skipIf(!harborAndDocker)('gradeHarborPatch through real Harbor and Dock
       /did not score this artifact: attempt 1: .*; attempt 3: No reward file/,
     )
     expect((await readdir(jobsDir)).filter((job) => job.startsWith('broken-'))).toHaveLength(3)
+    const verifier = join(root, 'tasks/greet/tests/test.sh')
+    await writeFile(
+      verifier,
+      (await readFile(verifier, 'utf8')).replace('grep -qx world', 'grep -qx another-answer'),
+    )
+    await expect(adapter.evaluate(greet!, { patch: PASSING_PATCH })).rejects.toThrow(
+      /assets changed since import/,
+    )
+    const current = (await adapter.loadAll()).find((item) => item.id === 'greet')!
+    expect(await adapter.evaluate(current, { patch: PASSING_PATCH })).toMatchObject({
+      score: 0,
+      passed: false,
+    })
   }, 900_000)
 })
 
