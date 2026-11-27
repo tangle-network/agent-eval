@@ -56,7 +56,7 @@ An arbitrary verifier that returns success does not establish independent eviden
 Keep every assigned unit in its original arm, including failed executions.
 Use outcome `0` only when the registered checker established failure.
 Use `null` when a checked outcome is unavailable; missing evidence refuses inference.
-A missing trace is valid only with an independent no-execution source, zero turns, zero billed cost, and checked failure.
+A missing trace is valid only with an independent no-execution source, zero turns, zero billed cost (or a subscription seat), and checked failure.
 The library refuses changed served profile, code revision, or checker revision.
 It also refuses fewer than 40 clusters, fewer than 20 clusters per arm, a dominant cluster, or zero variance.
 
@@ -113,6 +113,16 @@ const decision = decideRandomizedCanary(
 )
 if (decision.refusal !== null) throw new Error(decision.refusal)
 ```
+
+The assignment unit is a customer, a session or a task.
+A customer is clustered by customer, a session by session or customer, and a task by task or repository.
+A repository cluster, like a customer cluster, holds assignments of both arms, so their covariance stays in one contribution.
+
+An assignment run on a subscription seat has a known cost basis and no dollar figure.
+Mark it `billingBasis: 'subscription'` with `billedCostUsd: null` and the seat record as `billingSourceId`.
+It counts as billed coverage, so it never refuses as missing billing, and `coverage.<arm>.subscriptionAssignments` counts it.
+An arm's dollar total stays `null` when any of its assignments is billed to a subscription.
+In `joinProspectiveCanaryReceipts`, the billing row's `settlement: 'subscription'` produces that observation.
 
 `cohortReceipt` binds the post-cutoff complete roster and the fixed observation snapshot to the prospective protocol.
 `joinProspectiveCanaryReceipts` joins separate assignment, checker, execution, and billing rows before this decision.
@@ -185,6 +195,26 @@ A new digest cannot establish that a registration existed before its evidence wa
 Use the opened handle when the result must follow a particular registration.
 Direct helpers such as `computeInterval()` and `executeDecisionRule()` also accept unsealed rules for development.
 They do not establish a link to a registered experiment.
+
+### Power for the served canary
+
+`clusteredPower` simulates paired contrasts, so it does not describe the canary's unpaired design.
+`randomizedCanaryPower` simulates the canary itself.
+It draws each cluster's success propensity from a Beta distribution with the given control rate and intracluster correlation, randomizes every assignment to an arm, adds the lift to candidate assignments, and runs the decision's own analysis on the result.
+Power is the share of trials where `successCriterionMet` holds, so the cluster floor, the dominant-cluster refusal and the family adjustment all count against it.
+`detectableLift` is the smallest evaluated lift that reaches `targetPower`.
+
+```ts
+import { randomizedCanaryPower } from '@tangle-network/agent-eval/experiment'
+
+const power = randomizedCanaryPower({
+  clusterSizes: Array.from({ length: 60 }, () => 3),
+  controlRate: 0.5,
+  intraclusterCorrelation: 0.1,
+  lifts: [0, 0.1, 0.2, 0.3],
+  seed: 7,
+})
+```
 
 ### Cluster-aware power refusal
 
