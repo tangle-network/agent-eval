@@ -142,16 +142,30 @@ export interface SearchReservation {
   usd: number
 }
 
+/** The tokens an attempt reported, in the ledger's three counters. */
+export interface SearchTokenCounts {
+  inputTokens: number
+  outputTokens: number
+  cachedTokens: number
+}
+
+/**
+ * Why an attempt's tokens are unknown. Each is a different fact, and none is zero.
+ * - `not-recorded`: the attempt ran and the record that should hold its count holds none.
+ * - `partial`: part of the attempt reported; `lowerBound` is the part that did, and the rest did not.
+ * - `not-measurable`: the harness or route the attempt ran on reports no token counts at all.
+ */
+export type SearchTokenUnknownCause = 'not-recorded' | 'partial' | 'not-measurable'
+
 export type SearchTokenAccounting =
-  | {
-      status: 'known'
-      inputTokens: number
-      outputTokens: number
-      cachedTokens: number
-    }
+  | ({ status: 'known' } & SearchTokenCounts)
   | {
       status: 'unknown'
       reason: string
+      /** Absent on ledgers written before the cause was recorded; read it as unclassified. */
+      cause?: SearchTokenUnknownCause
+      /** The counts the attempt did report: required for `partial`, absent otherwise. */
+      lowerBound?: SearchTokenCounts
     }
 
 export type SearchCostAccounting =

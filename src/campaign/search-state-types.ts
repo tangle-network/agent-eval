@@ -6,6 +6,7 @@ import type {
   SearchCandidateSurface,
   SearchCellCancelledEvent,
   SearchCellStage,
+  SearchFailureReason,
   SearchLedgerHash,
   SearchNodeDecision,
   SearchNodeRef,
@@ -16,6 +17,7 @@ import type {
   SearchReservation,
   SearchSplit,
   SearchTaskOutcome,
+  SearchTokenUnknownCause,
 } from './search-ledger-types'
 
 export interface SearchDecisionRecord {
@@ -93,6 +95,8 @@ export interface SearchCell {
   attempts: number
   lastRunId: string | null
   outcome: SearchTaskOutcome['status'] | null
+  /** The latest attempt's failure or error, null for a pass or an unsettled cell. */
+  outcomeReason: SearchFailureReason | null
   /** Score of the scored attempt; null when no attempt was scored. */
   score: number | null
   /** No further attempt is legal: a scored or non-retryable outcome. */
@@ -109,6 +113,11 @@ export interface SearchCell {
   tokens: { inputTokens: number; outputTokens: number; cachedTokens: number }
   /** Every attempt reported its tokens; false once one did not, and the sum above is then a floor. */
   tokensKnown: boolean
+  /**
+   * Why the tokens are not known, from the latest attempt that did not report them; null while
+   * every attempt did. A cause is null when the ledger predates causes.
+   */
+  tokensUnknown: { cause: SearchTokenUnknownCause | null; reason: string } | null
   /** Wall time summed over the attempts that reported it, in milliseconds. */
   wallMs: number
   /** Every attempt reported its wall time; false once one did not, and the sum above is then a floor. */

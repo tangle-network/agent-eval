@@ -17,7 +17,11 @@
  * supply, and a session whose reader does not record changes.
  */
 
-import type { SearchEdgeAttribution, SearchEdgeOperator } from '../campaign/search-ledger-types'
+import type {
+  SearchEdgeAttribution,
+  SearchEdgeOperator,
+  SearchTokenUnknownCause,
+} from '../campaign/search-ledger-types'
 import type { SearchStateView } from '../campaign/search-state'
 import type { SearchNode } from '../campaign/search-state-types'
 import { ValidationError } from '../errors'
@@ -96,7 +100,16 @@ export interface CellExecution extends ExecutionMeasures {
   stage: string
   /** `passed`, `failed` or `errored`; null for a cell never settled. */
   outcome: string | null
+  /** Why a cell failed or errored, as its producer coded it; null for a pass. */
+  outcomeReason: { code: string; message: string } | null
   score: number | null
+  /**
+   * Why `tokens` is null: the producer's cause (`not-recorded`, `partial`, `not-measurable`, or
+   * null on a ledger written before causes) and its words. Null when the tokens are known.
+   */
+  tokensUnknown: { cause: SearchTokenUnknownCause | null; reason: string } | null
+  /** What the cell's attempts did report when `tokens` is null: a floor, never the total. Null when they reported none. */
+  tokensFloor: number | null
   /**
    * How the cell's dollars are known. `measured`: `usd` is the charge. `subscription`: every
    * attempt ran on a seat that bills nothing per call, so there is no dollar figure and `usd`
@@ -438,6 +451,8 @@ function addSearch(
       // A cell that never ran, or never settled, is not an execution.
       if (cell.attempts === 0) continue
       const onSeat = cell.subscriptionAttempts === cell.attempts
+      const countedTokens =
+        cell.tokens.inputTokens + cell.tokens.outputTokens + cell.tokens.cachedTokens
       builder.executions.push({
         source: 'search-cell',
         searchId: search.searchId,
@@ -446,10 +461,11 @@ function addSearch(
         split: cell.split,
         stage: cell.stage,
         outcome: cell.outcome,
+        outcomeReason: cell.outcomeReason,
         score: cell.score,
-        tokens: cell.tokensKnown
-          ? cell.tokens.inputTokens + cell.tokens.outputTokens + cell.tokens.cachedTokens
-          : null,
+        tokens: cell.tokensKnown ? countedTokens : null,
+        tokensUnknown: cell.tokensKnown ? null : cell.tokensUnknown,
+        tokensFloor: cell.tokensKnown || countedTokens === 0 ? null : countedTokens,
         usd: cell.costKnown && !onSeat ? cell.spentUsd : null,
         costBasis: !cell.costKnown ? 'unknown' : onSeat ? 'subscription' : 'measured',
         wallMs: cell.wallKnown ? cell.wallMs : null,
