@@ -110,6 +110,7 @@ export { FileSystemTraceStore, InMemoryTraceStore } from './trace/store'
 export {
   checkTraceContracts,
   compileTraceContractSpec,
+  contractSpansFromHarnessSession,
   evaluateTraceContract,
   explainTraceContract,
   lintTraceContractSpec,

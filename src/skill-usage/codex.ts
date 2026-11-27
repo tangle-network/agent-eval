@@ -28,7 +28,9 @@ import {
 import { record, stringField } from '../contract/intake/code-agent-fields'
 import { parseCodeAgentJsonlFile } from '../contract/intake/code-agent-jsonl'
 import { errorMessage, ValidationError } from '../errors'
+import type { TraceContract } from '../trace-contracts/types'
 import { githubPullRequestRefs, shellCommandText } from './change-refs'
+import { checkSessionContracts } from './contract-checks'
 import { skillSessionFromHarnessSession } from './harness-session'
 import type { SkillSessionRead, SkillSessionRecord } from './session-record'
 import { type TranscriptWalk, walkTranscripts } from './transcript-walk'
@@ -77,7 +79,11 @@ function execCallAliases(records: readonly unknown[]): {
 }
 
 /** One rollout's parsed lines as a skill session record. */
-function rolloutSession(records: readonly unknown[], path: string): SkillSessionRecord {
+function rolloutSession(
+  records: readonly unknown[],
+  path: string,
+  contracts: readonly TraceContract[] | undefined,
+): SkillSessionRecord {
   const session = readSessionInput('codex', { records }, codexRefForFile(path))
   const { aliases, unplaced } = execCallAliases(records)
   const value = skillSessionFromHarnessSession(session, {
@@ -86,6 +92,7 @@ function rolloutSession(records: readonly unknown[], path: string): SkillSession
     changesOfToolCall: githubPullRequestRefs,
     callAliases: aliases,
   })
+  if (contracts !== undefined) value.contractChecks = checkSessionContracts(session, contracts)
   if (unplaced > 0) {
     value.gaps.push(
       `${unplaced} commands run inside code-mode scripts name no single script, so a change ledger row for them cannot be placed`,
@@ -97,6 +104,8 @@ function rolloutSession(records: readonly unknown[], path: string): SkillSession
 export interface CodexSkillSessionsOptions {
   /** Skip rollouts not written since this instant (epoch ms): they hold nothing newer. */
   sinceMs?: number
+  /** Check each session against these contracts; the counts land on `contractChecks`. */
+  contracts?: readonly TraceContract[]
 }
 
 /**
@@ -126,7 +135,7 @@ export async function* codexSkillSessions(
     try {
       if (options.sinceMs !== undefined && (await stat(path)).mtimeMs < options.sinceMs) continue
       const parsed = await parseCodeAgentJsonlFile(path)
-      const value = rolloutSession(parsed.entries, path)
+      const value = rolloutSession(parsed.entries, path, options.contracts)
       if (parsed.malformedLines > 0) value.gaps.push(`${parsed.malformedLines} lines are not JSON`)
       yield { succeeded: true, source: path, value }
     } catch (error) {
