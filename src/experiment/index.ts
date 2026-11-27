@@ -244,6 +244,9 @@ export {
 export {
   type CanaryArm,
   type CanaryAssignmentReceipt,
+  type CanaryAssignmentUnit,
+  type CanaryBillingBasis,
+  type CanaryClusterUnit,
   type CanaryCohortReceipt,
   type CanaryCohortVerifier,
   type CanaryObservation,
@@ -256,3 +259,9 @@ export {
   type SealedRandomizedCanaryRule,
   sealRandomizedCanaryRule,
 } from './randomized-canary'
+export {
+  type RandomizedCanaryPowerOptions,
+  type RandomizedCanaryPowerPoint,
+  type RandomizedCanaryPowerResult,
+  randomizedCanaryPower,
+} from './randomized-canary-power'
