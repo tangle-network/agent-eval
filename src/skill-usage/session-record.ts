@@ -110,6 +110,25 @@ export interface SessionContractCheck {
   errors: string[]
 }
 
+/**
+ * An instruction file the harness loaded into the session: a CLAUDE.md, an
+ * AGENTS.md, a memory index. The text is the user's own: a consumer that keeps
+ * it keeps it where the user keeps the session.
+ */
+export interface SessionInstructionFile {
+  /** The file, as the session names it; null when the harness names only a directory. */
+  path: string | null
+  /** The directory the harness loaded instructions for, when it names no file. */
+  directory: string | null
+  /** Where the harness says the file sits, in its own words (Claude Code's `User`, `Project`, `AutoMem`); null when it does not say. */
+  scope: string | null
+  /** sha256 of the loaded text, hex. */
+  sha256: string
+  text: string
+  /** When the session first recorded this text. */
+  at: string | null
+}
+
 export interface SkillSessionRecord {
   harness: string
   sessionId: string
@@ -137,6 +156,12 @@ export interface SkillSessionRecord {
    * tell a person's turn from an agent's relay or a harness's injection.
    */
   turns?: SessionUserTurn[]
+  /**
+   * The instruction files the harness loaded, in recorded order, one entry
+   * per file and text. Undefined when the reader does not look for them; an
+   * empty list when it looked and the session recorded none.
+   */
+  instructions?: SessionInstructionFile[]
   /**
    * The session checked against the contracts the reader was given, in their
    * order. Undefined when the reader was given none.

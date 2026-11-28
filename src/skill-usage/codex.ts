@@ -10,6 +10,7 @@
  * | a skill invocation | a shell call that reads a `skills/<name>/SKILL.md` file with a viewer (`cat`, `sed`, `head`, `nl`...); Codex has no skill tool, so the read is the invocation |
  * | the skill's version | none from the session: the read is often partial (`head -70`), so the report reads the skill file as it is now and says so |
  * | a change | a pull request a shell call opened or merged, as for Claude Code; the change ledger adds commits |
+ * | loaded instructions | the `# AGENTS.md instructions for <directory>` message; Codex joins the files it found, so the entry names the directory |
  *
  * Inside Codex's code-mode `exec` tool a script runs shell commands, and the
  * hook that wrote a change ledger row saw the command's own id (`exec-<uuid>`),
@@ -32,6 +33,7 @@ import type { TraceContract } from '../trace-contracts/types'
 import { githubPullRequestRefs, shellCommandText } from './change-refs'
 import { checkSessionContracts } from './contract-checks'
 import { skillSessionFromHarnessSession } from './harness-session'
+import { codexInstructionFiles } from './instruction-files'
 import type { SkillSessionRead, SkillSessionRecord } from './session-record'
 import { type TranscriptWalk, walkTranscripts } from './transcript-walk'
 
@@ -92,6 +94,7 @@ function rolloutSession(
     changesOfToolCall: githubPullRequestRefs,
     callAliases: aliases,
   })
+  value.instructions = codexInstructionFiles(records)
   if (contracts !== undefined) value.contractChecks = checkSessionContracts(session, contracts)
   if (unplaced > 0) {
     value.gaps.push(

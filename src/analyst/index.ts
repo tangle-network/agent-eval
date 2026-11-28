@@ -19,6 +19,7 @@ export type {
   ModelCallEvent,
   SessionChange,
   SessionContractCheck,
+  SessionInstructionFile,
   SessionUserTurn,
   SkillFileRead,
   SkillFileState,
