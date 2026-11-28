@@ -3,13 +3,15 @@
 RUNS.json names, for each board, each arm's curve file and run id:
     {"circle-packing": {"chat-glm54": {"runId": ..., "curve": "runs/<id>.json"}, "program-search-glm54": {...}}, ...}
 A curve file is either a chat run's `grade-versions` output (`versions`: each recorded construction graded by the board check,
-with the run's cumulative fresh and cached tokens at its commit, and `total`, with its metered model turns and first and last
-metered times) or a program-search run's evolve progress (`rows`: each scored program with the run's cumulative seat tokens
-when it landed; `seat`: the run's final token state and model turns; `startedAt` and `endedAt`).
+with the run's cumulative fresh and cached tokens at its commit, and `total`, with its first and last metered times, its
+model turns, and its Runtime driver `attempts` and the `refused` ones the plan refused for request rate) or a program-search
+run's evolve progress (`rows`: each scored program with the run's cumulative seat tokens when it landed; `seat`: the run's
+final token state, its seat `turns` and the `refused` ones; `startedAt` and `endedAt`).
 
 The throughput diagnostics are read whatever the outcome: samples per hour (scored programs from model proposals, so not the
 initial program, for program search; graded construction versions for chat), fresh tokens per sample and model turns per hour,
-each over the arm's wall time from its first to its last record.
+each over the arm's wall time from its first to its last record, reported beside the arm's wall-clock window and its refusal
+share (refused harness invocations over all of them), because the seat's contention is measured, not matched.
 
 Per registered spec.json: a board's matched token point is the smaller of the two GLM-5.4 arms' total fresh tokens; each arm's
 progress there is read from its best graded construction at or before that point, and again at its full budget. The estimand
@@ -45,12 +47,14 @@ def hours(start, end):
 
 
 def throughput(curve):
-    """(samples, model turns, wall hours) of a curve."""
+    """(samples, model turns, wall hours, wall-clock window, refused invocations, invocations) of a curve."""
     if "versions" in curve:
         total = curve["total"]
-        return len(curve["versions"]), total.get("turns"), hours(total.get("startedAt"), total.get("at"))
+        window = [total.get("startedAt"), total.get("at")]
+        return len(curve["versions"]), total.get("turns"), hours(*window), window, total.get("refused"), total.get("attempts")
+    seat, window = curve["seat"], [curve.get("startedAt"), curve.get("endedAt")]
     samples = sum(1 for row in curve["rows"] if row.get("generation", 0) > 0)
-    return samples, curve["seat"].get("turns"), hours(curve.get("startedAt"), curve.get("endedAt"))
+    return samples, seat.get("turns"), hours(*window), window, seat.get("refused"), seat.get("turns")
 
 
 def best_at(rows, limit):
@@ -88,13 +92,14 @@ def main(path):
             at_matched = best_at(graded, matched) if matched is not None else None
             at_full = best_at(graded, float("inf"))
             progress[arm] = reference["progress"](at_matched["distance"]) if at_matched else 0.0
-            samples, turns, wall = throughput(curves[arm])
+            samples, turns, wall, window, refused, invocations = throughput(curves[arm])
             per_hour = lambda count: None if count is None or not wall else count / wall
             rows.append({"board": board, "arm": arm, "runId": spec["runId"], "progress": progress[arm],
                          "progressAtFullBudget": reference["progress"](at_full["distance"]) if at_full else 0.0,
                          "bestDistance": at_matched and at_matched["distance"], "bestValue": at_matched and at_matched["value"],
                          "bestAtFullBudget": at_full, "matchedFreshTokens": matched, "freshTokensTotal": total["fresh"], "cachedTokensTotal": total["cached"],
-                         "billedUsd": 0, "samples": samples, "wallHours": wall, "samplesPerHour": per_hour(samples),
+                         "billedUsd": 0, "samples": samples, "wallHours": wall, "wallClockWindow": window, "samplesPerHour": per_hour(samples),
+                         "refusals": refused, "refusalShare": refused / invocations if refused is not None and invocations else None,
                          "freshTokensPerSample": total["fresh"] / samples if samples else None, "modelTurnsPerHour": per_hour(turns),
                          "curve": curve_of(graded)})
         if len(glm) == 2:

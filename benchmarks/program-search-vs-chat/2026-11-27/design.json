@@ -92,7 +92,10 @@
     "curve",
     "samplesPerHour",
     "freshTokensPerSample",
-    "modelTurnsPerHour"
+    "modelTurnsPerHour",
+    "wallClockWindow",
+    "refusalShare",
+    "refusals"
    ],
    "interpretation": [
     {
@@ -118,6 +121,14 @@
     {
      "onQualitative": "samplesPerHour (scored programs from model proposals for program search; graded construction versions for chat), freshTokensPerSample and modelTurnsPerHour are primary diagnostics, read whatever the outcome; ShinkaEvolve's published circle-packing result took about 150 scored programs",
      "consequence": "if program search does not beat chat while scoring far fewer programs than that, the limit is the model's throughput on the seat (slow, reasoning-heavy turns), not evidence against the instrument; the report says which limit bound each board"
+    },
+    {
+     "onQualitative": "seat contention is not matched: both arms share one flat-rate plan with other runs, the program-search runs were admitted at 23:12:45Z and the chat runs pressed at 23:29Z and 23:31Z start only as the plan's queue frees a slot, so each arm reports its wall-clock window, its refusal share (the share of its harness invocations the plan refused for request rate, upstream code 1302: seat turns for program search, Runtime driver attempts for chat, each after its harness's own retries), samples per hour, model turns per hour and fresh tokens per sample",
+     "consequence": "the arms are compared on fresh tokens and samples, never on wall clock; per-hour figures are read beside each arm's refusal share and window, and a difference that the refusal shares could explain is reported as such"
+    },
+    {
+     "onQualitative": "stopped engine attempts a to d (evolve-*-20261127a..d) are pilots, each with its stop reason in operator-stop.json; attempt b reached 2.6181 on circle packing in about 166k fresh tokens before it was stopped for the concurrency amendment",
+     "consequence": "pilots are reported beside the result and never as the program-search arm's outcome; the arm is attempt e (evolve-*-20261127e)"
     }
    ]
   },
@@ -136,7 +147,7 @@
    "onFail": "refuse-contrast"
   }
  },
- "digest": "931fdf865fe8313313ff5f3da7781a64f5ba490c43c80c2bc84adccde608d18a",
+ "digest": "d8fa613447bca50b80056867f04b0a29e47b384e045bdaa56c84efce7e7ca5e5",
  "algo": "sha256-rfc8785",
  "sealedAt": "2026-11-27T21:40:00Z",
  "initialDigest": "5482568bfcc6d643bfa4ffd1d1c93fd681879de4e8bbeb7907d2e05648e62fff",
@@ -158,6 +169,15 @@
     "No chat-arm construction, check or token count exists: neither GLM-5.4 chat arm has started, because the Lab's deploy check held both presses."
    ],
    "digest": "931fdf865fe8313313ff5f3da7781a64f5ba490c43c80c2bc84adccde608d18a"
+  },
+  {
+   "at": "2026-11-27T23:41:00Z",
+   "reason": "Disclosure, before any chat-arm outcome: the shared seat's contention cannot be matched, so it is measured. The program-search runs (evolve-*-20261127e) were admitted at 23:12:45Z; the chat runs were pressed at 23:29:21Z (first autocorrelation) and 23:31:06Z (circle packing) and wait first and second in the plan's queue, six runs driving of its six, to start as slots free, without preemption or priority. Each arm reports its wall-clock window, its refusal share for request rate (upstream 1302), samples per hour, model turns per hour and fresh tokens per sample, and the arms are compared on fresh tokens and samples, not wall clock. Stopped engine attempts a to d are pilots; attempt b's 2.6181 on circle packing is labelled a pilot.",
+   "blind": [
+    "Interim program-search rows were read at 23:38Z: circle packing attempt e best 2.4793 after 10 scored programs and about 372k fresh tokens, 11 of 24 seat turns refused for request rate; the autocorrelation attempt e still the published 1.5027434867095835 after 7 programs and about 300k fresh tokens, 22 of 34 seat turns refused.",
+    "No chat-arm construction, check or token count had been read: both chat runs were queued and had not started."
+   ],
+   "digest": "d8fa613447bca50b80056867f04b0a29e47b384e045bdaa56c84efce7e7ca5e5"
   }
  ]
 }
