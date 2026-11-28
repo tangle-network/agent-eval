@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [2.0.19] — 2026-11-28
+
+- feat(skill-usage): a session record names the instruction files its harness loaded
+- benchmarks: the sealed third amendment, the contention disclosure (digest d8fa6134), before any chat-arm outcome
+- benchmarks: seat contention is measured, not matched: each arm reports its window and refusal share; stopped engine attempts are pilots
+- benchmarks: the sealed second amendment (digest 931fdf86), before any chat-arm outcome
+- benchmarks: program search runs four mutation sessions, as the chat plays run four workers; throughput is a primary diagnostic
+- benchmarks: the amended registration (initial 5482568b)
+- benchmarks: amend the program-search registration to the chat plays' own budgets and inputs, before any outcome
+- benchmarks: the program-search comparison's sealed registration (5482568b)
+- benchmarks: register program search against chat agents on two record boards, with an exact rational re-check
+
 ## [2.0.18] — 2026-11-27
 
 - style(harbor): order asset filesystem imports
