@@ -15,7 +15,9 @@
  * A typed command the CLI answers itself (its reply is command output) is not a
  * skill and is left out. The text a skill was loaded with is the `isMeta`
  * record that names the call in `sourceToolUseID`; its hash is the version that
- * ran, whatever the skill file holds today.
+ * ran, whatever the skill file holds today. The instruction files the
+ * harness loaded come from its `instructions` and `nested_memory` attachments
+ * (see `./instruction-files`).
  */
 
 import { stat } from 'node:fs/promises'
@@ -32,6 +34,7 @@ import {
   type MessageSkillInvocation,
   skillSessionFromHarnessSession,
 } from './harness-session'
+import { claudeCodeInstructionFiles } from './instruction-files'
 import type { SkillSessionRead, SkillSessionRecord } from './session-record'
 import { type TranscriptWalk, walkTranscripts } from './transcript-walk'
 
@@ -243,6 +246,7 @@ function skillSession(
     changesOfToolCall: githubPullRequestRefs,
     ...skillMarkers(records, identity.parentSessionId !== null),
   })
+  value.instructions = claudeCodeInstructionFiles(records, identity.parentSessionId !== null)
   if (contracts !== undefined) value.contractChecks = checkSessionContracts(session, contracts)
   return value
 }

@@ -53,6 +53,9 @@ Each turn also writes a `turn` row with the repository's HEAD before and after, 
 A `turn` row whose `incomplete` is set (a checkout shared with another running turn, a failed pull request read, more commits than the list holds) leaves the session's changes unknown, with a gap that names the reason.
 The field list is the header of `src/skill-usage/change-ledger.ts`.
 
+Both readers also record the instruction files the harness loaded into the session, on `instructions`: Claude Code's `instructions` and `nested_memory` attachments name each file, its scope and its text; Codex names only the directory it loaded AGENTS.md text for, since it joins the files it found.
+A block of that text is a unit like a skill: the sessions that loaded it are its usage, and the recipe below measures it.
+
 Both session readers and the ledger are exported from `@tangle-network/agent-eval/analyst`: `readChangeLedger(paths)` reads one or more ledger files, `parseChangeLedger(text)` reads ledger text, and `withChangeLedger(source, ledger)` joins the ledger to any session source, so a caller reads `withChangeLedger(codexSkillSessions(directory), await readChangeLedger([file]))` as the command does.
 
 ## The recipe
