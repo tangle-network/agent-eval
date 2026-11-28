@@ -1,0 +1,889 @@
+{
+ "runId": "evolve-circle-packing-20261127e",
+ "rows": [
+  {
+   "at": "2026-11-27T23:15:09Z",
+   "generation": 0,
+   "fresh": 0,
+   "tokens": {
+    "input": 0,
+    "output": 0,
+    "reasoning": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.5559830849176075,
+    "score": 2.08,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:16:41Z",
+   "generation": 2,
+   "fresh": 7581,
+   "tokens": {
+    "input": 1778,
+    "output": 2209,
+    "reasoning": 3594,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:17:12Z",
+   "generation": 3,
+   "fresh": 19893,
+   "tokens": {
+    "input": 3556,
+    "output": 4431,
+    "reasoning": 11906,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:19:19Z",
+   "generation": 1,
+   "fresh": 23156,
+   "tokens": {
+    "input": 5335,
+    "output": 5813,
+    "reasoning": 12008,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": null,
+    "reason": "certificate rejected"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:24:39Z",
+   "generation": 6,
+   "fresh": 101699,
+   "tokens": {
+    "input": 12921,
+    "output": 11157,
+    "reasoning": 77621,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.5585830849176077,
+    "score": 2.0774,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:29:38Z",
+   "generation": 4,
+   "fresh": 210302,
+   "tokens": {
+    "input": 20077,
+    "output": 16607,
+    "reasoning": 173618,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.15664808678680986,
+    "score": 2.4793349981307977,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:30:16Z",
+   "generation": 7,
+   "fresh": 210302,
+   "tokens": {
+    "input": 20077,
+    "output": 16607,
+    "reasoning": 173618,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": null,
+    "reason": "certificate rejected"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:35:11Z",
+   "generation": 8,
+   "fresh": 285326,
+   "tokens": {
+    "input": 26630,
+    "output": 20075,
+    "reasoning": 238621,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.5559830849176075,
+    "score": 2.08,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:37:31Z",
+   "generation": 10,
+   "fresh": 355130,
+   "tokens": {
+    "input": 31084,
+    "output": 21427,
+    "reasoning": 302619,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:37:36Z",
+   "generation": 11,
+   "fresh": 364640,
+   "tokens": {
+    "input": 37935,
+    "output": 23277,
+    "reasoning": 303428,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:39:27Z",
+   "generation": 12,
+   "fresh": 391303,
+   "tokens": {
+    "input": 58067,
+    "output": 27329,
+    "reasoning": 305907,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:40:26Z",
+   "generation": 5,
+   "fresh": 435890,
+   "tokens": {
+    "input": 67991,
+    "output": 29529,
+    "reasoning": 338370,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.5559830849176075,
+    "score": 2.08,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:40:50Z",
+   "generation": 13,
+   "fresh": 440474,
+   "tokens": {
+    "input": 70916,
+    "output": 30138,
+    "reasoning": 339420,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.7136544588217484,
+    "score": 1.9223286260958592,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:45:43Z",
+   "generation": 14,
+   "fresh": 475119,
+   "tokens": {
+    "input": 90114,
+    "output": 37152,
+    "reasoning": 347853,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 1.563494356204842e-08,
+    "score": 2.635983069282664,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:47:51Z",
+   "generation": 9,
+   "fresh": 513697,
+   "tokens": {
+    "input": 93110,
+    "output": 38929,
+    "reasoning": 381658,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.3629962699943494,
+    "score": 2.272986814923258,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:48:15Z",
+   "generation": 16,
+   "fresh": 554847,
+   "tokens": {
+    "input": 101482,
+    "output": 39597,
+    "reasoning": 413768,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:49:08Z",
+   "generation": 19,
+   "fresh": 573485,
+   "tokens": {
+    "input": 112636,
+    "output": 42476,
+    "reasoning": 418373,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:50:03Z",
+   "generation": 18,
+   "fresh": 612872,
+   "tokens": {
+    "input": 119355,
+    "output": 43145,
+    "reasoning": 450372,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.0057682861282049025,
+    "score": 2.6302147987894027,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:51:55Z",
+   "generation": 17,
+   "fresh": 656725,
+   "tokens": {
+    "input": 129342,
+    "output": 45012,
+    "reasoning": 482371,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 1.621200845789396,
+    "score": 1.0147822391282115,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:53:53Z",
+   "generation": 15,
+   "fresh": 694432,
+   "tokens": {
+    "input": 140540,
+    "output": 46677,
+    "reasoning": 507215,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 1.5555556842627993e-11,
+    "score": 2.635983084902052,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:55:26Z",
+   "generation": 20,
+   "fresh": 742161,
+   "tokens": {
+    "input": 153910,
+    "output": 48867,
+    "reasoning": 539384,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:55:42Z",
+   "generation": 21,
+   "fresh": 788516,
+   "tokens": {
+    "input": 166149,
+    "output": 50972,
+    "reasoning": 571395,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-27T23:59:06Z",
+   "generation": 23,
+   "fresh": 849924,
+   "tokens": {
+    "input": 220909,
+    "output": 56347,
+    "reasoning": 572668,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 1.5555556842627993e-11,
+    "score": 2.635983084902052,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:00:37Z",
+   "generation": 22,
+   "fresh": 901546,
+   "tokens": {
+    "input": 239453,
+    "output": 57426,
+    "reasoning": 604667,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.0057682861282049025,
+    "score": 2.6302147987894027,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:01:46Z",
+   "generation": 26,
+   "fresh": 924217,
+   "tokens": {
+    "input": 255727,
+    "output": 63499,
+    "reasoning": 604991,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 9.992007221626409e-14,
+    "score": 2.6359830849175077,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:17:36Z",
+   "generation": 25,
+   "fresh": 1288912,
+   "tokens": {
+    "input": 387051,
+    "output": 72612,
+    "reasoning": 829249,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.0016906828464082757,
+    "score": 2.6342924020711993,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:19:13Z",
+   "generation": 29,
+   "fresh": 1302726,
+   "tokens": {
+    "input": 396421,
+    "output": 76712,
+    "reasoning": 829593,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.019537890262443014,
+    "score": 2.6164451946551646,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:20:39Z",
+   "generation": 27,
+   "fresh": 1395405,
+   "tokens": {
+    "input": 421200,
+    "output": 80591,
+    "reasoning": 893614,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 1.270983084935608,
+    "score": 1.3649999999819995,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:22:44Z",
+   "generation": 28,
+   "fresh": 1449563,
+   "tokens": {
+    "input": 440113,
+    "output": 83837,
+    "reasoning": 925613,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:29:26Z",
+   "generation": 24,
+   "fresh": 1616857,
+   "tokens": {
+    "input": 502825,
+    "output": 92149,
+    "reasoning": 1021883,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": null,
+    "reason": "certificate rejected"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:30:10Z",
+   "generation": 31,
+   "fresh": 1637102,
+   "tokens": {
+    "input": 521375,
+    "output": 93517,
+    "reasoning": 1022210,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.001690682846828384,
+    "score": 2.634292402070779,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:35:47Z",
+   "generation": 32,
+   "fresh": 1774498,
+   "tokens": {
+    "input": 584504,
+    "output": 95646,
+    "reasoning": 1094348,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:36:25Z",
+   "generation": 35,
+   "fresh": 1786481,
+   "tokens": {
+    "input": 594603,
+    "output": 96468,
+    "reasoning": 1095410,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:39:48Z",
+   "generation": 33,
+   "fresh": 1833571,
+   "tokens": {
+    "input": 606497,
+    "output": 98879,
+    "reasoning": 1128195,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.07333201549891566,
+    "score": 2.562651069418692,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:40:28Z",
+   "generation": 34,
+   "fresh": 1908695,
+   "tokens": {
+    "input": 643696,
+    "output": 104372,
+    "reasoning": 1160627,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.8515830849176076,
+    "score": 1.7844,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:41:13Z",
+   "generation": 37,
+   "fresh": 1908695,
+   "tokens": {
+    "input": 643696,
+    "output": 104372,
+    "reasoning": 1160627,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.0016906828463412182,
+    "score": 2.6342924020712664,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:43:52Z",
+   "generation": 30,
+   "fresh": 1998088,
+   "tokens": {
+    "input": 665640,
+    "output": 107823,
+    "reasoning": 1224625,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.020424520746410657,
+    "score": 2.615558564171197,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:52:20Z",
+   "generation": 40,
+   "fresh": 2099403,
+   "tokens": {
+    "input": 702379,
+    "output": 108401,
+    "reasoning": 1288623,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:56:07Z",
+   "generation": 36,
+   "fresh": 2165082,
+   "tokens": {
+    "input": 729077,
+    "output": 114749,
+    "reasoning": 1321256,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.028000045516820116,
+    "score": 2.6079830394007875,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:58:01Z",
+   "generation": 42,
+   "fresh": 2275930,
+   "tokens": {
+    "input": 767619,
+    "output": 121214,
+    "reasoning": 1387097,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.042123917512530085,
+    "score": 2.5938591674050775,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T00:58:55Z",
+   "generation": 41,
+   "fresh": 2275930,
+   "tokens": {
+    "input": 767619,
+    "output": 121214,
+    "reasoning": 1387097,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.009410783473963846,
+    "score": 2.6265723014436437,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T01:03:27Z",
+   "generation": 39,
+   "fresh": 2426949,
+   "tokens": {
+    "input": 844158,
+    "output": 126882,
+    "reasoning": 1455909,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.1424389789101035,
+    "score": 2.493544106007504,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T01:04:31Z",
+   "generation": 38,
+   "fresh": 2465537,
+   "tokens": {
+    "input": 874826,
+    "output": 130122,
+    "reasoning": 1460589,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.024450088609723863,
+    "score": 2.6115329963078837,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T01:05:47Z",
+   "generation": 46,
+   "fresh": 2499473,
+   "tokens": {
+    "input": 902151,
+    "output": 132972,
+    "reasoning": 1464350,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T01:08:05Z",
+   "generation": 43,
+   "fresh": 2544884,
+   "tokens": {
+    "input": 913892,
+    "output": 134643,
+    "reasoning": 1496349,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": null,
+   "solved": false,
+   "program": null
+  },
+  {
+   "at": "2026-11-28T01:11:59Z",
+   "generation": 44,
+   "fresh": 2644740,
+   "tokens": {
+    "input": 946235,
+    "output": 135824,
+    "reasoning": 1562681,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "grade": {
+    "measure": "distance",
+    "value": 0.8262450699354562,
+    "score": 1.8097380149821514,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "solved": false,
+   "program": null
+  }
+ ],
+ "seat": {
+  "tokens": {
+   "input": 1011012,
+   "output": 135830,
+   "reasoning": 1724759,
+   "cacheRead": 0,
+   "cacheWrite": 0
+  },
+  "fresh": 2871601,
+  "turns": 153,
+  "refused": 41
+ },
+ "startedAt": "2026-11-27T23:12:44.808Z",
+ "endedAt": "2026-11-28T01:21:03.856Z"
+}

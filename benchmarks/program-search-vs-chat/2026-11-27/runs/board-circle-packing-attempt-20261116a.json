@@ -1,0 +1,65 @@
+{
+ "runId": "board-circle-packing-attempt-20261116a",
+ "board": "/mnt/traces/scratch/evolve/2026-11-27/disco-engine/plays/board-circle-packing",
+ "prefix": "pages/board-circle-packing-attempt",
+ "versions": [
+  {
+   "commit": "e7c44a7e92a4f5e32a3a6d9e759e11f551782af8",
+   "at": "2026-11-16T14:27:33.000Z",
+   "fresh": 67616,
+   "cached": 1209664,
+   "solved": false,
+   "known": true,
+   "grade": {
+    "measure": "distance",
+    "value": 0.020582813267234545,
+    "score": 2.615400271650373,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "detail": "SCORE {\"stages\":[\"certificate\"],\"of\":1,\"reached\":1}\nSCORE {\"stages\": [\"certificate\"], \"of\": 1, \"reached\": 1, \"grade\": {\"measure\": \"distance\", \"value\": 0.020582813267234545, \"score\": 2.615400271650373, \"bar\": 2.6359830849176076, \"direction\": \"maximize\"}}\nNOT SOLVED: reference target not reached"
+  },
+  {
+   "commit": "b64b323ab01328bc9e81195a2d997a0f30c3c0d9",
+   "at": "2026-11-16T15:00:26.000Z",
+   "fresh": 129670,
+   "cached": 4477632,
+   "solved": false,
+   "known": true,
+   "grade": {
+    "measure": "distance",
+    "value": 0.011286797858684583,
+    "score": 2.624696287058923,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "detail": "SCORE {\"stages\":[\"certificate\"],\"of\":1,\"reached\":1}\nSCORE {\"stages\": [\"certificate\"], \"of\": 1, \"reached\": 1, \"grade\": {\"measure\": \"distance\", \"value\": 0.011286797858684583, \"score\": 2.624696287058923, \"bar\": 2.6359830849176076, \"direction\": \"maximize\"}}\nNOT SOLVED: reference target not reached"
+  },
+  {
+   "commit": "4f500493a9893d3f9aa3731bca8a66b5ec3417fd",
+   "at": "2026-11-16T15:17:55.000Z",
+   "fresh": 155697,
+   "cached": 6132864,
+   "solved": false,
+   "known": true,
+   "grade": {
+    "measure": "distance",
+    "value": 0.009816589274885157,
+    "score": 2.6261664956427224,
+    "bar": 2.6359830849176076,
+    "direction": "maximize"
+   },
+   "detail": "SCORE {\"stages\":[\"certificate\"],\"of\":1,\"reached\":1}\nSCORE {\"stages\": [\"certificate\"], \"of\": 1, \"reached\": 1, \"grade\": {\"measure\": \"distance\", \"value\": 0.009816589274885157, \"score\": 2.6261664956427224, \"bar\": 2.6359830849176076, \"direction\": \"maximize\"}}\nNOT SOLVED: reference target not reached"
+  }
+ ],
+ "total": {
+  "at": "2026-11-16T15:21:03.453Z",
+  "startedAt": "2026-11-16T13:27:26.273Z",
+  "meteredRows": 12,
+  "fresh": 177455,
+  "cached": 7346752,
+  "turns": 14,
+  "attempts": 10,
+  "refused": 1
+ }
+}
