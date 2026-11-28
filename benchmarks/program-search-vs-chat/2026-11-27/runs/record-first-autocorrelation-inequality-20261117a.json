@@ -1,0 +1,33 @@
+{
+ "runId": "record-first-autocorrelation-inequality-20261117a",
+ "board": "/mnt/traces/scratch/evolve/2026-11-27/disco-engine/plays/board-first-autocorrelation-inequality",
+ "prefix": "pages/record-first-autocorrelation-inequality",
+ "versions": [
+  {
+   "commit": "e8f1b14e650322f031d02c817ba5f14853d6445e",
+   "at": "2026-11-17T04:57:01.000Z",
+   "fresh": 326397,
+   "cached": 9148096,
+   "solved": false,
+   "known": true,
+   "grade": {
+    "measure": "distance",
+    "value": 0.05879337149711805,
+    "score": 1.561536858206701,
+    "bar": 1.502743486709583,
+    "direction": "minimize"
+   },
+   "detail": ", \"reached\": 1, \"grade\": {\"measure\": \"distance\", \"value\": 0.05879337149711805, \"score\": 1.561536858206701, \"bar\": 1.502743486709583, \"direction\": \"minimize\"}}\nNOT SOLVED: does not beat the published bar 1.502743486709583 (score 1.561536858206701, minimum improvement 1e-08); only a strict beat counts"
+  }
+ ],
+ "total": {
+  "at": "2026-11-27T14:55:29.523Z",
+  "startedAt": "2026-11-17T03:02:39.863Z",
+  "meteredRows": 114,
+  "fresh": 2016168,
+  "cached": 52359296,
+  "turns": 112,
+  "attempts": 93,
+  "refused": 4
+ }
+}

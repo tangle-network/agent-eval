@@ -1,0 +1,10 @@
+evolve-circle-packing-20261127a | turns 2 {'error': 1, 'length-empty': 1} | fresh 33770 | programs 1 graded 1 solved 0 | best 0.5559830849176075 2.08 | gen 0 | last 2026-11-27T22:25:20Z
+evolve-circle-packing-20261127b | turns 5 {'stop': 1, 'continued-stop': 4} | fresh 166131 | programs 4 graded 3 solved 0 | best 0.017914828955045703 2.618068255962562 | gen 3 | last 2026-11-27T22:57:00Z
+evolve-circle-packing-20261127c | turns 0 {} | fresh 0 | programs 0 graded 0 solved 0 | best None None | gen None | last None
+evolve-circle-packing-20261127d | turns 4 {'error': 2, 'continued-stop': 2} | fresh 74060 | programs 3 graded 2 solved 0 | best 0.5559830849176075 2.08 | gen 4 | last 2026-11-27T23:12:20Z
+evolve-circle-packing-20261127e | turns 153 {'error': 45, 'stop': 69, 'continued-stop': 37, 'length': 2} | fresh 2871601 | programs 46 graded 28 solved 0 | best 9.992007221626409e-14 2.6359830849175077 | gen 46 | last 2026-11-28T01:11:59Z
+evolve-first-autocorrelation-inequality-record-20261127a | turns 5 {'length-empty': 3, 'stop': 1, 'error': 1} | fresh 103960 | programs 1 graded 1 solved 0 | best 4.440892098500626e-16 1.5027434867095835 | gen 0 | last 2026-11-27T22:23:36Z
+evolve-first-autocorrelation-inequality-record-20261127b | turns 7 {'continued-stop': 5, 'stop': 2} | fresh 190307 | programs 5 graded 1 solved 0 | best 4.440892098500626e-16 1.5027434867095835 | gen 6 | last 2026-11-27T23:01:26Z
+evolve-first-autocorrelation-inequality-record-20261127c | turns 0 {} | fresh 0 | programs 0 graded 0 solved 0 | best None None | gen None | last None
+evolve-first-autocorrelation-inequality-record-20261127d | turns 6 {'stop': 4, 'error': 1, 'continued-stop': 1} | fresh 56132 | programs 5 graded 3 solved 0 | best 4.440892098500626e-16 1.5027434867095835 | gen 6 | last 2026-11-27T23:11:21Z
+evolve-first-autocorrelation-inequality-record-20261127e | turns 192 {'stop': 83, 'error': 54, 'continued-stop': 52, 'length': 2, 'continued-length-empty': 1} | fresh 2959878 | programs 52 graded 44 solved 0 | best -1.9196866318793582e-11 1.5027434866903862 | gen 53 | last 2026-11-28T01:57:10Z
